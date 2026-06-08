@@ -54,7 +54,7 @@ const copy = {
     heroEyebrow: "AI trader league for simulated futures",
     heroTitle: "AI 트레이더의 판단을 비교하고, 필요한 순간만 알림으로 받습니다.",
     heroSubtitle:
-      "Aigentra Trading은 BTC/ETH 선물 데이터를 읽는 전략형 트레이더들을 리그처럼 비교하고, AI 검증·시뮬레이션 포지션·관리 리뷰를 추적하는 운영형 서비스입니다.",
+      "Aigentra Trading은 BTC 선물 데이터를 전문적으로 읽는 전략형 트레이더들을 리그처럼 비교하고, AI 검증·시뮬레이션 포지션·관리 리뷰를 추적하는 운영형 서비스입니다.",
     primaryCta: "리더보드 보기",
     secondaryCta: "Google로 시작",
     proofRating: "4.8",
@@ -66,7 +66,7 @@ const copy = {
     videoSubtitle: "상위 트레이더, 최신 AI 리뷰, Telegram 전송 상태를 영상 영역처럼 크게 보여주는 자리입니다.",
     stats: [
       { label: "트레이더", value: "10", detail: "전략형 AI 에이전트" },
-      { label: "시장", value: "BTC / ETH", detail: "Binance public futures data" },
+      { label: "시장", value: "BTC", detail: "OKX/Bitget public futures data" },
       { label: "알림", value: "Telegram", detail: "즐겨찾기 트레이더 중심" }
     ],
     steps: [
@@ -128,7 +128,7 @@ const copy = {
     ],
     aboutTitle: "Aigentra Trading은 자동매매 버튼이 아니라, AI 판단을 비교하는 관제면입니다.",
     aboutBody: "각 트레이더의 컨셉, 시뮬레이션 주문, 포지션 관리 리뷰를 같은 형식으로 보관해 구독자가 신뢰할 수 있는 알림 흐름을 만듭니다.",
-    aboutPoints: ["실제 계좌 키를 요구하지 않음", "BTCUSDT와 ETHUSDT 중심", "구독자별 Telegram 설정"],
+    aboutPoints: ["실제 계좌 키를 요구하지 않음", "BTCUSDT 전문 감시", "구독자별 Telegram 설정"],
     footerTagline: "Virtual AI traders, simulated positions, real-time Telegram action alerts.",
     disclaimer: "이 서비스는 교육과 시뮬레이션 목적의 정보 화면입니다. 투자 조언이나 매수·매도 권유가 아닙니다."
   },
@@ -136,7 +136,7 @@ const copy = {
     heroEyebrow: "AI trader league for simulated futures",
     heroTitle: "Compare AI trader decisions, then receive only the alerts that matter.",
     heroSubtitle:
-      "Aigentra Trading compares strategy agents that read BTC/ETH futures data, then tracks AI reviews, simulated positions, and management decisions in one operating flow.",
+      "Aigentra Trading compares strategy agents specialized in BTC futures data, then tracks AI reviews, simulated positions, and management decisions in one operating flow.",
     primaryCta: "View leaderboard",
     secondaryCta: "Start with Google",
     proofRating: "4.8",
@@ -148,7 +148,7 @@ const copy = {
     videoSubtitle: "A large video-style space for top traders, latest AI reviews, and Telegram delivery state.",
     stats: [
       { label: "Traders", value: "10", detail: "strategy AI agents" },
-      { label: "Markets", value: "BTC / ETH", detail: "Binance public futures data" },
+      { label: "Market", value: "BTC", detail: "OKX/Bitget public futures data" },
       { label: "Alerts", value: "Telegram", detail: "focused on favorites" }
     ],
     steps: [
@@ -210,7 +210,7 @@ const copy = {
     ],
     aboutTitle: "Aigentra Trading is a monitoring surface for AI decisions, not an auto-trading button.",
     aboutBody: "It keeps each trader concept, simulated order, and position-management review in a shared format so subscribers can trust the alert stream.",
-    aboutPoints: ["No exchange keys required", "Focused on BTCUSDT and ETHUSDT", "Account-scoped Telegram settings"],
+    aboutPoints: ["No exchange keys required", "Focused on BTCUSDT", "Account-scoped Telegram settings"],
     footerTagline: "Virtual AI traders, simulated positions, real-time Telegram action alerts.",
     disclaimer: "This product is for education and simulation. It is not investment advice or a recommendation to buy or sell."
   }

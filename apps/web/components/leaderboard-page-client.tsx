@@ -30,7 +30,6 @@ import {
   type PaperOrder,
   type PaperPosition,
   type TraderProfile,
-  type TraderPaperSummary
 } from "@/lib/api";
 import { useAppContext } from "@/components/app-provider";
 import { buildStandings, traderVisuals, type LeagueSymbol, type TraderStanding } from "@/lib/league";
@@ -40,7 +39,7 @@ import { formatClockTime, formatCurrency, formatDateTime, formatNumber } from "@
 import { statusLabel, statusTone } from "@/lib/status";
 import { activePositionLeverage, appendLeverageSample, formatLeverageBadge, orderLeverage, planLeverage, positionLeverage } from "@/components/leaderboard-leverage";
 
-const SYMBOLS: LeagueSymbol[] = ["BTCUSDT", "ETHUSDT"];
+const SYMBOLS: LeagueSymbol[] = ["BTCUSDT"];
 const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(180px,1fr)_130px_100px_90px_60px_80px_65px_24px] gap-3";
 
 type ExposureItem = {
@@ -104,7 +103,7 @@ export function LeaderboardPageClient() {
   const queryClient = useQueryClient();
   
   // Custom filter state
-  const [activeTab, setActiveTab] = useState<"ALL" | "BTC" | "ETH">("ALL");
+  const [activeTab, setActiveTab] = useState<"BTC">("BTC");
   const [activeTraderId, setActiveTraderId] = useState<string | null>(null);
   const [isPeriodOpen, setIsPeriodOpen] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<"ALL" | "7D" | "30D" | "90D">("ALL");
@@ -119,73 +118,15 @@ export function LeaderboardPageClient() {
     scanner: null
   }), []);
 
-  // Fetch both BTC and ETH bundles
   const btcQuery = useQuery({
     ...leaderboardBundleQueryOptions("BTCUSDT"),
     placeholderData: (previousData) => previousData?.symbol === "BTCUSDT" ? previousData : getCachedLeaderboardBundle("BTCUSDT") ?? fallbackBundle
   });
 
-  const ethQuery = useQuery({
-    ...leaderboardBundleQueryOptions("ETHUSDT"),
-    placeholderData: (previousData) => previousData?.symbol === "ETHUSDT" ? previousData : getCachedLeaderboardBundle("ETHUSDT") ?? fallbackBundle
-  });
-
-  const isFetching = btcQuery.isFetching || ethQuery.isFetching;
-  const isError = btcQuery.isError || ethQuery.isError;
-
-  // Compute merged or single bundle
+  const isFetching = btcQuery.isFetching;
   const bundle = useMemo<LeaderboardBundle>(() => {
-    const btcData = btcQuery.data;
-    const ethData = ethQuery.data;
-
-    if (activeTab === "BTC") return btcData ?? fallbackBundle;
-    if (activeTab === "ETH") return ethData ?? fallbackBundle;
-
-    // Merge for "ALL"
-    const tradersMap = new Map<string, TraderProfile>();
-    btcData?.traders?.forEach((t) => tradersMap.set(t.id, t));
-    ethData?.traders?.forEach((t) => tradersMap.set(t.id, t));
-    const traders = Array.from(tradersMap.values()).length
-      ? Array.from(tradersMap.values())
-      : (fallbackTraders as unknown as TraderProfile[]);
-
-    const summariesMap = new Map<string, TraderPaperSummary>();
-    btcData?.summaries?.forEach((s) => summariesMap.set(s.traderId, { ...s }));
-    ethData?.summaries?.forEach((s) => {
-      const existing = summariesMap.get(s.traderId);
-      if (existing) {
-        existing.equity = (existing.equity ?? 0) + (s.equity ?? 0);
-        existing.totalPnl = (existing.totalPnl ?? 0) + (s.totalPnl ?? 0);
-        existing.return30d = ((existing.return30d ?? 0) + (s.return30d ?? 0)) / 2;
-        existing.return7d = ((existing.return7d ?? 0) + (s.return7d ?? 0)) / 2;
-        existing.maxDrawdown = Math.max(existing.maxDrawdown ?? 0, s.maxDrawdown ?? 0);
-        existing.openPositions = (existing.openPositions ?? 0) + (s.openPositions ?? 0);
-        existing.openOrders = (existing.openOrders ?? 0) + (s.openOrders ?? 0);
-      } else {
-        summariesMap.set(s.traderId, { ...s });
-      }
-    });
-
-    const summaries = Array.from(summariesMap.values());
-    const positions = [...(btcData?.positions ?? []), ...(ethData?.positions ?? [])];
-    const orders = [...(btcData?.orders ?? []), ...(ethData?.orders ?? [])];
-    const managementReviews = [...(btcData?.managementReviews ?? []), ...(ethData?.managementReviews ?? [])]
-      .sort((a, b) => {
-        const aTime = a.createdAt ? Date.parse(a.createdAt) : 0;
-        const bTime = b.createdAt ? Date.parse(b.createdAt) : 0;
-        return bTime - aTime;
-      });
-
-    return {
-      symbol: "ALL",
-      traders,
-      summaries,
-      positions,
-      orders,
-      managementReviews,
-      scanner: btcData?.scanner ?? ethData?.scanner ?? null
-    };
-  }, [activeTab, btcQuery.data, ethQuery.data, fallbackBundle]);
+    return btcQuery.data ?? fallbackBundle;
+  }, [btcQuery.data, fallbackBundle]);
 
   const traders = bundle.traders?.length ? bundle.traders : (fallbackTraders as unknown as TraderProfile[]);
   const standings = useMemo(() => buildStandings(traders, bundle.summaries ?? []), [bundle.summaries, traders]);
@@ -202,11 +143,8 @@ export function LeaderboardPageClient() {
 
   // Fetch pending plans dynamically
   const pendingPlansQuery = useQuery({
-    queryKey: ["league", "trade-plans", activeTab === "ALL" ? "BTCUSDT" : activeTab === "BTC" ? "BTCUSDT" : "ETHUSDT", "pending"],
-    queryFn: async () => {
-      const sym = activeTab === "ALL" ? "BTCUSDT" : activeTab === "BTC" ? "BTCUSDT" : "ETHUSDT";
-      return unwrapTradePlans(await getRecentTradePlans(100, sym, undefined, "PAPER_TRADING_PENDING"));
-    },
+    queryKey: ["league", "trade-plans", "BTCUSDT", "pending"],
+    queryFn: async () => unwrapTradePlans(await getRecentTradePlans(100, "BTCUSDT", undefined, "PAPER_TRADING_PENDING")),
     placeholderData: (previousData) => previousData ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -222,7 +160,7 @@ export function LeaderboardPageClient() {
   const exposureItems = useMemo(() => buildExposureItems(bundle.positions ?? [], bundle.orders ?? [], traderNameMap, locale, t), [bundle.orders, bundle.positions, locale, t, traderNameMap]);
 
   // Dynamic snapshot symbol
-  const snapshotSymbol = activeTab === "ALL" ? undefined : activeTab === "BTC" ? "BTCUSDT" : "ETHUSDT";
+  const snapshotSymbol = "BTCUSDT";
 
   const activeSnapshotsQuery = useQuery({
     queryKey: ["league", "equity-snapshots", activeTab, activeTrader?.id ?? ""],
@@ -255,9 +193,8 @@ export function LeaderboardPageClient() {
   }, [activeSnapshotsQuery.data, selectedPeriod]);
 
   const prefetchTrader = useCallback((traderId: string) => {
-    const sym = activeTab === "ALL" ? "BTCUSDT" : activeTab === "BTC" ? "BTCUSDT" : "ETHUSDT";
-    void prefetchTraderDetailBundle(queryClient, traderId, sym);
-  }, [queryClient, activeTab]);
+    void prefetchTraderDetailBundle(queryClient, traderId, "BTCUSDT");
+  }, [queryClient]);
 
   const activateTrader = useCallback((traderId: string) => {
     setActiveTraderId(traderId);
@@ -300,9 +237,9 @@ export function LeaderboardPageClient() {
             <div className="flex flex-col gap-3 border-b px-5 py-4 md:px-6 md:flex-row md:items-center md:justify-between" style={{ borderColor: "var(--border)" }}>
               {/* Left side: Horizontal Toggle Tabs */}
               <div className="inline-flex w-fit rounded-full border border-white/10 p-1 bg-white/[0.02] backdrop-blur-md">
-                {(["ALL", "BTC", "ETH"] as const).map((tab) => {
+                {(["BTC"] as const).map((tab) => {
                   const active = activeTab === tab;
-                  const label = tab === "ALL" ? t("leaderboard.filter.all") || "전체" : tab;
+                  const label = tab;
                   return (
                     <button
                       key={tab}
@@ -628,27 +565,6 @@ function HeroMetric({ icon, label, value, detail, tone }: { icon: ReactNode; lab
       </div>
       <p className="truncate font-mono text-xl font-bold tracking-tight text-white">{value}</p>
       <p className="text-zinc-400 mt-1 truncate text-xs">{detail}</p>
-    </div>
-  );
-}
-
-function SymbolToggle({ symbol, onChange, onPrefetch }: { symbol: LeagueSymbol; onChange: (symbol: LeagueSymbol) => void; onPrefetch: (symbol: LeagueSymbol) => void }) {
-  return (
-    <div className="inline-flex w-fit rounded-full border border-white/10 p-1 bg-white/[0.04] backdrop-blur-md">
-      {SYMBOLS.map((item) => (
-        <button
-          key={item}
-          type="button"
-          onFocus={() => onPrefetch(item)}
-          onMouseEnter={() => onPrefetch(item)}
-          onClick={() => onChange(item)}
-          className={`focus-ring rounded-full px-4 py-1.5 text-xs font-semibold tracking-wider font-mono transition ${
-            symbol === item ? "bg-emerald-500 text-white shadow-neon-emerald" : "text-zinc-400 hover:text-white"
-          }`}
-        >
-          {item.replace("USDT", "")}
-        </button>
-      ))}
     </div>
   );
 }

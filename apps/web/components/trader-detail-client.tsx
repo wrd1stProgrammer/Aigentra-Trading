@@ -63,7 +63,7 @@ export function TraderDetailClient({ traderId }: { traderId: string }) {
             <p className="mt-4 max-w-3xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">{t(traderShortKey(trader.id))}</p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            {["BTCUSDT", "ETHUSDT"].map((item) => (
+            {["BTCUSDT"].map((item) => (
               <button key={item} className={`ghost-button ${symbol === item ? "bg-zinc-950 text-white dark:bg-zinc-100 dark:text-zinc-950" : ""}`} onClick={() => setSymbol(item)}>
                 {item}
               </button>

@@ -52,6 +52,8 @@ type ChartResultView = RunCycleResult | Pick<RunCycleResult, "tradePlan">;
 const TIMEFRAMES: ChartInterval[] = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"];
 const DEFAULT_INTERVAL: ChartInterval = "1h";
 const DEFAULT_INTERVAL_LIMIT = { "1h": 120 } as const;
+const HISTORY_PAGE_LIMIT = 500;
+const MAX_CHART_CANDLES = 5000;
 const OVERLAY_LINE_VISUAL = {
   entry: { lineWidth: 1, lineStyle: LineStyle.Dotted },
   stop: { lineWidth: 1, lineStyle: LineStyle.Dashed },
@@ -89,10 +91,15 @@ export function LiveCandleChart({
   const hasVisibleCandlesRef = useRef(false);
   const lastSocketUpdateAtRef = useRef(0);
   const lastCandleTimeRef = useRef<number | null>(null);
+  const chartCandlesRef = useRef<KlineCandle[]>([]);
+  const oldestOpenTimeRef = useRef<number | null>(null);
+  const loadingOlderRef = useRef(false);
+  const hasMoreHistoryRef = useRef(true);
   const visibleSymbolRef = useRef<string | null>(null);
   const [interval, setInterval] = useState<ChartInterval>(DEFAULT_INTERVAL);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [latestPrice, setLatestPrice] = useState<number | null>(null);
 
@@ -305,16 +312,23 @@ export function LiveCandleChart({
 
     if (hasCachedCandles) {
       series.setData(cachedCandles.map(toChartCandle));
+      chartCandlesRef.current = cachedCandles;
+      oldestOpenTimeRef.current = cachedCandles[0]?.openTime ?? null;
       lastCandleTimeRef.current = chartTimeValue(cachedCandles.at(-1)?.openTime);
       visibleSymbolRef.current = symbol;
       setLatestPrice(cachedCandles.at(-1)?.close ?? null);
       chart.timeScale().fitContent();
     } else if (!shouldPreserveVisible) {
       series.setData([]);
+      chartCandlesRef.current = [];
+      oldestOpenTimeRef.current = null;
       lastCandleTimeRef.current = null;
       visibleSymbolRef.current = null;
       setLatestPrice(null);
     }
+    hasMoreHistoryRef.current = true;
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
 
     const refreshFromRest = async ({ fit = false, staleMs = restCacheStaleMs(interval) } = {}) => {
       if (!hasVisibleCandlesRef.current) setLoading(true);
@@ -324,6 +338,8 @@ export function LiveCandleChart({
         const chartData = data.candles.map(toChartCandle);
         if (chartData.length || !hasVisibleCandlesRef.current) {
           series.setData(chartData);
+          chartCandlesRef.current = data.candles;
+          oldestOpenTimeRef.current = data.candles[0]?.openTime ?? null;
           hasVisibleCandlesRef.current = chartData.length > 0;
           lastCandleTimeRef.current = chartData.length ? Number(chartData.at(-1)?.time) : null;
           visibleSymbolRef.current = chartData.length ? symbol : visibleSymbolRef.current;
@@ -350,6 +366,8 @@ export function LiveCandleChart({
         const chartData = candles.map(toChartCandle);
         if (chartData.length) {
           series.setData(chartData);
+          chartCandlesRef.current = candles;
+          oldestOpenTimeRef.current = candles[0]?.openTime ?? null;
           hasVisibleCandlesRef.current = true;
           lastCandleTimeRef.current = Number(chartData.at(-1)?.time);
           visibleSymbolRef.current = symbol;
@@ -363,7 +381,42 @@ export function LiveCandleChart({
       }
     };
 
+    const loadOlderCandles = async () => {
+      const oldestOpenTime = oldestOpenTimeRef.current;
+      if (!oldestOpenTime || loadingOlderRef.current || !hasMoreHistoryRef.current) return;
+      loadingOlderRef.current = true;
+      setLoadingOlder(true);
+      try {
+        const data = await getKlines(symbol, interval, HISTORY_PAGE_LIMIT, {
+          before: oldestOpenTime,
+          staleMs: 10 * 60_000
+        });
+        if (disposed) return;
+        const olderCandles = data.candles.filter((candle) => candle.openTime < oldestOpenTime);
+        if (!olderCandles.length) {
+          hasMoreHistoryRef.current = false;
+          return;
+        }
+        const merged = mergeCandleHistory(olderCandles, chartCandlesRef.current, MAX_CHART_CANDLES);
+        chartCandlesRef.current = merged;
+        oldestOpenTimeRef.current = merged[0]?.openTime ?? oldestOpenTime;
+        series.setData(merged.map(toChartCandle));
+        setError(null);
+      } catch (err) {
+        if (!disposed) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        loadingOlderRef.current = false;
+        if (!disposed) setLoadingOlder(false);
+      }
+    };
+
+    const visibleRangeHandler = (range: { from: number; to: number } | null) => {
+      if (!range || !hasVisibleCandlesRef.current) return;
+      if (range.from < 40) void loadOlderCandles();
+    };
+
     void refreshFromRest({ fit: !hasCachedCandles });
+    chart.timeScale().subscribeVisibleLogicalRangeChange(visibleRangeHandler);
     const restFallback = window.setInterval(() => {
       if (
         !shouldBackfillFromRest({
@@ -377,25 +430,29 @@ export function LiveCandleChart({
       void refreshLatestFromRest();
     }, restFallbackIntervalMs(interval));
 
-    const socket = new WebSocket(`wss://fstream.binance.com/ws/${symbol.toLowerCase()}@kline_${interval}`);
+    const socket = new WebSocket("wss://ws.okx.com:8443/ws/v5/business");
     socket.onopen = () => {
+      socket.send(JSON.stringify({ op: "subscribe", args: [{ channel: okxCandleChannel(interval), instId: okxInstrumentId(symbol) }] }));
       if (!disposed) setConnected(true);
     };
     socket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        const kline = data.k;
-        if (!kline || disposed) return;
-        const next = klineToChartCandle(kline);
+        const row = Array.isArray(data?.data) ? data.data[0] : null;
+        if (!Array.isArray(row) || disposed) return;
+        const next = okxKlineToChartCandle(row, interval);
         if (!shouldAcceptRealtimeCandle({ candidateTime: Number(next.time), lastCandleTime: lastCandleTimeRef.current })) return;
-        updateKlineCache(symbol, interval, limit, klineToApiCandle(kline));
+        const candle = okxKlineToApiCandle(row, interval);
+        updateKlineCache(symbol, interval, limit, candle);
+        chartCandlesRef.current = mergeCandleHistory(chartCandlesRef.current, [candle], MAX_CHART_CANDLES);
+        oldestOpenTimeRef.current = chartCandlesRef.current[0]?.openTime ?? oldestOpenTimeRef.current;
         lastSocketUpdateAtRef.current = Date.now();
         lastCandleTimeRef.current = Number(next.time);
         visibleSymbolRef.current = symbol;
         hasVisibleCandlesRef.current = true;
         series.update(next);
         setLoading(false);
-        const close = Number(kline.c);
+        const close = Number(row[4]);
         if (Number.isFinite(close)) setLatestPrice(close);
       } catch (err) {
         if (!disposed) setError(err instanceof Error ? err.message : String(err));
@@ -411,6 +468,7 @@ export function LiveCandleChart({
     return () => {
       disposed = true;
       window.clearInterval(restFallback);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(visibleRangeHandler);
       socket.close();
     };
   }, [interval, symbol, t]);
@@ -484,7 +542,7 @@ export function LiveCandleChart({
             {connected ? <WifiHigh size={14} /> : <WifiSlash size={14} />}
             {connected ? t("chart.connected") : t("chart.disconnected")}
           </StatusBadge>
-          {loading ? <StatusBadge tone="neutral">{t("common.loading")}</StatusBadge> : null}
+          {loading || loadingOlder ? <StatusBadge tone="neutral">{loadingOlder ? t("chart.loadingHistory") : t("common.loading")}</StatusBadge> : null}
           {latestPrice ? <StatusBadge tone="neutral">{`${t("chart.lastPrice")} ${formatter.format(latestPrice)}`}</StatusBadge> : null}
           {overlayLines.length ? <StatusBadge tone="warn">{t("chart.planMarkers")}</StatusBadge> : null}
           {hasCompletedMarkers ? <StatusBadge tone="good">{t("chart.completedMarkers")}</StatusBadge> : null}
@@ -572,28 +630,74 @@ function toChartCandle(candle: KlineCandle): CandlestickData<Time> {
   };
 }
 
-function klineToChartCandle(kline: Record<string, string | number | boolean>): CandlestickData<Time> {
+function okxKlineToChartCandle(row: unknown[], interval: ChartInterval): CandlestickData<Time> {
+  const candle = okxKlineToApiCandle(row, interval);
   return {
-    time: Math.floor(Number(kline.t) / 1000) as Time,
-    open: Number(kline.o),
-    high: Number(kline.h),
-    low: Number(kline.l),
-    close: Number(kline.c)
+    time: Math.floor(candle.openTime / 1000) as Time,
+    open: candle.open,
+    high: candle.high,
+    low: candle.low,
+    close: candle.close
   };
 }
 
-function klineToApiCandle(kline: Record<string, string | number | boolean>): KlineCandle {
-  const openTime = Number(kline.t);
-  const closeTime = Number(kline.T);
+function okxKlineToApiCandle(row: unknown[], interval: ChartInterval): KlineCandle {
+  const openTime = Number(row[0]);
+  const intervalMs = intervalToMs(interval);
   return {
     openTime,
-    open: Number(kline.o),
-    high: Number(kline.h),
-    low: Number(kline.l),
-    close: Number(kline.c),
-    volume: Number(kline.v),
-    closeTime: Number.isFinite(closeTime) ? closeTime : openTime
+    open: Number(row[1]),
+    high: Number(row[2]),
+    low: Number(row[3]),
+    close: Number(row[4]),
+    volume: Number(row[5]),
+    closeTime: Number.isFinite(openTime) ? openTime + intervalMs - 1 : openTime
   };
+}
+
+function mergeCandleHistory(primary: KlineCandle[], secondary: KlineCandle[], maxCandles: number) {
+  const byOpenTime = new Map<number, KlineCandle>();
+  for (const candle of [...primary, ...secondary]) {
+    if (!Number.isFinite(candle.openTime)) continue;
+    byOpenTime.set(candle.openTime, { ...candle });
+  }
+  return Array.from(byOpenTime.values())
+    .sort((a, b) => a.openTime - b.openTime)
+    .slice(-maxCandles);
+}
+
+function okxCandleChannel(interval: ChartInterval) {
+  const suffix: Record<ChartInterval, string> = {
+    "1m": "1m",
+    "5m": "5m",
+    "15m": "15m",
+    "30m": "30m",
+    "1h": "1H",
+    "4h": "4H",
+    "1d": "1D",
+    "1w": "1W"
+  };
+  return `candle${suffix[interval]}`;
+}
+
+function okxInstrumentId(symbol: string) {
+  const normalized = symbol.toUpperCase();
+  if (normalized === "ETHUSDT") return "ETH-USDT-SWAP";
+  return "BTC-USDT-SWAP";
+}
+
+function intervalToMs(interval: ChartInterval) {
+  const minutes: Record<ChartInterval, number> = {
+    "1m": 1,
+    "5m": 5,
+    "15m": 15,
+    "30m": 30,
+    "1h": 60,
+    "4h": 240,
+    "1d": 1440,
+    "1w": 10080
+  };
+  return minutes[interval] * 60_000;
 }
 
 function firstFiniteNumber(...values: unknown[]) {

@@ -99,4 +99,4 @@ export type TradeHistoryItem = {
 
 export type PlanRecord = Record<string, unknown>;
 
-export const SYMBOLS: readonly LeagueSymbol[] = ["BTCUSDT", "ETHUSDT"];
+export const SYMBOLS: readonly LeagueSymbol[] = ["BTCUSDT"];

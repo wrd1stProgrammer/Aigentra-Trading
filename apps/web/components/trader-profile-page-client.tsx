@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import {
   leaderboardBundleQueryKey,
   getCachedTraderDetailBundle,
@@ -43,6 +43,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const [symbol, setSymbol] = useState<LeagueSymbol>("BTCUSDT");
   const [selectedScenario, setSelectedScenario] = useState<TraderScenario | null>(null);
   const [liveAlert, setLiveAlert] = useState<LiveDetailAlert | null>(null);
+  const [visibleScenarioCount, setVisibleScenarioCount] = useState(20);
   const liveAlertKeyRef = useRef<string | null>(null);
   const liveAlertHydratedRef = useRef(false);
   const liveAlertContextRef = useRef<string | null>(null);
@@ -130,6 +131,10 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     () => buildScenarioTimelineItems({ scenarios, events, latestPlan, reviews, locale, t }),
     [events, latestPlan, locale, reviews, scenarios, t]
   );
+  const visibleScenarioTimelineItems = useMemo(
+    () => scenarioTimelineItems.slice(0, visibleScenarioCount),
+    [scenarioTimelineItems, visibleScenarioCount]
+  );
   const holdingItems = useMemo(
     () => buildHoldingItems({ standing, positions, orders, latestPlan, symbol, locale, t }),
     [latestPlan, locale, orders, positions, standing, symbol, t]
@@ -147,8 +152,12 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     }),
     [equitySnapshotsQuery.data, events, locale, standing?.equity, standing?.totalPnl]
   );
-  const timelineRail = scenarioTimelineItems.length > 0;
+  const timelineRail = visibleScenarioTimelineItems.length > 0;
   const alertContextKey = `${traderId}:${symbol}`;
+
+  useEffect(() => {
+    setVisibleScenarioCount(20);
+  }, [symbol, traderId]);
 
   useEffect(() => {
     const latestItem = scenarioTimelineItems[0];
@@ -176,6 +185,12 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     if (scenario) setSelectedScenario(scenario);
     setLiveAlert(null);
   }, [liveAlert]);
+
+  const handleScenarioScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    if (target.scrollTop + target.clientHeight < target.scrollHeight - 180) return;
+    setVisibleScenarioCount((current) => Math.min(current + 20, scenarioTimelineItems.length));
+  }, [scenarioTimelineItems.length]);
 
   if (!trader || !standing) {
     return <div className="rounded-xl border border-zinc-200 bg-white p-8 dark:border-zinc-800 dark:bg-zinc-950">{t("common.loading")}</div>;
@@ -245,10 +260,10 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                 {scenarioTimelineItems.length}
               </span>
             </div>
-            <div data-testid="scenario-timeline" className="relative mt-8">
+            <div data-testid="scenario-timeline" className="relative mt-8 max-h-[980px] overflow-y-auto pr-2" onScroll={handleScenarioScroll}>
               {timelineRail ? <div className="timelineRail absolute left-[13px] top-3 h-[calc(100%-1.5rem)] w-px bg-zinc-200 dark:bg-zinc-800" /> : null}
               <div className="space-y-7">
-                {scenarioTimelineItems.map((item, index) => (
+                {visibleScenarioTimelineItems.map((item, index) => (
                   <TimelineRow
                     key={item.id}
                     item={item}
@@ -260,6 +275,15 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                   <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
                     {t("detail.noScenarios")}
                   </div>
+                ) : null}
+                {visibleScenarioTimelineItems.length < scenarioTimelineItems.length ? (
+                  <button
+                    type="button"
+                    className="focus-ring w-full rounded-xl border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-600 transition hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                    onClick={() => setVisibleScenarioCount((current) => Math.min(current + 20, scenarioTimelineItems.length))}
+                  >
+                    {t("detail.loadMoreScenarios")}
+                  </button>
                 ) : null}
               </div>
             </div>

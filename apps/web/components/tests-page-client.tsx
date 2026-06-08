@@ -60,7 +60,6 @@ export function TestsPageClient() {
     { key: "health", titleKey: "tests.health", descriptionKey: "tests.liveHint", icon: Pulse, run: getHealth },
     { key: "binance", titleKey: "tests.binance", descriptionKey: "tests.liveHint", icon: Database, run: getBinanceTest },
     { key: "btc", titleKey: "tests.btcKline", descriptionKey: "tests.liveHint", icon: Rows, run: () => getKlines("BTCUSDT") },
-    { key: "eth", titleKey: "tests.ethKline", descriptionKey: "tests.liveHint", icon: Rows, run: () => getKlines("ETHUSDT") },
     { key: "market-snapshot", titleKey: "tests.marketSnapshot", descriptionKey: "tests.liveHint", icon: Rows, run: () => getMarketSnapshot(symbol) },
     { key: "db-status", titleKey: "tests.dbStatus", descriptionKey: "tests.dbHint", icon: Database, run: getDbStatus },
     { key: "recent-runs", titleKey: "tests.recentRuns", descriptionKey: "tests.dbHint", icon: Rows, run: () => getRecentRuns() },
@@ -184,7 +183,7 @@ export function TestsPageClient() {
           <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">{t("tests.subtitle")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {["BTCUSDT", "ETHUSDT"].map((item) => (
+          {["BTCUSDT"].map((item) => (
             <button key={item} className={`ghost-button ${symbol === item ? "bg-zinc-950 text-white dark:bg-zinc-100 dark:text-zinc-950" : ""}`} onClick={() => setSymbol(item)}>
               {item}
             </button>

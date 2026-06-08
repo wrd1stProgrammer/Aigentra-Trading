@@ -150,7 +150,7 @@ export function TradersPageClient() {
           <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">{t("traders.subtitle")}</p>
         </div>
         <div className="flex gap-2">
-          {["BTCUSDT", "ETHUSDT"].map((item) => (
+          {["BTCUSDT"].map((item) => (
             <button
               key={item}
               className={`ghost-button ${symbol === item ? "bg-zinc-950 text-white dark:bg-zinc-100 dark:text-zinc-950" : ""}`}

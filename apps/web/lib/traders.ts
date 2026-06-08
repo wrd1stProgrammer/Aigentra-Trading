@@ -64,7 +64,7 @@ export const fallbackTraders = [
     name: "Volatility Squeezer",
     description: "Waits for volatility compression, then trades the first confirmed expansion.",
     riskLevel: "MEDIUM",
-    currentPlan: "Waiting for compressed BTC/ETH volatility to release with volume.",
+    currentPlan: "Waiting for compressed BTC volatility to release with volume.",
     baseRiskPercent: 0.55,
     mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
   },

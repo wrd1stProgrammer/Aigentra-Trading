@@ -370,6 +370,7 @@ export type TraderDetailBundle = {
 type KlineRequestOptions = {
   force?: boolean;
   staleMs?: number;
+  before?: number;
 };
 
 type KlineCacheEntry = {
@@ -379,7 +380,7 @@ type KlineCacheEntry = {
 };
 
 const KLINE_CACHE_STALE_MS = 30_000;
-const KLINE_CACHE_MAX_ENTRIES = 32;
+const KLINE_CACHE_MAX_ENTRIES = 96;
 const klineCache = new Map<string, KlineCacheEntry>();
 const BROWSER_CACHE_PREFIX = "atl-api-cache:v2:";
 const LEADERBOARD_BROWSER_CACHE_MS = 5 * 60_000;
@@ -470,7 +471,8 @@ export function getKlines(symbol: string, interval = "1m", limit = 5, options: K
   const normalizedSymbol = normalizeKlineSymbol(symbol);
   const normalizedInterval = normalizeKlineInterval(interval);
   const normalizedLimit = normalizeKlineLimit(limit);
-  const cacheKey = klineCacheKey(normalizedSymbol, normalizedInterval, normalizedLimit);
+  const normalizedBefore = normalizeKlineBefore(options.before);
+  const cacheKey = klineCacheKey(normalizedSymbol, normalizedInterval, normalizedLimit, normalizedBefore);
   const cached = klineCache.get(cacheKey);
   const staleMs = options.staleMs ?? KLINE_CACHE_STALE_MS;
 
@@ -487,7 +489,8 @@ export function getKlines(symbol: string, interval = "1m", limit = 5, options: K
     interval: normalizedInterval,
     limit: String(normalizedLimit)
   });
-  const promise = request<KlinesResponse>(`/api/binance/klines?${params.toString()}`)
+  if (normalizedBefore !== null) params.set("before", String(normalizedBefore));
+  const promise = request<KlinesResponse>(`/api/market/klines?${params.toString()}`)
     .then((data) => {
       const next = normalizeKlinesResponse(data, normalizedSymbol, normalizedInterval, normalizedLimit);
       rememberKlines(cacheKey, next);
@@ -526,8 +529,14 @@ function normalizeKlineLimit(limit: number) {
   return Math.max(1, Math.floor(limit));
 }
 
-function klineCacheKey(symbol: string, interval: string, limit: number) {
-  return `${normalizeKlineSymbol(symbol)}|${normalizeKlineInterval(interval)}|${normalizeKlineLimit(limit)}`;
+function normalizeKlineBefore(before: unknown) {
+  const value = typeof before === "number" ? before : typeof before === "string" ? Number(before) : NaN;
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
+}
+
+function klineCacheKey(symbol: string, interval: string, limit: number, before: number | null = null) {
+  const base = `${normalizeKlineSymbol(symbol)}|${normalizeKlineInterval(interval)}|${normalizeKlineLimit(limit)}`;
+  return before === null ? base : `${base}|before:${before}`;
 }
 
 function normalizeKlinesResponse(data: KlinesResponse, symbol: string, interval: string, limit: number): KlinesResponse {

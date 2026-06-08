@@ -56,7 +56,7 @@ class RangeMaker(TraderStrategy):
             "maxDrawdown": 0.0,
             "currentEquity": 10000.0,
         },
-        currentPlan="Waiting for BTC/ETH to trade at a clean range edge without breakout pressure.",
+        currentPlan="Waiting for BTC to trade at a clean range edge without breakout pressure.",
     )
 
     def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:

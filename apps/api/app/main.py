@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 from app.ai.factory import get_ai_provider, provider_status
 from app.ai.context import build_management_review_context, build_trade_review_context
 from app.ai.mock_provider import MockAIProvider
-from app.clients.binance_client import ALLOWED_INTERVALS, ALLOWED_SYMBOLS, BinanceClient
+from app.clients.binance_client import ALLOWED_INTERVALS, ALLOWED_SYMBOLS
+from app.clients.market_data_client import MarketDataClient
 from app.core.config import get_settings
 from app.db import (
     AIReviewRecord,
@@ -41,7 +42,7 @@ from app.db import (
     session_scope,
 )
 from app.market.data_cache import KLINE_CACHE as MARKET_KLINE_CACHE
-from app.market.data_cache import cached_klines, market_cache_runtime
+from app.market.data_cache import cached_klines, cached_klines_before, market_cache_runtime, warm_market_cache
 from app.market.snapshot import build_market_snapshot
 from app.paper.engine import (
     PaperEngineResult,
@@ -250,6 +251,7 @@ async def lifespan(app: FastAPI):
     init_db()
     cleanup_stale_running_runs()
     warm_initial_league_cache()
+    await warm_market_cache(binance_client())
     if settings.enable_auto_scanner:
         AUTO_SCANNER_TASK = asyncio.create_task(auto_scanner_loop())
         AUTO_MANAGEMENT_TASK = asyncio.create_task(auto_management_loop())
@@ -271,7 +273,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AI Trader League API",
     version="0.1.0",
-    description="Paper-trading technical demo using Binance public market data only.",
+    description="Paper-trading technical demo using public crypto futures market data only.",
     lifespan=lifespan,
 )
 
@@ -286,8 +288,8 @@ app.add_middleware(
 app.include_router(subscribers_router)
 
 
-def binance_client() -> BinanceClient:
-    return BinanceClient(settings.binance_futures_base_url)
+def binance_client() -> MarketDataClient:
+    return MarketDataClient()
 
 
 def normalize_symbol(symbol: str) -> str:
@@ -3421,7 +3423,8 @@ async def market_cache_status() -> Dict[str, Any]:
     return {
         "status": "ok",
         "hotMarketData": {
-            "source": "binance_public_rest",
+            "source": runtime["marketDataProvider"],
+            "fallbackSource": runtime["marketDataFallbackProvider"],
             "persistence": persistence,
             "databasePersistence": False,
             "remoteRedisRequired": False,
@@ -3431,7 +3434,7 @@ async def market_cache_status() -> Dict[str, Any]:
         "caches": {
             "klines": {
                 "entries": len(MARKET_KLINE_CACHE),
-                "maxEntries": 80,
+                "maxEntries": 240,
                 "items": active_kline_keys,
             },
             "derivatives": {"entries": runtime["memoryDerivativeEntries"]},
@@ -3462,21 +3465,27 @@ async def binance_test() -> Dict[str, Any]:
         raise
 
 
+@app.get("/api/market/klines")
 @app.get("/api/binance/klines")
 async def klines(
     symbol: str = Query("BTCUSDT"),
     interval: str = Query("1m"),
     limit: int = Query(20, ge=1, le=500),
+    before: Optional[int] = Query(None),
 ):
     clean_symbol = normalize_symbol(symbol)
     if interval not in ALLOWED_INTERVALS:
         raise HTTPException(status_code=400, detail="Unsupported interval.")
     try:
-        candles = await cached_klines(binance_client(), clean_symbol, interval, limit)
+        candles = (
+            await cached_klines_before(binance_client(), clean_symbol, interval, limit, before)
+            if before
+            else await cached_klines(binance_client(), clean_symbol, interval, limit)
+        )
         payload = {"symbol": clean_symbol, "interval": interval, "count": len(candles), "candles": candles}
         return payload
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Binance request failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Market data request failed: {exc}") from exc
 
 
 @app.get("/api/binance/open-interest")
@@ -3484,7 +3493,7 @@ async def open_interest(symbol: str = Query("BTCUSDT")):
     try:
         return await binance_client().get_open_interest(normalize_symbol(symbol))
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Binance request failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Market data request failed: {exc}") from exc
 
 
 @app.get("/api/binance/market-snapshot")
@@ -3497,7 +3506,7 @@ async def market_snapshot(symbol: str = Query("BTCUSDT"), persist: bool = Query(
                 create_market_snapshot(db, clean_symbol, snapshot)
         return snapshot
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Binance request failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Market data request failed: {exc}") from exc
 
 
 @app.get("/api/traders")
@@ -3677,7 +3686,7 @@ async def trader_run_cycle(trader_id: str, request: RunCycleRequest, provider: O
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Trader not found.") from exc
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Binance request failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Market data request failed: {exc}") from exc
 
 
 @app.post("/api/demo/run-all-traders")

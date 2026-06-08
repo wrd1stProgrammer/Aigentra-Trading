@@ -57,7 +57,7 @@ class VolatilitySqueezer(TraderStrategy):
             "maxDrawdown": 0.0,
             "currentEquity": 10000.0,
         },
-        currentPlan="Waiting for compressed BTC/ETH volatility to release with volume.",
+        currentPlan="Waiting for compressed BTC volatility to release with volume.",
     )
 
     def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:

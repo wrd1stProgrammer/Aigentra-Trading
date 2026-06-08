@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from typing import Any, Dict, Optional
@@ -14,6 +15,7 @@ except ImportError:
         pass
 
 from app.clients.binance_client import BinanceClient, Candle
+from app.clients.market_data_client import MarketDataClient
 from app.core.config import get_settings
 
 
@@ -46,6 +48,12 @@ def redis_cache_configured() -> bool:
 def market_cache_runtime() -> dict[str, Any]:
     settings = get_settings()
     return {
+        "marketDataProvider": settings.market_data_provider,
+        "marketDataFallbackProvider": settings.market_data_fallback_provider,
+        "marketDataWarmEnabled": settings.market_data_warm_enabled,
+        "marketDataWarmSymbols": settings.market_data_warm_symbols,
+        "marketDataWarmIntervals": settings.market_data_warm_intervals,
+        "marketDataWarmLimit": settings.market_data_warm_limit,
         "redisConfigured": bool(settings.redis_url),
         "redisMarketCacheEnabled": bool(settings.redis_market_cache_enabled),
         "redisAvailable": bool(redis_cache_configured() and time.monotonic() >= _REDIS_DISABLED_UNTIL),
@@ -110,7 +118,7 @@ async def _redis_set_json(key: str, value: Any, ttl: int) -> None:
         _REDIS_DISABLED_UNTIL = time.monotonic() + 30
 
 
-def _trim_cache(cache: Dict[Any, tuple[float, Any]], max_entries: int = 80) -> None:
+def _trim_cache(cache: Dict[Any, tuple[float, Any]], max_entries: int = 240) -> None:
     if len(cache) <= max_entries:
         return
     oldest_key = min(cache, key=lambda cache_key: cache[cache_key][0])
@@ -132,6 +140,9 @@ async def cached_klines(client: BinanceClient, symbol: str, interval: str, limit
     key = (clean_symbol, interval, limit)
     ttl = interval_cache_ttl(interval)
     now = time.monotonic()
+    superset = _memory_kline_superset(clean_symbol, interval, limit, now)
+    if superset:
+        return superset
     cached = KLINE_CACHE.get(key)
     if cached and cached[0] > now:
         return cached[1]
@@ -144,11 +155,62 @@ async def cached_klines(client: BinanceClient, symbol: str, interval: str, limit
         _trim_cache(KLINE_CACHE)
         return redis_candles
 
+    warm_limit = max(limit, get_settings().market_data_warm_limit)
+    if warm_limit > limit:
+        warm_payload = await _redis_get_json(_cache_key("klines:v1", clean_symbol, interval, warm_limit))
+        warm_candles = _candles_from_json(warm_payload)
+        if len(warm_candles) >= limit:
+            sliced = warm_candles[-limit:]
+            KLINE_CACHE[key] = (now + ttl, sliced)
+            _trim_cache(KLINE_CACHE)
+            return sliced
+
     candles = await client.get_klines(symbol=clean_symbol, interval=interval, limit=limit)
     KLINE_CACHE[key] = (now + ttl, candles)
     _trim_cache(KLINE_CACHE)
     await _redis_set_json(redis_key, [candle.model_dump() for candle in candles], ttl)
     return candles
+
+
+async def cached_klines_before(client: MarketDataClient, symbol: str, interval: str, limit: int, before: int) -> list[Candle]:
+    clean_symbol = symbol.upper()
+    safe_before = int(before)
+    safe_limit = max(1, min(int(limit), get_settings().market_data_max_limit))
+    ttl = max(interval_cache_ttl(interval), 3600)
+    redis_key = _cache_key("klines_page:v1", clean_symbol, interval, safe_limit, safe_before)
+    redis_payload = await _redis_get_json(redis_key)
+    redis_candles = _candles_from_json(redis_payload)
+    if redis_candles:
+        return redis_candles
+
+    candles = await client.get_klines(symbol=clean_symbol, interval=interval, limit=safe_limit, before=safe_before)
+    await _redis_set_json(redis_key, [candle.model_dump() for candle in candles], ttl)
+    return candles
+
+
+async def warm_market_cache(client: MarketDataClient) -> dict[str, Any]:
+    settings = get_settings()
+    if not settings.market_data_warm_enabled:
+        return {"enabled": False, "warmed": 0, "errors": 0}
+    intervals = [interval for interval in settings.market_data_warm_intervals if interval]
+    tasks = [
+        cached_klines(client, symbol=symbol, interval=interval, limit=settings.market_data_warm_limit)
+        for symbol in settings.market_data_warm_symbols
+        for interval in intervals
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    errors = sum(1 for result in results if isinstance(result, Exception))
+    return {"enabled": True, "warmed": len(results) - errors, "errors": errors}
+
+
+def _memory_kline_superset(symbol: str, interval: str, limit: int, now: float) -> list[Candle]:
+    best: list[Candle] = []
+    for (cached_symbol, cached_interval, cached_limit), (expires_at, candles) in KLINE_CACHE.items():
+        if cached_symbol != symbol or cached_interval != interval or cached_limit < limit or expires_at <= now:
+            continue
+        if len(candles) > len(best):
+            best = candles
+    return best[-limit:] if len(best) >= limit else []
 
 
 async def cached_derivative(client: BinanceClient, symbol: str, name: str) -> Dict[str, Any]:

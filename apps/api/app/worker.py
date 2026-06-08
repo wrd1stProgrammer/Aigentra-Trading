@@ -5,9 +5,11 @@ from app.db import init_db
 from app.main import (
     auto_management_loop,
     auto_scanner_loop,
+    binance_client,
     cleanup_stale_running_runs,
     warm_initial_league_cache,
 )
+from app.market.data_cache import warm_market_cache
 
 
 async def main() -> None:
@@ -15,6 +17,7 @@ async def main() -> None:
     init_db()
     cleanup_stale_running_runs()
     warm_initial_league_cache()
+    await warm_market_cache(binance_client())
     if not settings.enable_auto_scanner:
         while True:
             await asyncio.sleep(3600)
