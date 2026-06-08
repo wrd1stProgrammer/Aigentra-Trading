@@ -99,8 +99,22 @@ jobs:
             chmod 600 .env
 
             docker compose pull
+            docker compose up -d redis
             docker compose run --rm migrate
-            docker compose up -d api worker redis --remove-orphans
+            docker compose up -d api --remove-orphans
+            for i in $(seq 1 45); do
+              if curl -fsS http://127.0.0.1:8000/health; then
+                break
+              fi
+              if [ "$i" = "45" ]; then
+                docker compose ps -a
+                docker compose logs --tail=220 api migrate redis
+                exit 1
+              fi
+              sleep 2
+            done
+            docker compose up -d worker --remove-orphans
+            docker compose ps -a
             docker image prune -af || true
           REMOTE
 
@@ -115,7 +129,7 @@ jobs:
               fi
               sleep 2
             done
-            docker compose ps
-            docker compose logs --tail=160 api worker migrate
+            docker compose ps -a
+            docker compose logs --tail=220 api worker migrate redis
             exit 1
           '
