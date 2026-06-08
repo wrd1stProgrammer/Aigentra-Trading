@@ -1,0 +1,415 @@
+import json
+from typing import Any, Dict, Optional
+
+from app.paper.holding_policy import trader_holding_policy
+from app.traders.models import (
+    ManagementAction,
+    PositionManagementPayload,
+    PositionManagementResult,
+    TradeReviewPayload,
+    TradeReviewResult,
+)
+
+
+VALID_DECISIONS = {
+    "APPROVE",
+    "ADJUST_AND_APPROVE",
+    "DEFER",
+    "REJECT",
+    "NEEDS_MORE_DATA",
+}
+VALID_RISK_LEVELS = {"LOW", "MEDIUM", "HIGH", "EXTREME"}
+VALID_MANAGEMENT_DECISIONS = {
+    "HOLD",
+    "CANCEL_PENDING_ORDER",
+    "ADJUST_PENDING_ORDER",
+    "MOVE_STOP",
+    "MOVE_STOP_TO_BREAKEVEN",
+    "TRAIL_STOP",
+    "TAKE_PARTIAL_PROFIT",
+    "CLOSE_POSITION",
+    "REDUCE_RISK",
+    "ADD_TO_POSITION",
+    "PYRAMID_POSITION",
+    "LET_PROFIT_RUN",
+    "NEEDS_MORE_DATA",
+}
+VALID_MANAGEMENT_ACTIONS = VALID_MANAGEMENT_DECISIONS | {
+    "CANCEL_REMAINING_ORDERS",
+    "REDUCE_SIZE",
+    "EXPIRE_PLAN",
+}
+
+
+class BaseAIProvider:
+    name = "base"
+    model = "base"
+    fallback = False
+
+    async def review_trade_candidate(
+        self, payload: TradeReviewPayload
+    ) -> TradeReviewResult:
+        raise NotImplementedError
+
+    async def review_position_management(
+        self, payload: PositionManagementPayload
+    ) -> PositionManagementResult:
+        raise NotImplementedError
+
+    def normalize_result(self, raw: Dict[str, Any]) -> TradeReviewResult:
+        decision = str(raw.get("decision", "NEEDS_MORE_DATA")).upper()
+        if decision not in VALID_DECISIONS:
+            decision = "NEEDS_MORE_DATA"
+        risk_level = str(raw.get("riskLevel", "MEDIUM")).upper()
+        if risk_level not in VALID_RISK_LEVELS:
+            risk_level = "MEDIUM"
+        confidence = self._normalize_confidence(raw.get("confidence", 50))
+        confidence = max(0, min(confidence, 100))
+        adjustments = raw.get("adjustments", [])
+        if not isinstance(adjustments, list):
+            adjustments = [str(adjustments)]
+        early_exit_recommendations = raw.get("earlyExitRecommendations", [])
+        if not isinstance(early_exit_recommendations, list):
+            early_exit_recommendations = [str(early_exit_recommendations)]
+        return TradeReviewResult(
+            decision=decision,
+            confidence=confidence,
+            riskLevel=risk_level,
+            adjustments=[str(item) for item in adjustments],
+            leverageOverride=self._normalize_optional_float(raw.get("leverageOverride")),
+            riskPercentOverride=self._normalize_optional_float(raw.get("riskPercentOverride")),
+            earlyExitRecommendations=[str(item) for item in early_exit_recommendations],
+            approvalReason=str(raw.get("approvalReason", "No provider reason supplied.")),
+            counterThesis=str(raw.get("counterThesis", "Invalidation conditions require monitoring.")),
+            userSummary=str(raw.get("userSummary", "AI review completed.")),
+            provider=self.name,
+            model=self.model,
+            fallback=self.fallback,
+        )
+
+    def normalize_management_result(self, raw: Dict[str, Any]) -> PositionManagementResult:
+        decision = str(raw.get("decision", "HOLD")).upper()
+        if decision not in VALID_MANAGEMENT_DECISIONS:
+            decision = "NEEDS_MORE_DATA"
+        risk_level = str(raw.get("riskLevel", "MEDIUM")).upper()
+        if risk_level not in VALID_RISK_LEVELS:
+            risk_level = "MEDIUM"
+        confidence = max(0, min(self._normalize_confidence(raw.get("confidence", 50)), 100))
+        actions = raw.get("actions", [])
+        if not isinstance(actions, list):
+            actions = [{"type": str(actions)}]
+        normalized_actions = []
+        for item in actions:
+            action = item if isinstance(item, dict) else {"type": str(item)}
+            action_type = str(action.get("type", decision)).upper()
+            if action_type not in VALID_MANAGEMENT_ACTIONS:
+                action_type = "HOLD"
+            quantity_fraction = self._normalize_optional_float(action.get("quantityFraction"))
+            if quantity_fraction is not None:
+                quantity_fraction = max(0.0, min(quantity_fraction, 1.0))
+            normalized_actions.append(
+                ManagementAction(
+                    type=action_type,
+                    price=self._normalize_optional_float(action.get("price")),
+                    quantityFraction=quantity_fraction,
+                    reason=str(action.get("reason", "")),
+                )
+            )
+        if not normalized_actions:
+            normalized_actions = [ManagementAction(type=decision, reason="No explicit action supplied.")]
+        next_review = int(self._normalize_optional_float(raw.get("nextReviewInSeconds")) or 300)
+        return PositionManagementResult(
+            decision=decision,
+            confidence=confidence,
+            riskLevel=risk_level,
+            actions=normalized_actions,
+            riskChange=str(raw.get("riskChange", "UNCHANGED")).upper(),
+            nextReviewInSeconds=max(60, min(next_review, 3600)),
+            rationale=str(raw.get("rationale", "Management review completed.")),
+            counterThesis=str(raw.get("counterThesis", "If invalidation fires, hard risk rules take priority.")),
+            userSummary=str(raw.get("userSummary", "AI management review completed.")),
+            provider=self.name,
+            model=self.model,
+            fallback=self.fallback,
+        )
+
+    def _normalize_confidence(self, value: Any) -> int:
+        if isinstance(value, (int, float)):
+            if 0 <= float(value) <= 1:
+                return int(float(value) * 100)
+            return int(value)
+        if isinstance(value, str):
+            normalized = value.strip().upper().replace("%", "")
+            try:
+                numeric = float(normalized)
+                if 0 <= numeric <= 1:
+                    return int(numeric * 100)
+                return int(numeric)
+            except ValueError:
+                pass
+            if normalized.isdigit():
+                return int(normalized)
+            confidence_map = {
+                "LOW": 35,
+                "MEDIUM": 60,
+                "MID": 60,
+                "MODERATE": 60,
+                "HIGH": 80,
+                "VERY_HIGH": 90,
+                "EXTREME": 95,
+            }
+            return confidence_map.get(normalized, 50)
+        return 50
+
+    def _normalize_optional_float(self, value: Any) -> Optional[float]:
+        if value is None or value == "":
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+
+TRADER_REVIEW_POLICIES: Dict[str, Dict[str, Any]] = {
+    "channel-rider": {
+        "temperament": "balanced tactical; do not reject a valid channel edge only because 4H is sideways, but reduce risk if channel quality is mixed",
+        "approveWhen": "channel edge, RSI band, stop beyond channel, and RR are coherent",
+        "adjustWhen": "channel is plausible but trend alignment or confirmation is weaker",
+        "rejectWhen": "channel is forced, entries are on the wrong side, or price already accepted beyond invalidation",
+    },
+    "volume-breaker": {
+        "temperament": "confirmation-first but not passive; prefer ADJUST_AND_APPROVE when level flip is valid but entry should be smaller",
+        "approveWhen": "breakout/retest level, volume expansion, and continuation room are all present",
+        "adjustWhen": "breakout is valid but late or volume is fading",
+        "rejectWhen": "price is back inside the broken level or the move is pure chase",
+    },
+    "pullback-architect": {
+        "temperament": "patient builder; scale entries can remain valid if thesis is intact, but cancel weak later scales",
+        "approveWhen": "HTF trend, EMA zone, funding, and staged sizing are coherent",
+        "adjustWhen": "scales are too tight/wide or later entries should be cancelled after first fill",
+        "rejectWhen": "pullback has become structure failure or funding/OI is overheated",
+    },
+    "leverage-hunter": {
+        "temperament": "decisive but risk-aware; leverage is allowed only after structure trigger and crowding confirmation",
+        "approveWhen": "crowding, funding/OI context, taker flow, and 15m structure trigger agree",
+        "adjustWhen": "edge exists but leverage/risk should be reduced",
+        "rejectWhen": "this is only funding overheat without structure or opposite squeeze risk is uncontrolled",
+    },
+    "liquidity-reaper": {
+        "temperament": "fast reversal specialist; approve sharp sweep setups, but do not confuse real breakout with stop hunt",
+        "approveWhen": "wick, sweep distance, reclaim/fail close, volume, and stop placement are coherent",
+        "adjustWhen": "sweep is valid but TP/SL or scale split needs tightening",
+        "rejectWhen": "price accepted beyond swept level or volume does not support stop run thesis",
+    },
+    "volatility-squeezer": {
+        "temperament": "momentum expansion trader; allow quick participation but demand fast invalidation",
+        "approveWhen": "compression and expansion impulse are both visible and risk is tight",
+        "adjustWhen": "breakout is valid but first pullback entry should be reduced or stop tightened",
+        "rejectWhen": "price already re-entered compression or volume/body impulse is absent",
+    },
+    "trend-sentinel": {
+        "temperament": "slow, durable trend follower; less concerned with quick TP, more concerned with trend integrity",
+        "approveWhen": "4H/1D trend, EMA stack, and trailing plan agree",
+        "adjustWhen": "trend is valid but entry is late or funding is warming up",
+        "rejectWhen": "trend stack is broken, entry is exhaustion, or stop cannot trail logically",
+    },
+    "range-maker": {
+        "temperament": "mean reversion specialist; quick to take profit and quick to abandon breakouts",
+        "approveWhen": "ADX/trend is flat, price is near range edge, and funding/volume are neutral",
+        "adjustWhen": "range trade is valid but TP should be closer to midpoint or size lower",
+        "rejectWhen": "volume expansion or trend strength suggests breakout rather than range",
+    },
+    "funding-contrarian": {
+        "temperament": "contrarian but not blind; funding alone never approves a trade",
+        "approveWhen": "funding/premium extreme plus price stall and structure trigger agree",
+        "adjustWhen": "edge exists but crowding can persist, so leverage or size should be reduced",
+        "rejectWhen": "no structure trigger, crowded side is accelerating, or premium normalized",
+    },
+    "orderflow-sniper": {
+        "temperament": "fast scalper; action can be aggressive only when micro flow is clean and fee-aware",
+        "approveWhen": "1m/5m impulse, taker imbalance, stop distance, and fee buffer are all coherent",
+        "adjustWhen": "edge exists but chase risk or fee drag argues for smaller size",
+        "rejectWhen": "flow is neutral/flipped, volatility is chaotic, or RR is negative after fees",
+    },
+}
+
+
+TRADER_MANAGEMENT_POLICIES: Dict[str, Dict[str, Any]] = {
+    "channel-rider": {
+        "bias": "protect at channel midline; close if channel invalidates",
+        "allowedAggression": "moderate patience inside channel; add once near the channel edge only if stop remains outside the same channel and RR improves; pyramid only after clean midline reclaim/acceptance",
+    },
+    "volume-breaker": {
+        "bias": "continuation must keep volume/level acceptance; failed retests are closed quickly",
+        "allowedAggression": "add on a clean retest hold with fading counter-volume; pyramid on renewed volume expansion after level acceptance; close fast if the broken level is lost",
+    },
+    "pullback-architect": {
+        "bias": "manage remaining scale orders actively; cancel later entries when first fill already moves",
+        "allowedAggression": "can average inside the planned EMA/Fib pullback zone; pyramid only after structure resumes with higher-low/lower-high confirmation; defensive after EMA50 failure",
+    },
+    "leverage-hunter": {
+        "bias": "crowding setups demand faster stop tightening and risk reduction",
+        "allowedAggression": "add only when OI/funding crowding strengthens and structure trigger still holds; pyramid on confirmed squeeze acceleration; reduce decisively when flow flips",
+    },
+    "liquidity-reaper": {
+        "bias": "protect quickly after range midpoint; close if wick extreme is accepted",
+        "allowedAggression": "small add is allowed only on retest rejection/reclaim of the swept level; pyramid after displacement away from the wick; patience window stays short",
+    },
+    "volatility-squeezer": {
+        "bias": "if expansion stalls, move stop or close; if expansion persists, trail",
+        "allowedAggression": "pyramid during clean expansion with rising range and volume; add on first compression retest only if price does not re-enter the old range",
+    },
+    "trend-sentinel": {
+        "bias": "prefer trailing and holding while HTF structure is intact",
+        "allowedAggression": "pyramid on HTF continuation pullbacks while trailing stop tightens; average only near planned trend support/resistance, never after HTF break",
+    },
+    "range-maker": {
+        "bias": "take profit near midpoint and exit accepted breakouts",
+        "allowedAggression": "can add near the outer range edge only while ADX/trend remains weak; never pyramid into the midpoint; never fight a volume breakout",
+    },
+    "funding-contrarian": {
+        "bias": "harvest funding normalization; reduce if crowded side accelerates",
+        "allowedAggression": "average only after funding/premium stays extreme but price stops extending; pyramid after funding normalization begins and structure confirms reversal",
+    },
+    "orderflow-sniper": {
+        "bias": "micro scalps expire quickly; flow flips are close/reduce events",
+        "allowedAggression": "can add or pyramid only on immediate taker-flow confirmation with tight stop unchanged; otherwise reduce or close quickly",
+    },
+}
+
+
+def trader_review_policy(trader_id: str) -> Dict[str, Any]:
+    return TRADER_REVIEW_POLICIES.get(trader_id, {})
+
+
+def trader_management_policy(trader_id: str) -> Dict[str, Any]:
+    policy = dict(TRADER_MANAGEMENT_POLICIES.get(trader_id, {}))
+    policy["holdingPolicy"] = trader_holding_policy(trader_id).as_prompt_dict()
+    return policy
+
+
+def extract_json_object(text: str) -> Dict[str, Any]:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(text[start : end + 1])
+    raise ValueError("Provider response did not contain valid JSON.")
+
+
+def review_prompt(payload: TradeReviewPayload) -> str:
+    locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
+    language_instruction = (
+        "Write approvalReason, counterThesis, userSummary, every adjustments item, and every earlyExitRecommendations item in Korean."
+        if locale == "ko"
+        else "Write approvalReason, counterThesis, userSummary, every adjustments item, and every earlyExitRecommendations item in English."
+    )
+    data = {
+        "trader": payload.trader.model_dump(),
+        "strategyReviewerPolicy": trader_review_policy(payload.trader.id),
+        "symbol": payload.symbol,
+        "locale": locale,
+        "candidate": payload.candidate.model_dump(),
+        "recentAiReviews": payload.recentAiReviews,
+        "recentManagementReviews": payload.recentManagementReviews,
+        "activeExposure": payload.activeExposure,
+        "recentTradeEvents": payload.recentTradeEvents,
+        "marketSnapshot": {
+            "symbol": payload.marketSnapshot.get("symbol"),
+            "price": payload.marketSnapshot.get("price"),
+            "timeframes": payload.marketSnapshot.get("timeframes"),
+            "derivatives": payload.marketSnapshot.get("derivatives"),
+        },
+    }
+    return (
+        "You are a futures paper-trading reviewer, not a generic risk blocker. Return only strict JSON with keys "
+        "decision, confidence, riskLevel, adjustments, leverageOverride, riskPercentOverride, "
+        "earlyExitRecommendations, approvalReason, counterThesis, userSummary. Valid decisions are "
+        "APPROVE, ADJUST_AND_APPROVE, DEFER, REJECT, NEEDS_MORE_DATA. "
+        "This is not financial advice and no real order will be placed. "
+        "Use the strategyReviewerPolicy to calibrate your judgment: do not be blindly conservative, "
+        "but do not approve inconsistent geometry, missing stops, unsupported leverage, or thesis conflicts. "
+        "Prefer ADJUST_AND_APPROVE when the edge is real and the flaw is fixable by smaller size, lower leverage, "
+        "entry cancellation, or a stricter early-exit rule. "
+        "Before approving, run these second-pass checks: "
+        "1) direction must match the setup and must not contradict the market structure, "
+        "2) LONG entries must be at or below current price and SHORT entries at or above current price, "
+        "3) stopLoss must sit beyond every entry on the loss side, "
+        "4) all takeProfits must sit on the profit side and weighted RR after feeBufferPercent must meet riskPlan.minRiskReward, "
+        "5) leveragePlan.suggestedLeverage must not exceed leveragePlan.maxLeverage and must be justified by setup quality, "
+        "and if you return leverageOverride for an approved paper trade, keep it between 5 and leveragePlan.maxLeverage; "
+        "use REJECT or DEFER instead of approving with leverage below 5 when the setup is not strong enough for the service's futures range, "
+        "6) orderIntent must be compatible with pending paper entries and must not imply a real order, "
+        "7) fees/slippage buffer must be included in the risk review, "
+        "8) earlyExitRules and invalidation must be specific enough to stop the trade before the full stop when thesis fails. "
+        "Reject or defer if any required candidate field is missing or internally inconsistent. "
+        f"{language_instruction}\n\n"
+        f"Payload:\n{json.dumps(data, ensure_ascii=False)}"
+    )
+
+
+def management_prompt(payload: PositionManagementPayload) -> str:
+    locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
+    event_type = str(payload.event.eventType or "")
+    is_price_shock = event_type == "common_price_shock"
+    language_instruction = (
+        "Write rationale, counterThesis, userSummary, and every action reason in Korean."
+        if locale == "ko"
+        else "Write rationale, counterThesis, userSummary, and every action reason in English."
+    )
+    shock_instruction = (
+        "FAST-MARKET EVENT MODE: the scanner detected an absolute BTC price move at or above the configured threshold. "
+        "Treat this as a short-lived event review, not a normal heartbeat. Decide whether the pending order/position thesis is still valid, "
+        "whether adverse movement requires cancel/reduce/close, whether the original thesis still justifies controlled averaging, "
+        "or whether favorable movement deserves breakeven stop, partial profit, pyramiding, or hold. "
+        "Never widen stops or exceed leverage/account deployment caps. For this event, set nextReviewInSeconds to 120 unless the position/order is closed or cancelled. "
+        "If the move is noise and structure is intact, HOLD is acceptable, but explain the exact invalidation to watch over the next 120 seconds. "
+        if is_price_shock
+        else ""
+    )
+    data = {
+        "trader": payload.trader.model_dump(),
+        "strategyManagementPolicy": trader_management_policy(payload.trader.id),
+        "symbol": payload.symbol,
+        "locale": locale,
+        "event": payload.event.model_dump(),
+        "exposure": payload.exposure.model_dump(),
+        "recentManagementReviews": payload.recentManagementReviews,
+        "recentTradeEvents": payload.recentTradeEvents,
+        "siblingExposures": payload.siblingExposures,
+        "accountState": payload.accountState,
+        "marketSnapshot": {
+            "symbol": payload.marketSnapshot.get("symbol"),
+            "price": payload.marketSnapshot.get("price"),
+            "timeframes": payload.marketSnapshot.get("timeframes"),
+            "derivatives": payload.marketSnapshot.get("derivatives"),
+            "system": payload.marketSnapshot.get("system"),
+        },
+    }
+    return (
+        "You are a futures paper-trading position management agent. Return only strict JSON with keys "
+        "decision, confidence, riskLevel, actions, riskChange, nextReviewInSeconds, rationale, counterThesis, userSummary. "
+        "Valid decisions are HOLD, CANCEL_PENDING_ORDER, ADJUST_PENDING_ORDER, MOVE_STOP, MOVE_STOP_TO_BREAKEVEN, "
+        "TRAIL_STOP, TAKE_PARTIAL_PROFIT, CLOSE_POSITION, REDUCE_RISK, ADD_TO_POSITION, PYRAMID_POSITION, "
+        "LET_PROFIT_RUN, NEEDS_MORE_DATA. "
+        "Valid action.type values are the same plus CANCEL_REMAINING_ORDERS, REDUCE_SIZE, EXPIRE_PLAN. "
+        "This is paper trading only and no real exchange order will be placed. Hard risk rules are superior to your decision. "
+        "Never widen a stop or exceed leverage/account deployment caps. "
+        "You may reduce risk, cancel pending paper orders, move a stop tighter, take partial profit, close a paper position, hold, "
+        "or propose controlled additional paper exposure. "
+        "Use ADD_TO_POSITION only when adverse movement is still inside the original thesis, the added order improves average price, "
+        "the existing hard stop does not move farther away, and recent reviews/events do not show repeated thesis decay. "
+        "Use PYRAMID_POSITION only when the position is already working, structure confirms continuation, "
+        "the added order does not turn a winner into an overleveraged chase, and accountState has spare margin. "
+        "Use strategyManagementPolicy to match the trader's style. You should actively intervene when the event shows thesis decay, "
+        "profit protection, stale pending entries, or volatility/funding/orderflow regime change. "
+        "The nested holdingPolicy is mandatory: do not move stops to breakeven, take partial profit, or trail earlier than that policy "
+        "unless the event is a hard invalidation or fast-market risk event. Slow trend/channel/pullback traders should be allowed to hold "
+        "through normal pullbacks; scalp/orderflow traders can protect faster. "
+        "If evidence is weak, choose HOLD or NEEDS_MORE_DATA, but include the exact next condition that would trigger action. "
+        f"{shock_instruction}"
+        f"{language_instruction}\n\n"
+        f"Payload:\n{json.dumps(data, ensure_ascii=False)}"
+    )

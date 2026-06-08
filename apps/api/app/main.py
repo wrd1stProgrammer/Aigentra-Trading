@@ -1,0 +1,4118 @@
+from contextlib import asynccontextmanager
+import asyncio
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+import time
+from typing import Any, Dict, Optional
+
+import httpx
+from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from sqlalchemy import desc, func, select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
+
+from app.ai.factory import get_ai_provider, provider_status
+from app.ai.context import build_management_review_context, build_trade_review_context
+from app.ai.mock_provider import MockAIProvider
+from app.clients.binance_client import ALLOWED_INTERVALS, ALLOWED_SYMBOLS, BinanceClient
+from app.core.config import get_settings
+from app.db import (
+    AIReviewRecord,
+    APICallLogRecord,
+    CandidateTradeRecord,
+    EquitySnapshotRecord,
+    MarketSnapshotRecord,
+    PaperOrderRecord,
+    PaperPositionRecord,
+    PositionManagementReviewRecord,
+    ProviderCallLogRecord,
+    RiskSettingsRecord,
+    TradeEventRecord,
+    TradePlanRecord,
+    TraderAgentStateRecord,
+    TraderLeaderboardSnapshotRecord,
+    TraderStateRecord,
+    TraderRunLogRecord,
+    db_status,
+    get_db,
+    init_db,
+    session_scope,
+)
+from app.market.data_cache import KLINE_CACHE as MARKET_KLINE_CACHE
+from app.market.data_cache import cached_klines, market_cache_runtime
+from app.market.snapshot import build_market_snapshot
+from app.paper.engine import (
+    PaperEngineResult,
+    cancel_paper_order,
+    close_position_by_management,
+    process_candle,
+    reduce_position_by_management,
+    update_paper_order_limit,
+    update_position_stop,
+)
+from app.paper.management_actions import create_position_add_order
+from app.paper.management import (
+    managed_exposure_from_order,
+    managed_exposure_from_position,
+    order_management_events,
+    position_management_events,
+    recent_management_review_exists,
+    trader_management_profile,
+)
+from app.paper.planner import (
+    create_paper_orders_from_plan,
+    list_active_paper_exposure,
+    list_active_paper_exposure_map,
+    sync_default_paper_settings,
+)
+from app.paper.plan_state import latest_active_trade_plan, list_active_trade_plans
+from app.paper.repositories import ensure_trader_state
+from app.repositories import (
+    create_ai_review,
+    create_api_call_log,
+    create_candidate_trade,
+    create_market_snapshot,
+    create_position_management_review,
+    create_provider_call_log,
+    create_trade_plan,
+    create_trader_run_log,
+    from_json,
+    get_record,
+    sanitize_error_message,
+    serialize_record,
+    to_json,
+    upsert_trader_agent_state,
+    update_trader_run_log,
+)
+from app.subscribers_routes import router as subscribers_router
+from app.traders.models import (
+    EntryPlan,
+    ManagedExposure,
+    ManagementEvent,
+    PositionManagementPayload,
+    PositionManagementResult,
+    RunCycleRequest,
+    RunCycleResponse,
+    TakeProfitPlan,
+    TradeCandidate,
+    TradePlan,
+    TradeReviewPayload,
+)
+from app.traders.registry import get_strategy, list_traders, public_trader_profile
+from app.traders.strategy_base import default_leverage_plan, default_order_intent, default_risk_plan, estimate_risk_reward, round_price
+
+
+settings = get_settings()
+AI_COOLDOWN_DECISIONS = {"REJECT", "DEFER", "NEEDS_MORE_DATA"}
+PRICE_SHOCK_EVENT_TYPE = "common_price_shock"
+MIN_FINAL_PAPER_LEVERAGE = 5.0
+POSITION_MANAGEMENT_HEARTBEAT_LOOKAHEAD_SECONDS = 30
+
+
+class PaperEngineRunRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    locale: str = "ko"
+    traderId: Optional[str] = None
+    trader_id: Optional[str] = None
+    mode: str = "paper"
+
+
+class ScannerRunRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    provider: Optional[str] = None
+    locale: str = "ko"
+
+
+AUTO_SCANNER_STATE: dict[str, Any] = {
+    "enabled": settings.enable_auto_scanner,
+    "running": False,
+    "mode": "paper",
+    "symbols": settings.auto_scanner_symbols,
+    "intervalSeconds": settings.auto_scanner_interval_seconds,
+    "provider": settings.auto_scanner_provider,
+    "locale": settings.auto_scanner_locale,
+    "aiRejectionCooldownSeconds": settings.ai_rejection_cooldown_seconds,
+    "cycles": 0,
+    "ticks": 0,
+    "skippedTicks": 0,
+    "scanInProgress": False,
+    "currentScanStartedAt": None,
+    "lastTickAt": None,
+    "lastSkippedAt": None,
+    "lastSkipReason": None,
+    "nextTickAt": None,
+    "lastStartedAt": None,
+    "lastFinishedAt": None,
+    "lastError": None,
+    "lastResult": None,
+    "priceShock": {},
+}
+AUTO_SCANNER_TASK: Optional[asyncio.Task] = None
+AUTO_MANAGEMENT_STATE: dict[str, Any] = {
+    "enabled": settings.enable_auto_scanner,
+    "running": False,
+    "mode": "paper",
+    "symbols": settings.auto_scanner_symbols,
+    "intervalSeconds": 30,
+    "provider": settings.position_management_provider or settings.auto_scanner_provider,
+    "locale": settings.auto_scanner_locale,
+    "cycles": 0,
+    "ticks": 0,
+    "skippedTicks": 0,
+    "scanInProgress": False,
+    "currentScanStartedAt": None,
+    "lastTickAt": None,
+    "lastSkippedAt": None,
+    "lastSkipReason": None,
+    "nextTickAt": None,
+    "lastStartedAt": None,
+    "lastFinishedAt": None,
+    "lastError": None,
+    "lastResult": None,
+}
+AUTO_MANAGEMENT_TASK: Optional[asyncio.Task] = None
+PRICE_SHOCK_STATE: dict[str, dict[str, Any]] = {}
+LEAGUE_BUNDLE_CACHE_TTL_SECONDS = 300
+LEAGUE_BUNDLE_CACHE: dict[tuple[str, bool, bool], tuple[float, dict[str, Any]]] = {}
+TRADER_DETAIL_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
+LEADERBOARD_REFRESHING: set[tuple[str, str]] = set()
+LEAGUE_BUNDLE_REFRESHING: set[tuple[str, bool, bool]] = set()
+TRADER_DETAIL_REFRESHING: set[tuple[str, str]] = set()
+
+
+def invalidate_league_cache(symbol: Optional[str] = None, trader_id: Optional[str] = None) -> None:
+    def mark_stale(cache: dict, key) -> None:
+        cached = cache.get(key)
+        if cached:
+            cache[key] = (0, cached[1])
+
+    if symbol is None:
+        for key in list(LEAGUE_BUNDLE_CACHE):
+            mark_stale(LEAGUE_BUNDLE_CACHE, key)
+        for key in list(TRADER_DETAIL_CACHE):
+            mark_stale(TRADER_DETAIL_CACHE, key)
+        return
+    for key in list(LEAGUE_BUNDLE_CACHE):
+        if key[0] == symbol:
+            mark_stale(LEAGUE_BUNDLE_CACHE, key)
+    for key in list(TRADER_DETAIL_CACHE):
+        if key[1] == symbol and (trader_id is None or key[0] == trader_id):
+            mark_stale(TRADER_DETAIL_CACHE, key)
+
+
+def schedule_thread_refresh(func, *args) -> None:
+    async def runner() -> None:
+        try:
+            await asyncio.to_thread(func, *args)
+        except Exception:
+            return
+
+    try:
+        asyncio.get_running_loop().create_task(runner())
+    except RuntimeError:
+        try:
+            func(*args)
+        except Exception:
+            return
+
+
+def cleanup_stale_running_runs(max_age_minutes: int = 15) -> int:
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=max(1, max_age_minutes))
+    with session_scope() as db:
+        records = db.execute(
+            select(TraderRunLogRecord)
+            .where(
+                TraderRunLogRecord.status == "running",
+                TraderRunLogRecord.created_at < cutoff,
+            )
+            .limit(200)
+        ).scalars().all()
+        for record in records:
+            update_trader_run_log(
+                db,
+                record,
+                status="stale_error",
+                payload={
+                    **(from_json(record.payload_json) or {}),
+                    "staleCleanup": True,
+                    "staleCleanupAt": datetime.now(timezone.utc).isoformat(),
+                },
+                error_message="Run was left in running state after process interruption or database disconnect.",
+            )
+        return len(records)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global AUTO_SCANNER_TASK, AUTO_MANAGEMENT_TASK
+    init_db()
+    cleanup_stale_running_runs()
+    warm_initial_league_cache()
+    if settings.enable_auto_scanner:
+        AUTO_SCANNER_TASK = asyncio.create_task(auto_scanner_loop())
+        AUTO_MANAGEMENT_TASK = asyncio.create_task(auto_management_loop())
+    yield
+    if AUTO_SCANNER_TASK:
+        AUTO_SCANNER_TASK.cancel()
+        try:
+            await AUTO_SCANNER_TASK
+        except asyncio.CancelledError:
+            pass
+    if AUTO_MANAGEMENT_TASK:
+        AUTO_MANAGEMENT_TASK.cancel()
+        try:
+            await AUTO_MANAGEMENT_TASK
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(
+    title="AI Trader League API",
+    version="0.1.0",
+    description="Paper-trading technical demo using Binance public market data only.",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(subscribers_router)
+
+
+def binance_client() -> BinanceClient:
+    return BinanceClient(settings.binance_futures_base_url)
+
+
+def normalize_symbol(symbol: str) -> str:
+    clean_symbol = symbol.upper()
+    if clean_symbol not in ALLOWED_SYMBOLS:
+        raise HTTPException(status_code=400, detail="Only BTCUSDT and ETHUSDT are supported.")
+    return clean_symbol
+
+
+def trade_plan_from_review(symbol: str, candidate, review) -> TradePlan:
+    if not candidate.created:
+        return TradePlan(status="NO_CANDIDATE", symbol=symbol, notes=[candidate.reason or "No setup"])
+    if review.decision in {"APPROVE", "ADJUST_AND_APPROVE"}:
+        leverage_plan = getattr(candidate, "leveragePlan", None)
+        suggested_leverage = float(getattr(leverage_plan, "suggestedLeverage", 1) or 1)
+        max_candidate_leverage = float(getattr(leverage_plan, "maxLeverage", suggested_leverage) or suggested_leverage)
+        review_leverage = getattr(review, "leverageOverride", None)
+        leverage_cap = max(1.0, min(max_candidate_leverage, float(settings.paper_max_leverage)))
+        leverage_floor = min(MIN_FINAL_PAPER_LEVERAGE, leverage_cap)
+        leverage = float(review_leverage or suggested_leverage)
+        leverage = max(leverage_floor, min(leverage, leverage_cap))
+
+        base_risk = float(candidate.riskPercent or 0.0)
+        review_risk = getattr(review, "riskPercentOverride", None)
+        risk_percent = float(review_risk if review_risk is not None else base_risk)
+        if base_risk > 0:
+            risk_percent = max(0.1, min(risk_percent, base_risk * 1.25, 1.5))
+
+        review_adjustments = list(getattr(review, "adjustments", []) or [])
+        if review_leverage is not None and float(review_leverage) < leverage_floor:
+            review_adjustments.append(
+                f"Provider leverage override {float(review_leverage):.1f}x was clamped to the service minimum {leverage_floor:.1f}x."
+            )
+        early_exit_recommendations = list(getattr(review, "earlyExitRecommendations", []) or [])
+        order_style = getattr(getattr(candidate, "orderIntent", None), "execution", "LIMIT_STAGED")
+        return TradePlan(
+            status="PAPER_TRADING_PENDING",
+            symbol=symbol,
+            side=candidate.side,
+            entries=candidate.entries,
+            stopLoss=candidate.stopLoss,
+            takeProfits=candidate.takeProfits,
+            riskPercent=risk_percent,
+            leverage=leverage,
+            orderStyle=order_style,
+            feeMode="maker_entry_taker_exit",
+            estimatedFees=None,
+            notes=list(candidate.notes) + review_adjustments,
+            earlyExitRules=list(candidate.earlyExitRules) + early_exit_recommendations,
+            managementNotes=list(candidate.managementNotes) + early_exit_recommendations,
+        )
+    review_adjustments = list(getattr(review, "adjustments", []) or [])
+    counter_thesis = getattr(review, "counterThesis", "Review rejected the setup.")
+    return TradePlan(
+        status=f"REVIEW_{review.decision}",
+        symbol=symbol,
+        side=candidate.side,
+        entries=[],
+        stopLoss=candidate.stopLoss,
+        takeProfits=[],
+        riskPercent=0.0,
+        notes=[counter_thesis] + review_adjustments,
+    )
+
+
+def normalize_provider(provider: Optional[str]) -> str:
+    requested = (provider or settings.ai_provider or "mock").lower()
+    if requested not in {"mock", "openai", "gemini", "anthropic", "grok"}:
+        raise HTTPException(status_code=400, detail="Unsupported AI provider.")
+    return requested
+
+
+SLIM_EXCLUDED_COLUMNS = {"payload_json", "raw_json"}
+
+
+def snake_to_camel(value: str) -> str:
+    parts = value.split("_")
+    return parts[0] + "".join(part.capitalize() for part in parts[1:])
+
+
+def json_safe(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, list):
+        return [json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    return value
+
+
+def serialize_record_slim(record) -> dict:
+    data = {
+        column.name: json_safe(getattr(record, column.name))
+        for column in record.__table__.columns
+        if column.name not in SLIM_EXCLUDED_COLUMNS
+    }
+    for key, value in list(data.items()):
+        data.setdefault(snake_to_camel(key), value)
+    return data
+
+
+def serialize_record_for_ui(record, *, include_payload: bool = False) -> dict:
+    data = serialize_record_slim(record)
+    if not include_payload:
+        return data
+    payload = from_json(getattr(record, "payload_json", None)) or {}
+    if payload:
+        data["payload"] = payload
+    if isinstance(record, PositionManagementReviewRecord):
+        data["event"] = payload.get("event") or {}
+        data["exposure"] = payload.get("exposure") or {}
+        data["review"] = payload.get("review") or {}
+        data["appliedActions"] = payload.get("appliedActions") or []
+        review = data["review"]
+        if isinstance(review, dict):
+            data.setdefault("rationale", review.get("rationale"))
+            data.setdefault("userSummary", review.get("userSummary"))
+            data.setdefault("riskLevel", review.get("riskLevel"))
+    return data
+
+
+async def run_review_with_logging(db: Session, payload: TradeReviewPayload, provider_name: str):
+    provider = get_ai_provider(settings, provider_name)
+    attempts = 2 if provider_name == "gemini" and provider.name == "gemini" else 1
+    last_error: Optional[Exception] = None
+
+    for _ in range(attempts):
+        start = time.perf_counter()
+        try:
+            review = await provider.review_trade_candidate(payload)
+            latency_ms = int((time.perf_counter() - start) * 1000)
+            create_provider_call_log(
+                db,
+                provider=provider.name,
+                model=provider.model,
+                success=True,
+                latency_ms=latency_ms,
+                decision=review.decision,
+                symbol=payload.symbol,
+                trader_id=payload.trader.id,
+            )
+            return review
+        except Exception as exc:
+            last_error = exc
+            latency_ms = int((time.perf_counter() - start) * 1000)
+            create_provider_call_log(
+                db,
+                provider=provider.name,
+                model=getattr(provider, "model", provider_name),
+                success=False,
+                latency_ms=latency_ms,
+                symbol=payload.symbol,
+                trader_id=payload.trader.id,
+                error_message=sanitize_error_message(str(exc)),
+            )
+
+    if settings.ai_missing_key_fallback_to_mock:
+        start = time.perf_counter()
+        mock = MockAIProvider(fallback=True)
+        review = await mock.review_trade_candidate(payload)
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        create_provider_call_log(
+            db,
+            provider=mock.name,
+            model=mock.model,
+            success=True,
+            latency_ms=latency_ms,
+            decision=review.decision,
+            symbol=payload.symbol,
+            trader_id=payload.trader.id,
+            status="fallback",
+            error_message=sanitize_error_message(f"Fallback after {provider_name} failure: {last_error}"),
+        )
+        return review
+
+    raise RuntimeError(str(last_error) if last_error else "AI provider call failed.")
+
+
+async def run_position_management_with_logging(
+    db: Session,
+    payload: PositionManagementPayload,
+    provider_name: str,
+) -> PositionManagementResult:
+    provider = get_ai_provider(settings, provider_name)
+    attempts = 2 if provider_name == "gemini" and provider.name == "gemini" else 1
+    last_error: Optional[Exception] = None
+
+    for _ in range(attempts):
+        start = time.perf_counter()
+        try:
+            review = await provider.review_position_management(payload)
+            latency_ms = int((time.perf_counter() - start) * 1000)
+            create_provider_call_log(
+                db,
+                provider=provider.name,
+                model=provider.model,
+                success=True,
+                latency_ms=latency_ms,
+                decision=review.decision,
+                symbol=payload.symbol,
+                trader_id=payload.trader.id,
+                status="position_management",
+            )
+            return review
+        except Exception as exc:
+            last_error = exc
+            latency_ms = int((time.perf_counter() - start) * 1000)
+            create_provider_call_log(
+                db,
+                provider=provider.name,
+                model=getattr(provider, "model", provider_name),
+                success=False,
+                latency_ms=latency_ms,
+                symbol=payload.symbol,
+                trader_id=payload.trader.id,
+                status="position_management_error",
+                error_message=sanitize_error_message(str(exc)),
+            )
+
+    if settings.ai_missing_key_fallback_to_mock:
+        start = time.perf_counter()
+        mock = MockAIProvider(fallback=True)
+        review = await mock.review_position_management(payload)
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        create_provider_call_log(
+            db,
+            provider=mock.name,
+            model=mock.model,
+            success=True,
+            latency_ms=latency_ms,
+            decision=review.decision,
+            symbol=payload.symbol,
+            trader_id=payload.trader.id,
+            status="position_management_fallback",
+            error_message=sanitize_error_message(f"Fallback after {provider_name} failure: {last_error}"),
+        )
+        return review
+
+    raise RuntimeError(str(last_error) if last_error else "Position management provider call failed.")
+
+
+def normalize_locale(locale: Optional[str]) -> str:
+    return "en" if (locale or "").lower().startswith("en") else "ko"
+
+
+def snapshot_to_engine_candle(snapshot: dict) -> dict:
+    one_minute = snapshot.get("timeframes", {}).get("1m", {})
+    latest = one_minute.get("latestCandle") or one_minute
+    open_time = latest.get("openTime")
+    timestamp = None
+    if open_time:
+        timestamp = datetime.fromtimestamp(int(open_time) / 1000, tz=timezone.utc)
+    close = latest.get("close", snapshot.get("price"))
+    return {
+        "open": latest.get("open", close),
+        "high": latest.get("high", close),
+        "low": latest.get("low", close),
+        "close": close,
+        "timestamp": timestamp,
+    }
+
+
+def engine_result_payload(result) -> dict:
+    if not result:
+        return {
+            "filledOrders": [],
+            "closedPositions": [],
+            "rejectedOrders": [],
+            "events": [],
+            "equitySnapshot": None,
+        }
+    return {
+        "filledOrders": [serialize_record(order) for order in result.filled_orders],
+        "closedPositions": [serialize_record(position) for position in result.closed_positions],
+        "rejectedOrders": [serialize_record(order) for order in result.rejected_orders],
+        "events": [serialize_record(event) for event in result.events],
+        "equitySnapshot": serialize_record(result.snapshot) if result.snapshot else None,
+    }
+
+
+def current_snapshot_price(snapshot: dict) -> Decimal:
+    price = snapshot.get("price")
+    if price is None:
+        price = snapshot.get("timeframes", {}).get("1m", {}).get("close")
+    return Decimal(str(price or "0"))
+
+
+def update_price_shock_context(symbol: str, snapshot: dict) -> dict[str, Any]:
+    clean_symbol = normalize_symbol(symbol)
+    price = float(current_snapshot_price(snapshot) or 0.0)
+    now = datetime.now(timezone.utc)
+    state = PRICE_SHOCK_STATE.setdefault(
+        clean_symbol,
+        {
+            "lastPrice": None,
+            "active": False,
+            "sequence": 0,
+            "activeSince": None,
+            "activeUntilTs": 0.0,
+            "lastReviewAt": None,
+        },
+    )
+    previous_price = state.get("lastPrice")
+    price_change_percent = 0.0
+    if previous_price:
+        price_change_percent = ((price - float(previous_price)) / float(previous_price)) * 100
+
+    threshold = max(0.0, float(settings.price_shock_threshold_percent or 0.7))
+    review_seconds = max(60, int(settings.price_shock_review_seconds or 120))
+    review_cycles = max(1, int(settings.price_shock_review_cycles or 5))
+    abs_change = abs(price_change_percent)
+    active_until_ts = float(state.get("activeUntilTs") or 0.0)
+    now_ts = now.timestamp()
+
+    if previous_price and abs_change >= threshold:
+        active_until_ts = now_ts + (review_seconds * review_cycles)
+        state["active"] = True
+        state["activeSince"] = state.get("activeSince") or now.isoformat()
+        state["sequence"] = int(state.get("sequence") or 0) + 1
+    elif active_until_ts > now_ts:
+        state["active"] = True
+    elif abs_change < threshold:
+        state["active"] = False
+        state["activeSince"] = None
+        active_until_ts = 0.0
+
+    direction = "UP" if price_change_percent > 0 else "DOWN" if price_change_percent < 0 else "FLAT"
+    remaining_seconds = max(0.0, active_until_ts - now_ts)
+    reviews_remaining = int((remaining_seconds + review_seconds - 1) // review_seconds) if remaining_seconds else 0
+    state.update(
+        {
+            "lastPrice": price,
+            "previousPrice": previous_price,
+            "priceChangePercent": round(price_change_percent, 4),
+            "absPriceChangePercent": round(abs_change, 4),
+            "direction": direction,
+            "reviewsRemaining": reviews_remaining,
+            "thresholdPercent": threshold,
+            "reviewSeconds": review_seconds,
+            "reviewCycles": review_cycles,
+            "activeUntilTs": active_until_ts,
+            "updatedAt": now.isoformat(),
+        }
+    )
+    shock = {
+        "active": bool(state["active"]),
+        "symbol": clean_symbol,
+        "previousPrice": previous_price,
+        "currentPrice": price,
+        "priceChangePercent": round(price_change_percent, 4),
+        "absPriceChangePercent": round(abs_change, 4),
+        "direction": direction,
+        "thresholdPercent": threshold,
+        "reviewSeconds": state["reviewSeconds"],
+        "reviewCycles": review_cycles,
+        "reviewsRemaining": reviews_remaining,
+        "sequence": int(state.get("sequence") or 0),
+        "activeSince": state.get("activeSince"),
+        "lastReviewAt": state.get("lastReviewAt"),
+    }
+    system = dict(snapshot.get("system") or {})
+    system["priceShock"] = shock
+    snapshot["system"] = system
+    AUTO_SCANNER_STATE["priceShock"] = {key: dict(value) for key, value in PRICE_SHOCK_STATE.items()}
+    return shock
+
+
+def mark_price_shock_review_consumed(symbol: str) -> None:
+    state = PRICE_SHOCK_STATE.get(normalize_symbol(symbol))
+    if not state:
+        return
+    state["lastReviewAt"] = datetime.now(timezone.utc).isoformat()
+
+
+def price_shock_context(snapshot: dict) -> dict[str, Any]:
+    return dict((snapshot.get("system") or {}).get("priceShock") or {})
+
+
+def price_shock_event_for_exposure(
+    *,
+    trader_id: str,
+    symbol: str,
+    exposure: ManagedExposure,
+    snapshot: dict,
+) -> Optional[ManagementEvent]:
+    shock = price_shock_context(snapshot)
+    if not shock.get("active"):
+        return None
+    direction = str(shock.get("direction") or "FLAT").upper()
+    side = str(exposure.side or "").upper()
+    adverse = (side == "LONG" and direction == "DOWN") or (side == "SHORT" and direction == "UP")
+    favorable = (side == "LONG" and direction == "UP") or (side == "SHORT" and direction == "DOWN")
+    phase = management_phase_for_exposure(exposure)
+    if exposure.kind == "order":
+        suggested = "CANCEL_PENDING_ORDER" if adverse else "HOLD"
+        reason = (
+            "Fast-market price shock while paper entry is still pending; reassess whether the entry is still valid, should be cancelled, or can wait."
+        )
+    else:
+        suggested = "REDUCE_RISK" if adverse else "TAKE_PARTIAL_PROFIT" if favorable else "HOLD"
+        reason = (
+            "Fast-market price shock while paper position is active; reassess stop, partial profit, early exit, or hold without widening risk."
+        )
+    metrics = {
+        "price": shock.get("currentPrice"),
+        "previousPrice": shock.get("previousPrice"),
+        "priceChangePercent": shock.get("priceChangePercent"),
+        "absPriceChangePercent": shock.get("absPriceChangePercent"),
+        "direction": direction,
+        "thresholdPercent": shock.get("thresholdPercent"),
+        "reviewSeconds": shock.get("reviewSeconds"),
+        "reviewCycles": shock.get("reviewCycles"),
+        "reviewsRemaining": shock.get("reviewsRemaining"),
+        "shockSequence": shock.get("sequence"),
+        "activeSince": shock.get("activeSince"),
+        "side": side,
+        "adverseToExposure": adverse,
+        "favorableToExposure": favorable,
+        "traderId": trader_id,
+        "symbol": symbol,
+    }
+    return ManagementEvent(
+        eventType=PRICE_SHOCK_EVENT_TYPE,
+        phase=phase,
+        severity="HIGH",
+        reason=reason,
+        suggestedAction=suggested,
+        metrics=metrics,
+    )
+
+
+def should_run_price_shock_review(
+    db: Session,
+    *,
+    trader_id: str,
+    symbol: str,
+    exposure: ManagedExposure,
+    snapshot: dict,
+) -> bool:
+    shock = price_shock_context(snapshot)
+    if not shock.get("active"):
+        return False
+    if int(shock.get("reviewsRemaining") or 0) <= 0:
+        return False
+    state = latest_agent_state(db, trader_id, symbol)
+    now = datetime.now(timezone.utc)
+    if state and state.last_event_type == PRICE_SHOCK_EVENT_TYPE:
+        next_review_at = utc_datetime(state.next_review_at)
+        if next_review_at and next_review_at > now:
+            return False
+    cooldown = max(60, int(settings.price_shock_review_seconds or 120))
+    return not recent_management_review_exists(
+        db,
+        trader_id=trader_id,
+        symbol=symbol,
+        exposure_kind=exposure.kind,
+        exposure_id=exposure.id,
+        event_type=PRICE_SHOCK_EVENT_TYPE,
+        cooldown_seconds=cooldown,
+    )
+
+
+def decimal_or_none(value: Any) -> Optional[Decimal]:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except Exception:
+        return None
+
+
+def management_action_reason(
+    review: PositionManagementResult,
+    action_type: str,
+    event: ManagementEvent,
+) -> str:
+    for action in review.actions:
+        if action.type == action_type and action.reason:
+            return action.reason
+    return review.rationale or event.reason
+
+
+def safe_management_stop(position: PaperPositionRecord, raw_price: Any, mark_price: Decimal) -> Optional[Decimal]:
+    new_stop = decimal_or_none(raw_price)
+    if new_stop is None:
+        return None
+    previous_stop = position.stop_loss_price
+    if position.side == "long":
+        if new_stop >= mark_price:
+            return None
+        if previous_stop is not None and new_stop <= previous_stop:
+            return None
+    if position.side == "short":
+        if new_stop <= mark_price:
+            return None
+        if previous_stop is not None and new_stop >= previous_stop:
+            return None
+    return new_stop
+
+
+def safe_management_limit(order: PaperOrderRecord, raw_price: Any, mark_price: Decimal) -> Optional[Decimal]:
+    new_limit = decimal_or_none(raw_price)
+    if new_limit is None or new_limit <= 0:
+        return None
+    if order.side == "long" and new_limit > mark_price:
+        return None
+    if order.side == "short" and new_limit < mark_price:
+        return None
+    return new_limit
+
+
+def utc_datetime(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def management_phase_for_exposure(exposure: ManagedExposure) -> str:
+    return "PENDING_ORDER" if exposure.kind == "order" else "OPEN_POSITION"
+
+
+def agent_mode_for_event(event: Optional[ManagementEvent], exposure: Optional[ManagedExposure] = None) -> str:
+    if event is None:
+        return "IDLE" if exposure is None else "MONITORING"
+    if event.eventType == PRICE_SHOCK_EVENT_TYPE:
+        return "FAST_MARKET_REVIEW"
+    if event.severity.upper() == "HIGH":
+        return "DEFENSIVE"
+    if event.eventType.endswith("_heartbeat"):
+        return "ACTIVE_REVIEW"
+    if event.suggestedAction in {"TAKE_PARTIAL_PROFIT", "LET_PROFIT_RUN"}:
+        return "PROFIT_MANAGEMENT"
+    return "RISK_MANAGEMENT"
+
+
+def primary_action_type(review: Optional[PositionManagementResult]) -> Optional[str]:
+    if not review or not review.actions:
+        return review.decision if review else None
+    return review.actions[0].type
+
+
+def next_review_at_from_review(
+    review: PositionManagementResult,
+    urgent: bool = False,
+    max_seconds: Optional[int] = None,
+) -> datetime:
+    min_seconds = settings.position_management_urgent_cooldown_seconds if urgent else 60
+    requested_seconds = int(review.nextReviewInSeconds or 300)
+    if max_seconds is not None:
+        requested_seconds = min(requested_seconds, int(max_seconds))
+    next_seconds = max(int(min_seconds or 60), requested_seconds)
+    return datetime.now(timezone.utc) + timedelta(seconds=next_seconds)
+
+
+def latest_agent_state(db: Session, trader_id: str, symbol: str) -> Optional[TraderAgentStateRecord]:
+    return db.execute(
+        select(TraderAgentStateRecord).where(
+            TraderAgentStateRecord.trader_id == trader_id,
+            TraderAgentStateRecord.symbol == symbol,
+        )
+    ).scalar_one_or_none()
+
+
+def heartbeat_event_type_for_exposure(trader_id: str, exposure: ManagedExposure) -> str:
+    suffix = "pending_heartbeat" if exposure.kind == "order" else "position_heartbeat"
+    return f"{trader_id.replace('-', '_')}_{suffix}"
+
+
+def parse_exposure_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def latest_management_review_for_exposure(
+    db: Session,
+    *,
+    trader_id: str,
+    symbol: str,
+    exposure: ManagedExposure,
+) -> Optional[PositionManagementReviewRecord]:
+    stmt = (
+        select(PositionManagementReviewRecord)
+        .where(
+            PositionManagementReviewRecord.trader_id == trader_id,
+            PositionManagementReviewRecord.symbol == symbol,
+        )
+        .order_by(desc(PositionManagementReviewRecord.created_at), desc(PositionManagementReviewRecord.id))
+        .limit(1)
+    )
+    if exposure.kind == "order":
+        stmt = stmt.where(PositionManagementReviewRecord.order_id == exposure.id)
+    else:
+        stmt = stmt.where(PositionManagementReviewRecord.position_id == exposure.id)
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def next_heartbeat_due_at_for_exposure(
+    db: Session,
+    *,
+    trader_id: str,
+    symbol: str,
+    exposure: ManagedExposure,
+    heartbeat_seconds: int,
+) -> Optional[datetime]:
+    latest_review = latest_management_review_for_exposure(
+        db,
+        trader_id=trader_id,
+        symbol=symbol,
+        exposure=exposure,
+    )
+    base_time = utc_datetime(latest_review.created_at) if latest_review else parse_exposure_datetime(exposure.createdAt)
+    if base_time is None:
+        return None
+    return base_time + timedelta(seconds=max(60, heartbeat_seconds))
+
+
+def next_active_exposure_review_at(
+    db: Session,
+    *,
+    trader_id: str,
+    symbol: str,
+    orders: list[PaperOrderRecord],
+    positions: list[PaperPositionRecord],
+) -> Optional[datetime]:
+    due_times: list[datetime] = []
+    for order in orders:
+        due_at = next_heartbeat_due_at_for_exposure(
+            db,
+            trader_id=trader_id,
+            symbol=symbol,
+            exposure=managed_exposure_from_order(order),
+            heartbeat_seconds=settings.position_management_pending_heartbeat_seconds,
+        )
+        if due_at:
+            due_times.append(due_at)
+    for position in positions:
+        due_at = next_heartbeat_due_at_for_exposure(
+            db,
+            trader_id=trader_id,
+            symbol=symbol,
+            exposure=managed_exposure_from_position(position),
+            heartbeat_seconds=settings.position_management_open_heartbeat_seconds,
+        )
+        if due_at:
+            due_times.append(due_at)
+    return min(due_times) if due_times else None
+
+
+def should_run_heartbeat(
+    db: Session,
+    *,
+    trader_id: str,
+    symbol: str,
+    exposure: ManagedExposure,
+    heartbeat_seconds: int,
+) -> bool:
+    now = datetime.now(timezone.utc)
+    due_at = next_heartbeat_due_at_for_exposure(
+        db,
+        trader_id=trader_id,
+        symbol=symbol,
+        exposure=exposure,
+        heartbeat_seconds=heartbeat_seconds,
+    )
+    if due_at is None:
+        return True
+    return due_at <= now + timedelta(seconds=POSITION_MANAGEMENT_HEARTBEAT_LOOKAHEAD_SECONDS)
+
+
+def heartbeat_event_for_order(trader_id: str, order: PaperOrderRecord, snapshot: dict) -> ManagementEvent:
+    price = float(snapshot.get("price") or 0.0)
+    limit_price = float(order.limit_price or price or 0.0)
+    distance_percent = abs(price - limit_price) / price * 100 if price else 0.0
+    profile = trader_management_profile(trader_id)
+    age_seconds = int((datetime.now(timezone.utc) - utc_datetime(order.submitted_at)).total_seconds())
+    metrics = {
+        "price": price,
+        "limitPrice": limit_price,
+        "distancePercent": round(distance_percent, 4),
+        "ageSeconds": age_seconds,
+        "heartbeatSeconds": settings.position_management_pending_heartbeat_seconds,
+    }
+    pending_reasons = {
+        "channel-rider": "Periodic agent review: decide whether the channel-edge pending order still deserves patience or should be cancelled/adjusted.",
+        "volume-breaker": "Periodic agent review: reassess whether the retest order still has real breakout confirmation.",
+        "pullback-architect": "Periodic agent review: reassess staged pullback orders and whether remaining scales should stay active.",
+        "leverage-hunter": "Periodic agent review: reassess crowding/funding trigger while pending leverage entry waits.",
+        "liquidity-reaper": "Periodic agent review: reassess whether the wick/sweep entry still has reversal quality.",
+        "volatility-squeezer": "Periodic agent review: decide whether the squeeze expansion is still alive or the pending pullback entry should expire.",
+        "trend-sentinel": "Periodic agent review: reassess whether a slow trend-continuation order still deserves patience.",
+        "range-maker": "Periodic agent review: decide whether the range edge is still valid or a breakout risk cancels the order.",
+        "funding-contrarian": "Periodic agent review: reassess whether the funding edge still exists before fading crowding.",
+        "orderflow-sniper": "Periodic agent review: expire stale microstructure entries quickly if orderflow edge decays.",
+    }
+    reason = pending_reasons.get(trader_id, "Periodic agent review: reassess pending paper order.")
+    return ManagementEvent(
+        eventType=f"{trader_id.replace('-', '_')}_pending_heartbeat",
+        phase="PENDING_ORDER",
+        severity="MEDIUM",
+        reason=reason,
+        suggestedAction="HOLD",
+        metrics={**metrics, "profileOrderStaleSeconds": profile.get("order_stale_seconds")},
+    )
+
+
+def heartbeat_event_for_position(trader_id: str, position: PaperPositionRecord, snapshot: dict) -> ManagementEvent:
+    price = float(snapshot.get("price") or 0.0)
+    entry = float(position.entry_price or price or 0.0)
+    stop = float(position.stop_loss_price or entry or 0.0)
+    target = float(position.take_profit_price or entry or 0.0)
+    risk = abs(entry - stop) or max(price * 0.004, 1.0)
+    progress_r = ((price - entry) / risk) if position.side == "long" else ((entry - price) / risk)
+    target_distance = abs(target - entry) or risk
+    target_progress = ((price - entry) / target_distance) if position.side == "long" else ((entry - price) / target_distance)
+    metrics = {
+        "price": price,
+        "entryPrice": entry,
+        "stopLoss": stop,
+        "takeProfit": target,
+        "progressR": round(progress_r, 4),
+        "targetProgress": round(target_progress, 4),
+        "unrealizedPnl": float(position.unrealized_pnl or 0.0),
+        "heartbeatSeconds": settings.position_management_open_heartbeat_seconds,
+    }
+    position_reasons = {
+        "channel-rider": "Periodic agent review: actively decide if the channel trade should hold, protect profits, or exit early.",
+        "volume-breaker": "Periodic agent review: actively reassess continuation strength and whether breakout momentum still justifies holding.",
+        "pullback-architect": "Periodic agent review: actively manage staged pullback exposure, remaining orders, stop, and profit protection.",
+        "leverage-hunter": "Periodic agent review: actively manage squeeze/crowding risk with faster risk reduction if flow shifts.",
+        "liquidity-reaper": "Periodic agent review: actively decide whether the sweep reversal is still valid or profit should be protected.",
+        "volatility-squeezer": "Periodic agent review: actively protect squeeze profits if expansion stalls or trails cleanly if volatility persists.",
+        "trend-sentinel": "Periodic agent review: actively decide whether to keep trailing a trend or exit on higher-timeframe damage.",
+        "range-maker": "Periodic agent review: actively de-risk at range midpoint and close if the range breaks.",
+        "funding-contrarian": "Periodic agent review: actively harvest funding normalization or reduce if the crowded side accelerates again.",
+        "orderflow-sniper": "Periodic agent review: actively manage fast scalp exposure with no patience for flow flips.",
+    }
+    reason = position_reasons.get(trader_id, "Periodic agent review: actively manage open paper position.")
+    return ManagementEvent(
+        eventType=f"{trader_id.replace('-', '_')}_position_heartbeat",
+        phase="OPEN_POSITION",
+        severity="MEDIUM" if progress_r > -0.25 else "HIGH",
+        reason=reason,
+        suggestedAction="HOLD",
+        metrics=metrics,
+    )
+
+
+def apply_management_actions(
+    db: Session,
+    *,
+    trader_id: str,
+    symbol: str,
+    event: ManagementEvent,
+    exposure: ManagedExposure,
+    review: PositionManagementResult,
+    snapshot: dict,
+    result: Optional[PaperEngineResult],
+) -> list[dict[str, Any]]:
+    mark_price = current_snapshot_price(snapshot)
+    candle = snapshot_to_engine_candle(snapshot)
+    applied: list[dict[str, Any]] = []
+    state = ensure_trader_state(db, trader_id)
+
+    for action in review.actions:
+        action_type = action.type.upper()
+        reason = action.reason or review.rationale or event.reason
+        record = None
+
+        if exposure.kind == "order":
+            order = db.get(PaperOrderRecord, exposure.id)
+            if not order or order.status != "open":
+                applied.append({"type": action_type, "applied": False, "reason": "Paper order is no longer open."})
+                continue
+            if action_type in {"CANCEL_PENDING_ORDER", "CANCEL_REMAINING_ORDERS", "EXPIRE_PLAN", "REDUCE_RISK"}:
+                record = cancel_paper_order(db, order, reason, result)
+            elif action_type in {"ADJUST_PENDING_ORDER", "ADJUST_ENTRY"}:
+                new_limit = safe_management_limit(order, action.price, mark_price)
+                if new_limit is not None:
+                    record = update_paper_order_limit(db, order, new_limit, reason, result)
+            elif action_type in {"HOLD", "LET_PROFIT_RUN", "NEEDS_MORE_DATA"}:
+                applied.append({"type": action_type, "applied": False, "reason": "No paper state change requested."})
+                continue
+
+        elif exposure.kind == "position":
+            position = db.get(PaperPositionRecord, exposure.id)
+            if not position or position.status != "open":
+                applied.append({"type": action_type, "applied": False, "reason": "Paper position is no longer open."})
+                continue
+            if action_type == "MOVE_STOP_TO_BREAKEVEN":
+                new_stop = safe_management_stop(position, position.entry_price, mark_price)
+                if new_stop is not None:
+                    record = update_position_stop(db, position, new_stop, reason, result)
+            elif action_type in {"MOVE_STOP", "TRAIL_STOP"}:
+                new_stop = safe_management_stop(position, action.price, mark_price)
+                if new_stop is not None:
+                    record = update_position_stop(db, position, new_stop, reason, result)
+            elif action_type in {"TAKE_PARTIAL_PROFIT", "REDUCE_RISK", "REDUCE_SIZE"}:
+                fraction = Decimal(str(action.quantityFraction if action.quantityFraction is not None else 0.25))
+                record = reduce_position_by_management(db, state, position, mark_price, fraction, candle, reason, result)
+            elif action_type in {"ADD_TO_POSITION", "PYRAMID_POSITION"}:
+                record = create_position_add_order(
+                    db,
+                    state=state,
+                    position=position,
+                    action=action,
+                    mark_price=mark_price,
+                    reason=reason,
+                    result=result,
+                )
+            elif action_type == "CLOSE_POSITION":
+                record = close_position_by_management(db, state, position, mark_price, candle, reason, result)
+            elif action_type in {"CANCEL_REMAINING_ORDERS", "EXPIRE_PLAN"}:
+                open_orders = db.execute(
+                    select(PaperOrderRecord).where(
+                        PaperOrderRecord.trader_id == trader_id,
+                        PaperOrderRecord.symbol == symbol,
+                        PaperOrderRecord.status == "open",
+                    )
+                ).scalars().all()
+                for order in open_orders:
+                    cancel_paper_order(db, order, reason, result)
+                record = open_orders[0] if open_orders else None
+            elif action_type in {"HOLD", "LET_PROFIT_RUN", "NEEDS_MORE_DATA"}:
+                applied.append({"type": action_type, "applied": False, "reason": "No paper state change requested."})
+                continue
+
+        applied.append(
+            {
+                "type": action_type,
+                "applied": record is not None,
+                "reason": reason,
+                "price": float(mark_price) if record is not None else action.price,
+            }
+        )
+
+    return applied
+
+
+async def run_management_reviews(
+    db: Session,
+    *,
+    trader_id: str,
+    symbol: str,
+    snapshot: dict,
+    provider_name: str,
+    locale: str,
+    result: Optional[PaperEngineResult],
+) -> list[dict[str, Any]]:
+    if not settings.enable_position_management_ai:
+        return []
+
+    strategy = get_strategy(trader_id)
+    clean_provider = normalize_provider(
+        provider_name or settings.position_management_provider or settings.ai_provider or "mock"
+    )
+    profile = trader_management_profile(trader_id)
+    cooldown_seconds = max(int(settings.position_management_cooldown_seconds or 0), 0)
+    urgent_cooldown_seconds = max(int(settings.position_management_urgent_cooldown_seconds or 0), 0)
+    configured_max_reviews = max(0, int(settings.position_management_max_reviews_per_cycle or 0))
+    if configured_max_reviews <= 0:
+        return []
+
+    orders = db.execute(
+        select(PaperOrderRecord)
+        .where(PaperOrderRecord.trader_id == trader_id, PaperOrderRecord.symbol == symbol, PaperOrderRecord.status == "open")
+        .order_by(PaperOrderRecord.submitted_at.asc(), PaperOrderRecord.id.asc())
+    ).scalars().all()
+    positions = db.execute(
+        select(PaperPositionRecord)
+        .where(PaperPositionRecord.trader_id == trader_id, PaperPositionRecord.symbol == symbol, PaperPositionRecord.status == "open")
+        .order_by(PaperPositionRecord.opened_at.asc(), PaperPositionRecord.id.asc())
+    ).scalars().all()
+
+    active_exposure_count = len(orders) + len(positions)
+    max_reviews = min(max(configured_max_reviews, active_exposure_count), 10)
+    review_records: list[dict[str, Any]] = []
+
+    if not orders and not positions:
+        upsert_trader_agent_state(
+            db,
+            symbol=symbol,
+            trader_id=trader_id,
+            phase="IDLE",
+            mode="WATCHING",
+            next_review_at=None,
+            payload={"reason": "No active paper exposure."},
+            status="idle",
+        )
+        return []
+
+    async def handle_event(event: ManagementEvent, exposure: ManagedExposure, *, force: bool = False) -> None:
+        if len(review_records) >= max_reviews:
+            return
+        event_cooldown_seconds = urgent_cooldown_seconds if event.severity.upper() == "HIGH" else cooldown_seconds
+        if not force and recent_management_review_exists(
+            db,
+            trader_id=trader_id,
+            symbol=symbol,
+            exposure_kind=exposure.kind,
+            exposure_id=exposure.id,
+            event_type=event.eventType,
+            cooldown_seconds=event_cooldown_seconds,
+        ):
+            return
+        management_context = build_management_review_context(db, trader_id, symbol)
+        payload = PositionManagementPayload(
+            trader=strategy.profile,
+            symbol=symbol,
+            marketSnapshot=snapshot,
+            event=event,
+            exposure=exposure,
+            locale=locale,
+            **management_context,
+        )
+        try:
+            review = await run_position_management_with_logging(db, payload, clean_provider)
+            if event.eventType == PRICE_SHOCK_EVENT_TYPE:
+                review.nextReviewInSeconds = max(60, int(settings.price_shock_review_seconds or 120))
+            applied_actions = apply_management_actions(
+                db,
+                trader_id=trader_id,
+                symbol=symbol,
+                event=event,
+                exposure=exposure,
+                review=review,
+                snapshot=snapshot,
+                result=result,
+            )
+            record = create_position_management_review(
+                db,
+                symbol=symbol,
+                trader_id=trader_id,
+                event=event,
+                exposure=exposure,
+                review=review,
+                applied_actions=applied_actions,
+            )
+        except Exception as exc:
+            review = PositionManagementResult(
+                decision="NEEDS_MORE_DATA",
+                confidence=0,
+                riskLevel="HIGH",
+                actions=[],
+                riskChange="UNCHANGED",
+                nextReviewInSeconds=cooldown_seconds,
+                rationale="Position management provider failed.",
+                counterThesis="Hard paper risk engine remains active.",
+                userSummary="Position management review failed and no state change was applied.",
+                provider=clean_provider,
+                model=clean_provider,
+                fallback=False,
+            )
+            record = create_position_management_review(
+                db,
+                symbol=symbol,
+                trader_id=trader_id,
+                event=event,
+                exposure=exposure,
+                review=review,
+                status="error",
+                error_message=sanitize_error_message(str(exc)),
+                applied_actions=[],
+            )
+        mode = agent_mode_for_event(event, exposure)
+        action_type = primary_action_type(review)
+        is_price_shock_event = event.eventType == PRICE_SHOCK_EVENT_TYPE
+        next_review_at = next_review_at_from_review(
+            review,
+            urgent=event.severity.upper() == "HIGH",
+            max_seconds=settings.price_shock_review_seconds if is_price_shock_event else None,
+        )
+        if is_price_shock_event:
+            mark_price_shock_review_consumed(symbol)
+        state = upsert_trader_agent_state(
+            db,
+            symbol=symbol,
+            trader_id=trader_id,
+            phase=event.phase,
+            mode=mode,
+            next_review_at=next_review_at,
+            last_review_id=record.id,
+            last_event_type=event.eventType,
+            last_decision=review.decision,
+            last_action_type=action_type,
+            provider=review.provider,
+            model=review.model,
+            payload={
+                "event": event.model_dump(),
+                "review": review.model_dump(),
+                "exposure": exposure.model_dump(),
+                "nextReviewAt": next_review_at.isoformat(),
+                "mode": mode,
+            },
+        )
+        serialized = serialize_record(record)
+        serialized["agentState"] = serialize_record(state)
+        review_records.append(serialized)
+
+    for order in orders:
+        exposure = managed_exposure_from_order(order)
+        shock_event = (
+            price_shock_event_for_exposure(
+                trader_id=trader_id,
+                symbol=symbol,
+                exposure=exposure,
+                snapshot=snapshot,
+            )
+            if should_run_price_shock_review(
+                db,
+                trader_id=trader_id,
+                symbol=symbol,
+                exposure=exposure,
+                snapshot=snapshot,
+            )
+            else None
+        )
+        events = [shock_event] if shock_event else order_management_events(trader_id, order, snapshot)
+        if not events and should_run_heartbeat(
+            db,
+            trader_id=trader_id,
+            symbol=symbol,
+            exposure=exposure,
+            heartbeat_seconds=settings.position_management_pending_heartbeat_seconds,
+        ):
+            events = [heartbeat_event_for_order(trader_id, order, snapshot)]
+        for event in events:
+            await handle_event(
+                event,
+                exposure,
+                force=event.eventType.endswith("_heartbeat") or event.eventType == PRICE_SHOCK_EVENT_TYPE,
+            )
+            if len(review_records) >= max_reviews:
+                break
+        if len(review_records) >= max_reviews:
+            break
+
+    if len(review_records) < max_reviews:
+        for position in positions:
+            if position.status != "open":
+                continue
+            exposure = managed_exposure_from_position(position)
+            shock_event = (
+                price_shock_event_for_exposure(
+                    trader_id=trader_id,
+                    symbol=symbol,
+                    exposure=exposure,
+                    snapshot=snapshot,
+                )
+                if should_run_price_shock_review(
+                    db,
+                    trader_id=trader_id,
+                    symbol=symbol,
+                    exposure=exposure,
+                    snapshot=snapshot,
+                )
+                else None
+            )
+            events = [shock_event] if shock_event else position_management_events(trader_id, position, snapshot)
+            if not events and should_run_heartbeat(
+                db,
+                trader_id=trader_id,
+                symbol=symbol,
+                exposure=exposure,
+                heartbeat_seconds=settings.position_management_open_heartbeat_seconds,
+            ):
+                events = [heartbeat_event_for_position(trader_id, position, snapshot)]
+            for event in events:
+                await handle_event(
+                    event,
+                    exposure,
+                    force=event.eventType.endswith("_heartbeat") or event.eventType == PRICE_SHOCK_EVENT_TYPE,
+                )
+                if len(review_records) >= max_reviews:
+                    break
+            if len(review_records) >= max_reviews:
+                break
+
+    if not review_records:
+        active_phase = "OPEN_POSITION" if positions else "PENDING_ORDER"
+        active_exposure = managed_exposure_from_position(positions[0]) if positions else managed_exposure_from_order(orders[0])
+        state = latest_agent_state(db, trader_id, symbol)
+        next_review_at = next_active_exposure_review_at(
+            db,
+            trader_id=trader_id,
+            symbol=symbol,
+            orders=orders,
+            positions=positions,
+        )
+        if next_review_at is None:
+            next_review_at = utc_datetime(state.next_review_at) if state and state.next_review_at else (
+                datetime.now(timezone.utc)
+                + timedelta(
+                    seconds=settings.position_management_open_heartbeat_seconds
+                    if positions
+                    else settings.position_management_pending_heartbeat_seconds
+                )
+            )
+        upsert_trader_agent_state(
+            db,
+            symbol=symbol,
+            trader_id=trader_id,
+            phase=active_phase,
+            mode="MONITORING",
+            next_review_at=next_review_at,
+            last_review_id=state.last_review_id if state else None,
+            last_event_type=state.last_event_type if state else None,
+            last_decision=state.last_decision if state else None,
+            last_action_type=state.last_action_type if state else None,
+            provider=state.provider if state else clean_provider,
+            model=state.model if state else None,
+            payload={
+                "reason": "Active exposure monitored without a fresh AI call in this cycle.",
+                "exposure": active_exposure.model_dump(),
+                "nextReviewAt": next_review_at.isoformat() if next_review_at else None,
+            },
+        )
+
+    db.flush()
+    return review_records
+
+
+async def process_existing_paper_exposure(
+    db: Session,
+    trader_id: str,
+    symbol: str,
+    snapshot: dict,
+    provider_name: str,
+    locale: str,
+) -> dict:
+    before = list_active_paper_exposure(db, trader_id, symbol)
+    result = None
+    management_reviews: list[dict[str, Any]] = []
+    if before["hasExposure"]:
+        sync_default_paper_settings(db, trader_id, symbol, settings)
+        result = process_candle(db, trader_id, symbol, snapshot_to_engine_candle(snapshot))
+        management_reviews = await run_management_reviews(
+            db,
+            trader_id=trader_id,
+            symbol=symbol,
+            snapshot=snapshot,
+            provider_name=provider_name,
+            locale=locale,
+            result=result,
+        )
+    after = list_active_paper_exposure(db, trader_id, symbol)
+    agent_state = latest_agent_state(db, trader_id, symbol)
+    return {
+        "before": before,
+        "after": after,
+        "engine": engine_result_payload(result),
+        "managementReviews": management_reviews,
+        "agentState": serialize_record(agent_state) if agent_state else None,
+    }
+
+
+def list_filtered_records(
+    db: Session,
+    model,
+    *,
+    limit: int = 20,
+    symbol: Optional[str] = None,
+    trader_id: Optional[str] = None,
+    status: Optional[str] = None,
+    include_payload: bool = False,
+) -> list[dict]:
+    safe_limit = max(1, min(limit, 100))
+    stmt = select(model)
+    if symbol:
+        stmt = stmt.where(model.symbol == normalize_symbol(symbol))
+    if trader_id:
+        stmt = stmt.where(model.trader_id == trader_id)
+    if status:
+        stmt = stmt.where(model.status == status)
+    records = db.execute(stmt.order_by(desc(model.created_at), desc(model.id)).limit(safe_limit)).scalars().all()
+    return [serialize_record_for_ui(record, include_payload=include_payload) for record in records]
+
+
+def list_records_slim(db: Session, model, limit: int = 20) -> list:
+    safe_limit = max(1, min(limit, 100))
+    records = db.execute(select(model).order_by(desc(model.created_at), desc(model.id)).limit(safe_limit)).scalars().all()
+    return [serialize_record_slim(record) for record in records]
+
+
+def latest_model_record(db: Session, model, trader_id: str, symbol: Optional[str] = None):
+    stmt = select(model).where(model.trader_id == trader_id)
+    if symbol:
+        stmt = stmt.where(model.symbol == symbol)
+    return db.execute(stmt.order_by(desc(model.created_at), desc(model.id)).limit(1)).scalar_one_or_none()
+
+
+def count_model_records(db: Session, model, trader_id: str, symbol: Optional[str] = None, status: Optional[str] = None) -> int:
+    stmt = select(func.count()).select_from(model).where(model.trader_id == trader_id)
+    if symbol:
+        stmt = stmt.where(model.symbol == symbol)
+    if status:
+        stmt = stmt.where(model.status == status)
+    return int(db.scalar(stmt) or 0)
+
+
+def has_meaningful_paper_state(db: Session, trader_id: str, symbol: Optional[str] = None, state: Optional[TraderStateRecord] = None) -> bool:
+    if count_model_records(db, PaperOrderRecord, trader_id, symbol) > 0:
+        return True
+    if count_model_records(db, PaperPositionRecord, trader_id, symbol) > 0:
+        return True
+    if count_model_records(db, TradeEventRecord, trader_id, symbol) > 0:
+        return True
+    if count_model_records(db, EquitySnapshotRecord, trader_id, symbol) > 0:
+        return True
+    if state and (
+        float(state.realized_pnl or 0) != 0
+        or float(state.unrealized_pnl or 0) != 0
+        or float(state.total_fees or 0) != 0
+    ):
+        return True
+    return False
+
+
+def latest_ai_review_cooldown(db: Session, trader_id: str, symbol: str) -> Optional[dict[str, Any]]:
+    cooldown_seconds = max(0, int(settings.ai_rejection_cooldown_seconds or 0))
+    if cooldown_seconds <= 0:
+        return None
+    latest_review = db.execute(
+        select(AIReviewRecord)
+        .where(AIReviewRecord.trader_id == trader_id, AIReviewRecord.symbol == symbol)
+        .order_by(desc(AIReviewRecord.created_at), desc(AIReviewRecord.id))
+        .limit(1)
+    ).scalar_one_or_none()
+    if not latest_review or (latest_review.decision or "").upper() not in AI_COOLDOWN_DECISIONS:
+        return None
+    now = datetime.now(timezone.utc)
+    created_at = latest_review.created_at
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    elapsed_seconds = int((now - created_at).total_seconds())
+    remaining_seconds = cooldown_seconds - elapsed_seconds
+    if remaining_seconds <= 0:
+        return None
+    return {
+        "reviewId": latest_review.id,
+        "decision": latest_review.decision,
+        "provider": latest_review.provider,
+        "model": latest_review.model,
+        "createdAt": created_at.isoformat(),
+        "cooldownSeconds": cooldown_seconds,
+        "remainingSeconds": remaining_seconds,
+    }
+
+
+def latest_ai_review_cooldown_map(db: Session, trader_ids: list[str], symbol: str) -> dict[str, dict[str, Any]]:
+    cooldown_seconds = max(0, int(settings.ai_rejection_cooldown_seconds or 0))
+    unique_trader_ids = sorted({trader_id for trader_id in trader_ids if trader_id})
+    if cooldown_seconds <= 0 or not unique_trader_ids:
+        return {}
+
+    reviews = db.execute(
+        select(AIReviewRecord)
+        .where(
+            AIReviewRecord.trader_id.in_(unique_trader_ids),
+            AIReviewRecord.symbol == symbol,
+        )
+        .order_by(AIReviewRecord.trader_id.asc(), desc(AIReviewRecord.created_at), desc(AIReviewRecord.id))
+    ).scalars().all()
+    now = datetime.now(timezone.utc)
+    cooldowns: dict[str, dict[str, Any]] = {}
+    seen: set[str] = set()
+    for review in reviews:
+        trader_id = review.trader_id
+        if not trader_id or trader_id in seen:
+            continue
+        seen.add(trader_id)
+        if (review.decision or "").upper() not in AI_COOLDOWN_DECISIONS:
+            continue
+        created_at = review.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        elapsed_seconds = int((now - created_at).total_seconds())
+        remaining_seconds = cooldown_seconds - elapsed_seconds
+        if remaining_seconds <= 0:
+            continue
+        cooldowns[trader_id] = {
+            "reviewId": review.id,
+            "decision": review.decision,
+            "provider": review.provider,
+            "model": review.model,
+            "createdAt": created_at.isoformat(),
+            "cooldownSeconds": cooldown_seconds,
+            "remainingSeconds": remaining_seconds,
+        }
+    return cooldowns
+
+
+def position_win_loss_counts(db: Session, trader_id: str, symbol: Optional[str] = None) -> tuple[int, int, int]:
+    stmt = select(PaperPositionRecord).where(
+        PaperPositionRecord.trader_id == trader_id,
+        PaperPositionRecord.status == "closed",
+    )
+    if symbol:
+        stmt = stmt.where(PaperPositionRecord.symbol == symbol)
+    positions = db.execute(stmt).scalars().all()
+    wins = sum(1 for position in positions if float(position.realized_pnl or 0) > 0)
+    losses = sum(1 for position in positions if float(position.realized_pnl or 0) <= 0)
+    return len(positions), wins, losses
+
+
+def paper_position_stats(db: Session, trader_id: str, symbol: Optional[str] = None) -> dict[str, Any]:
+    stmt = select(PaperPositionRecord).where(PaperPositionRecord.trader_id == trader_id)
+    if symbol:
+        stmt = stmt.where(PaperPositionRecord.symbol == symbol)
+    positions = db.execute(stmt).scalars().all()
+    closed = [position for position in positions if position.status == "closed"]
+    open_positions = [position for position in positions if position.status == "open"]
+    pnl_values = [float(position.realized_pnl or 0) for position in closed]
+    leverage_values = [float(position.leverage or 0) for position in positions if float(position.leverage or 0) > 0]
+    long_count = sum(1 for position in positions if position.side == "long")
+    short_count = sum(1 for position in positions if position.side == "short")
+    avg = sum(pnl_values) / len(pnl_values) if pnl_values else 0.0
+    variance = sum((value - avg) ** 2 for value in pnl_values) / len(pnl_values) if len(pnl_values) > 1 else 0.0
+    stddev = variance ** 0.5
+    sharpe_proxy = round(avg / stddev, 3) if stddev > 0 else 0.0
+    open_notional = sum(float(position.notional or 0) for position in open_positions)
+    open_margin = sum(float(position.margin or 0) for position in open_positions)
+    return {
+        "totalTrades": len(closed),
+        "biggestWin": round(max(pnl_values), 4) if pnl_values else 0.0,
+        "biggestLoss": round(min(pnl_values), 4) if pnl_values else 0.0,
+        "averageLeverage": round(sum(leverage_values) / len(leverage_values), 2) if leverage_values else None,
+        "sharpeProxy": sharpe_proxy,
+        "longTrades": long_count,
+        "shortTrades": short_count,
+        "openNotional": round(open_notional, 4),
+        "openMargin": round(open_margin, 4),
+    }
+
+
+def open_order_stats(db: Session, trader_id: str, symbol: Optional[str] = None) -> dict[str, Any]:
+    stmt = select(PaperOrderRecord).where(PaperOrderRecord.trader_id == trader_id, PaperOrderRecord.status == "open")
+    if symbol:
+        stmt = stmt.where(PaperOrderRecord.symbol == symbol)
+    orders = db.execute(stmt).scalars().all()
+    notional = 0.0
+    planned_weight = 0.0
+    for order in orders:
+        price = float(order.limit_price or order.filled_price or 0)
+        notional += price * float(order.quantity or 0)
+        payload = serialize_record(order).get("payload") or {}
+        try:
+            planned_weight += float(payload.get("entryWeight") or 0)
+        except (TypeError, ValueError):
+            pass
+    return {
+        "openOrderNotional": round(notional, 4),
+        "pendingEntryWeight": round(planned_weight, 4) if planned_weight else None,
+    }
+
+
+def slim_record(record) -> dict[str, Any]:
+    data = {}
+    for column in record.__table__.columns:
+        name = column.name
+        if name in {"payload_json", "raw_json", "error_message"}:
+            continue
+        value = getattr(record, name)
+        if isinstance(value, Decimal):
+            value = float(value)
+        elif isinstance(value, datetime):
+            value = value.isoformat()
+        data[name] = value
+        data.setdefault("".join([part if index == 0 else part.capitalize() for index, part in enumerate(name.split("_"))]), value)
+    return data
+
+
+def leaderboard_snapshot_to_summary(record: TraderLeaderboardSnapshotRecord) -> dict[str, Any]:
+    payload = from_json(record.payload_json) or {}
+    return {
+        "traderId": record.trader_id,
+        "traderName": record.trader_name,
+        "symbol": record.symbol,
+        "mode": record.mode,
+        "hasLivePaperData": bool(
+            record.has_live_paper_data
+            or
+            record.open_orders
+            or record.open_positions
+            or record.closed_positions
+            or float(record.total_pnl or 0) != 0
+            or record.latest_run_status
+            or record.latest_plan_status
+        ),
+        "equity": round(float(record.equity or 0), 4),
+        "cashBalance": round(float(record.cash_balance or 0), 4),
+        "realizedPnl": round(float(record.realized_pnl or 0), 4),
+        "unrealizedPnl": round(float(record.unrealized_pnl or 0), 4),
+        "totalFees": round(float(record.total_fees or 0), 4),
+        "totalPnl": round(float(record.total_pnl or 0), 4),
+        "rankScore": record.rank_score,
+        "return7d": record.return_7d,
+        "return30d": record.return_30d,
+        "winRate": record.win_rate,
+        "closedPositions": record.closed_positions,
+        "wins": record.wins,
+        "losses": record.losses,
+        "maxDrawdown": record.max_drawdown,
+        "riskPercent": record.risk_percent,
+        "leverage": record.leverage,
+        "openOrders": record.open_orders,
+        "openPositions": record.open_positions,
+        "biggestWin": record.biggest_win,
+        "biggestLoss": record.biggest_loss,
+        "averageLeverage": record.average_leverage,
+        "sharpe": record.sharpe,
+        "longTrades": record.long_trades,
+        "shortTrades": record.short_trades,
+        "openNotional": record.open_notional,
+        "openMargin": record.open_margin,
+        "openOrderNotional": record.open_order_notional,
+        "pendingEntryWeight": record.pending_entry_weight,
+        "latestRunStatus": record.latest_run_status,
+        "latestPlanStatus": record.latest_plan_status,
+        "agentMode": record.agent_mode,
+        "agentPhase": record.agent_phase,
+        "nextReviewAt": record.next_review_at.isoformat() if record.next_review_at else None,
+        "lastDecision": record.last_decision,
+        "lastAction": record.last_action,
+        "currentPlanKo": record.current_plan_ko or payload.get("currentPlanKo"),
+        "currentPlanEn": record.current_plan_en or payload.get("currentPlanEn"),
+        "agentState": payload.get("agentState"),
+        "updatedAt": record.updated_at.isoformat() if record.updated_at else None,
+    }
+
+
+def list_leaderboard_summaries(db: Session, symbol: str) -> list[dict[str, Any]]:
+    try:
+        records = db.execute(
+            select(TraderLeaderboardSnapshotRecord)
+            .where(TraderLeaderboardSnapshotRecord.symbol == symbol)
+            .order_by(
+                desc(TraderLeaderboardSnapshotRecord.rank_score),
+                desc(TraderLeaderboardSnapshotRecord.equity),
+                TraderLeaderboardSnapshotRecord.trader_id.asc(),
+            )
+        ).scalars().all()
+        return [leaderboard_snapshot_summary(record, record.rank or index) for index, record in enumerate(records, start=1)]
+    except SQLAlchemyError:
+        db.rollback()
+        return compute_trader_summary_payload(db, symbol)
+
+
+def trader_summary_payload(db: Session, symbol: str) -> list[dict[str, Any]]:
+    return list_leaderboard_summaries(db, symbol)
+
+
+def equity_return_for_period(
+    db: Session,
+    trader_id: str,
+    symbol: str,
+    current_equity: float,
+    initial_equity: float,
+    days: int,
+) -> float:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    snapshot = db.execute(
+        select(EquitySnapshotRecord)
+        .where(
+            EquitySnapshotRecord.trader_id == trader_id,
+            EquitySnapshotRecord.symbol == symbol,
+            EquitySnapshotRecord.created_at >= cutoff,
+        )
+        .order_by(EquitySnapshotRecord.created_at.asc(), EquitySnapshotRecord.id.asc())
+        .limit(1)
+    ).scalar_one_or_none()
+    baseline = float(snapshot.equity) if snapshot else initial_equity
+    if baseline <= 0:
+        return 0.0
+    return round(((current_equity - baseline) / baseline) * 100, 2)
+
+
+def max_drawdown_percent(db: Session, trader_id: str, symbol: str, current_equity: float) -> float:
+    snapshots = db.execute(
+        select(EquitySnapshotRecord)
+        .where(
+            EquitySnapshotRecord.trader_id == trader_id,
+            EquitySnapshotRecord.symbol == symbol,
+        )
+        .order_by(EquitySnapshotRecord.created_at.asc(), EquitySnapshotRecord.id.asc())
+    ).scalars().all()
+    values = [float(snapshot.equity) for snapshot in snapshots if float(snapshot.equity or 0) > 0]
+    if current_equity > 0:
+        values.append(current_equity)
+    if not values:
+        return 0.0
+    peak = values[0]
+    max_dd = 0.0
+    for value in values:
+        peak = max(peak, value)
+        if peak > 0:
+            max_dd = min(max_dd, ((value - peak) / peak) * 100)
+    return round(max_dd, 2)
+
+
+def plan_text_for_summary(open_orders: int, open_positions: int, latest_run, latest_plan) -> dict:
+    if open_positions:
+        return {
+            "ko": f"오픈 paper 포지션 {open_positions}개를 관리 중입니다.",
+            "en": f"Managing {open_positions} open paper position(s).",
+        }
+    if open_orders:
+        return {
+            "ko": f"대기 중인 paper 주문 {open_orders}개가 있습니다.",
+            "en": f"Waiting on {open_orders} pending paper order(s).",
+        }
+    if latest_plan:
+        status = latest_plan.status
+        return {
+            "ko": f"최근 plan 상태: {status}. 활성 paper 포지션은 없습니다.",
+            "en": f"Latest plan status: {status}. No active paper exposure.",
+        }
+    if latest_run:
+        status = latest_run.status
+        return {
+            "ko": f"최근 run 상태: {status}. 현재 활성 셋업은 없습니다.",
+            "en": f"Latest run status: {status}. No active setup now.",
+        }
+    return {
+        "ko": "아직 저장된 paper 거래가 없습니다. 사이클 실행으로 후보를 생성하세요.",
+        "en": "No stored paper trades yet. Run a cycle to create a candidate.",
+    }
+
+
+def trader_summary_for_profile(db: Session, trader, symbol: str) -> dict:
+    risk_settings = (
+        db.execute(
+            select(RiskSettingsRecord)
+            .where(RiskSettingsRecord.trader_id == trader.id, RiskSettingsRecord.symbol == symbol)
+            .limit(1)
+        ).scalar_one_or_none()
+    )
+    initial_equity = float(risk_settings.initial_equity) if risk_settings else float(settings.paper_default_equity)
+    state = (
+        db.execute(
+            select(TraderStateRecord)
+            .where(TraderStateRecord.trader_id == trader.id)
+            .limit(1)
+        ).scalar_one_or_none()
+    )
+    current_equity = float(state.equity) if state else initial_equity
+    closed_positions, wins, losses = position_win_loss_counts(db, trader.id, symbol)
+    win_rate = round((wins / closed_positions) * 100, 2) if closed_positions else None
+    open_orders = count_model_records(db, PaperOrderRecord, trader.id, symbol, "open")
+    open_positions = count_model_records(db, PaperPositionRecord, trader.id, symbol, "open")
+    latest_run = latest_model_record(db, TraderRunLogRecord, trader.id, symbol)
+    active_plan = latest_active_trade_plan(db, trader.id, symbol)
+    agent_state = latest_agent_state(db, trader.id, symbol)
+    latest_plan_payload = serialize_record(active_plan).get("payload") if active_plan else None
+    leverage = None
+    risk_percent = trader.baseRiskPercent
+    if latest_plan_payload:
+        leverage = latest_plan_payload.get("leverage")
+        risk_percent = latest_plan_payload.get("riskPercent") or risk_percent
+    position_stats = paper_position_stats(db, trader.id, symbol)
+    order_stats = open_order_stats(db, trader.id, symbol)
+    current_plan = plan_text_for_summary(open_orders, open_positions, latest_run, active_plan)
+    current_state = trader_current_state_payload(
+        open_orders=open_orders,
+        open_positions=open_positions,
+        latest_plan_status=active_plan.status if active_plan else None,
+        latest_run_status=latest_run.status if latest_run else None,
+        agent_phase=agent_state.phase if agent_state else None,
+        last_decision=agent_state.last_decision if agent_state else None,
+        last_action=agent_state.last_action_type if agent_state else None,
+    )
+    return {
+        "traderId": trader.id,
+        "traderName": trader.name,
+        "symbol": symbol,
+        "mode": "paper",
+        "hasLivePaperData": bool(
+            latest_run
+            or active_plan
+            or open_orders
+            or open_positions
+            or closed_positions
+            or has_meaningful_paper_state(db, trader.id, symbol, state)
+        ),
+        "equity": round(current_equity, 4),
+        "cashBalance": round(float(state.cash_balance), 4) if state else initial_equity,
+        "realizedPnl": round(float(state.realized_pnl), 4) if state else 0.0,
+        "unrealizedPnl": round(float(state.unrealized_pnl), 4) if state else 0.0,
+        "totalFees": round(float(state.total_fees), 4) if state else 0.0,
+        "totalPnl": round((float(state.realized_pnl) + float(state.unrealized_pnl)), 4) if state else 0.0,
+        "return7d": equity_return_for_period(db, trader.id, symbol, current_equity, initial_equity, 7),
+        "return30d": equity_return_for_period(db, trader.id, symbol, current_equity, initial_equity, 30),
+        "winRate": win_rate,
+        "closedPositions": closed_positions,
+        "wins": wins,
+        "losses": losses,
+        "maxDrawdown": max_drawdown_percent(db, trader.id, symbol, current_equity),
+        "riskPercent": risk_percent,
+        "leverage": leverage,
+        "openOrders": open_orders,
+        "openPositions": open_positions,
+        "biggestWin": position_stats["biggestWin"],
+        "biggestLoss": position_stats["biggestLoss"],
+        "averageLeverage": position_stats["averageLeverage"],
+        "sharpe": position_stats["sharpeProxy"],
+        "longTrades": position_stats["longTrades"],
+        "shortTrades": position_stats["shortTrades"],
+        "openNotional": position_stats["openNotional"],
+        "openMargin": position_stats["openMargin"],
+        "openOrderNotional": order_stats["openOrderNotional"],
+        "pendingEntryWeight": order_stats["pendingEntryWeight"],
+        "latestRunStatus": latest_run.status if latest_run else None,
+        "latestPlanStatus": active_plan.status if active_plan else None,
+        "currentPlanKo": current_plan["ko"],
+        "currentPlanEn": current_plan["en"],
+        "agentState": serialize_record_slim(agent_state) if agent_state else None,
+        "agentMode": agent_state.mode if agent_state else None,
+        "agentPhase": agent_state.phase if agent_state else None,
+        "nextReviewAt": agent_state.next_review_at.isoformat() if agent_state and agent_state.next_review_at else None,
+        "lastDecision": agent_state.last_decision if agent_state else None,
+        "lastAction": agent_state.last_action_type if agent_state else None,
+        "currentState": current_state,
+    }
+
+
+def compute_trader_summary_payload(db: Session, symbol: str) -> list[dict]:
+    return [trader_summary_for_profile(db, trader, symbol) for trader in list_traders()]
+
+
+def float_or_default(value: Any, default: float = 0.0) -> float:
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def nullable_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def int_or_default(value: Any, default: int = 0) -> int:
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def datetime_or_none(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+def upsert_leaderboard_snapshot_from_summary(db: Session, summary: dict) -> TraderLeaderboardSnapshotRecord:
+    trader_id = summary["traderId"]
+    symbol = summary["symbol"]
+    record = db.execute(
+        select(TraderLeaderboardSnapshotRecord).where(
+            TraderLeaderboardSnapshotRecord.trader_id == trader_id,
+            TraderLeaderboardSnapshotRecord.symbol == symbol,
+        )
+    ).scalar_one_or_none()
+    if record is None:
+        record = TraderLeaderboardSnapshotRecord(trader_id=trader_id, symbol=symbol)
+        db.add(record)
+    now = datetime.now(timezone.utc)
+    total_pnl = float_or_default(summary.get("totalPnl"))
+    record.status = "active" if summary.get("hasLivePaperData") else "empty"
+    record.updated_at = now
+    record.mode = "paper"
+    record.trader_name = summary.get("traderName")
+    record.has_live_paper_data = bool(summary.get("hasLivePaperData"))
+    record.rank_score = total_pnl
+    record.equity = float_or_default(summary.get("equity"))
+    record.cash_balance = float_or_default(summary.get("cashBalance"))
+    record.realized_pnl = float_or_default(summary.get("realizedPnl"))
+    record.unrealized_pnl = float_or_default(summary.get("unrealizedPnl"))
+    record.total_fees = float_or_default(summary.get("totalFees"))
+    record.total_pnl = total_pnl
+    record.return_7d = float_or_default(summary.get("return7d"))
+    record.return_30d = float_or_default(summary.get("return30d"))
+    record.win_rate = nullable_float(summary.get("winRate"))
+    record.closed_positions = int_or_default(summary.get("closedPositions"))
+    record.wins = int_or_default(summary.get("wins"))
+    record.losses = int_or_default(summary.get("losses"))
+    record.max_drawdown = float_or_default(summary.get("maxDrawdown"))
+    record.risk_percent = nullable_float(summary.get("riskPercent"))
+    record.leverage = nullable_float(summary.get("leverage"))
+    record.open_orders = int_or_default(summary.get("openOrders"))
+    record.open_positions = int_or_default(summary.get("openPositions"))
+    record.biggest_win = float_or_default(summary.get("biggestWin"))
+    record.biggest_loss = float_or_default(summary.get("biggestLoss"))
+    record.average_leverage = nullable_float(summary.get("averageLeverage"))
+    record.sharpe = float_or_default(summary.get("sharpe"))
+    record.long_trades = int_or_default(summary.get("longTrades"))
+    record.short_trades = int_or_default(summary.get("shortTrades"))
+    record.open_notional = float_or_default(summary.get("openNotional"))
+    record.open_margin = float_or_default(summary.get("openMargin"))
+    record.open_order_notional = float_or_default(summary.get("openOrderNotional"))
+    record.pending_entry_weight = nullable_float(summary.get("pendingEntryWeight"))
+    record.latest_run_status = summary.get("latestRunStatus")
+    record.latest_plan_status = summary.get("latestPlanStatus")
+    record.current_plan_ko = summary.get("currentPlanKo")
+    record.current_plan_en = summary.get("currentPlanEn")
+    record.agent_mode = summary.get("agentMode")
+    record.agent_phase = summary.get("agentPhase")
+    record.next_review_at = datetime_or_none(summary.get("nextReviewAt"))
+    record.last_decision = summary.get("lastDecision")
+    record.last_action = summary.get("lastAction")
+    record.payload_json = to_json(
+        {
+            "currentPlanKo": summary.get("currentPlanKo"),
+            "currentPlanEn": summary.get("currentPlanEn"),
+            "agentState": summary.get("agentState"),
+        }
+    )
+    record.raw_json = None
+    db.flush()
+    return record
+
+
+def refresh_leaderboard_ranks(db: Session, symbol: str) -> list[TraderLeaderboardSnapshotRecord]:
+    records = db.execute(
+        select(TraderLeaderboardSnapshotRecord)
+        .where(TraderLeaderboardSnapshotRecord.symbol == symbol)
+        .order_by(
+            desc(TraderLeaderboardSnapshotRecord.rank_score),
+            desc(TraderLeaderboardSnapshotRecord.equity),
+            TraderLeaderboardSnapshotRecord.trader_id.asc(),
+        )
+    ).scalars().all()
+    for rank, record in enumerate(records, start=1):
+        record.rank = rank
+    db.flush()
+    return records
+
+
+def refresh_trader_leaderboard_snapshot(db: Session, trader_id: str, symbol: str) -> TraderLeaderboardSnapshotRecord:
+    trader = get_strategy(trader_id).profile
+    summary = trader_summary_for_profile(db, trader, symbol)
+    record = upsert_leaderboard_snapshot_from_summary(db, summary)
+    refresh_leaderboard_ranks(db, symbol)
+    invalidate_league_cache(symbol, trader_id)
+    return record
+
+
+def refreshed_leaderboard_records(
+    db: Session,
+    symbol: str,
+    trader_ids: Optional[set[str]],
+) -> list[TraderLeaderboardSnapshotRecord]:
+    ranked = refresh_leaderboard_ranks(db, symbol)
+    if not trader_ids:
+        return ranked
+    return [record for record in ranked if record.trader_id in trader_ids]
+
+
+def refresh_leaderboard_snapshots(
+    db: Session,
+    symbol: str,
+    trader_ids: Optional[set[str]] = None,
+) -> list[TraderLeaderboardSnapshotRecord]:
+    records = []
+    for trader in list_traders():
+        if trader_ids and trader.id not in trader_ids:
+            continue
+        records.append(upsert_leaderboard_snapshot_from_summary(db, trader_summary_for_profile(db, trader, symbol)))
+    invalidate_league_cache(symbol)
+    return refreshed_leaderboard_records(db, symbol, trader_ids)
+
+
+def leaderboard_snapshot_summary(record: TraderLeaderboardSnapshotRecord, rank: int) -> dict[str, Any]:
+    current_state = trader_current_state_payload(
+        open_orders=record.open_orders,
+        open_positions=record.open_positions,
+        latest_plan_status=record.latest_plan_status,
+        latest_run_status=record.latest_run_status,
+        agent_phase=record.agent_phase,
+        last_decision=record.last_decision,
+        last_action=record.last_action,
+    )
+    return {
+        "rank": rank,
+        "traderId": record.trader_id,
+        "traderName": record.trader_name,
+        "symbol": record.symbol,
+        "mode": record.mode,
+        "hasLivePaperData": record.has_live_paper_data,
+        "rankScore": json_safe(record.rank_score),
+        "equity": json_safe(record.equity),
+        "cashBalance": json_safe(record.cash_balance),
+        "realizedPnl": json_safe(record.realized_pnl),
+        "unrealizedPnl": json_safe(record.unrealized_pnl),
+        "totalFees": json_safe(record.total_fees),
+        "totalPnl": json_safe(record.total_pnl),
+        "return7d": json_safe(record.return_7d),
+        "return30d": json_safe(record.return_30d),
+        "winRate": json_safe(record.win_rate),
+        "closedPositions": record.closed_positions,
+        "wins": record.wins,
+        "losses": record.losses,
+        "maxDrawdown": json_safe(record.max_drawdown),
+        "riskPercent": json_safe(record.risk_percent),
+        "leverage": json_safe(record.leverage),
+        "openOrders": record.open_orders,
+        "openPositions": record.open_positions,
+        "biggestWin": json_safe(record.biggest_win),
+        "biggestLoss": json_safe(record.biggest_loss),
+        "averageLeverage": json_safe(record.average_leverage),
+        "sharpe": json_safe(record.sharpe),
+        "longTrades": record.long_trades,
+        "shortTrades": record.short_trades,
+        "openNotional": json_safe(record.open_notional),
+        "openMargin": json_safe(record.open_margin),
+        "openOrderNotional": json_safe(record.open_order_notional),
+        "pendingEntryWeight": json_safe(record.pending_entry_weight),
+        "latestRunStatus": record.latest_run_status,
+        "latestPlanStatus": record.latest_plan_status,
+        "currentPlanKo": record.current_plan_ko,
+        "currentPlanEn": record.current_plan_en,
+        "agentMode": record.agent_mode,
+        "agentPhase": record.agent_phase,
+        "nextReviewAt": record.next_review_at.isoformat() if record.next_review_at else None,
+        "lastDecision": record.last_decision,
+        "lastAction": record.last_action,
+        "updatedAt": record.updated_at.isoformat() if record.updated_at else None,
+        "currentState": current_state,
+    }
+
+
+def trader_current_state_payload(
+    *,
+    open_orders: Optional[int],
+    open_positions: Optional[int],
+    latest_plan_status: Optional[str],
+    latest_run_status: Optional[str],
+    agent_phase: Optional[str],
+    last_decision: Optional[str],
+    last_action: Optional[str],
+) -> dict[str, Any]:
+    normalized_plan = normalize_state_key(latest_plan_status)
+    normalized_run = normalize_state_key(latest_run_status)
+    normalized_phase = normalize_state_key(agent_phase)
+    normalized_decision = normalize_state_key(last_decision)
+    normalized_action = normalize_state_key(last_action)
+
+    if (open_positions or 0) > 0:
+        return current_state("open_position", "status.summary.openPosition", "position", normalized_action or normalized_decision)
+    if (open_orders or 0) > 0:
+        return current_state("pending_order", "status.summary.pendingOrder", "order", normalized_action or normalized_decision)
+    if normalized_plan == "PAPER_TRADING_PENDING":
+        return current_state("qualified_setup", "status.summary.planReady", "plan", normalized_plan)
+    if normalized_run == "NO_CANDIDATE":
+        return current_state("watching", "status.summary.watching", "run", normalized_run)
+    if normalized_run in {"COMPLETED", "REVIEWED", "REVIEW"} or normalized_decision:
+        return current_state("reviewed", "status.summary.reviewed", "review", normalized_decision or normalized_run)
+    if normalized_phase in {"OPEN_POSITION", "PENDING_ORDER"}:
+        return current_state(normalized_phase.lower(), f"status.summary.{camel_state_key(normalized_phase)}", "agent", normalized_action or normalized_phase)
+    if normalized_phase in {"IDLE", "WATCHING", "MONITORING", "WATCHLIST"}:
+        return current_state("idle", "status.summary.idle", "agent", normalized_phase)
+    return current_state("watching", "status.summary.idle", "fallback", normalized_run or normalized_phase)
+
+
+def current_state(key: str, label_key: str, source: str, detail: Optional[str]) -> dict[str, Any]:
+    return {
+        "key": key,
+        "labelKey": label_key,
+        "source": source,
+        "detail": detail,
+    }
+
+
+def normalize_state_key(value: Optional[str]) -> str:
+    return str(value or "").strip().replace("-", "_").replace(" ", "_").upper()
+
+
+def camel_state_key(value: str) -> str:
+    parts = value.lower().split("_")
+    return parts[0] + "".join(part.capitalize() for part in parts[1:])
+
+
+def suppress_inactive_pending_plan_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    if summary.get("openOrders") or summary.get("openPositions"):
+        return summary
+    if summary.get("latestPlanStatus") != "PAPER_TRADING_PENDING":
+        return summary
+    latest_run_status = summary.get("latestRunStatus")
+    summary["latestPlanStatus"] = None
+    if latest_run_status:
+        summary["currentPlanKo"] = f"최근 run 상태: {latest_run_status}. 현재 활성 셋업은 없습니다."
+        summary["currentPlanEn"] = f"Latest run status: {latest_run_status}. No active setup now."
+    else:
+        summary["currentPlanKo"] = "현재 활성 paper 주문/포지션이 없습니다."
+        summary["currentPlanEn"] = "No active paper orders or positions."
+    return summary
+
+
+def refresh_leaderboard_snapshots_background(symbol: str, trader_ids: Optional[set[str]] = None) -> None:
+    refresh_key = (symbol, ",".join(sorted(trader_ids)) if trader_ids else "*")
+    if refresh_key in LEADERBOARD_REFRESHING:
+        return
+    LEADERBOARD_REFRESHING.add(refresh_key)
+    try:
+        with session_scope() as db:
+            refresh_leaderboard_snapshots(db, symbol, trader_ids)
+    finally:
+        LEADERBOARD_REFRESHING.discard(refresh_key)
+
+
+def build_league_bundle_payload(
+    db: Session,
+    clean_symbol: str,
+    *,
+    include_empty: bool = True,
+    include_related: bool = False,
+    refreshed: bool = False,
+    scheduled_refresh: bool = False,
+    missing_ids: Optional[set[str]] = None,
+) -> dict[str, Any]:
+    stmt = select(TraderLeaderboardSnapshotRecord).where(TraderLeaderboardSnapshotRecord.symbol == clean_symbol)
+    if not include_empty:
+        stmt = stmt.where(TraderLeaderboardSnapshotRecord.has_live_paper_data.is_(True))
+    snapshots = db.execute(
+        stmt.order_by(
+            desc(TraderLeaderboardSnapshotRecord.rank_score),
+            desc(TraderLeaderboardSnapshotRecord.equity),
+            TraderLeaderboardSnapshotRecord.trader_id.asc(),
+        )
+    ).scalars().all()
+    summaries = [
+        suppress_inactive_pending_plan_summary(leaderboard_snapshot_summary(record, rank))
+        for rank, record in enumerate(snapshots, start=1)
+    ]
+    updated_at_values = [record.updated_at for record in snapshots if record.updated_at]
+    return {
+        "symbol": clean_symbol,
+        "mode": "paper",
+        "paperOnly": True,
+        "source": "trader_leaderboard_snapshots",
+        "needsMigration": False,
+        "cacheHit": False,
+        "stale": False,
+        "scheduledRefresh": scheduled_refresh,
+        "missingSnapshotCount": len(missing_ids or set()),
+        "refreshed": refreshed,
+        "snapshotCount": len(summaries),
+        "lastUpdatedAt": max(updated_at_values).isoformat() if updated_at_values else None,
+        "traders": list_traders(),
+        "summaries": summaries,
+        "positions": list_filtered_records(db, PaperPositionRecord, limit=100, symbol=clean_symbol, status="open", include_payload=False) if include_related else [],
+        "orders": list_filtered_records(db, PaperOrderRecord, limit=100, symbol=clean_symbol, status="open", include_payload=False) if include_related else [],
+        "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=30, symbol=clean_symbol, include_payload=False) if include_related else [],
+        "scanner": scanner_status_payload(),
+    }
+
+
+def trader_snapshot_summary(db: Session, trader_id: str, clean_symbol: str) -> Optional[dict[str, Any]]:
+    record = db.execute(
+        select(TraderLeaderboardSnapshotRecord).where(
+            TraderLeaderboardSnapshotRecord.trader_id == trader_id,
+            TraderLeaderboardSnapshotRecord.symbol == clean_symbol,
+        )
+    ).scalar_one_or_none()
+    if record is None:
+        return None
+    return leaderboard_snapshot_summary(record, record.rank or 0)
+
+
+def build_trader_detail_payload(
+    db: Session,
+    trader_id: str,
+    clean_symbol: str,
+    trader,
+    summaries: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
+    if summaries is None:
+        summaries = [trader_summary_for_profile(db, trader, clean_symbol)]
+    active_plans = list_active_trade_plans(db, trader_id, clean_symbol, limit=5)
+    return {
+        "symbol": clean_symbol,
+        "trader": trader,
+        "summaries": summaries,
+        "positions": list_filtered_records(db, PaperPositionRecord, limit=12, symbol=clean_symbol, trader_id=trader_id, status="open", include_payload=True),
+        "closedPositions": list_filtered_records(db, PaperPositionRecord, limit=20, symbol=clean_symbol, trader_id=trader_id, status="closed", include_payload=True),
+        "orders": list_filtered_records(db, PaperOrderRecord, limit=12, symbol=clean_symbol, trader_id=trader_id, status="open", include_payload=True),
+        "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=10, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
+        "events": list_filtered_records(db, TradeEventRecord, limit=10, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
+        "tradePlans": [serialize_record_for_ui(plan, include_payload=True) for plan in active_plans],
+        "cacheHit": False,
+        "stale": False,
+    }
+
+
+def refresh_league_bundle_cache_background(symbol: str, include_empty: bool = True, include_related: bool = False) -> None:
+    clean_symbol = normalize_symbol(symbol)
+    refresh_key = (clean_symbol, include_empty, include_related)
+    if refresh_key in LEAGUE_BUNDLE_REFRESHING:
+        return
+    LEAGUE_BUNDLE_REFRESHING.add(refresh_key)
+    try:
+        with session_scope() as db:
+            known_trader_ids = {trader.id for trader in list_traders()}
+            existing_ids = {
+                trader_id
+                for trader_id in db.execute(
+                    select(TraderLeaderboardSnapshotRecord.trader_id).where(
+                        TraderLeaderboardSnapshotRecord.symbol == clean_symbol
+                    )
+                ).scalars().all()
+                if trader_id
+            }
+            missing_ids = known_trader_ids - existing_ids
+            if missing_ids:
+                refresh_leaderboard_snapshots(db, clean_symbol, missing_ids)
+            payload = build_league_bundle_payload(
+                db,
+                clean_symbol,
+                include_empty=include_empty,
+                include_related=include_related,
+                refreshed=bool(missing_ids),
+                missing_ids=missing_ids,
+            )
+            LEAGUE_BUNDLE_CACHE[refresh_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
+    finally:
+        LEAGUE_BUNDLE_REFRESHING.discard(refresh_key)
+
+
+def refresh_trader_detail_cache_background(trader_id: str, symbol: str) -> None:
+    clean_symbol = normalize_symbol(symbol)
+    refresh_key = (trader_id, clean_symbol)
+    if refresh_key in TRADER_DETAIL_REFRESHING:
+        return
+    TRADER_DETAIL_REFRESHING.add(refresh_key)
+    try:
+        trader = public_trader_profile(get_strategy(trader_id).profile)
+        with session_scope() as db:
+            if not db.execute(
+                select(TraderLeaderboardSnapshotRecord.id)
+                .where(
+                    TraderLeaderboardSnapshotRecord.trader_id == trader_id,
+                    TraderLeaderboardSnapshotRecord.symbol == clean_symbol,
+                )
+                .limit(1)
+            ).scalar_one_or_none():
+                refresh_leaderboard_snapshots(db, clean_symbol, {trader_id})
+            snapshot_summary = trader_snapshot_summary(db, trader_id, clean_symbol)
+            payload = build_trader_detail_payload(
+                db,
+                trader_id,
+                clean_symbol,
+                trader,
+                summaries=[snapshot_summary] if snapshot_summary else None,
+            )
+            TRADER_DETAIL_CACHE[refresh_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
+    finally:
+        TRADER_DETAIL_REFRESHING.discard(refresh_key)
+
+
+def warm_initial_league_cache() -> None:
+    for symbol in sorted(set(settings.auto_scanner_symbols or ["BTCUSDT"]) | {"BTCUSDT"}):
+        clean_symbol = normalize_symbol(symbol)
+        try:
+            with session_scope() as db:
+                known_trader_ids = {trader.id for trader in list_traders()}
+                existing_ids = {
+                    trader_id
+                    for trader_id in db.execute(
+                        select(TraderLeaderboardSnapshotRecord.trader_id).where(
+                            TraderLeaderboardSnapshotRecord.symbol == clean_symbol
+                        )
+                    ).scalars().all()
+                    if trader_id
+                }
+                missing_ids = known_trader_ids - existing_ids
+                if missing_ids:
+                    refresh_leaderboard_snapshots(db, clean_symbol, missing_ids)
+
+                payload = build_league_bundle_payload(
+                    db,
+                    clean_symbol,
+                    include_empty=True,
+                    include_related=False,
+                    refreshed=bool(missing_ids),
+                    missing_ids=missing_ids,
+                )
+                LEAGUE_BUNDLE_CACHE[(clean_symbol, True, False)] = (
+                    time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS,
+                    payload,
+                )
+        except Exception:
+            continue
+
+
+async def latest_engine_candle(symbol: str) -> dict:
+    candles = await binance_client().get_klines(symbol, interval="1m", limit=1)
+    if not candles:
+        raise HTTPException(status_code=502, detail="No Binance candle returned.")
+    candle = candles[-1]
+    return {
+        "open": candle.open,
+        "high": candle.high,
+        "low": candle.low,
+        "close": candle.close,
+        "timestamp": datetime.fromtimestamp(candle.openTime / 1000, tz=timezone.utc),
+    }
+
+
+def scanner_status_payload() -> dict[str, Any]:
+    return {
+        **AUTO_SCANNER_STATE,
+        "taskActive": bool(AUTO_SCANNER_TASK and not AUTO_SCANNER_TASK.done()),
+        "managementLoop": {
+            **AUTO_MANAGEMENT_STATE,
+            "taskActive": bool(AUTO_MANAGEMENT_TASK and not AUTO_MANAGEMENT_TASK.done()),
+        },
+        "paperOnly": True,
+        "privateTradingApi": False,
+    }
+
+
+async def run_scanner_once(
+    *,
+    symbols: Optional[list[str]] = None,
+    provider: Optional[str] = None,
+    locale: Optional[str] = None,
+    defer_leaderboard_refresh: bool = True,
+) -> dict[str, Any]:
+    requested_symbols = symbols or settings.auto_scanner_symbols or ["BTCUSDT"]
+    clean_symbols = [normalize_symbol(symbol) for symbol in requested_symbols]
+    requested_provider = normalize_provider(provider or settings.auto_scanner_provider or "mock")
+    requested_locale = normalize_locale(locale or settings.auto_scanner_locale or "ko")
+    started_at = datetime.now(timezone.utc)
+    results: list[dict[str, Any]] = []
+    counts = {
+        "symbols": len(clean_symbols),
+        "tradersChecked": 0,
+        "candidates": 0,
+        "aiReviews": 0,
+        "tradePlans": 0,
+        "openOrders": 0,
+        "openPositions": 0,
+        "managementReviews": 0,
+        "noCandidate": 0,
+        "activeExposure": 0,
+        "cooldowns": 0,
+        "errors": 0,
+    }
+    duration_breakdown = {
+        "snapshotMs": 0,
+        "prefilterDbMs": 0,
+        "firstStageMs": 0,
+        "runCycleMs": 0,
+        "leaderboardRefreshScheduleMs": 0,
+    }
+    symbol_breakdown: dict[str, dict[str, Any]] = {
+        symbol: {
+            "snapshotMs": 0,
+            "prefilterDbMs": 0,
+            "firstStageMs": 0,
+            "runCycleMs": 0,
+            "candidateJobs": 0,
+            "errors": 0,
+        }
+        for symbol in clean_symbols
+    }
+
+    snapshot_semaphore = asyncio.Semaphore(max(1, int(settings.auto_scanner_snapshot_concurrency or 1)))
+
+    async def snapshot_job(symbol: str) -> tuple[str, dict[str, Any], int]:
+        snapshot_started = time.perf_counter()
+        async with snapshot_semaphore:
+            snapshot = await build_market_snapshot(binance_client(), symbol)
+        return symbol, snapshot, int((time.perf_counter() - snapshot_started) * 1000)
+
+    snapshot_results = await asyncio.gather(
+        *(snapshot_job(symbol) for symbol in clean_symbols),
+        return_exceptions=True,
+    )
+    snapshots: dict[str, dict[str, Any]] = {}
+    for symbol, snapshot_result in zip(clean_symbols, snapshot_results):
+        if isinstance(snapshot_result, Exception):
+            counts["errors"] += 1
+            symbol_breakdown[symbol]["errors"] += 1
+            results.append(
+                {
+                    "traderId": "market-snapshot",
+                    "trader": "Market Snapshot",
+                    "symbol": symbol,
+                    "status": "ERROR",
+                    "error": sanitize_error_message(str(snapshot_result)),
+                }
+            )
+            continue
+        result_symbol, snapshot, snapshot_ms = snapshot_result
+        snapshots[result_symbol] = snapshot
+        duration_breakdown["snapshotMs"] += snapshot_ms
+        symbol_breakdown[result_symbol]["snapshotMs"] = snapshot_ms
+
+    candidate_jobs: list[tuple[Any, str, dict[str, Any]]] = []
+    changed_traders_by_symbol: dict[str, set[str]] = {symbol: set() for symbol in clean_symbols}
+    traders_list = list_traders()
+    trader_ids = [trader.id for trader in traders_list]
+
+    for symbol, snapshot in snapshots.items():
+        update_price_shock_context(symbol, snapshot)
+        prefilter_started = time.perf_counter()
+        with session_scope() as db:
+            exposure_map = list_active_paper_exposure_map(db, trader_ids, symbol)
+            cooldown_map = latest_ai_review_cooldown_map(db, trader_ids, symbol)
+        prefilter_ms = int((time.perf_counter() - prefilter_started) * 1000)
+        duration_breakdown["prefilterDbMs"] += prefilter_ms
+        symbol_breakdown[symbol]["prefilterDbMs"] = prefilter_ms
+
+        first_stage_started = time.perf_counter()
+        for trader in traders_list:
+            counts["tradersChecked"] += 1
+            try:
+                active_exposure = exposure_map.get(
+                    trader.id,
+                    {"openOrders": [], "openPositions": [], "hasExposure": False},
+                )
+                cooldown = None if active_exposure["hasExposure"] else cooldown_map.get(trader.id)
+
+                if cooldown:
+                    counts["cooldowns"] += 1
+                    counts["noCandidate"] += 1
+                    results.append(
+                        {
+                            "traderId": trader.id,
+                            "trader": trader.name,
+                            "symbol": symbol,
+                            "runId": None,
+                            "status": "AI_REVIEW_COOLDOWN",
+                            "candidateCreated": False,
+                            "candidateReason": f"Second-stage AI cooldown: {cooldown['remainingSeconds']}s remaining.",
+                            "setupScore": 0,
+                            "aiDecision": None,
+                            "provider": requested_provider,
+                            "openOrders": 0,
+                            "openPositions": 0,
+                            "managementReviews": 0,
+                        }
+                    )
+                    continue
+
+                if not active_exposure["hasExposure"]:
+                    candidate_probe = get_strategy(trader.id).evaluate(snapshot)
+                    if not candidate_probe.created:
+                        counts["noCandidate"] += 1
+                        results.append(
+                            {
+                                "traderId": trader.id,
+                                "trader": trader.name,
+                                "symbol": symbol,
+                                "runId": None,
+                                "status": "NO_CANDIDATE",
+                                "candidateCreated": False,
+                                "candidateReason": candidate_probe.reason,
+                                "setupScore": candidate_probe.setupScore,
+                                "aiDecision": None,
+                                "provider": requested_provider,
+                                "openOrders": 0,
+                                "openPositions": 0,
+                                "managementReviews": 0,
+                            }
+                        )
+                        continue
+                    candidate_jobs.append((trader, symbol, snapshot))
+                    symbol_breakdown[symbol]["candidateJobs"] += 1
+                else:
+                    open_orders = len(active_exposure.get("openOrders", []))
+                    open_positions = len(active_exposure.get("openPositions", []))
+                    management_reviews = 0
+                    counts["noCandidate"] += 1
+                    counts["activeExposure"] += 1
+                    counts["openOrders"] += open_orders
+                    counts["openPositions"] += open_positions
+                    counts["managementReviews"] += management_reviews
+                    results.append(
+                        {
+                            "traderId": trader.id,
+                            "trader": trader.name,
+                            "symbol": symbol,
+                            "runId": None,
+                            "status": "ACTIVE_PAPER_EXPOSURE",
+                            "candidateCreated": False,
+                            "candidateReason": "Existing paper exposure is active; dedicated management loop handles paper orders, positions, and AI reviews.",
+                            "setupScore": None,
+                            "aiDecision": None,
+                            "provider": requested_provider,
+                            "openOrders": open_orders,
+                            "openPositions": open_positions,
+                            "managementReviews": management_reviews,
+                        }
+                    )
+                    continue
+            except Exception as exc:
+                counts["errors"] += 1
+                symbol_breakdown[symbol]["errors"] += 1
+                results.append(
+                    {
+                        "traderId": trader.id,
+                        "trader": trader.name,
+                        "symbol": symbol,
+                        "status": "ERROR",
+                        "error": sanitize_error_message(str(exc)),
+                    }
+                )
+        first_stage_ms = int((time.perf_counter() - first_stage_started) * 1000)
+        duration_breakdown["firstStageMs"] += first_stage_ms
+        symbol_breakdown[symbol]["firstStageMs"] = first_stage_ms
+
+    ai_semaphore = asyncio.Semaphore(max(1, int(settings.auto_scanner_ai_concurrency or 1)))
+
+    async def candidate_run_job(trader, symbol: str, snapshot: dict[str, Any]) -> tuple[Any, str, Optional[RunCycleResponse], int, Optional[str]]:
+        run_started = time.perf_counter()
+        try:
+            async with ai_semaphore:
+                result = await run_trader_cycle(
+                    trader.id,
+                    symbol,
+                    provider_override=requested_provider,
+                    locale=requested_locale,
+                    snapshot_override=snapshot,
+                    refresh_leaderboard=False,
+                )
+            return trader, symbol, result, int((time.perf_counter() - run_started) * 1000), None
+        except Exception as exc:
+            return trader, symbol, None, int((time.perf_counter() - run_started) * 1000), sanitize_error_message(str(exc))
+
+    candidate_results = await asyncio.gather(
+        *(candidate_run_job(trader, symbol, snapshot) for trader, symbol, snapshot in candidate_jobs),
+        return_exceptions=False,
+    )
+    for trader, symbol, result, run_cycle_ms, error in candidate_results:
+        duration_breakdown["runCycleMs"] += run_cycle_ms
+        symbol_breakdown[symbol]["runCycleMs"] += run_cycle_ms
+        if error or result is None:
+            counts["errors"] += 1
+            symbol_breakdown[symbol]["errors"] += 1
+            results.append(
+                {
+                    "traderId": trader.id,
+                    "trader": trader.name,
+                    "symbol": symbol,
+                    "status": "ERROR",
+                    "candidateCreated": False,
+                    "candidateReason": error,
+                    "setupScore": None,
+                    "aiDecision": None,
+                    "provider": requested_provider,
+                    "openOrders": 0,
+                    "openPositions": 0,
+                    "managementReviews": 0,
+                }
+            )
+            continue
+
+        candidate_created = bool(result.candidate and result.candidate.created)
+        has_review = result.aiReview is not None
+        trade_plan_status = result.tradePlan.status if result.tradePlan else None
+        open_orders = len(result.paperOrders or [])
+        open_positions = len(result.paperPositions or [])
+        management_reviews = len(result.managementReviews or [])
+        if candidate_created:
+            counts["candidates"] += 1
+        else:
+            counts["noCandidate"] += 1
+        if has_review:
+            counts["aiReviews"] += 1
+        if result.recordIds and result.recordIds.get("tradePlanId"):
+            counts["tradePlans"] += 1
+        if trade_plan_status == "ACTIVE_PAPER_EXPOSURE":
+            counts["activeExposure"] += 1
+        if trade_plan_status == "AI_REVIEW_COOLDOWN":
+            counts["cooldowns"] += 1
+        counts["openOrders"] += open_orders
+        counts["openPositions"] += open_positions
+        counts["managementReviews"] += management_reviews
+        changed_traders_by_symbol.setdefault(symbol, set()).add(trader.id)
+        results.append(
+            {
+                "traderId": trader.id,
+                "trader": trader.name,
+                "symbol": symbol,
+                "runId": result.runId,
+                "status": trade_plan_status or ("CANDIDATE_READY" if candidate_created else "NO_CANDIDATE"),
+                "candidateCreated": candidate_created,
+                "candidateReason": result.candidate.reason if result.candidate else None,
+                "setupScore": result.candidate.setupScore if result.candidate else None,
+                "aiDecision": result.aiReview.decision if result.aiReview else None,
+                "provider": result.aiReview.provider if result.aiReview else requested_provider,
+                "openOrders": open_orders,
+                "openPositions": open_positions,
+                "managementReviews": management_reviews,
+            }
+        )
+
+    leaderboard_started = time.perf_counter()
+    for symbol, trader_ids_to_refresh in changed_traders_by_symbol.items():
+        if not trader_ids_to_refresh:
+            continue
+        invalidate_league_cache(symbol)
+        if defer_leaderboard_refresh:
+            schedule_thread_refresh(refresh_leaderboard_snapshots_background, symbol, trader_ids_to_refresh)
+        else:
+            try:
+                with session_scope() as db:
+                    refresh_leaderboard_snapshots(db, symbol, trader_ids_to_refresh)
+            except Exception as exc:
+                counts["errors"] += 1
+                symbol_breakdown[symbol]["errors"] += 1
+                results.append(
+                    {
+                        "traderId": "leaderboard-refresh",
+                        "trader": "Leaderboard Refresh",
+                        "symbol": symbol,
+                        "status": "ERROR",
+                        "candidateCreated": False,
+                        "candidateReason": sanitize_error_message(str(exc)),
+                        "setupScore": None,
+                        "aiDecision": None,
+                        "provider": requested_provider,
+                        "openOrders": 0,
+                        "openPositions": 0,
+                        "managementReviews": 0,
+                    }
+                )
+    duration_breakdown["leaderboardRefreshScheduleMs"] = int((time.perf_counter() - leaderboard_started) * 1000)
+
+    finished_at = datetime.now(timezone.utc)
+    payload = {
+        "status": "ok" if counts["errors"] == 0 else "partial_error",
+        "mode": "paper",
+        "paperOnly": True,
+        "symbols": clean_symbols,
+        "provider": requested_provider,
+        "locale": requested_locale,
+        "startedAt": started_at.isoformat(),
+        "finishedAt": finished_at.isoformat(),
+        "durationMs": int((finished_at - started_at).total_seconds() * 1000),
+        "durationBreakdownMs": duration_breakdown,
+        "symbolBreakdown": symbol_breakdown,
+        "counts": counts,
+        "priceShock": AUTO_SCANNER_STATE.get("priceShock", {}),
+        "results": results,
+    }
+    AUTO_SCANNER_STATE.update(
+        {
+            "cycles": int(AUTO_SCANNER_STATE.get("cycles") or 0) + 1,
+            "lastStartedAt": payload["startedAt"],
+            "lastFinishedAt": payload["finishedAt"],
+            "lastError": None if counts["errors"] == 0 else "One or more trader scans failed.",
+            "lastResult": payload,
+        }
+    )
+    return payload
+
+
+async def run_management_once(
+    *,
+    symbols: Optional[list[str]] = None,
+    provider: Optional[str] = None,
+    locale: Optional[str] = None,
+) -> dict[str, Any]:
+    requested_symbols = symbols or settings.auto_scanner_symbols or ["BTCUSDT"]
+    clean_symbols = [normalize_symbol(symbol) for symbol in requested_symbols]
+    requested_provider = normalize_provider(
+        provider or settings.position_management_provider or settings.auto_scanner_provider or "mock"
+    )
+    requested_locale = normalize_locale(locale or settings.auto_scanner_locale or "ko")
+    started_at = datetime.now(timezone.utc)
+    counts = {
+        "symbols": len(clean_symbols),
+        "tradersChecked": 0,
+        "activeExposure": 0,
+        "openOrders": 0,
+        "openPositions": 0,
+        "managementReviews": 0,
+        "errors": 0,
+    }
+    results: list[dict[str, Any]] = []
+
+    for symbol in clean_symbols:
+        active_traders: list[str] = []
+        with session_scope() as db:
+            for trader in list_traders():
+                exposure = list_active_paper_exposure(db, trader.id, symbol)
+                if exposure["hasExposure"]:
+                    active_traders.append(trader.id)
+
+        if not active_traders:
+            continue
+
+        snapshot = await build_market_snapshot(binance_client(), symbol)
+        update_price_shock_context(symbol, snapshot)
+
+        for trader_id in active_traders:
+            trader = get_strategy(trader_id).profile
+            counts["tradersChecked"] += 1
+            try:
+                with session_scope() as db:
+                    paper_result = await process_existing_paper_exposure(
+                        db,
+                        trader_id,
+                        symbol,
+                        snapshot,
+                        requested_provider,
+                        requested_locale,
+                    )
+                open_orders = len(paper_result.get("after", {}).get("openOrders", []))
+                open_positions = len(paper_result.get("after", {}).get("openPositions", []))
+                management_reviews = len(paper_result.get("managementReviews", []))
+                counts["activeExposure"] += 1
+                counts["openOrders"] += open_orders
+                counts["openPositions"] += open_positions
+                counts["managementReviews"] += management_reviews
+                results.append(
+                    {
+                        "traderId": trader_id,
+                        "trader": trader.name,
+                        "symbol": symbol,
+                        "status": "ACTIVE_PAPER_EXPOSURE",
+                        "openOrders": open_orders,
+                        "openPositions": open_positions,
+                        "managementReviews": management_reviews,
+                    }
+                )
+                if management_reviews:
+                    invalidate_league_cache(symbol, trader_id)
+            except Exception as exc:
+                counts["errors"] += 1
+                results.append(
+                    {
+                        "traderId": trader_id,
+                        "trader": trader.name,
+                        "symbol": symbol,
+                        "status": "ERROR",
+                        "error": sanitize_error_message(str(exc)),
+                    }
+                )
+        try:
+            with session_scope() as db:
+                refresh_leaderboard_snapshots(db, symbol, set(active_traders))
+        except Exception as exc:
+            counts["errors"] += 1
+            results.append(
+                {
+                    "traderId": "leaderboard-refresh",
+                    "trader": "Leaderboard Refresh",
+                    "symbol": symbol,
+                    "status": "ERROR",
+                    "error": sanitize_error_message(str(exc)),
+                }
+            )
+
+    finished_at = datetime.now(timezone.utc)
+    payload = {
+        "status": "ok" if counts["errors"] == 0 else "partial_error",
+        "mode": "paper",
+        "paperOnly": True,
+        "symbols": clean_symbols,
+        "provider": requested_provider,
+        "locale": requested_locale,
+        "startedAt": started_at.isoformat(),
+        "finishedAt": finished_at.isoformat(),
+        "durationMs": int((finished_at - started_at).total_seconds() * 1000),
+        "counts": counts,
+        "priceShock": AUTO_SCANNER_STATE.get("priceShock", {}),
+        "results": results,
+    }
+    AUTO_MANAGEMENT_STATE.update(
+        {
+            "cycles": int(AUTO_MANAGEMENT_STATE.get("cycles") or 0) + 1,
+            "lastStartedAt": payload["startedAt"],
+            "lastFinishedAt": payload["finishedAt"],
+            "lastError": None if counts["errors"] == 0 else "One or more management checks failed.",
+            "lastResult": payload,
+        }
+    )
+    return payload
+
+
+async def auto_management_loop() -> None:
+    AUTO_MANAGEMENT_STATE.update({"enabled": True, "running": True})
+    interval = min(30, max(10, int(settings.auto_scanner_interval_seconds or 60)))
+    AUTO_MANAGEMENT_STATE["intervalSeconds"] = interval
+    scan_task: Optional[asyncio.Task] = None
+    next_tick = time.monotonic()
+
+    async def management_cycle() -> None:
+        AUTO_MANAGEMENT_STATE.update(
+            {
+                "scanInProgress": True,
+                "currentScanStartedAt": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        try:
+            await asyncio.to_thread(lambda: asyncio.run(run_management_once()))
+        except Exception as exc:
+            AUTO_MANAGEMENT_STATE.update(
+                {
+                    "lastError": sanitize_error_message(str(exc)),
+                    "lastFinishedAt": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        finally:
+            AUTO_MANAGEMENT_STATE.update(
+                {
+                    "scanInProgress": False,
+                    "currentScanStartedAt": None,
+                }
+            )
+
+    try:
+        while True:
+            sleep_seconds = max(0.0, next_tick - time.monotonic())
+            AUTO_MANAGEMENT_STATE["nextTickAt"] = (
+                datetime.now(timezone.utc) + timedelta(seconds=sleep_seconds)
+            ).isoformat()
+            if sleep_seconds > 0:
+                await asyncio.sleep(sleep_seconds)
+
+            AUTO_MANAGEMENT_STATE.update(
+                {
+                    "ticks": int(AUTO_MANAGEMENT_STATE.get("ticks") or 0) + 1,
+                    "lastTickAt": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            next_tick += interval
+
+            if scan_task and not scan_task.done():
+                AUTO_MANAGEMENT_STATE.update(
+                    {
+                        "skippedTicks": int(AUTO_MANAGEMENT_STATE.get("skippedTicks") or 0) + 1,
+                        "lastSkippedAt": datetime.now(timezone.utc).isoformat(),
+                        "lastSkipReason": "previous_management_scan_still_running",
+                    }
+                )
+                continue
+
+            if scan_task and scan_task.done():
+                try:
+                    scan_task.result()
+                except Exception as exc:
+                    AUTO_MANAGEMENT_STATE["lastError"] = sanitize_error_message(str(exc))
+            scan_task = asyncio.create_task(management_cycle())
+    except asyncio.CancelledError:
+        if scan_task and not scan_task.done():
+            scan_task.cancel()
+            try:
+                await scan_task
+            except asyncio.CancelledError:
+                pass
+        AUTO_MANAGEMENT_STATE.update({"running": False})
+        raise
+
+
+async def auto_scanner_loop() -> None:
+    AUTO_SCANNER_STATE.update({"enabled": True, "running": True})
+    interval = max(15, int(settings.auto_scanner_interval_seconds or 60))
+    scan_task: Optional[asyncio.Task] = None
+    next_tick = time.monotonic()
+
+    async def scanner_cycle() -> None:
+        AUTO_SCANNER_STATE.update(
+            {
+                "scanInProgress": True,
+                "currentScanStartedAt": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        try:
+            await asyncio.to_thread(lambda: asyncio.run(run_scanner_once()))
+        except Exception as exc:
+            AUTO_SCANNER_STATE.update(
+                {
+                    "lastError": sanitize_error_message(str(exc)),
+                    "lastFinishedAt": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        finally:
+            AUTO_SCANNER_STATE.update(
+                {
+                    "scanInProgress": False,
+                    "currentScanStartedAt": None,
+                }
+            )
+
+    try:
+        while True:
+            sleep_seconds = max(0.0, next_tick - time.monotonic())
+            AUTO_SCANNER_STATE["nextTickAt"] = (
+                datetime.now(timezone.utc) + timedelta(seconds=sleep_seconds)
+            ).isoformat()
+            if sleep_seconds > 0:
+                await asyncio.sleep(sleep_seconds)
+
+            AUTO_SCANNER_STATE.update(
+                {
+                    "ticks": int(AUTO_SCANNER_STATE.get("ticks") or 0) + 1,
+                    "lastTickAt": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            next_tick += interval
+
+            if scan_task and not scan_task.done():
+                AUTO_SCANNER_STATE.update(
+                    {
+                        "skippedTicks": int(AUTO_SCANNER_STATE.get("skippedTicks") or 0) + 1,
+                        "lastSkippedAt": datetime.now(timezone.utc).isoformat(),
+                        "lastSkipReason": "previous_scan_still_running",
+                    }
+                )
+                continue
+
+            if scan_task and scan_task.done():
+                try:
+                    scan_task.result()
+                except Exception as exc:
+                    AUTO_SCANNER_STATE["lastError"] = sanitize_error_message(str(exc))
+            scan_task = asyncio.create_task(scanner_cycle())
+    except asyncio.CancelledError:
+        if scan_task and not scan_task.done():
+            scan_task.cancel()
+            try:
+                await scan_task
+            except asyncio.CancelledError:
+                pass
+        AUTO_SCANNER_STATE.update({"running": False})
+        raise
+
+
+async def run_trader_cycle(
+    trader_id: str,
+    symbol: str,
+    provider_override: Optional[str] = None,
+    locale: str = "ko",
+    snapshot_override: Optional[dict[str, Any]] = None,
+    refresh_leaderboard: bool = True,
+) -> RunCycleResponse:
+    strategy = get_strategy(trader_id)
+    clean_symbol = normalize_symbol(symbol)
+    clean_locale = normalize_locale(locale)
+    requested_provider = normalize_provider(provider_override)
+    snapshot = snapshot_override or await build_market_snapshot(binance_client(), clean_symbol)
+    with session_scope() as db:
+        paper_before_candidate = await process_existing_paper_exposure(
+            db,
+            strategy.profile.id,
+            clean_symbol,
+            snapshot,
+            requested_provider,
+            clean_locale,
+        )
+
+    if paper_before_candidate["after"]["hasExposure"]:
+        management_plan = TradePlan(
+            status="ACTIVE_PAPER_EXPOSURE",
+            symbol=clean_symbol,
+            notes=[
+                "Existing paper order or paper position is active. New candidate generation is paused for this trader and symbol.",
+            ],
+            managementNotes=[
+                "Use paper engine run-once or the future scanner loop to keep marking the active paper exposure.",
+            ],
+        )
+        no_candidate = strategy.evaluate(snapshot)
+        no_candidate.created = False
+        no_candidate.reason = "Existing paper exposure is active; run-cycle is in management mode."
+        no_candidate.entries = []
+        no_candidate.takeProfits = []
+        no_candidate.stopLoss = None
+        no_candidate.riskPercent = None
+        no_candidate.side = None
+        no_candidate.setupType = None
+        review = None
+        plan = management_plan
+        with session_scope() as db:
+            snapshot_record = create_market_snapshot(db, clean_symbol, snapshot)
+            run_record = create_trader_run_log(
+                db,
+                symbol=clean_symbol,
+                trader_id=strategy.profile.id,
+                provider=requested_provider,
+                status="active_paper_exposure",
+                payload={"requestedProvider": requested_provider, "locale": clean_locale, "paper": paper_before_candidate},
+            )
+            candidate_record = create_candidate_trade(db, run_record.id, clean_symbol, strategy.profile.id, no_candidate)
+            update_trader_run_log(
+                db,
+                run_record,
+                status="active_paper_exposure",
+                payload={
+                    "trader": strategy.profile.name,
+                    "symbol": clean_symbol,
+                    "candidate": no_candidate.model_dump(),
+                    "aiReview": None,
+                    "tradePlan": plan.model_dump(),
+                    "paper": paper_before_candidate,
+                },
+                market_snapshot_id=snapshot_record.id,
+                candidate_trade_id=candidate_record.id,
+            )
+            record_ids = {
+                "marketSnapshotId": snapshot_record.id,
+                "runId": run_record.id,
+                "candidateTradeId": candidate_record.id,
+                "aiReviewId": None,
+                "tradePlanId": None,
+                "paperOrderIds": [order["id"] for order in paper_before_candidate["after"]["openOrders"]],
+                "paperPositionIds": [position["id"] for position in paper_before_candidate["after"]["openPositions"]],
+                "positionManagementReviewIds": [
+                    review["id"] for review in paper_before_candidate.get("managementReviews", [])
+                ],
+            }
+            if refresh_leaderboard:
+                refresh_trader_leaderboard_snapshot(db, strategy.profile.id, clean_symbol)
+        return RunCycleResponse(
+            runId=record_ids["runId"],
+            persisted=True,
+            recordIds=record_ids,
+            trader=strategy.profile.name,
+            traderId=strategy.profile.id,
+            symbol=clean_symbol,
+            marketSnapshot=snapshot,
+            candidate=no_candidate,
+            aiReview=review,
+            tradePlan=plan,
+            paper=paper_before_candidate,
+            paperOrders=paper_before_candidate["after"]["openOrders"],
+            paperOrder=paper_before_candidate["after"]["openOrders"][0] if paper_before_candidate["after"]["openOrders"] else None,
+            paperPositions=paper_before_candidate["after"]["openPositions"],
+            paperPosition=paper_before_candidate["after"]["openPositions"][0] if paper_before_candidate["after"]["openPositions"] else None,
+            tradeEvents=paper_before_candidate["engine"]["events"],
+            equitySnapshot=paper_before_candidate["engine"]["equitySnapshot"],
+            managementReviews=paper_before_candidate.get("managementReviews", []),
+        )
+
+    with session_scope() as db:
+        cooldown = latest_ai_review_cooldown(db, strategy.profile.id, clean_symbol)
+
+    if cooldown:
+        remaining = cooldown["remainingSeconds"]
+        reason = (
+            f"Second-stage AI returned {cooldown['decision']}. "
+            f"First-stage scanning is paused for {remaining} more seconds."
+        )
+        no_candidate = TradeCandidate(
+            created=False,
+            reason=reason,
+            setupScore=0,
+            notes=[
+                "AI rejection cooldown prevents repeated first-stage scans on the same trader/symbol.",
+            ],
+        )
+        plan = TradePlan(
+            status="AI_REVIEW_COOLDOWN",
+            symbol=clean_symbol,
+            notes=[reason],
+            managementNotes=[
+                "Existing paper exposure management still runs; only new candidate generation is paused.",
+            ],
+        )
+        with session_scope() as db:
+            snapshot_record = create_market_snapshot(db, clean_symbol, snapshot)
+            run_record = create_trader_run_log(
+                db,
+                symbol=clean_symbol,
+                trader_id=strategy.profile.id,
+                provider=requested_provider,
+                status="ai_review_cooldown",
+                payload={"requestedProvider": requested_provider, "locale": clean_locale, "cooldown": cooldown},
+            )
+            candidate_record = create_candidate_trade(db, run_record.id, clean_symbol, strategy.profile.id, no_candidate)
+            update_trader_run_log(
+                db,
+                run_record,
+                status="ai_review_cooldown",
+                payload={
+                    "trader": strategy.profile.name,
+                    "symbol": clean_symbol,
+                    "candidate": no_candidate.model_dump(),
+                    "aiReview": None,
+                    "tradePlan": plan.model_dump(),
+                    "paper": paper_before_candidate,
+                    "cooldown": cooldown,
+                },
+                market_snapshot_id=snapshot_record.id,
+                candidate_trade_id=candidate_record.id,
+            )
+            record_ids = {
+                "marketSnapshotId": snapshot_record.id,
+                "runId": run_record.id,
+                "candidateTradeId": candidate_record.id,
+                "aiReviewId": None,
+                "tradePlanId": None,
+                "paperOrderIds": [],
+                "paperPositionIds": [],
+                "positionManagementReviewIds": [
+                    review["id"] for review in paper_before_candidate.get("managementReviews", [])
+                ],
+            }
+            if refresh_leaderboard:
+                refresh_trader_leaderboard_snapshot(db, strategy.profile.id, clean_symbol)
+        return RunCycleResponse(
+            runId=record_ids["runId"],
+            persisted=True,
+            recordIds=record_ids,
+            trader=strategy.profile.name,
+            traderId=strategy.profile.id,
+            symbol=clean_symbol,
+            marketSnapshot=snapshot,
+            candidate=no_candidate,
+            aiReview=None,
+            tradePlan=plan,
+            paper=paper_before_candidate,
+            paperOrders=[],
+            paperOrder=None,
+            paperPositions=[],
+            paperPosition=None,
+            tradeEvents=paper_before_candidate["engine"]["events"],
+            equitySnapshot=paper_before_candidate["engine"]["equitySnapshot"],
+            managementReviews=paper_before_candidate.get("managementReviews", []),
+        )
+
+    candidate = strategy.evaluate(snapshot)
+    review = None
+    plan = trade_plan_from_review(clean_symbol, candidate, type("Review", (), {"decision": "NEEDS_MORE_DATA", "adjustments": [], "counterThesis": "No review"})())
+    paper_result: dict[str, Any] = paper_before_candidate
+
+    with session_scope() as db:
+        snapshot_record = create_market_snapshot(db, clean_symbol, snapshot)
+        run_record = create_trader_run_log(
+            db,
+            symbol=clean_symbol,
+            trader_id=strategy.profile.id,
+            provider=requested_provider,
+            payload={"requestedProvider": requested_provider, "locale": clean_locale},
+        )
+        candidate_record = create_candidate_trade(db, run_record.id, clean_symbol, strategy.profile.id, candidate)
+        record_ids = {
+            "marketSnapshotId": snapshot_record.id,
+            "runId": run_record.id,
+            "candidateTradeId": candidate_record.id,
+            "aiReviewId": None,
+            "tradePlanId": None,
+            "paperOrderIds": [],
+        }
+
+    status = "no_candidate"
+    error_message = None
+    review_record = None
+    plan_record = None
+    created_paper_orders: list[dict] = []
+    try:
+        try:
+            if candidate.created:
+                with session_scope() as db:
+                    review_payload = TradeReviewPayload(
+                        trader=strategy.profile,
+                        symbol=clean_symbol,
+                        marketSnapshot=snapshot,
+                        candidate=candidate,
+                        locale=clean_locale,
+                        **build_trade_review_context(db, strategy.profile.id, clean_symbol),
+                    )
+                    review = await run_review_with_logging(db, review_payload, requested_provider)
+                    review_record = create_ai_review(db, record_ids["runId"], clean_symbol, strategy.profile.id, review)
+                    plan = trade_plan_from_review(clean_symbol, candidate, review)
+                    if review.decision in {"APPROVE", "ADJUST_AND_APPROVE"}:
+                        plan_record = create_trade_plan(db, record_ids["runId"], clean_symbol, strategy.profile.id, plan)
+                        paper_order_result = create_paper_orders_from_plan(
+                            db,
+                            trader_id=strategy.profile.id,
+                            symbol=clean_symbol,
+                            run_id=record_ids["runId"],
+                            trade_plan_id=plan_record.id,
+                            candidate=candidate,
+                            plan=plan,
+                            settings=settings,
+                            review=review,
+                        )
+                        created_paper_orders = paper_order_result.get("created", [])
+                        paper_result = {
+                            **paper_result,
+                            "ordersCreated": paper_order_result,
+                            "after": list_active_paper_exposure(db, strategy.profile.id, clean_symbol),
+                        }
+                    record_ids["aiReviewId"] = review_record.id
+                    record_ids["tradePlanId"] = plan_record.id if plan_record else None
+                    record_ids["paperOrderIds"] = [order["id"] for order in created_paper_orders]
+                status = "completed"
+        except Exception as exc:
+            error_message = sanitize_error_message(str(exc))
+            status = "error"
+            raise
+        finally:
+            with session_scope() as db:
+                run_record = db.get(TraderRunLogRecord, record_ids["runId"])
+                update_trader_run_log(
+                    db,
+                    run_record,
+                    status=status,
+                    payload={
+                        "trader": strategy.profile.name,
+                        "symbol": clean_symbol,
+                        "candidate": candidate.model_dump(),
+                        "aiReview": review.model_dump() if review else None,
+                        "tradePlan": plan.model_dump() if plan else None,
+                        "paper": paper_result,
+                        "managementReviews": paper_result.get("managementReviews", []),
+                    },
+                    error_message=error_message,
+                    market_snapshot_id=record_ids["marketSnapshotId"],
+                    candidate_trade_id=record_ids["candidateTradeId"],
+                    ai_review_id=record_ids["aiReviewId"],
+                    trade_plan_id=record_ids["tradePlanId"],
+                )
+            try:
+                with session_scope() as db:
+                    if refresh_leaderboard:
+                        refresh_trader_leaderboard_snapshot(db, strategy.profile.id, clean_symbol)
+            except Exception:
+                invalidate_league_cache(clean_symbol, strategy.profile.id)
+    except Exception:
+        raise
+
+    return RunCycleResponse(
+        runId=record_ids["runId"],
+        persisted=True,
+        recordIds=record_ids,
+        trader=strategy.profile.name,
+        traderId=strategy.profile.id,
+        symbol=clean_symbol,
+        marketSnapshot=snapshot,
+        candidate=candidate,
+        aiReview=review,
+        tradePlan=plan,
+        paper=paper_result,
+        paperOrders=paper_result.get("after", {}).get("openOrders", []),
+        paperOrder=paper_result.get("after", {}).get("openOrders", [None])[0] if paper_result.get("after", {}).get("openOrders") else None,
+        paperPositions=paper_result.get("after", {}).get("openPositions", []),
+        paperPosition=paper_result.get("after", {}).get("openPositions", [None])[0] if paper_result.get("after", {}).get("openPositions") else None,
+        tradeEvents=paper_result.get("engine", {}).get("events", []),
+        equitySnapshot=paper_result.get("engine", {}).get("equitySnapshot"),
+        managementReviews=paper_result.get("managementReviews", []),
+    )
+
+
+@app.get("/health")
+async def health() -> Dict[str, str]:
+    return {"status": "ok", "service": "ai-trader-league-api", "mode": settings.app_env}
+
+
+@app.get("/api/db/status")
+async def database_status() -> Dict[str, Any]:
+    return db_status()
+
+
+@app.get("/api/ops/storage-policy")
+async def storage_policy() -> Dict[str, Any]:
+    database = db_status()
+    return {
+        "status": "ok",
+        "mode": "paper",
+        "paperOnly": True,
+        "privateTradingApi": False,
+        "database": {
+            "dialect": database["dialect"],
+            "databaseUrl": database["databaseUrl"],
+            "remoteDatabaseBlockedInLocal": database.get("remoteDatabaseBlockedInLocal", False),
+        },
+        "policies": {
+            "marketSnapshots": {
+                "mode": "compact",
+                "rawJson": False,
+                "storesCandles": False,
+                "storesLatestCandle": False,
+                "defaultRestEndpointWrite": False,
+            },
+            "traderRunLogs": {
+                "mode": "compact",
+                "rawJson": False,
+                "storesFullMarketSnapshot": False,
+                "storesFullPaperState": False,
+            },
+            "hotMarketData": {
+                "mode": "redis_cache_with_memory_fallback" if settings.redis_url and settings.redis_market_cache_enabled else "memory_cache",
+                "databasePersistence": False,
+                "remoteRedisRequired": False,
+                "redisConfigured": bool(settings.redis_url),
+            },
+        },
+    }
+
+
+@app.get("/api/market/cache/status")
+async def market_cache_status() -> Dict[str, Any]:
+    now = time.monotonic()
+    active_kline_keys = [
+        {"symbol": key[0], "interval": key[1], "limit": key[2], "ttlSeconds": max(0, int(expires_at - now))}
+        for key, (expires_at, _) in MARKET_KLINE_CACHE.items()
+    ]
+    runtime = market_cache_runtime()
+    persistence = "redis_ttl_with_memory_fallback" if runtime["redisConfigured"] and runtime["redisMarketCacheEnabled"] else "memory_only"
+    return {
+        "status": "ok",
+        "hotMarketData": {
+            "source": "binance_public_rest",
+            "persistence": persistence,
+            "databasePersistence": False,
+            "remoteRedisRequired": False,
+            "redisConfigured": runtime["redisConfigured"],
+            "redisAvailable": runtime["redisAvailable"],
+        },
+        "caches": {
+            "klines": {
+                "entries": len(MARKET_KLINE_CACHE),
+                "maxEntries": 80,
+                "items": active_kline_keys,
+            },
+            "derivatives": {"entries": runtime["memoryDerivativeEntries"]},
+            "series": {"entries": runtime["memorySeriesEntries"]},
+            "leagueBundle": {
+                "entries": len(LEAGUE_BUNDLE_CACHE),
+                "ttlSeconds": LEAGUE_BUNDLE_CACHE_TTL_SECONDS,
+            },
+            "traderDetail": {
+                "entries": len(TRADER_DETAIL_CACHE),
+                "ttlSeconds": LEAGUE_BUNDLE_CACHE_TTL_SECONDS,
+            },
+        },
+    }
+
+
+@app.get("/api/binance/test")
+async def binance_test() -> Dict[str, Any]:
+    start = time.perf_counter()
+    try:
+        result = await binance_client().test_public_data()
+        with session_scope() as db:
+            create_api_call_log(db, "/api/binance/test", "GET", "ok", latency_ms=int((time.perf_counter() - start) * 1000), payload={"binanceReachable": result.get("binanceReachable")})
+        return result
+    except Exception as exc:
+        with session_scope() as db:
+            create_api_call_log(db, "/api/binance/test", "GET", "error", latency_ms=int((time.perf_counter() - start) * 1000), error_message=sanitize_error_message(str(exc)))
+        raise
+
+
+@app.get("/api/binance/klines")
+async def klines(
+    symbol: str = Query("BTCUSDT"),
+    interval: str = Query("1m"),
+    limit: int = Query(20, ge=1, le=500),
+):
+    clean_symbol = normalize_symbol(symbol)
+    if interval not in ALLOWED_INTERVALS:
+        raise HTTPException(status_code=400, detail="Unsupported interval.")
+    try:
+        candles = await cached_klines(binance_client(), clean_symbol, interval, limit)
+        payload = {"symbol": clean_symbol, "interval": interval, "count": len(candles), "candles": candles}
+        return payload
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Binance request failed: {exc}") from exc
+
+
+@app.get("/api/binance/open-interest")
+async def open_interest(symbol: str = Query("BTCUSDT")):
+    try:
+        return await binance_client().get_open_interest(normalize_symbol(symbol))
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Binance request failed: {exc}") from exc
+
+
+@app.get("/api/binance/market-snapshot")
+async def market_snapshot(symbol: str = Query("BTCUSDT"), persist: bool = Query(False)):
+    try:
+        clean_symbol = normalize_symbol(symbol)
+        snapshot = await build_market_snapshot(binance_client(), clean_symbol)
+        if persist:
+            with session_scope() as db:
+                create_market_snapshot(db, clean_symbol, snapshot)
+        return snapshot
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Binance request failed: {exc}") from exc
+
+
+@app.get("/api/traders")
+async def traders():
+    return {"traders": list_traders()}
+
+
+@app.get("/api/traders/{trader_id}")
+async def trader_detail(trader_id: str):
+    try:
+        return public_trader_profile(get_strategy(trader_id).profile)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Trader not found.") from exc
+
+
+@app.get("/api/league/leaderboard")
+async def league_leaderboard(symbol: str = Query("BTCUSDT"), db: Session = Depends(get_db)):
+    clean_symbol = normalize_symbol(symbol)
+    return {
+        "symbol": clean_symbol,
+        "traders": list_traders(),
+        "summaries": trader_summary_payload(db, clean_symbol),
+        "positions": list_filtered_records(db, PaperPositionRecord, limit=100, symbol=clean_symbol, status="open", include_payload=True),
+        "orders": list_filtered_records(db, PaperOrderRecord, limit=100, symbol=clean_symbol, status="open", include_payload=True),
+        "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=30, symbol=clean_symbol, include_payload=True),
+        "scanner": scanner_status_payload(),
+    }
+
+
+@app.get("/api/league/leaderboard-fast")
+async def league_leaderboard_fast(
+    symbol: str = Query("BTCUSDT"),
+    include_empty: bool = Query(True),
+    include_related: bool = Query(False, alias="includeRelated"),
+    refresh: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    clean_symbol = normalize_symbol(symbol)
+    init_db()
+    cache_key = (clean_symbol, include_empty, include_related)
+    cached = LEAGUE_BUNDLE_CACHE.get(cache_key)
+    now = time.monotonic()
+    cache_was_stale = bool(cached and cached[0] <= now)
+    if not refresh and cached:
+        is_fresh = cached[0] > now
+        if is_fresh:
+            return {**cached[1], "cacheHit": True, "stale": False, "scheduledRefresh": False}
+        schedule_thread_refresh(refresh_league_bundle_cache_background, clean_symbol, include_empty, include_related)
+    missing_ids: set[str] = set()
+    try:
+        known_trader_ids = {trader.id for trader in list_traders()}
+        existing_ids = {
+            trader_id
+            for trader_id in db.execute(
+                select(TraderLeaderboardSnapshotRecord.trader_id).where(
+                    TraderLeaderboardSnapshotRecord.symbol == clean_symbol
+                )
+            ).scalars().all()
+            if trader_id
+        }
+        missing_ids = known_trader_ids - existing_ids
+        if refresh:
+            refresh_leaderboard_snapshots(db, clean_symbol, None if refresh else missing_ids)
+            db.commit()
+        elif missing_ids:
+            schedule_thread_refresh(refresh_league_bundle_cache_background, clean_symbol, include_empty, include_related)
+
+        payload = build_league_bundle_payload(
+            db,
+            clean_symbol,
+            include_empty=include_empty,
+            include_related=include_related,
+            refreshed=refresh,
+            scheduled_refresh=bool((missing_ids or cache_was_stale) and not refresh),
+            missing_ids=missing_ids,
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        summaries = compute_trader_summary_payload(db, clean_symbol)
+        if not include_empty:
+            summaries = [summary for summary in summaries if summary.get("hasLivePaperData")]
+        payload = {
+            "symbol": clean_symbol,
+            "mode": "paper",
+            "paperOnly": True,
+            "source": "computed_fallback",
+            "needsMigration": True,
+            "cacheHit": False,
+            "stale": False,
+            "scheduledRefresh": False,
+            "missingSnapshotCount": len(missing_ids),
+            "refreshed": False,
+            "snapshotCount": len(summaries),
+            "lastUpdatedAt": None,
+            "traders": list_traders(),
+            "summaries": summaries,
+            "positions": list_filtered_records(db, PaperPositionRecord, limit=100, symbol=clean_symbol, status="open", include_payload=False) if include_related else [],
+            "orders": list_filtered_records(db, PaperOrderRecord, limit=100, symbol=clean_symbol, status="open", include_payload=False) if include_related else [],
+            "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=30, symbol=clean_symbol, include_payload=False) if include_related else [],
+            "scanner": scanner_status_payload(),
+        }
+    if not refresh and not missing_ids and not payload.get("needsMigration"):
+        LEAGUE_BUNDLE_CACHE[cache_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
+    return payload
+
+
+@app.post("/api/league/leaderboard-snapshots/refresh")
+async def refresh_leaderboard_snapshots_api(
+    symbol: str = Query("BTCUSDT"),
+    trader_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    clean_symbol = normalize_symbol(symbol)
+    init_db()
+    trader_ids = None
+    if trader_id:
+        try:
+            get_strategy(trader_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Trader not found.") from exc
+        trader_ids = {trader_id}
+    records = refresh_leaderboard_snapshots(db, clean_symbol, trader_ids)
+    db.commit()
+    records = sorted(records, key=lambda record: (-record.rank_score, -record.equity, record.trader_id or ""))
+    return {
+        "symbol": clean_symbol,
+        "mode": "paper",
+        "paperOnly": True,
+        "refreshed": len(records),
+        "summaries": [leaderboard_snapshot_summary(record, rank) for rank, record in enumerate(records, start=1)],
+    }
+
+
+@app.get("/api/league/traders/{trader_id}")
+async def league_trader_detail(
+    trader_id: str,
+    symbol: str = Query("BTCUSDT"),
+    refresh: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    try:
+        trader = public_trader_profile(get_strategy(trader_id).profile)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Trader not found.") from exc
+    clean_symbol = normalize_symbol(symbol)
+    cache_key = (trader_id, clean_symbol)
+    cached = TRADER_DETAIL_CACHE.get(cache_key)
+    now = time.monotonic()
+    cache_was_stale = bool(cached and cached[0] <= now)
+    if cached and not refresh:
+        is_fresh = cached[0] > now
+        if is_fresh:
+            return {**cached[1], "cacheHit": True, "stale": False, "scheduledRefresh": False}
+        schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol)
+    if refresh:
+        refresh_trader_leaderboard_snapshot(db, trader_id, clean_symbol)
+        db.commit()
+    snapshot_summary = trader_snapshot_summary(db, trader_id, clean_symbol)
+    payload = build_trader_detail_payload(
+        db,
+        trader_id,
+        clean_symbol,
+        trader,
+        summaries=[snapshot_summary] if snapshot_summary else None,
+    )
+    if not any(summary.get("traderId") == trader_id for summary in payload["summaries"]):
+        schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol)
+    payload["scheduledRefresh"] = bool(cache_was_stale and not refresh)
+    TRADER_DETAIL_CACHE[cache_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
+    return payload
+
+
+@app.post("/api/traders/{trader_id}/run-cycle")
+async def trader_run_cycle(trader_id: str, request: RunCycleRequest, provider: Optional[str] = Query(None)):
+    try:
+        return await run_trader_cycle(trader_id, request.symbol, provider_override=provider, locale=request.locale)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Trader not found.") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Binance request failed: {exc}") from exc
+
+
+@app.post("/api/demo/run-all-traders")
+async def run_all_traders(request: RunCycleRequest):
+    results = []
+    for trader in list_traders():
+        results.append(await run_trader_cycle(trader.id, request.symbol, provider_override="mock", locale=request.locale))
+    return {"symbol": normalize_symbol(request.symbol), "provider": "mock", "results": results}
+
+
+@app.get("/api/ai/providers")
+async def ai_providers():
+    return {
+        "selectedProvider": settings.ai_provider,
+        "providers": provider_status(settings),
+        "fallbackToMock": settings.ai_missing_key_fallback_to_mock,
+        "envFileLoaded": settings.env_file_loaded,
+    }
+
+
+@app.get("/api/scanner/status")
+async def scanner_status():
+    return scanner_status_payload()
+
+
+@app.post("/api/scanner/run-once")
+async def scanner_run_once(request: ScannerRunRequest):
+    clean_symbol = normalize_symbol(request.symbol)
+    return await run_scanner_once(
+        symbols=[clean_symbol],
+        provider=request.provider or settings.auto_scanner_provider,
+        locale=request.locale,
+    )
+
+
+@app.post("/api/ai/review-demo")
+async def ai_review_demo(request: RunCycleRequest, provider: Optional[str] = Query(None)):
+    strategy = get_strategy("channel-rider")
+    clean_symbol = normalize_symbol(request.symbol)
+    requested_provider = normalize_provider(provider)
+    snapshot = await build_market_snapshot(binance_client(), clean_symbol)
+    candidate = strategy.evaluate(snapshot)
+    if not candidate.created:
+        price = float(snapshot["price"])
+        entries = [
+            EntryPlan(price=round_price(price * 0.998), weight=0.55, reason="Synthetic demo pullback entry"),
+            EntryPlan(price=round_price(price), weight=0.45, reason="Synthetic demo confirmation entry"),
+        ]
+        stop = round_price(price * 0.99)
+        take_profits = [
+            TakeProfitPlan(price=round_price(price * 1.015), weight=0.5, reason="Synthetic 1.5% target"),
+            TakeProfitPlan(price=round_price(price * 1.025), weight=0.5, reason="Synthetic 2.5% target"),
+        ]
+        risk_reward = estimate_risk_reward("LONG", entries, stop, take_profits)
+        candidate.created = True
+        candidate.side = "LONG"
+        candidate.setupType = "DEMO_REVIEW_SYNTHETIC_CANDIDATE"
+        candidate.setupScore = max(candidate.setupScore, 68)
+        candidate.reason = None
+        candidate.entries = entries
+        candidate.stopLoss = stop
+        candidate.takeProfits = take_profits
+        candidate.riskPercent = 0.5
+        candidate.orderIntent = default_order_intent("DEMO_LIMIT_REVIEW")
+        candidate.leveragePlan = default_leverage_plan(
+            suggested=5,
+            maximum=6,
+            reason="Synthetic review demo follows the service-wide 5-10x futures paper range.",
+        )
+        candidate.riskPlan = default_risk_plan(
+            risk_percent=0.5,
+            risk_reward=risk_reward,
+            sizing_note="Synthetic candidate for provider integration test only.",
+        )
+        candidate.earlyExitRules = ["Exit early if the synthetic support level fails."]
+        candidate.invalidation = "Synthetic demo invalidates below stop loss."
+        candidate.notes = ["Synthetic candidate created only to test AI provider review flow."]
+    with session_scope() as db:
+        snapshot_record = create_market_snapshot(db, clean_symbol, snapshot)
+        run_record = create_trader_run_log(
+            db,
+            symbol=clean_symbol,
+            trader_id=strategy.profile.id,
+            provider=requested_provider,
+            payload={"demo": "ai_review", "requestedProvider": requested_provider, "locale": normalize_locale(request.locale)},
+        )
+        candidate_record = create_candidate_trade(db, run_record.id, clean_symbol, strategy.profile.id, candidate)
+        run_id = run_record.id
+        snapshot_id = snapshot_record.id
+        candidate_id = candidate_record.id
+
+    with session_scope() as db:
+        review_payload = TradeReviewPayload(
+            trader=strategy.profile,
+            symbol=clean_symbol,
+            marketSnapshot=snapshot,
+            candidate=candidate,
+            locale=normalize_locale(request.locale),
+            **build_trade_review_context(db, strategy.profile.id, clean_symbol),
+        )
+        review = await run_review_with_logging(db, review_payload, requested_provider)
+        review_record = create_ai_review(db, run_id, clean_symbol, strategy.profile.id, review)
+        plan = trade_plan_from_review(clean_symbol, candidate, review)
+        plan_record = None
+        if review.decision in {"APPROVE", "ADJUST_AND_APPROVE"}:
+            plan_record = create_trade_plan(db, run_id, clean_symbol, strategy.profile.id, plan)
+        plan_id = plan_record.id if plan_record else None
+
+    with session_scope() as db:
+        run_record = db.get(TraderRunLogRecord, run_id)
+        update_trader_run_log(
+            db,
+            run_record,
+            status="completed",
+            payload={"candidate": candidate.model_dump(), "aiReview": review.model_dump(), "tradePlan": plan.model_dump()},
+            market_snapshot_id=snapshot_id,
+            candidate_trade_id=candidate_id,
+            ai_review_id=review_record.id,
+            trade_plan_id=plan_id,
+        )
+        refresh_trader_leaderboard_snapshot(db, strategy.profile.id, clean_symbol)
+    return {
+        "runId": run_id,
+        "persisted": True,
+        "recordIds": {
+            "marketSnapshotId": snapshot_id,
+            "runId": run_id,
+            "candidateTradeId": candidate_id,
+            "aiReviewId": review_record.id,
+            "tradePlanId": plan_id,
+        },
+        "trader": strategy.profile.name,
+        "symbol": clean_symbol,
+        "candidate": candidate,
+        "aiReview": review,
+        "tradePlan": plan,
+    }
+
+
+@app.get("/api/runs")
+async def runs(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
+    return {"runs": list_records_slim(db, TraderRunLogRecord, limit)}
+
+
+@app.get("/api/runs/{run_id}")
+async def run_detail(run_id: int, db: Session = Depends(get_db)):
+    run = get_record(db, TraderRunLogRecord, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found.")
+    return run
+
+
+@app.get("/api/market-snapshots")
+async def market_snapshots(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
+    return {"marketSnapshots": list_records_slim(db, MarketSnapshotRecord, limit)}
+
+
+@app.get("/api/candidate-trades")
+async def candidate_trades(
+    limit: int = Query(20, ge=1, le=100),
+    symbol: Optional[str] = Query(None),
+    trader_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    return {"candidateTrades": list_filtered_records(db, CandidateTradeRecord, limit=limit, symbol=symbol, trader_id=trader_id, status=status)}
+
+
+@app.get("/api/trade-plans")
+async def trade_plans(
+    limit: int = Query(20, ge=1, le=100),
+    symbol: Optional[str] = Query(None),
+    trader_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    return {"tradePlans": list_filtered_records(db, TradePlanRecord, limit=limit, symbol=symbol, trader_id=trader_id, status=status, include_payload=True)}
+
+
+@app.get("/api/ai/reviews")
+async def ai_reviews(
+    limit: int = Query(20, ge=1, le=100),
+    symbol: Optional[str] = Query(None),
+    trader_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    return {"aiReviews": list_filtered_records(db, AIReviewRecord, limit=limit, symbol=symbol, trader_id=trader_id, status=status)}
+
+
+@app.get("/api/provider-calls")
+async def provider_calls(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
+    return {"providerCalls": list_records_slim(db, ProviderCallLogRecord, limit)}
+
+
+@app.get("/api/api-calls")
+async def api_calls(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
+    return {"apiCalls": list_records_slim(db, APICallLogRecord, limit)}
+
+
+@app.get("/api/paper/trader-states")
+@app.get("/api/trader-states")
+async def paper_trader_states(
+    limit: int = Query(20, ge=1, le=100),
+    symbol: Optional[str] = Query(None),
+    include_empty: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    clean_symbol = normalize_symbol(symbol) if symbol else None
+    profiles = {trader.id: trader.name for trader in list_traders()}
+    state_records = db.execute(
+        select(TraderStateRecord).order_by(desc(TraderStateRecord.updated_at), desc(TraderStateRecord.id)).limit(max(1, min(limit, 100)))
+    ).scalars().all()
+    states = []
+    for state_record in state_records:
+        trader_id = state_record.trader_id or ""
+        if not include_empty and not has_meaningful_paper_state(db, trader_id, clean_symbol, state_record):
+            continue
+        state = serialize_record_slim(state_record)
+        state["traderName"] = profiles.get(trader_id, trader_id)
+        state["mode"] = "paper"
+        state["cash"] = state.get("cashBalance")
+        agent_state = db.execute(
+            select(TraderAgentStateRecord).where(
+                TraderAgentStateRecord.trader_id == trader_id,
+                *( [TraderAgentStateRecord.symbol == clean_symbol] if clean_symbol else [] ),
+            ).order_by(desc(TraderAgentStateRecord.updated_at), desc(TraderAgentStateRecord.id)).limit(1)
+        ).scalar_one_or_none()
+        if agent_state:
+            state["agentState"] = serialize_record_slim(agent_state)
+        state["openPositions"] = db.scalar(
+            select(func.count()).select_from(PaperPositionRecord).where(
+                PaperPositionRecord.trader_id == trader_id,
+                *( [PaperPositionRecord.symbol == clean_symbol] if clean_symbol else [] ),
+                PaperPositionRecord.status == "open",
+            )
+        )
+        state["openOrders"] = db.scalar(
+            select(func.count()).select_from(PaperOrderRecord).where(
+                PaperOrderRecord.trader_id == trader_id,
+                *( [PaperOrderRecord.symbol == clean_symbol] if clean_symbol else [] ),
+                PaperOrderRecord.status == "open",
+            )
+        )
+        states.append(state)
+    return {"states": states}
+
+
+@app.get("/api/paper/trader-summary")
+async def paper_trader_summary(symbol: str = Query("BTCUSDT"), db: Session = Depends(get_db)):
+    clean_symbol = normalize_symbol(symbol)
+    return {"symbol": clean_symbol, "summaries": trader_summary_payload(db, clean_symbol)}
+
+
+@app.get("/api/paper/orders")
+@app.get("/api/paper-trading/orders")
+async def paper_orders(
+    limit: int = Query(20, ge=1, le=100),
+    symbol: Optional[str] = Query(None),
+    trader_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    return {"orders": list_filtered_records(db, PaperOrderRecord, limit=limit, symbol=symbol, trader_id=trader_id, status=status, include_payload=True)}
+
+
+@app.get("/api/paper/positions")
+@app.get("/api/paper-trading/positions")
+async def paper_positions(
+    limit: int = Query(20, ge=1, le=100),
+    symbol: Optional[str] = Query(None),
+    trader_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    return {"positions": list_filtered_records(db, PaperPositionRecord, limit=limit, symbol=symbol, trader_id=trader_id, status=status, include_payload=True)}
+
+
+@app.get("/api/paper/positions/active")
+async def active_paper_positions(
+    limit: int = Query(20, ge=1, le=100),
+    symbol: Optional[str] = Query(None),
+    trader_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    return {"positions": list_filtered_records(db, PaperPositionRecord, limit=limit, symbol=symbol, trader_id=trader_id, status="open", include_payload=True)}
+
+
+@app.get("/api/paper/events")
+@app.get("/api/paper-trading/events")
+@app.get("/api/trade-events")
+async def paper_events(
+    limit: int = Query(20, ge=1, le=100),
+    symbol: Optional[str] = Query(None),
+    trader_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    return {"events": list_filtered_records(db, TradeEventRecord, limit=limit, symbol=symbol, trader_id=trader_id)}
+
+
+@app.get("/api/paper/management-reviews")
+@app.get("/api/position-management/reviews")
+async def position_management_reviews(
+    limit: int = Query(20, ge=1, le=100),
+    symbol: Optional[str] = Query(None),
+    trader_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    return {
+        "managementReviews": list_filtered_records(
+            db,
+            PositionManagementReviewRecord,
+            limit=limit,
+            symbol=symbol,
+            trader_id=trader_id,
+            status=status,
+            include_payload=True,
+        )
+    }
+
+
+@app.get("/api/paper/agent-states")
+@app.get("/api/agent-states")
+async def paper_agent_states(
+    limit: int = Query(20, ge=1, le=100),
+    symbol: Optional[str] = Query(None),
+    trader_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    return {
+        "agentStates": list_filtered_records(
+            db,
+            TraderAgentStateRecord,
+            limit=limit,
+            symbol=symbol,
+            trader_id=trader_id,
+            status=status,
+        )
+    }
+
+
+@app.get("/api/paper/equity-snapshots")
+@app.get("/api/paper-trading/equity-snapshots")
+@app.get("/api/equity-snapshots")
+async def paper_equity_snapshots(
+    limit: int = Query(20, ge=1, le=100),
+    symbol: Optional[str] = Query(None),
+    trader_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    return {"snapshots": list_filtered_records(db, EquitySnapshotRecord, limit=limit, symbol=symbol, trader_id=trader_id)}
+
+
+@app.get("/api/paper/risk-settings")
+async def paper_risk_settings(
+    limit: int = Query(20, ge=1, le=100),
+    symbol: Optional[str] = Query(None),
+    trader_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    return {"riskSettings": list_filtered_records(db, RiskSettingsRecord, limit=limit, symbol=symbol, trader_id=trader_id)}
+
+
+@app.post("/api/paper/engine/run-once")
+@app.post("/api/paper-trading/engine/run-once")
+@app.post("/api/engine/run-once")
+async def paper_engine_run_once(request: PaperEngineRunRequest):
+    clean_symbol = normalize_symbol(request.symbol)
+    target_trader_id = request.traderId or request.trader_id
+    valid_trader_ids = {trader.id for trader in list_traders()}
+    if target_trader_id and target_trader_id not in valid_trader_ids:
+        raise HTTPException(status_code=404, detail="Trader not found.")
+    trader_ids = [target_trader_id] if target_trader_id else sorted(valid_trader_ids)
+    candle = await latest_engine_candle(clean_symbol)
+    results = []
+    all_events = []
+    all_snapshots = []
+    filled_count = 0
+    closed_count = 0
+    rejected_count = 0
+    management_review_count = 0
+
+    with session_scope() as db:
+        for trader_id in trader_ids:
+            before = list_active_paper_exposure(db, trader_id, clean_symbol)
+            result_payload = engine_result_payload(None)
+            management_reviews: list[dict[str, Any]] = []
+            if before["hasExposure"]:
+                sync_default_paper_settings(db, trader_id, clean_symbol, settings)
+                result = process_candle(db, trader_id, clean_symbol, candle)
+                snapshot = await build_market_snapshot(binance_client(), clean_symbol)
+                management_reviews = await run_management_reviews(
+                    db,
+                    trader_id=trader_id,
+                    symbol=clean_symbol,
+                    snapshot=snapshot,
+                    provider_name=settings.position_management_provider or settings.auto_scanner_provider or "mock",
+                    locale=normalize_locale(request.locale),
+                    result=result,
+                )
+                result_payload = engine_result_payload(result)
+                filled_count += len(result_payload["filledOrders"])
+                closed_count += len(result_payload["closedPositions"])
+                rejected_count += len(result_payload["rejectedOrders"])
+                management_review_count += len(management_reviews)
+                all_events.extend(result_payload["events"])
+                if result_payload["equitySnapshot"]:
+                    all_snapshots.append(result_payload["equitySnapshot"])
+            after = list_active_paper_exposure(db, trader_id, clean_symbol)
+            refresh_trader_leaderboard_snapshot(db, trader_id, clean_symbol)
+            results.append(
+                {
+                    "traderId": trader_id,
+                    "symbol": clean_symbol,
+                    "hadExposure": before["hasExposure"],
+                    "activeExposure": after,
+                    "engine": result_payload,
+                    "managementReviews": management_reviews,
+                }
+            )
+
+    return {
+        "status": "ok",
+        "mode": "paper",
+        "symbol": clean_symbol,
+        "candle": candle,
+        "processedTraders": len(trader_ids),
+        "processedOrders": filled_count + rejected_count,
+        "openedPositions": filled_count,
+        "closedPositions": closed_count,
+        "rejectedOrders": rejected_count,
+        "managementReviews": management_review_count,
+        "events": all_events,
+        "equitySnapshots": all_snapshots,
+        "results": results,
+    }

@@ -1,0 +1,362 @@
+import type {
+  ManagementReview,
+  PaperOrder,
+  PaperPosition,
+  PaperTradeEvent,
+  TraderPaperSummary,
+  TraderProfile
+} from "@/lib/api";
+import { fallbackTraders } from "@/lib/traders";
+
+export type LeagueSymbol = "BTCUSDT" | "ETHUSDT";
+
+export const traderVisuals: Record<string, { tone: string; accent: string; initials: string; alias: string }> = {
+  "channel-rider": {
+    tone: "from-sky-500 to-cyan-700",
+    accent: "#0ea5e9",
+    initials: "CR",
+    alias: "Channel Desk"
+  },
+  "volume-breaker": {
+    tone: "from-emerald-500 to-teal-700",
+    accent: "#10b981",
+    initials: "VB",
+    alias: "Volume Desk"
+  },
+  "pullback-architect": {
+    tone: "from-amber-500 to-orange-700",
+    accent: "#f59e0b",
+    initials: "PA",
+    alias: "Pullback Desk"
+  },
+  "leverage-hunter": {
+    tone: "from-rose-500 to-red-700",
+    accent: "#f43f5e",
+    initials: "LH",
+    alias: "Leverage Desk"
+  },
+  "liquidity-reaper": {
+    tone: "from-zinc-600 to-stone-950",
+    accent: "#52525b",
+    initials: "LR",
+    alias: "Liquidity Desk"
+  },
+  "volatility-squeezer": {
+    tone: "from-violet-500 to-fuchsia-700",
+    accent: "#8b5cf6",
+    initials: "VS",
+    alias: "Squeeze Desk"
+  },
+  "trend-sentinel": {
+    tone: "from-blue-500 to-indigo-800",
+    accent: "#2563eb",
+    initials: "TS",
+    alias: "Trend Desk"
+  },
+  "range-maker": {
+    tone: "from-lime-500 to-emerald-700",
+    accent: "#84cc16",
+    initials: "RM",
+    alias: "Range Desk"
+  },
+  "funding-contrarian": {
+    tone: "from-orange-500 to-red-700",
+    accent: "#f97316",
+    initials: "FC",
+    alias: "Funding Desk"
+  },
+  "orderflow-sniper": {
+    tone: "from-cyan-500 to-blue-800",
+    accent: "#06b6d4",
+    initials: "OS",
+    alias: "Orderflow Desk"
+  }
+};
+
+export type TraderStanding = TraderProfile & {
+  summary?: TraderPaperSummary;
+  rank: number;
+  equity: number;
+  returnPct: number;
+  monthlyReturn: number;
+  totalPnl: number;
+  totalFees: number;
+  winRate: number | null;
+  maxDrawdown: number;
+  biggestWin: number;
+  biggestLoss: number;
+  sharpe: number;
+  trades: number;
+  openOrders: number;
+  openPositions: number;
+  riskPercent: number;
+  leverage: number | null;
+  averageLeverage: number | null;
+  rankScore: number;
+};
+
+export function buildStandings(traders: TraderProfile[], summaries: TraderPaperSummary[]): TraderStanding[] {
+  const summaryMap = new Map(summaries.map((item) => [item.traderId, item]));
+  const base = traders.length ? traders : (fallbackTraders as unknown as TraderProfile[]);
+  return base
+    .map((trader) => {
+      const summary = summaryMap.get(trader.id);
+      const equity = numberValue(summary?.equity, 10000);
+      const returnPct = numberValue(summary?.return30d, 0);
+      const monthlyReturn = numberValue(summary?.return7d, 0);
+      const initial = equity / (1 + returnPct / 100) || 10000;
+      const totalPnl = numberValue(summary?.totalPnl, equity - initial, 0);
+      const closed = numberValue(summary?.closedPositions, 0, 0);
+      const backendRank = numberValue(summary?.rank, 0, 0);
+      return {
+        ...trader,
+        summary,
+        rank: backendRank,
+        equity,
+        returnPct,
+        monthlyReturn,
+        totalPnl,
+        totalFees: numberValue(summary?.totalFees, 0, 0),
+        winRate: summary?.winRate ?? null,
+        maxDrawdown: numberValue(summary?.maxDrawdown, 0),
+        biggestWin: numberValue(summary?.biggestWin, 0),
+        biggestLoss: numberValue(summary?.biggestLoss, 0),
+        sharpe: numberValue(summary?.sharpe, 0),
+        trades: closed,
+        openOrders: numberValue(summary?.openOrders, 0, 0),
+        openPositions: numberValue(summary?.openPositions, 0, 0),
+        riskPercent: numberValue(summary?.riskPercent, trader.baseRiskPercent, 0),
+        leverage: summary?.leverage ?? null,
+        averageLeverage: summary?.averageLeverage ?? summary?.leverage ?? null,
+        rankScore: numberValue(summary?.rankScore, returnPct)
+      };
+    })
+    .sort((a, b) => {
+      if (a.rank > 0 && b.rank > 0) return a.rank - b.rank;
+      return b.rankScore - a.rankScore || b.equity - a.equity || a.id.localeCompare(b.id);
+    })
+    .map((item, index) => ({ ...item, rank: item.rank > 0 ? item.rank : index + 1 }));
+}
+
+export function buildEquityCurve(standing: TraderStanding, points = 28) {
+  const visual = traderVisuals[standing.id] ?? traderVisuals["channel-rider"];
+  const base = 10000;
+  const final = standing.equity || base;
+  const volatility = 0.012 + Math.abs(standing.returnPct) / 2400;
+  let previous = base;
+  const values = Array.from({ length: points }, (_, index) => {
+    const progress = index / Math.max(points - 1, 1);
+    const target = base + (final - base) * progress;
+    const wave = Math.sin((index + standing.rank) * 0.9) * base * volatility;
+    const pullback = index % 7 === 0 ? -base * volatility * 0.75 : 0;
+    previous = Math.max(1000, target + wave + pullback + (previous - target) * 0.12);
+    if (index === points - 1) previous = final;
+    return {
+      x: index,
+      y: Math.round(previous * 100) / 100,
+      color: visual.accent
+    };
+  });
+  return values;
+}
+
+export type TraderScenario = {
+  id: string;
+  title: string;
+  phase: string;
+  status: string;
+  eventType?: string | null;
+  side?: string | null;
+  price?: number | null;
+  stop?: number | null;
+  target?: number | null;
+  quantity?: number | null;
+  leverage?: number | null;
+  riskPercent?: number | null;
+  entryWeight?: number | null;
+  confidence?: number | string | null;
+  provider?: string | null;
+  rationale?: string | null;
+  summary?: string | null;
+  action?: string | null;
+  createdAt?: string | null;
+  source: "position" | "order" | "review" | "event" | "strategy";
+};
+
+export function buildScenarios(args: {
+  trader: TraderProfile;
+  positions: PaperPosition[];
+  orders: PaperOrder[];
+  reviews: ManagementReview[];
+  events: PaperTradeEvent[];
+}): TraderScenario[] {
+  const scenarios: TraderScenario[] = [];
+  const positionMap = new Map(args.positions.map((position) => [String(position.id), position]));
+  const orderMap = new Map(args.orders.map((order) => [String(order.id), order]));
+  for (const position of args.positions) {
+    const payload = (position.payload ?? {}) as Record<string, any>;
+    scenarios.push({
+      id: `position-${position.id}`,
+      title: "Active simulated position",
+      phase: "OPEN_POSITION",
+      status: position.status ?? "open",
+      side: position.side,
+      price: firstNumber(position.entryPrice, position.averageEntryPrice, position.openPrice),
+      stop: firstNumber(position.stopLoss, position.stopLossPrice, position.stop_loss_price),
+      target: firstNumber(position.takeProfit, position.takeProfitPrice, position.take_profit_price, payload.target?.price),
+      quantity: firstNumber(position.quantity, position.size),
+      leverage: firstNumber(position.leverage, payload.leveragePlan?.suggestedLeverage),
+      riskPercent: firstNumber(payload.riskPercent),
+      entryWeight: firstNumber(payload.entryWeight, payload.weight),
+      rationale: scenarioRationaleFromPayload(payload, position.closeReason),
+      summary: scenarioSummaryFromPayload(payload, payload.entryReason, payload.candidateSetupType),
+      createdAt: position.updatedAt ?? position.openedAt ?? position.createdAt ?? null,
+      source: "position"
+    });
+  }
+  for (const order of args.orders) {
+    const payload = (order.payload ?? {}) as Record<string, any>;
+    scenarios.push({
+      id: `order-${order.id}`,
+      title: payload.entryReason ?? "Pending entry order",
+      phase: "PENDING_ORDER",
+      status: order.status ?? "open",
+      side: order.side,
+      price: firstNumber(order.price, order.limitPrice, order.stopPrice, order.triggerPrice),
+      stop: firstNumber(order.stopLossPrice, order.stop_loss_price),
+      target: firstNumber(order.takeProfitPrice, order.take_profit_price, payload.target?.price),
+      quantity: firstNumber(order.quantity),
+      leverage: firstNumber(order.leverage, payload.leveragePlan?.suggestedLeverage),
+      riskPercent: firstNumber(payload.riskPercent),
+      entryWeight: firstNumber(payload.entryWeight, payload.weight, payload.entry?.weight),
+      rationale: scenarioRationaleFromPayload(payload),
+      summary: scenarioSummaryFromPayload(payload, payload.entryReason, payload.candidateSetupType),
+      createdAt: order.updatedAt ?? order.createdAt,
+      source: "order"
+    });
+  }
+  for (const review of args.reviews.slice(0, 5)) {
+    const payload = (review.payload ?? {}) as Record<string, any>;
+    const event = review.event ?? payload.event ?? {};
+    const exposurePayload = (review.exposure ?? payload.exposure ?? {}) as Record<string, any>;
+    const nested = review.review ?? payload.review ?? {};
+    const linkedPosition = exposurePayload.kind === "position" || review.positionId ? positionMap.get(String(exposurePayload.id ?? review.positionId)) : undefined;
+    const linkedOrder = exposurePayload.kind === "order" || review.orderId ? orderMap.get(String(exposurePayload.id ?? review.orderId)) : undefined;
+    const linkedPayload = ((linkedPosition?.payload ?? linkedOrder?.payload ?? {}) as Record<string, any>);
+    const exposureInnerPayload = ((exposurePayload.payload ?? linkedPayload) as Record<string, any>);
+    const metrics = (event.metrics ?? {}) as Record<string, any>;
+    const action = Array.isArray(nested.actions) ? nested.actions[0] : null;
+    scenarios.push({
+      id: `review-${review.id}`,
+      title: String(event.eventType ?? review.eventType ?? "AI management review"),
+      phase: String(event.phase ?? review.phase ?? "-"),
+      status: String(review.decision ?? nested.decision ?? review.action ?? "-"),
+      eventType: String(event.eventType ?? review.eventType ?? ""),
+      side: exposurePayload.side ?? linkedPosition?.side ?? linkedOrder?.side ?? null,
+      price: firstNumber(
+        metrics.price,
+        exposurePayload.entryPrice,
+        exposurePayload.limitPrice,
+        linkedPosition?.entryPrice,
+        linkedPosition?.averageEntryPrice,
+        linkedOrder?.limitPrice,
+        linkedOrder?.price
+      ),
+      stop: firstNumber(metrics.stopLoss, exposurePayload.stopLoss, linkedPosition?.stopLossPrice, linkedOrder?.stopLossPrice, linkedPosition?.stop_loss_price, linkedOrder?.stop_loss_price),
+      target: firstNumber(metrics.takeProfit, exposurePayload.takeProfit, linkedPosition?.takeProfitPrice, linkedOrder?.takeProfitPrice, linkedPosition?.take_profit_price, linkedOrder?.take_profit_price, exposureInnerPayload.target?.price),
+      quantity: firstNumber(exposurePayload.quantity, linkedPosition?.quantity, linkedOrder?.quantity),
+      leverage: firstNumber(exposurePayload.leverage, linkedPosition?.leverage, linkedOrder?.leverage, exposureInnerPayload.leveragePlan?.suggestedLeverage),
+      riskPercent: firstNumber(exposureInnerPayload.riskPercent),
+      entryWeight: firstNumber(exposureInnerPayload.entryWeight, exposurePayload.entryWeight, linkedPayload.entryWeight, linkedPayload.entry?.weight),
+      confidence: review.confidence ?? nested.confidence ?? null,
+      provider: review.provider ?? nested.provider ?? null,
+      rationale: review.rationale ?? nested.rationale ?? action?.reason ?? event.reason ?? null,
+      summary: review.userSummary ?? nested.userSummary ?? null,
+      action: review.actionType ?? action?.type ?? review.action ?? null,
+      createdAt: review.createdAt,
+      source: "review"
+    });
+  }
+  if (!scenarios.length) {
+    scenarios.push({
+      id: `${args.trader.id}-strategy`,
+      title: args.trader.currentPlan,
+      phase: "WATCHLIST",
+      status: "WAITING",
+      riskPercent: args.trader.baseRiskPercent,
+      rationale: args.trader.description,
+      summary: args.trader.concept ?? args.trader.currentPlan,
+      source: "strategy"
+    });
+  }
+  return scenarios.sort((a, b) => scenarioTime(b.createdAt) - scenarioTime(a.createdAt));
+}
+
+export function numberValue(...values: Array<unknown>): number {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim() !== "") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return 0;
+}
+
+export function firstNumber(...values: Array<unknown>): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim() !== "") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
+export function scenarioRationaleFromPayload(payload: Record<string, any> | null | undefined, ...fallbacks: Array<unknown>): string | null {
+  const aiReview = recordValue(payload?.aiReview);
+  const review = recordValue(payload?.review);
+  const action = recordValue(payload?.action);
+  return firstString(
+    payload?.aiApprovalReason,
+    aiReview?.approvalReason,
+    payload?.managementRationale,
+    payload?.managementReason,
+    review?.rationale,
+    action?.reason,
+    payload?.rationale,
+    payload?.aiCounterThesis,
+    ...fallbacks
+  );
+}
+
+export function scenarioSummaryFromPayload(payload: Record<string, any> | null | undefined, ...fallbacks: Array<unknown>): string | null {
+  const aiReview = recordValue(payload?.aiReview);
+  const review = recordValue(payload?.review);
+  return firstString(
+    payload?.aiUserSummary,
+    aiReview?.userSummary,
+    payload?.userSummary,
+    review?.userSummary,
+    payload?.summary,
+    ...fallbacks
+  );
+}
+
+function firstString(...values: Array<unknown>): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return null;
+}
+
+function recordValue(value: unknown): Record<string, any> | null {
+  return typeof value === "object" && value !== null ? (value as Record<string, any>) : null;
+}
+
+function scenarioTime(value?: string | null): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}

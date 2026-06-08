@@ -1,0 +1,802 @@
+import type { QueryClient } from "@tanstack/react-query";
+
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+export const LEAGUE_QUERY_STALE_TIME_MS = 60_000;
+export const LEAGUE_QUERY_GC_TIME_MS = 10 * 60_000;
+export const LEAGUE_LIVE_REFETCH_INTERVAL_MS = 60_000;
+
+export type Locale = "ko" | "en";
+
+export type TraderProfile = {
+  id: string;
+  name: string;
+  description: string;
+  concept?: string;
+  baseRiskPercent: number;
+  riskLevel: string;
+  longConditions?: string[];
+  shortConditions?: string[];
+  entryRules?: string[];
+  takeProfitRules?: string[];
+  stopLossRules?: string[];
+  aiReviewChecklist?: string[];
+  mockPerformance: {
+    return7d: number;
+    return30d: number;
+    winRate: number;
+    maxDrawdown: number;
+    currentEquity: number;
+  };
+  currentPlan: string;
+};
+
+export type Candidate = {
+  created: boolean;
+  reason?: string | null;
+  side?: string | null;
+  setupType?: string | null;
+  setupScore: number;
+  entries: Array<{ price: number; weight: number; reason: string }>;
+  stopLoss?: number | null;
+  takeProfits: Array<{ price: number; weight: number; reason: string }>;
+  riskPercent?: number | null;
+  invalidation?: string | null;
+  notes: string[];
+};
+
+export type AIReview = {
+  decision: string;
+  confidence: number;
+  riskLevel: string;
+  adjustments: string[];
+  approvalReason: string;
+  counterThesis: string;
+  userSummary: string;
+  provider: string;
+  model: string;
+  fallback: boolean;
+};
+
+export type AgentManagementState = {
+  mode?: string | null;
+  phase?: string | null;
+  nextReviewAt?: string | null;
+  lastDecision?: string | null;
+  lastAction?: string | null;
+  [key: string]: any;
+};
+
+export type TraderCurrentState = {
+  key?: string | null;
+  labelKey?: string | null;
+  source?: string | null;
+  detail?: string | null;
+  [key: string]: any;
+};
+
+export type RunCycleResult = {
+  runId?: number | null;
+  persisted?: boolean;
+  recordIds?: Record<string, number | null>;
+  trader: string;
+  traderId: string;
+  symbol: string;
+  marketSnapshot: Record<string, any>;
+  candidate: Candidate;
+  aiReview?: AIReview | null;
+  tradePlan?: Record<string, any> | null;
+  paperPosition?: PaperPosition | Record<string, any> | null;
+  paperOrder?: PaperOrder | Record<string, any> | null;
+  tradeEvents?: PaperTradeEvent[] | Record<string, any>[] | null;
+  equitySnapshot?: EquitySnapshot | Record<string, any> | null;
+  managementReviews?: ManagementReview[] | Record<string, any>[] | null;
+  paper?: Record<string, any> | null;
+};
+
+export type KlineCandle = {
+  openTime: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  closeTime: number;
+};
+
+export type KlinesResponse = {
+  symbol: string;
+  interval: string;
+  count: number;
+  candles: KlineCandle[];
+};
+
+export type TraderPaperState = {
+  traderId: string;
+  traderName?: string | null;
+  symbol?: string | null;
+  status?: string | null;
+  mode?: "paper" | string | null;
+  cash?: number | null;
+  equity?: number | null;
+  realizedPnl?: number | null;
+  unrealizedPnl?: number | null;
+  openPositions?: number | null;
+  openOrders?: number | null;
+  lastRunAt?: string | null;
+  updatedAt?: string | null;
+  agentMode?: string | null;
+  agentPhase?: string | null;
+  nextReviewAt?: string | null;
+  lastDecision?: string | null;
+  lastAction?: string | null;
+  agentState?: AgentManagementState | null;
+  managementState?: AgentManagementState | null;
+  currentState?: TraderCurrentState | null;
+  [key: string]: any;
+};
+
+export type TraderPaperSummary = {
+  traderId: string;
+  traderName?: string | null;
+  symbol: string;
+  mode?: "paper" | string | null;
+  hasLivePaperData?: boolean;
+  equity: number;
+  cashBalance?: number | null;
+  realizedPnl?: number | null;
+  unrealizedPnl?: number | null;
+  totalFees?: number | null;
+  totalPnl?: number | null;
+  return7d: number;
+  return30d: number;
+  winRate?: number | null;
+  closedPositions?: number;
+  wins?: number;
+  losses?: number;
+  maxDrawdown: number;
+  riskPercent: number;
+  leverage?: number | null;
+  averageLeverage?: number | null;
+  biggestWin?: number | null;
+  biggestLoss?: number | null;
+  sharpe?: number | null;
+  longTrades?: number | null;
+  shortTrades?: number | null;
+  openNotional?: number | null;
+  openMargin?: number | null;
+  openOrderNotional?: number | null;
+  pendingEntryWeight?: number | null;
+  openOrders: number;
+  openPositions: number;
+  latestRunStatus?: string | null;
+  latestPlanStatus?: string | null;
+  currentPlanKo?: string | null;
+  currentPlanEn?: string | null;
+  agentMode?: string | null;
+  agentPhase?: string | null;
+  nextReviewAt?: string | null;
+  lastDecision?: string | null;
+  lastAction?: string | null;
+  agentState?: AgentManagementState | null;
+  managementState?: AgentManagementState | null;
+  currentState?: TraderCurrentState | null;
+  [key: string]: any;
+};
+
+export type PaperPosition = {
+  id?: string | number;
+  traderId?: string | null;
+  symbol: string;
+  side?: string | null;
+  status?: string | null;
+  quantity?: number | null;
+  size?: number | null;
+  entryPrice?: number | null;
+  averageEntryPrice?: number | null;
+  markPrice?: number | null;
+  stopLoss?: number | null;
+  takeProfit?: number | null;
+  takeProfits?: Array<{ price?: number | null; weight?: number | null; reason?: string | null }>;
+  unrealizedPnl?: number | null;
+  realizedPnl?: number | null;
+  openedAt?: string | null;
+  updatedAt?: string | null;
+  [key: string]: any;
+};
+
+export type PaperOrder = {
+  id?: string | number;
+  traderId?: string | null;
+  symbol: string;
+  side?: string | null;
+  type?: string | null;
+  status?: string | null;
+  price?: number | null;
+  stopPrice?: number | null;
+  triggerPrice?: number | null;
+  quantity?: number | null;
+  filledQuantity?: number | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  [key: string]: any;
+};
+
+export type PaperTradeEvent = {
+  id?: string | number;
+  traderId?: string | null;
+  symbol?: string | null;
+  eventType?: string | null;
+  type?: string | null;
+  side?: string | null;
+  price?: number | null;
+  quantity?: number | null;
+  message?: string | null;
+  createdAt?: string | null;
+  timestamp?: string | null;
+  [key: string]: any;
+};
+
+export type EquitySnapshot = {
+  id?: string | number;
+  traderId?: string | null;
+  symbol?: string | null;
+  equity?: number | null;
+  cash?: number | null;
+  realizedPnl?: number | null;
+  unrealizedPnl?: number | null;
+  drawdown?: number | null;
+  createdAt?: string | null;
+  timestamp?: string | null;
+  [key: string]: any;
+};
+
+export type PaperEngineRunResult = {
+  status?: string;
+  mode?: "paper" | string;
+  symbol?: string;
+  processedOrders?: number;
+  openedPositions?: number;
+  closedPositions?: number;
+  events?: PaperTradeEvent[];
+  equitySnapshots?: EquitySnapshot[];
+  [key: string]: any;
+};
+
+export type ManagementReview = {
+  id?: string | number;
+  runId?: string | number | null;
+  traderId?: string | null;
+  traderName?: string | null;
+  symbol?: string | null;
+  positionId?: string | number | null;
+  orderId?: string | number | null;
+  status?: string | null;
+  action?: string | null;
+  decision?: string | null;
+  confidence?: number | string | null;
+  riskLevel?: string | null;
+  reason?: string | null;
+  rationale?: string | null;
+  managementReason?: string | null;
+  summary?: string | null;
+  userSummary?: string | null;
+  recommendation?: string | null;
+  adjustments?: string[] | null;
+  appliedActions?: Array<string | Record<string, any>> | null;
+  event?: {
+    phase?: string | null;
+    reason?: string | null;
+    [key: string]: any;
+  } | null;
+  review?: {
+    rationale?: string | null;
+    userSummary?: string | null;
+    appliedActions?: Array<string | Record<string, any>> | null;
+    [key: string]: any;
+  } | null;
+  provider?: string | null;
+  model?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  timestamp?: string | null;
+  [key: string]: any;
+};
+
+export type ScannerStatus = {
+  enabled: boolean;
+  running: boolean;
+  taskActive?: boolean;
+  mode?: "paper" | string;
+  symbols: string[];
+  intervalSeconds: number;
+  provider: string;
+  locale?: string;
+  cycles: number;
+  lastStartedAt?: string | null;
+  lastFinishedAt?: string | null;
+  lastError?: string | null;
+  lastResult?: ScannerRunResult | null;
+  [key: string]: any;
+};
+
+export type ScannerRunResult = {
+  status: string;
+  mode?: "paper" | string;
+  paperOnly?: boolean;
+  symbols: string[];
+  provider: string;
+  locale?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
+  counts: {
+    symbols?: number;
+    tradersChecked: number;
+    candidates: number;
+    aiReviews: number;
+    tradePlans: number;
+    openOrders: number;
+    openPositions: number;
+    noCandidate: number;
+    activeExposure: number;
+    errors: number;
+    [key: string]: number | undefined;
+  };
+  results: Array<Record<string, any>>;
+};
+
+export type LeaderboardBundle = {
+  symbol: string;
+  traders: TraderProfile[];
+  summaries: TraderPaperSummary[];
+  positions: PaperPosition[];
+  orders: PaperOrder[];
+  managementReviews: ManagementReview[];
+  scanner: ScannerStatus | null;
+};
+
+export type TraderDetailBundle = {
+  symbol: string;
+  trader: TraderProfile;
+  summaries: TraderPaperSummary[];
+  positions: PaperPosition[];
+  closedPositions?: PaperPosition[];
+  orders: PaperOrder[];
+  managementReviews: ManagementReview[];
+  events: PaperTradeEvent[];
+  tradePlans: Record<string, any>[];
+};
+
+type KlineRequestOptions = {
+  force?: boolean;
+  staleMs?: number;
+};
+
+type KlineCacheEntry = {
+  data?: KlinesResponse;
+  promise?: Promise<KlinesResponse>;
+  updatedAt: number;
+};
+
+const KLINE_CACHE_STALE_MS = 30_000;
+const KLINE_CACHE_MAX_ENTRIES = 32;
+const klineCache = new Map<string, KlineCacheEntry>();
+const BROWSER_CACHE_PREFIX = "atl-api-cache:v2:";
+const LEADERBOARD_BROWSER_CACHE_MS = 5 * 60_000;
+
+async function requestFirst<T>(paths: string[], options?: RequestInit): Promise<T> {
+  let lastError: unknown;
+  for (const path of paths) {
+    try {
+      return await request<T>(path, options);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Request failed");
+}
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers = new Headers(options?.headers);
+  headers.set("Content-Type", "application/json");
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers,
+    cache: "no-store"
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Request failed: ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+function readBrowserCache<T>(key: string, maxAgeMs: number): T | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(`${BROWSER_CACHE_PREFIX}${key}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { updatedAt: number; data: T };
+    if (!parsed?.updatedAt || Date.now() - parsed.updatedAt > maxAgeMs) return null;
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeBrowserCache<T>(key: string, data: T) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(`${BROWSER_CACHE_PREFIX}${key}`, JSON.stringify({ updatedAt: Date.now(), data }));
+  } catch {
+    // Storage can be unavailable in private contexts; API calls still work without it.
+  }
+}
+
+export function getHealth() {
+  return request<{ status: string; service: string; mode: string }>("/health");
+}
+
+export function getBinanceTest() {
+  return request<Record<string, any>>("/api/binance/test");
+}
+
+export function getCachedKlines(symbol: string, interval = "1m", limit = 5, maxAgeMs = Number.POSITIVE_INFINITY) {
+  const cached = klineCache.get(klineCacheKey(symbol, interval, limit));
+  if (!cached?.data) return null;
+  if (Date.now() - cached.updatedAt > maxAgeMs) return null;
+  return cloneKlinesResponse(cached.data);
+}
+
+export function updateKlineCache(symbol: string, interval = "1m", limit = 5, candle: KlineCandle) {
+  const normalizedSymbol = normalizeKlineSymbol(symbol);
+  const normalizedInterval = normalizeKlineInterval(interval);
+  const normalizedLimit = normalizeKlineLimit(limit);
+  const prefix = `${normalizedSymbol}|${normalizedInterval}|`;
+
+  for (const [cacheKey, cached] of Array.from(klineCache.entries())) {
+    if (!cacheKey.startsWith(prefix) || !cached.data) continue;
+    const cacheLimit = Number(cacheKey.split("|")[2]) || normalizedLimit;
+    const candles = mergeKlineCandle(cached.data.candles, candle, cacheLimit);
+    rememberKlines(cacheKey, {
+      ...cached.data,
+      count: candles.length,
+      candles
+    });
+  }
+}
+
+export function getKlines(symbol: string, interval = "1m", limit = 5, options: KlineRequestOptions = {}) {
+  const normalizedSymbol = normalizeKlineSymbol(symbol);
+  const normalizedInterval = normalizeKlineInterval(interval);
+  const normalizedLimit = normalizeKlineLimit(limit);
+  const cacheKey = klineCacheKey(normalizedSymbol, normalizedInterval, normalizedLimit);
+  const cached = klineCache.get(cacheKey);
+  const staleMs = options.staleMs ?? KLINE_CACHE_STALE_MS;
+
+  if (!options.force && cached?.data && Date.now() - cached.updatedAt <= staleMs) {
+    return Promise.resolve(cloneKlinesResponse(cached.data));
+  }
+
+  if (cached?.promise) {
+    return cached.promise.then(cloneKlinesResponse);
+  }
+
+  const params = new URLSearchParams({
+    symbol: normalizedSymbol,
+    interval: normalizedInterval,
+    limit: String(normalizedLimit)
+  });
+  const promise = request<KlinesResponse>(`/api/binance/klines?${params.toString()}`)
+    .then((data) => {
+      const next = normalizeKlinesResponse(data, normalizedSymbol, normalizedInterval, normalizedLimit);
+      rememberKlines(cacheKey, next);
+      return cloneKlinesResponse(next);
+    })
+    .catch((err) => {
+      const latest = klineCache.get(cacheKey);
+      if (latest?.promise === promise) {
+        if (latest.data) {
+          klineCache.set(cacheKey, { data: latest.data, updatedAt: latest.updatedAt });
+        } else {
+          klineCache.delete(cacheKey);
+        }
+      }
+      throw err;
+    });
+
+  klineCache.set(cacheKey, {
+    data: cached?.data,
+    promise,
+    updatedAt: cached?.updatedAt ?? 0
+  });
+  pruneKlineCache();
+  return promise.then(cloneKlinesResponse);
+}
+
+function normalizeKlineSymbol(symbol: string) {
+  return symbol.trim().toUpperCase();
+}
+
+function normalizeKlineInterval(interval: string) {
+  return interval.trim();
+}
+
+function normalizeKlineLimit(limit: number) {
+  return Math.max(1, Math.floor(limit));
+}
+
+function klineCacheKey(symbol: string, interval: string, limit: number) {
+  return `${normalizeKlineSymbol(symbol)}|${normalizeKlineInterval(interval)}|${normalizeKlineLimit(limit)}`;
+}
+
+function normalizeKlinesResponse(data: KlinesResponse, symbol: string, interval: string, limit: number): KlinesResponse {
+  const candles = (data.candles ?? []).slice(-limit).map(cloneKlineCandle);
+  return {
+    symbol: data.symbol || symbol,
+    interval: data.interval || interval,
+    count: candles.length,
+    candles
+  };
+}
+
+function cloneKlinesResponse(data: KlinesResponse): KlinesResponse {
+  return {
+    ...data,
+    candles: data.candles.map(cloneKlineCandle)
+  };
+}
+
+function cloneKlineCandle(candle: KlineCandle): KlineCandle {
+  return { ...candle };
+}
+
+function rememberKlines(cacheKey: string, data: KlinesResponse) {
+  klineCache.delete(cacheKey);
+  klineCache.set(cacheKey, {
+    data: cloneKlinesResponse(data),
+    updatedAt: Date.now()
+  });
+  pruneKlineCache();
+}
+
+function mergeKlineCandle(candles: KlineCandle[], candle: KlineCandle, limit: number) {
+  return candles
+    .filter((item) => item.openTime !== candle.openTime)
+    .concat(cloneKlineCandle(candle))
+    .sort((a, b) => a.openTime - b.openTime)
+    .slice(-limit);
+}
+
+function pruneKlineCache() {
+  while (klineCache.size > KLINE_CACHE_MAX_ENTRIES) {
+    const firstKey = klineCache.keys().next().value;
+    if (typeof firstKey !== "string") break;
+    klineCache.delete(firstKey);
+  }
+}
+
+export function getMarketSnapshot(symbol: string) {
+  return request<Record<string, any>>(`/api/binance/market-snapshot?symbol=${symbol}`);
+}
+
+export function getAiProviders() {
+  return request<Record<string, any>>("/api/ai/providers");
+}
+
+export function getDbStatus() {
+  return requestFirst<Record<string, any>>(["/api/db/status", "/api/database/status"]);
+}
+
+export function getRecentRuns(limit = 5) {
+  return request<Record<string, any>>(`/api/runs?limit=${limit}`);
+}
+
+export function getRecentMarketSnapshots(limit = 5) {
+  return request<Record<string, any>>(`/api/market-snapshots?limit=${limit}`);
+}
+
+export function getRecentCandidateTrades(limit = 5) {
+  return request<Record<string, any>>(`/api/candidate-trades?limit=${limit}`);
+}
+
+export function getRecentAiReviews(limit = 5) {
+  return request<Record<string, any>>(`/api/ai/reviews?limit=${limit}`);
+}
+
+export function getRecentTradePlans(limit = 5, symbol?: string, traderId?: string, status?: string) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (symbol) params.set("symbol", symbol);
+  if (traderId) params.set("trader_id", traderId);
+  if (status) params.set("status", status);
+  return request<Record<string, any>>(`/api/trade-plans?${params.toString()}`);
+}
+
+export function getRecentProviderCalls(limit = 5) {
+  return request<Record<string, any>>(`/api/provider-calls?limit=${limit}`);
+}
+
+export function getTraderPaperStates(symbol?: string) {
+  const query = symbol ? `?symbol=${encodeURIComponent(symbol)}` : "";
+  return requestFirst<{ states: TraderPaperState[] } | TraderPaperState[]>([
+    `/api/paper/trader-states${query}`,
+    `/api/trader-states${query}`
+  ]);
+}
+
+export function getTraderPaperSummary(symbol: string) {
+  return request<{ symbol: string; summaries: TraderPaperSummary[] }>(
+    `/api/paper/trader-summary?symbol=${encodeURIComponent(symbol)}`
+  );
+}
+
+export function getLeaderboardBundle(symbol: string) {
+  return request<LeaderboardBundle>(`/api/league/leaderboard-fast?symbol=${encodeURIComponent(symbol)}&includeRelated=true`).then((bundle) => {
+    writeBrowserCache(`leaderboard:${symbol}`, bundle);
+    return bundle;
+  });
+}
+
+export function getTraderDetailBundle(traderId: string, symbol: string) {
+  return request<TraderDetailBundle>(
+    `/api/league/traders/${encodeURIComponent(traderId)}?symbol=${encodeURIComponent(symbol)}`
+  ).then((bundle) => {
+    writeBrowserCache(`trader:${traderId}:${symbol}`, bundle);
+    return bundle;
+  });
+}
+
+export function getCachedLeaderboardBundle(symbol: string) {
+  return readBrowserCache<LeaderboardBundle>(`leaderboard:${symbol}`, LEADERBOARD_BROWSER_CACHE_MS);
+}
+
+export function getCachedTraderDetailBundle(traderId: string, symbol: string) {
+  return readBrowserCache<TraderDetailBundle>(`trader:${traderId}:${symbol}`, LEADERBOARD_BROWSER_CACHE_MS);
+}
+
+export const leaderboardBundleQueryKey = (symbol: string) => ["league", "leaderboard", symbol] as const;
+
+export function leaderboardBundleQueryOptions(symbol: string) {
+  return {
+    queryKey: leaderboardBundleQueryKey(symbol),
+    queryFn: () => getLeaderboardBundle(symbol),
+    staleTime: LEAGUE_QUERY_STALE_TIME_MS,
+    gcTime: LEAGUE_QUERY_GC_TIME_MS,
+    refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false
+  };
+}
+
+export function prefetchLeaderboardBundle(queryClient: QueryClient, symbol: string) {
+  return queryClient.prefetchQuery(leaderboardBundleQueryOptions(symbol));
+}
+
+export const traderDetailBundleQueryKey = (traderId: string, symbol: string) => ["league", "trader", traderId, symbol] as const;
+
+export function traderDetailBundleQueryOptions(traderId: string, symbol: string) {
+  return {
+    queryKey: traderDetailBundleQueryKey(traderId, symbol),
+    queryFn: () => getTraderDetailBundle(traderId, symbol),
+    staleTime: LEAGUE_QUERY_STALE_TIME_MS,
+    gcTime: LEAGUE_QUERY_GC_TIME_MS,
+    refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false
+  };
+}
+
+export function prefetchTraderDetailBundle(queryClient: QueryClient, traderId: string, symbol: string) {
+  return queryClient.prefetchQuery(traderDetailBundleQueryOptions(traderId, symbol));
+}
+
+export function getScannerStatus() {
+  return request<ScannerStatus>("/api/scanner/status");
+}
+
+export function runScannerOnce(symbol = "BTCUSDT", provider = "mock", locale: Locale = "ko") {
+  return request<ScannerRunResult>("/api/scanner/run-once", {
+    method: "POST",
+    body: JSON.stringify({ symbol, provider, locale })
+  });
+}
+
+export function getActivePaperPositions(symbol?: string, traderId?: string) {
+  const params = new URLSearchParams();
+  if (symbol) params.set("symbol", symbol);
+  if (traderId) params.set("trader_id", traderId);
+  const query = params.toString() ? `?${params.toString()}` : "";
+  return requestFirst<{ positions: PaperPosition[] } | PaperPosition[]>([
+    `/api/paper/positions/active${query}`,
+    `/api/paper/positions${query}`,
+    `/api/paper-trading/positions${query}`
+  ]);
+}
+
+export function getPaperOrders(limit = 20, symbol?: string, status?: string, traderId?: string) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (symbol) params.set("symbol", symbol);
+  if (status) params.set("status", status);
+  if (traderId) params.set("trader_id", traderId);
+  return requestFirst<{ orders: PaperOrder[] } | PaperOrder[]>([
+    `/api/paper/orders?${params.toString()}`,
+    `/api/paper-trading/orders?${params.toString()}`
+  ]);
+}
+
+export function getTradeEvents(limit = 20, symbol?: string, traderId?: string) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (symbol) params.set("symbol", symbol);
+  if (traderId) params.set("trader_id", traderId);
+  return requestFirst<{ events: PaperTradeEvent[] } | PaperTradeEvent[]>([
+    `/api/paper/events?${params.toString()}`,
+    `/api/trade-events?${params.toString()}`,
+    `/api/paper-trading/events?${params.toString()}`
+  ]);
+}
+
+export function getEquitySnapshots(limit = 20, traderId?: string, symbol?: string) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (traderId) params.set("trader_id", traderId);
+  if (symbol) params.set("symbol", symbol);
+  return requestFirst<{ snapshots: EquitySnapshot[] } | EquitySnapshot[]>([
+    `/api/paper/equity-snapshots?${params.toString()}`,
+    `/api/equity-snapshots?${params.toString()}`,
+    `/api/paper-trading/equity-snapshots?${params.toString()}`
+  ]);
+}
+
+export function getManagementReviews(limit = 20, symbol?: string, traderId?: string) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (symbol) params.set("symbol", symbol);
+  if (traderId) params.set("trader_id", traderId);
+  return requestFirst<
+    { reviews: ManagementReview[] } |
+    { managementReviews: ManagementReview[] } |
+    { data: ManagementReview[] } |
+    ManagementReview[]
+  >([
+    `/api/paper/management-reviews?${params.toString()}`,
+    `/api/position-management/reviews?${params.toString()}`
+  ]);
+}
+
+export function getTraders() {
+  return request<{ traders: TraderProfile[] }>("/api/traders");
+}
+
+export function getTrader(id: string) {
+  return request<TraderProfile>(`/api/traders/${id}`);
+}
+
+export function runTraderCycle(traderId: string, symbol: string, provider?: "mock" | "gemini", locale: Locale = "ko") {
+  const query = provider ? `?provider=${provider}` : "";
+  return request<RunCycleResult>(`/api/traders/${traderId}/run-cycle${query}`, {
+    method: "POST",
+    body: JSON.stringify({ symbol, locale })
+  });
+}
+
+export function runAllTraders(symbol: string, locale: Locale = "ko") {
+  return request<{ symbol: string; provider: string; results: RunCycleResult[] }>("/api/demo/run-all-traders", {
+    method: "POST",
+    body: JSON.stringify({ symbol, locale })
+  });
+}
+
+export function runPaperEngineOnce(symbol: string, locale: Locale = "ko") {
+  return requestFirst<PaperEngineRunResult>([
+    "/api/paper/engine/run-once",
+    "/api/paper-trading/engine/run-once",
+    "/api/engine/run-once"
+  ], {
+    method: "POST",
+    body: JSON.stringify({ symbol, locale, mode: "paper" })
+  });
+}
+
+export function runAiReviewDemo(symbol: string, provider?: "mock" | "gemini", locale: Locale = "ko") {
+  const query = provider ? `?provider=${provider}` : "";
+  return request<Record<string, any>>(`/api/ai/review-demo${query}`, {
+    method: "POST",
+    body: JSON.stringify({ symbol, locale })
+  });
+}

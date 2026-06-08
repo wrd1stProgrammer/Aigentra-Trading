@@ -1,0 +1,81 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: aigentra-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: ${AIGENTRA_API_IMAGE:-wrd1stprogrammer/aigentra-trading-api:latest}
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      REDIS_URL: redis://redis:6379/0
+      ENABLE_AUTO_SCANNER: "false"
+    command: ["alembic", "-c", "alembic.ini", "upgrade", "head"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: ${AIGENTRA_API_IMAGE:-wrd1stprogrammer/aigentra-trading-api:latest}
+    container_name: aigentra-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      REDIS_URL: redis://redis:6379/0
+      REDIS_MARKET_CACHE_ENABLED: "true"
+      ENABLE_AUTO_SCANNER: "false"
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+
+  worker:
+    image: ${AIGENTRA_API_IMAGE:-wrd1stprogrammer/aigentra-trading-api:latest}
+    container_name: aigentra-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      REDIS_URL: redis://redis:6379/0
+      REDIS_MARKET_CACHE_ENABLED: "true"
+      ENABLE_AUTO_SCANNER: ${ENABLE_AUTO_SCANNER:-true}
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy

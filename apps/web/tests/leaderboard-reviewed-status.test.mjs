@@ -1,0 +1,15 @@
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8");
+const formatSource = readFileSync(new URL("../lib/format.ts", import.meta.url), "utf8");
+const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
+
+test("leaderboard reviewed status uses a compact localized review time", () => {
+  assert.match(i18nSource, /"leaderboard\.status\.reviewedAt": "검토"/, "Korean review-time label should be compact");
+  assert.match(i18nSource, /"leaderboard\.status\.reviewedAt": "Reviewed"/, "English review-time label should be compact");
+  assert.match(formatSource, /export function formatClockTime/, "format helper should expose HH:mm clock time");
+  assert.match(leaderboardSource, /getElapsedTimeString\(summary\?\.updatedAt\)/, "leaderboard should use elapsed time for reviewed rows");
+  assert.doesNotMatch(leaderboardSource, /detail: formatDateTime\(summary\?\.updatedAt, locale\)/, "reviewed rows should not show full date/time");
+});
