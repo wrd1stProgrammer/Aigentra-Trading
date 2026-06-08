@@ -48,10 +48,19 @@ test("AI management reason copy removes raw event tokens inside long review sent
   );
 });
 
-test("latest scenario timeline collapses repeated management reviews by semantic event", () => {
+test("latest scenario timeline preserves distinct management review records", () => {
   const scenarios = [
     {
       id: "review-84",
+      source: "review",
+      phase: "PENDING_ORDER",
+      eventType: "scale_entry_cancelled",
+      action: "CANCEL_REMAINING_ORDERS",
+      side: "SHORT",
+      status: "HOLD"
+    },
+    {
+      id: "review-83",
       source: "review",
       phase: "PENDING_ORDER",
       eventType: "scale_entry_cancelled",
@@ -89,7 +98,7 @@ test("latest scenario timeline collapses repeated management reviews by semantic
 
   assert.deepEqual(
     deduped.map((scenario) => scenario.id),
-    ["review-84", "review-82", "order-1"]
+    ["review-84", "review-83", "review-82", "order-1"]
   );
 });
 

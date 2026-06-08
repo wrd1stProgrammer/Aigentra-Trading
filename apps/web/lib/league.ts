@@ -235,7 +235,7 @@ export function buildScenarios(args: {
       source: "order"
     });
   }
-  for (const review of args.reviews.slice(0, 5)) {
+  for (const review of args.reviews) {
     const payload = (review.payload ?? {}) as Record<string, any>;
     const event = review.event ?? payload.event ?? {};
     const exposurePayload = (review.exposure ?? payload.exposure ?? {}) as Record<string, any>;
