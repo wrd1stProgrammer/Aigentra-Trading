@@ -34,8 +34,7 @@ export function buildRealizedEventTimelineItems({
   return events
     .map((event, index) => realizedTimelineItem(event, index, locale, t))
     .filter((item) => item !== null)
-    .sort((left, right) => (right.sortMs ?? Number.NEGATIVE_INFINITY) - (left.sortMs ?? Number.NEGATIVE_INFINITY))
-    .slice(0, 5);
+    .sort((left, right) => (right.sortMs ?? Number.NEGATIVE_INFINITY) - (left.sortMs ?? Number.NEGATIVE_INFINITY));
 }
 
 function realizedTimelineItem(event: RealizedEventInput, index: number, locale: Locale, t: Translator) {

@@ -6,6 +6,81 @@ import { useAppContext } from "@/components/app-provider";
 import { AgentWorkflowPreview, AlertPreview, LandingFooter, PricingCard, ProductProofCard, VideoFrame } from "@/components/home-landing-visuals";
 import { landingCopy } from "@/lib/marketing-copy";
 
+function CandleNotch({
+  position,
+  theme = "dark",
+  pulse = false
+}: {
+  position: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+  theme?: "dark" | "light";
+  pulse?: boolean;
+}) {
+  const verticalClass = position.startsWith("top") ? "top-2.5" : "bottom-2.5";
+  const horizontalClass = position.endsWith("left") ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2";
+  const bodyColor = theme === "dark" ? "bg-emerald-500" : "bg-emerald-600";
+  const wickColor = theme === "dark" ? "bg-emerald-500/60" : "bg-emerald-600/60";
+  const pulseClass = pulse ? "animate-pulse" : "";
+
+  return (
+    <div className={`absolute ${verticalClass} ${horizontalClass} hidden lg:flex flex-col items-center justify-center w-[8px] h-[24px] pointer-events-none z-20 ${pulseClass}`}>
+      {/* Wick */}
+      <div className={`w-[1px] h-[24px] ${wickColor}`} />
+      {/* Body */}
+      <div className={`absolute w-[6px] h-[12px] ${bodyColor} rounded-[1px] shadow-[0_0_8px_rgba(16,185,129,0.3)]`} />
+    </div>
+  );
+}
+
+import { useEffect, useRef, useState, type ReactNode } from "react";
+
+function ScrollReveal({
+  children,
+  className = "",
+  delay = 0
+}: {
+  children: ReactNode;
+  className?: string;
+  delay?: number;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.unobserve(entry.target);
+        }
+      },
+      {
+        threshold: 0.05,
+        rootMargin: "0px 0px -50px 0px"
+      }
+    );
+
+    if (ref.current) {
+      observer.observe(ref.current);
+    }
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      className={`transform transition-all duration-700 ease-out ${
+        isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+      } ${className}`}
+      style={{ transitionDelay: `${delay}ms` }}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function HomePageClient() {
   const { locale, setLocale, t } = useAppContext();
   const copy = landingCopy(locale);
@@ -26,10 +101,10 @@ export function HomePageClient() {
           <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
           {/* Corner Markers / Notches */}
-          <div className="absolute top-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
-          <div className="absolute top-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
-          <div className="absolute bottom-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
-          <div className="absolute bottom-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
+          <CandleNotch position="top-left" theme="dark" pulse />
+          <CandleNotch position="top-right" theme="dark" pulse />
+          <CandleNotch position="bottom-left" theme="dark" pulse />
+          <CandleNotch position="bottom-right" theme="dark" pulse />
 
           {/* Header */}
           <div className="flex items-center justify-between border-b border-white/10 pb-5 pt-4">
@@ -113,24 +188,31 @@ export function HomePageClient() {
           <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
           {/* Corner Markers / Notches */}
-          <div className="absolute top-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
-          <div className="absolute top-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
-          <div className="absolute bottom-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
-          <div className="absolute bottom-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
+          <CandleNotch position="top-left" theme="dark" pulse />
+          <CandleNotch position="top-right" theme="dark" pulse />
+          <CandleNotch position="bottom-left" theme="dark" pulse />
+          <CandleNotch position="bottom-right" theme="dark" pulse />
 
-          <div className="mx-auto max-w-3xl text-center">
-            <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">[ AI AGENT MONITORING ]</p>
-            <h2 className="mt-5 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl break-keep">{copy.agentSystemTitle}</h2>
-            <p className="mt-5 text-base sm:text-lg leading-relaxed text-zinc-400 break-keep">{copy.agentSystemSubtitle}</p>
-          </div>
+          <ScrollReveal>
+            <div className="mx-auto max-w-3xl text-center">
+              <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">[ AI AGENT MONITORING ]</p>
+              <h2 className="mt-5 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl break-keep">{copy.agentSystemTitle}</h2>
+              <p className="mt-5 text-base sm:text-lg leading-relaxed text-zinc-400 break-keep">{copy.agentSystemSubtitle}</p>
+            </div>
+          </ScrollReveal>
+
           <div className="mt-14 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-            <AgentWorkflowPreview />
+            <ScrollReveal className="w-full">
+              <AgentWorkflowPreview />
+            </ScrollReveal>
             <div className="grid gap-4">
-              {copy.agentCards.map((card) => (
-                <article key={card.title} className="rounded-[22px] border border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] p-6 shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] hover:border-emerald-500/20 hover:-translate-y-0.5 transition-all duration-300">
-                  <h3 className="text-lg font-bold text-white tracking-tight break-keep">{card.title}</h3>
-                  <p className="mt-3 text-sm leading-6 text-zinc-400 break-keep">{card.body}</p>
-                </article>
+              {copy.agentCards.map((card, index) => (
+                <ScrollReveal key={card.title} delay={index * 100}>
+                  <article className="rounded-[22px] border border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] p-6 shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] hover:border-emerald-500/20 hover:-translate-y-0.5 transition-all duration-300">
+                    <h3 className="text-lg font-bold text-white tracking-tight break-keep">{card.title}</h3>
+                    <p className="mt-3 text-sm leading-6 text-zinc-400 break-keep">{card.body}</p>
+                  </article>
+                </ScrollReveal>
               ))}
             </div>
           </div>
@@ -143,32 +225,37 @@ export function HomePageClient() {
           <div className="absolute inset-y-0 left-0 hidden w-px bg-zinc-200 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-zinc-200 lg:block" />
           {/* Corner Markers / Notches */}
-          <div className="absolute top-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
-          <div className="absolute top-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
-          <div className="absolute bottom-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
-          <div className="absolute bottom-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
+          <CandleNotch position="top-left" theme="light" />
+          <CandleNotch position="top-right" theme="light" />
+          <CandleNotch position="bottom-left" theme="light" />
+          <CandleNotch position="bottom-right" theme="light" />
 
-          <div className="mx-auto max-w-3xl text-center">
-            <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-600">[ 3 SIMPLE STEPS ]</p>
-            <h2 className="mt-5 text-balance text-3xl font-bold tracking-tight text-zinc-950 sm:text-4xl md:text-5xl break-keep">{copy.getStartedTitle}</h2>
-            <p className="mx-auto mt-5 max-w-[64ch] text-base sm:text-lg leading-relaxed text-zinc-600 break-keep">{copy.getStartedSubtitle}</p>
-            <Link href="/leaderboard" className="focus-ring mt-8 inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-8 py-4 text-sm font-bold text-white shadow-neon-emerald hover:bg-emerald-400 transition duration-300">
-              {copy.getStartedCta}
-              <ArrowRight size={16} weight="bold" />
-            </Link>
-            <div data-testid="landing-second-video" className="mt-14 text-left">
-              <VideoFrame title={copy.secondVideoTitle} subtitle={copy.alertsSubtitle} compact />
+          <ScrollReveal>
+            <div className="mx-auto max-w-3xl text-center">
+              <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-600">[ 3 SIMPLE STEPS ]</p>
+              <h2 className="mt-5 text-balance text-3xl font-bold tracking-tight text-zinc-950 sm:text-4xl md:text-5xl break-keep">{copy.getStartedTitle}</h2>
+              <p className="mx-auto mt-5 max-w-[64ch] text-base sm:text-lg leading-relaxed text-zinc-600 break-keep">{copy.getStartedSubtitle}</p>
+              <Link href="/leaderboard" className="focus-ring mt-8 inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-8 py-4 text-sm font-bold text-white shadow-neon-emerald hover:bg-emerald-400 transition duration-300">
+                {copy.getStartedCta}
+                <ArrowRight size={16} weight="bold" />
+              </Link>
+              <div data-testid="landing-second-video" className="mt-14 text-left">
+                <VideoFrame title={copy.secondVideoTitle} subtitle={copy.alertsSubtitle} compact />
+              </div>
             </div>
-          </div>
+          </ScrollReveal>
+
           <div className="mx-auto mt-14 grid max-w-5xl gap-8 md:grid-cols-3">
             {copy.steps.map((step, index) => (
-              <article key={step.title} className="grid grid-cols-[48px_1fr] gap-4 text-left hover:-translate-y-0.5 transition duration-300">
-                <span className="grid size-10 place-items-center rounded-full bg-zinc-50 border border-zinc-200 text-emerald-600 font-mono font-bold shadow-sm">{index + 1}</span>
-                <div>
-                  <h3 className="text-xl font-bold tracking-tight text-zinc-950 break-keep">{step.title}</h3>
-                  <p className="mt-2.5 text-sm leading-6 text-zinc-600 break-keep">{step.body}</p>
-                </div>
-              </article>
+              <ScrollReveal key={step.title} delay={index * 120}>
+                <article className="grid grid-cols-[48px_1fr] gap-4 text-left hover:-translate-y-0.5 transition duration-300">
+                  <span className="grid size-10 place-items-center rounded-full bg-zinc-50 border border-zinc-200 text-emerald-600 font-mono font-bold shadow-sm">{index + 1}</span>
+                  <div>
+                    <h3 className="text-xl font-bold tracking-tight text-zinc-950 break-keep">{step.title}</h3>
+                    <p className="mt-2.5 text-sm leading-6 text-zinc-600 break-keep">{step.body}</p>
+                  </div>
+                </article>
+              </ScrollReveal>
             ))}
           </div>
         </div>
@@ -180,40 +267,44 @@ export function HomePageClient() {
           <div className="absolute inset-y-0 left-0 hidden w-px bg-zinc-200 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-zinc-200 lg:block" />
           {/* Corner Markers / Notches */}
-          <div className="absolute top-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
-          <div className="absolute top-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
-          <div className="absolute bottom-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
-          <div className="absolute bottom-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
+          <CandleNotch position="top-left" theme="light" />
+          <CandleNotch position="top-right" theme="light" />
+          <CandleNotch position="bottom-left" theme="light" />
+          <CandleNotch position="bottom-right" theme="light" />
 
-          <div className="mx-auto grid gap-8 rounded-[24px] border border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] p-8 text-white shadow-[0_22px_60px_rgba(0,0,0,0.5)] lg:grid-cols-[0.82fr_1.18fr] hover:border-emerald-500/10 transition duration-300">
-            <div className="flex flex-col justify-between py-2">
-              <div>
-                <span className="grid size-12 place-items-center rounded-xl bg-sky-500 text-white shadow-[0_0_20px_rgba(14,165,233,0.35)]">
-                  <TelegramLogo size={26} weight="fill" />
-                </span>
-                <h2 className="mt-6 text-3xl font-bold tracking-tight text-white md:text-4xl lg:text-[2.6rem] lg:leading-[1.1] break-keep">{copy.alertsTitle}</h2>
-                <p className="mt-4 text-sm leading-6 text-zinc-400 break-keep">{copy.alertsSubtitle}</p>
+          <ScrollReveal>
+            <div className="mx-auto grid gap-8 rounded-[24px] border border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] p-8 text-white shadow-[0_22px_60px_rgba(0,0,0,0.5)] lg:grid-cols-[0.82fr_1.18fr] hover:border-emerald-500/10 transition duration-300">
+              <div className="flex flex-col justify-between py-2">
+                <div>
+                  <span className="grid size-12 place-items-center rounded-xl bg-sky-500 text-white shadow-[0_0_20px_rgba(14,165,233,0.35)]">
+                    <TelegramLogo size={26} weight="fill" />
+                  </span>
+                  <h2 className="mt-6 text-3xl font-bold tracking-tight text-white md:text-4xl lg:text-[2.6rem] lg:leading-[1.1] break-keep">{copy.alertsTitle}</h2>
+                  <p className="mt-4 text-sm leading-6 text-zinc-400 break-keep">{copy.alertsSubtitle}</p>
+                </div>
+                <Link href="/account" className="focus-ring mt-8 inline-flex items-center justify-center gap-2 rounded-full border border-white/12 bg-white/[0.04] hover:bg-white/[0.08] px-6 py-3.5 text-sm font-bold text-white transition self-start">
+                  <BellRinging size={16} />
+                  {copy.alertsCta}
+                </Link>
               </div>
-              <Link href="/account" className="focus-ring mt-8 inline-flex items-center justify-center gap-2 rounded-full border border-white/12 bg-white/[0.04] hover:bg-white/[0.08] px-6 py-3.5 text-sm font-bold text-white transition self-start">
-                <BellRinging size={16} />
-                {copy.alertsCta}
-              </Link>
-            </div>
-            <div className="grid gap-4 md:grid-cols-[0.8fr_1fr]">
-              <AlertPreview />
-              <div className="grid gap-4">
-                {copy.alertCards.map((card) => (
-                  <article key={card.title} className="rounded-[20px] border border-white/[0.08] bg-white/[0.02] p-5 hover:border-emerald-500/20 hover:-translate-y-0.5 transition duration-300">
-                    <span className="flex size-5 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-300">
-                      <Check size={12} weight="bold" />
-                    </span>
-                    <h3 className="mt-3 text-base font-bold text-white tracking-tight break-keep">{card.title}</h3>
-                    <p className="mt-2 text-xs leading-5 text-zinc-400 break-keep">{card.body}</p>
-                  </article>
-                ))}
+              <div className="grid gap-4 md:grid-cols-[0.8fr_1fr]">
+                <AlertPreview />
+                <div className="grid gap-4">
+                  {copy.alertCards.map((card, idx) => (
+                    <ScrollReveal key={card.title} delay={idx * 100}>
+                      <article className="rounded-[20px] border border-white/[0.08] bg-white/[0.02] p-5 hover:border-emerald-500/20 hover:-translate-y-0.5 transition duration-300">
+                        <span className="flex size-5 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-300">
+                          <Check size={12} weight="bold" />
+                        </span>
+                        <h3 className="mt-3 text-base font-bold text-white tracking-tight break-keep">{card.title}</h3>
+                        <p className="mt-2 text-xs leading-5 text-zinc-400 break-keep">{card.body}</p>
+                      </article>
+                    </ScrollReveal>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
+          </ScrollReveal>
         </div>
       </section>
 
@@ -223,19 +314,24 @@ export function HomePageClient() {
           <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
           {/* Corner Markers / Notches */}
-          <div className="absolute top-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
-          <div className="absolute top-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
-          <div className="absolute bottom-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
-          <div className="absolute bottom-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
+          <CandleNotch position="top-left" theme="dark" pulse />
+          <CandleNotch position="top-right" theme="dark" pulse />
+          <CandleNotch position="bottom-left" theme="dark" pulse />
+          <CandleNotch position="bottom-right" theme="dark" pulse />
 
-          <div className="mx-auto max-w-3xl text-center">
-            <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">[ PRICING ]</p>
-            <h2 className="mt-5 text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl break-keep">{copy.pricingTitle}</h2>
-            <p className="mx-auto mt-5 max-w-[64ch] text-base sm:text-lg leading-relaxed text-zinc-400 break-keep">{copy.pricingSubtitle}</p>
-          </div>
+          <ScrollReveal>
+            <div className="mx-auto max-w-3xl text-center">
+              <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">[ PRICING ]</p>
+              <h2 className="mt-5 text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl break-keep">{copy.pricingTitle}</h2>
+              <p className="mx-auto mt-5 max-w-[64ch] text-base sm:text-lg leading-relaxed text-zinc-400 break-keep">{copy.pricingSubtitle}</p>
+            </div>
+          </ScrollReveal>
+
           <div className="mx-auto mt-14 grid max-w-[1080px] gap-6 lg:grid-cols-2">
             {copy.pricingPlans.map((plan, index) => (
-              <PricingCard key={plan.name} plan={plan} featured={index === 1} />
+              <ScrollReveal key={plan.name} className="w-full" delay={index * 150}>
+                <PricingCard plan={plan} featured={index === 1} />
+              </ScrollReveal>
             ))}
           </div>
         </div>
@@ -247,44 +343,50 @@ export function HomePageClient() {
           <div className="absolute inset-y-0 left-0 hidden w-px bg-zinc-200 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-zinc-200 lg:block" />
           {/* Corner Markers / Notches */}
-          <div className="absolute top-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
-          <div className="absolute top-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
-          <div className="absolute bottom-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
-          <div className="absolute bottom-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
+          <CandleNotch position="top-left" theme="light" />
+          <CandleNotch position="top-right" theme="light" />
+          <CandleNotch position="bottom-left" theme="light" />
+          <CandleNotch position="bottom-right" theme="light" />
 
           <div className="grid gap-14 lg:grid-cols-[1.1fr_0.9fr]">
-            <div>
-              <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-600">[ TESTIMONIALS ]</p>
-              <h2 className="mt-5 text-3xl font-bold tracking-tight text-zinc-950 sm:text-4xl break-keep">{copy.testimonialsTitle}</h2>
-              <div className="mt-10 grid gap-5 md:grid-cols-2">
-                {copy.testimonials.map((item) => (
-                  <article key={item.author} className="rounded-[20px] border border-zinc-200 bg-zinc-50/50 p-6 shadow-sm hover:shadow-md hover:border-zinc-300 transition-all duration-300">
-                    <p className="text-sm leading-6 text-zinc-700 break-keep">"{item.quote}"</p>
-                    <div className="mt-6 flex items-center justify-between border-t border-zinc-200/60 pt-4">
-                      <div>
-                        <p className="font-bold text-zinc-900 text-sm">{item.author}</p>
-                        <p className="text-xs text-zinc-500 mt-0.5">{item.role}</p>
-                      </div>
-                    </div>
-                  </article>
-                ))}
+            <ScrollReveal>
+              <div>
+                <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-600">[ TESTIMONIALS ]</p>
+                <h2 className="mt-5 text-3xl font-bold tracking-tight text-zinc-950 sm:text-4xl break-keep">{copy.testimonialsTitle}</h2>
+                <div className="mt-10 grid gap-5 md:grid-cols-2">
+                  {copy.testimonials.map((item, idx) => (
+                    <ScrollReveal key={item.author} delay={idx * 100}>
+                      <article className="rounded-[20px] border border-zinc-200 bg-zinc-50/50 p-6 shadow-sm hover:shadow-md hover:border-zinc-300 transition-all duration-300">
+                        <p className="text-sm leading-6 text-zinc-700 break-keep">"{item.quote}"</p>
+                        <div className="mt-6 flex items-center justify-between border-t border-zinc-200/60 pt-4">
+                          <div>
+                            <p className="font-bold text-zinc-900 text-sm">{item.author}</p>
+                            <p className="text-xs text-zinc-500 mt-0.5">{item.role}</p>
+                          </div>
+                        </div>
+                      </article>
+                    </ScrollReveal>
+                  ))}
+                </div>
               </div>
-            </div>
-            <div data-testid="landing-faq">
-              <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-600">[ FAQ ]</p>
-              <h2 className="mt-5 text-3xl font-bold tracking-tight text-zinc-950 sm:text-4xl break-keep">{copy.faqTitle}</h2>
-              <div className="mt-9 divide-y divide-zinc-200 border-t border-zinc-200">
-                {copy.faqs.map((faq) => (
-                  <details key={faq.question} className="group py-5 transition-all">
-                    <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-bold text-zinc-900 select-none hover:text-emerald-600 transition-colors">
-                      <span className="break-keep">{faq.question}</span>
-                      <span className="text-zinc-400 group-open:rotate-45 transition-transform duration-200 text-xl font-light">+</span>
-                    </summary>
-                    <p className="mt-3 text-sm leading-6 text-zinc-600 break-keep pr-8 pl-1">{faq.answer}</p>
-                  </details>
-                ))}
+            </ScrollReveal>
+            <ScrollReveal>
+              <div data-testid="landing-faq">
+                <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-600">[ FAQ ]</p>
+                <h2 className="mt-5 text-3xl font-bold tracking-tight text-zinc-950 sm:text-4xl break-keep">{copy.faqTitle}</h2>
+                <div className="mt-9 divide-y divide-zinc-200 border-t border-zinc-200">
+                  {copy.faqs.map((faq) => (
+                    <details key={faq.question} className="group py-5 transition-all">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-bold text-zinc-900 select-none hover:text-emerald-600 transition-colors">
+                        <span className="break-keep">{faq.question}</span>
+                        <span className="text-zinc-400 group-open:rotate-45 transition-transform duration-200 text-xl font-light">+</span>
+                      </summary>
+                      <p className="mt-3 text-sm leading-6 text-zinc-600 break-keep pr-8 pl-1">{faq.answer}</p>
+                    </details>
+                  ))}
+                </div>
               </div>
-            </div>
+            </ScrollReveal>
           </div>
         </div>
       </section>
@@ -303,25 +405,27 @@ export function HomePageClient() {
           <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
           {/* Corner Markers / Notches */}
-          <div className="absolute top-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
-          <div className="absolute top-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
-          <div className="absolute bottom-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
-          <div className="absolute bottom-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
+          <CandleNotch position="top-left" theme="dark" pulse />
+          <CandleNotch position="top-right" theme="dark" pulse />
+          <CandleNotch position="bottom-left" theme="dark" pulse />
+          <CandleNotch position="bottom-right" theme="dark" pulse />
 
-          <div className="mx-auto max-w-3xl">
-            <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">[ JOIN YOUR AI TRADING SOFTWARE ]</p>
-            <h2 className="mt-5 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl break-keep">{copy.aboutTitle}</h2>
-            <p className="mt-6 text-sm sm:text-base leading-7 text-zinc-400 break-keep">{copy.aboutBody}</p>
-            <div className="mx-auto mt-10 grid max-w-2xl gap-3 sm:grid-cols-3">
-              {copy.aboutPoints.map((point) => (
-                <p key={point} className="rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-xs text-zinc-300 font-mono break-keep">{point}</p>
-              ))}
+          <ScrollReveal>
+            <div className="mx-auto max-w-3xl">
+              <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">[ JOIN YOUR AI TRADING SOFTWARE ]</p>
+              <h2 className="mt-5 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl break-keep">{copy.aboutTitle}</h2>
+              <p className="mt-6 text-sm sm:text-base leading-7 text-zinc-400 break-keep">{copy.aboutBody}</p>
+              <div className="mx-auto mt-10 grid max-w-2xl gap-3 sm:grid-cols-3">
+                {copy.aboutPoints.map((point) => (
+                  <p key={point} className="rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-xs text-zinc-300 font-mono break-keep">{point}</p>
+                ))}
+              </div>
+              <Link href="/leaderboard" className="focus-ring mt-10 inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-8 py-4 text-sm font-bold text-white shadow-neon-emerald hover:bg-emerald-400 transition duration-300">
+                {copy.primaryCta}
+                <ArrowRight size={16} weight="bold" />
+              </Link>
             </div>
-            <Link href="/leaderboard" className="focus-ring mt-10 inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-8 py-4 text-sm font-bold text-white shadow-neon-emerald hover:bg-emerald-400 transition duration-300">
-              {copy.primaryCta}
-              <ArrowRight size={16} weight="bold" />
-            </Link>
-          </div>
+          </ScrollReveal>
         </div>
       </section>
 
@@ -331,10 +435,10 @@ export function HomePageClient() {
           <div className="absolute inset-y-0 left-0 hidden w-px bg-zinc-200 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-zinc-200 lg:block" />
           {/* Corner Markers / Notches */}
-          <div className="absolute top-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
-          <div className="absolute top-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
-          <div className="absolute bottom-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
-          <div className="absolute bottom-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-600 lg:block" />
+          <CandleNotch position="top-left" theme="light" />
+          <CandleNotch position="top-right" theme="light" />
+          <CandleNotch position="bottom-left" theme="light" />
+          <CandleNotch position="bottom-right" theme="light" />
 
           <LandingFooter copy={copy} />
         </div>

@@ -18,6 +18,31 @@ const links = [
 ];
 
 const APP_SHELL_CONTAINER_CLASS = "mx-auto w-full max-w-[1760px] px-6 sm:px-8 lg:px-12 2xl:px-16";
+
+function CandleNotch({
+  position,
+  theme = "dark",
+  pulse = false
+}: {
+  position: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+  theme?: "dark" | "light";
+  pulse?: boolean;
+}) {
+  const verticalClass = position.startsWith("top") ? "top-2.5" : "bottom-2.5";
+  const horizontalClass = position.endsWith("left") ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2";
+  const bodyColor = theme === "dark" ? "bg-emerald-500" : "bg-emerald-600";
+  const wickColor = theme === "dark" ? "bg-emerald-500/60" : "bg-emerald-600/60";
+  const pulseClass = pulse ? "animate-pulse" : "";
+
+  return (
+    <div className={`absolute ${verticalClass} ${horizontalClass} hidden lg:flex flex-col items-center justify-center w-[8px] h-[24px] pointer-events-none z-20 ${pulseClass}`}>
+      {/* Wick */}
+      <div className={`w-[1px] h-[24px] ${wickColor}`} />
+      {/* Body */}
+      <div className={`absolute w-[6px] h-[12px] ${bodyColor} rounded-[1px] shadow-[0_0_8px_rgba(16,185,129,0.3)]`} />
+    </div>
+  );
+}
 const fallbackLabels = {
   ko: {
     "nav.account": "내 알림",
@@ -59,10 +84,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
 
               {/* Corner Markers / Notches */}
-              <div className="absolute top-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
-              <div className="absolute top-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
-              <div className="absolute bottom-0 left-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
-              <div className="absolute bottom-0 right-0 hidden h-3.5 w-[3px] -translate-x-[1px] bg-emerald-500 lg:block animate-pulse" />
+              <CandleNotch position="top-left" theme="dark" pulse />
+              <CandleNotch position="top-right" theme="dark" pulse />
+              <CandleNotch position="bottom-left" theme="dark" pulse />
+              <CandleNotch position="bottom-right" theme="dark" pulse />
 
               <Link href="/" className="focus-ring flex min-w-0 items-center gap-3 rounded-lg hover:opacity-90 transition z-10">
                 <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-emerald-400/35 bg-emerald-400/10 font-mono text-xs text-emerald-300">

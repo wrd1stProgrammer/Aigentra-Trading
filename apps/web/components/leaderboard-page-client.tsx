@@ -40,7 +40,7 @@ import { statusLabel, statusTone } from "@/lib/status";
 import { activePositionLeverage, appendLeverageSample, formatLeverageBadge, orderLeverage, planLeverage, positionLeverage } from "@/components/leaderboard-leverage";
 
 const SYMBOLS: LeagueSymbol[] = ["BTCUSDT"];
-const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(180px,1fr)_130px_100px_90px_60px_80px_65px_24px] gap-3";
+const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_100px_90px_60px_80px_65px_24px] gap-3";
 
 type ExposureItem = {
   key: string;
@@ -380,7 +380,7 @@ function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, 
           <div className="text-right whitespace-nowrap">{t("leaderboard.sharpe")}</div>
           <div className="text-right" />
         </div>
-        <div className="divide-y divide-[var(--border)] max-h-[600px] overflow-y-auto custom-scrollbar pr-1">
+        <div className="divide-y divide-[var(--border)]">
           {standings.map((trader) => {
 
             const exposure = exposureByTrader.get(trader.id);
@@ -431,6 +431,18 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, onPrefetch 
       {standings.map((trader) => (
         (() => {
           const progress = traderProgress(trader, exposureByTrader.get(trader.id), t, locale);
+          const isNew = [
+            "donchian-breakout",
+            "ichimoku-cloud-pilot",
+            "vwap-reclaimer",
+            "wyckoff-spring",
+            "rsi-divergence-scout",
+            "session-raider",
+            "imbalance-hunter",
+            "momentum-ignition",
+            "bollinger-reversion",
+            "atr-trail-commander"
+          ].includes(trader.id);
           return (
             <Link
               key={trader.id}
@@ -447,6 +459,11 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, onPrefetch 
                     <div className="flex min-w-0 items-center gap-2">
                       <p className="truncate text-sm font-bold text-white flex items-center gap-1.5">
                         {trader.name}
+                        {isNew && (
+                          <span className="inline-flex shrink-0 items-center rounded-sm bg-emerald-500/20 text-emerald-400 px-1 py-0.5 text-[9px] font-extrabold uppercase tracking-wide leading-none border border-emerald-500/30">
+                            NEW
+                          </span>
+                        )}
                         <span className="text-xs shrink-0">{traderFlags[trader.id] || "🇰🇷"}</span>
                       </p>
                       <SideBadge progress={progress} />
@@ -607,6 +624,18 @@ function TraderMark({ trader, compact = false }: { trader: TraderStanding; compa
 
 function TraderIdentity({ trader, progress, t }: { trader: TraderStanding; progress: TraderProgress; t: (key: string) => string }) {
   const flag = traderFlags[trader.id] || "🇰🇷";
+  const isNew = [
+    "donchian-breakout",
+    "ichimoku-cloud-pilot",
+    "vwap-reclaimer",
+    "wyckoff-spring",
+    "rsi-divergence-scout",
+    "session-raider",
+    "imbalance-hunter",
+    "momentum-ignition",
+    "bollinger-reversion",
+    "atr-trail-commander"
+  ].includes(trader.id);
   return (
     <div className="flex min-w-0 items-center gap-3">
       <TraderMark trader={trader} />
@@ -614,6 +643,11 @@ function TraderIdentity({ trader, progress, t }: { trader: TraderStanding; progr
         <div className="flex min-w-0 items-center gap-2">
           <p className="truncate text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
             {trader.name}
+            {isNew && (
+              <span className="inline-flex shrink-0 items-center rounded-sm bg-emerald-500/20 text-emerald-400 px-1 py-0.5 text-[9px] font-extrabold uppercase tracking-wide leading-none border border-emerald-500/30">
+                NEW
+              </span>
+            )}
             <span className="text-sm shrink-0" title={flag === "🇰🇷" ? "South Korea" : "USA"}>{flag}</span>
           </p>
           <SideBadge progress={progress} />

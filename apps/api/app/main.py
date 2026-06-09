@@ -81,6 +81,7 @@ from app.repositories import (
     create_trader_run_log,
     from_json,
     get_record,
+    prune_trader_database,
     sanitize_error_message,
     serialize_record,
     to_json,
@@ -1464,6 +1465,7 @@ async def process_existing_paper_exposure(
             result=result,
         )
     after = list_active_paper_exposure(db, trader_id, symbol)
+    prune_trader_database(db, trader_id, symbol)
     agent_state = latest_agent_state(db, trader_id, symbol)
     return {
         "before": before,
@@ -3152,6 +3154,7 @@ async def run_trader_cycle(
             }
             if refresh_leaderboard:
                 refresh_trader_leaderboard_snapshot(db, strategy.profile.id, clean_symbol)
+            prune_trader_database(db, strategy.profile.id, clean_symbol)
         return RunCycleResponse(
             runId=record_ids["runId"],
             persisted=True,
@@ -3239,6 +3242,7 @@ async def run_trader_cycle(
             }
             if refresh_leaderboard:
                 refresh_trader_leaderboard_snapshot(db, strategy.profile.id, clean_symbol)
+            prune_trader_database(db, strategy.profile.id, clean_symbol)
         return RunCycleResponse(
             runId=record_ids["runId"],
             persisted=True,
@@ -3357,6 +3361,7 @@ async def run_trader_cycle(
                 with session_scope() as db:
                     if refresh_leaderboard:
                         refresh_trader_leaderboard_snapshot(db, strategy.profile.id, clean_symbol)
+                    prune_trader_database(db, strategy.profile.id, clean_symbol)
             except Exception:
                 invalidate_league_cache(clean_symbol, strategy.profile.id)
     except Exception:

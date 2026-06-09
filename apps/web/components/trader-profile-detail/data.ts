@@ -52,7 +52,7 @@ export function buildScenarioTimelineItems({
     });
   }
 
-  for (const scenario of dedupeScenarioTimelineScenarios(scenarios).slice(0, 7)) {
+  for (const scenario of dedupeScenarioTimelineScenarios(scenarios)) {
     const movement = scenario.side ? scenario.side.toUpperCase() : statusLabel(scenario.action ?? scenario.status, t);
     const price = scenario.price ?? scenario.target ?? scenario.stop ?? null;
     const matchingReview = reviews.find((review) => `review-${review.id}` === scenario.id);

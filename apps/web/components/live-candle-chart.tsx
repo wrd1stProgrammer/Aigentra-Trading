@@ -8,7 +8,15 @@ import {
   MagnifyingGlassMinus,
   MagnifyingGlassPlus,
   WifiHigh,
-  WifiSlash
+  WifiSlash,
+  Cursor,
+  Trash,
+  PencilSimple,
+  Ruler,
+  Minus,
+  Gear,
+  Eye,
+  EyeSlash
 } from "@phosphor-icons/react";
 import {
   CandlestickSeries,
@@ -16,6 +24,8 @@ import {
   CrosshairMode,
   LineStyle,
   createChart,
+  LineSeries,
+  HistogramSeries,
   type CandlestickData,
   type IChartApi,
   type IPriceLine,
@@ -64,6 +74,142 @@ const OVERLAY_LINE_VISUAL = {
   stopDone: { lineWidth: 1, lineStyle: LineStyle.Solid }
 } as const;
 
+// --- Technical Indicator Calculations ---
+
+function calculateEMA(candles: CandlestickData<Time>[], period: number) {
+  if (candles.length < period) return [];
+  const k = 2 / (period + 1);
+  const emaData: { time: Time; value: number }[] = [];
+  
+  let sum = 0;
+  for (let i = 0; i < period; i++) {
+    sum += candles[i].close;
+  }
+  let currentEma = sum / period;
+  emaData.push({ time: candles[period - 1].time, value: currentEma });
+
+  for (let i = period; i < candles.length; i++) {
+    currentEma = (candles[i].close - currentEma) * k + currentEma;
+    emaData.push({ time: candles[i].time, value: currentEma });
+  }
+  return emaData;
+}
+
+interface BBValue {
+  time: Time;
+  upper: number;
+  middle: number;
+  lower: number;
+}
+
+function calculateBollingerBands(candles: CandlestickData<Time>[], period: number = 20, multiplier: number = 2): BBValue[] {
+  if (candles.length < period) return [];
+  const bbData: BBValue[] = [];
+
+  for (let i = period - 1; i < candles.length; i++) {
+    const slice = candles.slice(i - period + 1, i + 1);
+    const mean = slice.reduce((sum, c) => sum + c.close, 0) / period;
+    const variance = slice.reduce((sum, c) => sum + Math.pow(c.close - mean, 2), 0) / period;
+    const stdDev = Math.sqrt(variance);
+
+    bbData.push({
+      time: candles[i].time,
+      upper: mean + multiplier * stdDev,
+      middle: mean,
+      lower: mean - multiplier * stdDev
+    });
+  }
+  return bbData;
+}
+
+function calculateRSI(candles: CandlestickData<Time>[], period: number = 14) {
+  if (candles.length <= period) return [];
+  const rsiData: { time: Time; value: number }[] = [];
+
+  let gains = 0;
+  let losses = 0;
+
+  for (let i = 1; i <= period; i++) {
+    const diff = candles[i].close - candles[i - 1].close;
+    if (diff > 0) {
+      gains += diff;
+    } else {
+      losses -= diff;
+    }
+  }
+
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+  
+  let rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+  let rsi = avgLoss === 0 ? 100 : 100 - 100 / (1 + rs);
+  rsiData.push({ time: candles[period].time, value: rsi });
+
+  for (let i = period + 1; i < candles.length; i++) {
+    const diff = candles[i].close - candles[i - 1].close;
+    const gain = diff > 0 ? diff : 0;
+    const loss = diff < 0 ? -diff : 0;
+
+    avgGain = (avgGain * (period - 1) + gain) / period;
+    avgLoss = (avgLoss * (period - 1) + loss) / period;
+
+    rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+    rsi = avgLoss === 0 ? 100 : 100 - 100 / (1 + rs);
+    rsiData.push({ time: candles[i].time, value: rsi });
+  }
+  return rsiData;
+}
+
+interface MACDValue {
+  time: Time;
+  macd: number;
+  signal: number;
+  hist: number;
+}
+
+function calculateMACD(candles: CandlestickData<Time>[], fastPeriod: number = 12, slowPeriod: number = 26, signalPeriod: number = 9): MACDValue[] {
+  if (candles.length < slowPeriod) return [];
+  
+  const fastEma = calculateEMA(candles, fastPeriod);
+  const slowEma = calculateEMA(candles, slowPeriod);
+
+  const macdLineData: { time: Time; value: number }[] = [];
+  const slowEmaMap = new Map<number, number>();
+  for (const item of slowEma) {
+    slowEmaMap.set(Number(item.time), item.value);
+  }
+
+  for (const item of fastEma) {
+    const slowVal = slowEmaMap.get(Number(item.time));
+    if (slowVal !== undefined) {
+      macdLineData.push({ time: item.time, value: item.value - slowVal });
+    }
+  }
+
+  if (macdLineData.length < signalPeriod) return [];
+
+  const signalEma = calculateEMA(macdLineData.map(d => ({ ...d, close: d.value, open: d.value, high: d.value, low: d.value })), signalPeriod);
+  
+  const signalMap = new Map<number, number>();
+  for (const item of signalEma) {
+    signalMap.set(Number(item.time), item.value);
+  }
+
+  const macdResult: MACDValue[] = [];
+  for (const item of macdLineData) {
+    const sigVal = signalMap.get(Number(item.time));
+    if (sigVal !== undefined) {
+      macdResult.push({
+        time: item.time,
+        macd: item.value,
+        signal: sigVal,
+        hist: item.value - sigVal
+      });
+    }
+  }
+  return macdResult;
+}
+
 export function LiveCandleChart({
   symbol,
   result,
@@ -71,7 +217,7 @@ export function LiveCandleChart({
   paperOrders = [],
   paperEvents = [],
   managementReviews = [],
-  height = 420,
+  height = 340,
   compact = false
 }: {
   symbol: string;
@@ -102,6 +248,83 @@ export function LiveCandleChart({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [latestPrice, setLatestPrice] = useState<number | null>(null);
+
+  // --- Upgrade: Configurable Height ---
+  const [chartHeight, setChartHeight] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("chart-workspace-height");
+      if (saved) return Number(saved);
+    }
+    return height || 380;
+  });
+
+  useEffect(() => {
+    localStorage.setItem("chart-workspace-height", String(chartHeight));
+  }, [chartHeight]);
+
+  // --- Upgrade: Indicators Toggles ---
+  const [showEma20, setShowEma20] = useState(() => typeof window !== "undefined" && localStorage.getItem("chart-show-ema20") === "true");
+  const [showEma50, setShowEma50] = useState(() => typeof window !== "undefined" && localStorage.getItem("chart-show-ema50") === "true");
+  const [showEma200, setShowEma200] = useState(() => typeof window !== "undefined" && localStorage.getItem("chart-show-ema200") === "true");
+  const [showBb, setShowBb] = useState(() => typeof window !== "undefined" && localStorage.getItem("chart-show-bb") === "true");
+  const [showRsi, setShowRsi] = useState(() => typeof window !== "undefined" && localStorage.getItem("chart-show-rsi") === "true");
+  const [showMacd, setShowMacd] = useState(() => typeof window !== "undefined" && localStorage.getItem("chart-show-macd") === "true");
+
+  useEffect(() => { localStorage.setItem("chart-show-ema20", String(showEma20)); }, [showEma20]);
+  useEffect(() => { localStorage.setItem("chart-show-ema50", String(showEma50)); }, [showEma50]);
+  useEffect(() => { localStorage.setItem("chart-show-ema200", String(showEma200)); }, [showEma200]);
+  useEffect(() => { localStorage.setItem("chart-show-bb", String(showBb)); }, [showBb]);
+  useEffect(() => { localStorage.setItem("chart-show-rsi", String(showRsi)); }, [showRsi]);
+  useEffect(() => { localStorage.setItem("chart-show-macd", String(showMacd)); }, [showMacd]);
+
+  // --- Upgrade: Drawing tools state ---
+  const [activeTool, setActiveTool] = useState<"cursor" | "trend" | "horizontal" | "brush" | "ruler">("cursor");
+  const [drawings, setDrawings] = useState<{
+    trendLines: Array<{ start: { time: number; price: number }; end: { time: number; price: number } }>;
+    horizontalLines: Array<number>;
+    brushStrokes: Array<Array<{ time: number; price: number }>>;
+  }>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(`trader-drawings-${symbol}`);
+      if (saved) {
+        try { return JSON.parse(saved); } catch (e) {}
+      }
+    }
+    return { trendLines: [], horizontalLines: [], brushStrokes: [] };
+  });
+
+  const [activeDrawing, setActiveDrawing] = useState<{
+    type: "trend" | "brush" | "ruler";
+    start: { time: number; price: number };
+    end: { time: number; price: number };
+    stroke?: Array<{ time: number; price: number }>;
+  } | null>(null);
+
+  const [activeRuler, setActiveRuler] = useState<{ start: { time: number; price: number }; end: { time: number; price: number } } | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem(`trader-drawings-${symbol}`, JSON.stringify(drawings));
+  }, [drawings, symbol]);
+
+  // --- Upgrade: React State for indicator updates ---
+  const [indicatorCandles, setIndicatorCandles] = useState<KlineCandle[]>([]);
+  const [ema20, setEma20] = useState<any[]>([]);
+  const [ema50, setEma50] = useState<any[]>([]);
+  const [ema200, setEma200] = useState<any[]>([]);
+  const [bbData, setBbData] = useState<BBValue[]>([]);
+  const [rsiData, setRsiData] = useState<any[]>([]);
+  const [macdData, setMacdData] = useState<MACDValue[]>([]);
+
+  useEffect(() => {
+    if (indicatorCandles.length === 0) return;
+    const chartData = indicatorCandles.map(toChartCandle);
+    setEma20(calculateEMA(chartData, 20));
+    setEma50(calculateEMA(chartData, 50));
+    setEma200(calculateEMA(chartData, 200));
+    setBbData(calculateBollingerBands(chartData, 20, 2));
+    setRsiData(calculateRSI(chartData, 14));
+    setMacdData(calculateMACD(chartData, 12, 26, 9));
+  }, [indicatorCandles]);
 
   const formatter = useMemo(
     () =>
@@ -194,6 +417,29 @@ export function LiveCandleChart({
   }, [hasOpenPaperOrder, hasOpenPaperPosition, isFreshRunCycleResult, latestPrice, managementReviews, paperEvents, result, symbol, t, visibleOpenPaperOrders, visibleOpenPaperPositions]);
   const hasCompletedMarkers = overlayLines.some((line) => line.tone === "takeProfitDone" || line.tone === "stopDone");
 
+  const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const ema20SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const ema50SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const ema200SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const bbUpperSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const bbMiddleSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const bbLowerSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+
+  // Canvas ref for drawing overlay
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Sync secondary chart refs
+  const rsiContainerRef = useRef<HTMLDivElement>(null);
+  const rsiChartRef = useRef<IChartApi | null>(null);
+  const rsiSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+
+  const macdContainerRef = useRef<HTMLDivElement>(null);
+  const macdChartRef = useRef<IChartApi | null>(null);
+  const macdLineSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const macdSignalSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const macdHistSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+
+  // --- Initializing Main Chart ---
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -201,7 +447,7 @@ export function LiveCandleChart({
     const colors = chartColors(theme);
     const chart = createChart(container, {
       width: container.clientWidth,
-      height,
+      height: chartHeight,
       autoSize: true,
       layout: {
         background: { type: ColorType.Solid, color: colors.background },
@@ -219,7 +465,7 @@ export function LiveCandleChart({
       },
       rightPriceScale: {
         borderVisible: false,
-        scaleMargins: { top: 0.12, bottom: 0.16 }
+        scaleMargins: { top: 0.12, bottom: 0.22 }
       },
       timeScale: {
         borderVisible: false,
@@ -254,17 +500,28 @@ export function LiveCandleChart({
       lastValueVisible: true
     });
 
+    const volumeSeries = chart.addSeries(HistogramSeries, {
+      priceFormat: { type: "volume" },
+      priceScaleId: ""
+    });
+    volumeSeries.priceScale().applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 }
+    });
+
     chartRef.current = chart;
     seriesRef.current = series;
+    volumeSeriesRef.current = volumeSeries;
 
     return () => {
       priceLinesRef.current = [];
       seriesRef.current = null;
+      volumeSeriesRef.current = null;
       chartRef.current = null;
       chart.remove();
     };
-  }, [formatter, height, theme]);
+  }, [formatter, chartHeight, theme]);
 
+  // Adjust theme dynamically
   useEffect(() => {
     const chart = chartRef.current;
     const series = seriesRef.current;
@@ -292,11 +549,13 @@ export function LiveCandleChart({
     });
   }, [theme]);
 
+  // --- Fetch and cache kline data ---
   useEffect(() => {
     let disposed = false;
     const series = seriesRef.current;
     const chart = chartRef.current;
-    if (!series || !chart) return;
+    const volumeSeries = volumeSeriesRef.current;
+    if (!series || !chart || !volumeSeries) return;
 
     const limit = interval === DEFAULT_INTERVAL ? DEFAULT_INTERVAL_LIMIT["1h"] : candleLimitForInterval(interval);
     const cached = getCachedKlines(symbol, interval, limit, CACHED_CANDLES_VISIBLE_MS);
@@ -310,8 +569,22 @@ export function LiveCandleChart({
     hasVisibleCandlesRef.current = hasCachedCandles || shouldPreserveVisible;
     lastSocketUpdateAtRef.current = 0;
 
+    const updateChartData = (candlesList: KlineCandle[]) => {
+      const chartData = candlesList.map(toChartCandle);
+      series.setData(chartData);
+      
+      const volData = candlesList.map(c => ({
+        time: Math.floor(c.openTime / 1000) as Time,
+        value: c.volume,
+        color: c.close >= c.open ? "rgba(16, 185, 129, 0.18)" : "rgba(244, 63, 94, 0.18)"
+      }));
+      volumeSeries.setData(volData);
+      
+      setIndicatorCandles([...candlesList]);
+    };
+
     if (hasCachedCandles) {
-      series.setData(cachedCandles.map(toChartCandle));
+      updateChartData(cachedCandles);
       chartCandlesRef.current = cachedCandles;
       oldestOpenTimeRef.current = cachedCandles[0]?.openTime ?? null;
       lastCandleTimeRef.current = chartTimeValue(cachedCandles.at(-1)?.openTime);
@@ -320,6 +593,8 @@ export function LiveCandleChart({
       chart.timeScale().fitContent();
     } else if (!shouldPreserveVisible) {
       series.setData([]);
+      volumeSeries.setData([]);
+      setIndicatorCandles([]);
       chartCandlesRef.current = [];
       oldestOpenTimeRef.current = null;
       lastCandleTimeRef.current = null;
@@ -335,16 +610,15 @@ export function LiveCandleChart({
       try {
         const data = await getKlines(symbol, interval, limit, { staleMs });
         if (disposed) return;
-        const chartData = data.candles.map(toChartCandle);
-        if (chartData.length || !hasVisibleCandlesRef.current) {
-          series.setData(chartData);
+        if (data.candles.length || !hasVisibleCandlesRef.current) {
+          updateChartData(data.candles);
           chartCandlesRef.current = data.candles;
           oldestOpenTimeRef.current = data.candles[0]?.openTime ?? null;
-          hasVisibleCandlesRef.current = chartData.length > 0;
-          lastCandleTimeRef.current = chartData.length ? Number(chartData.at(-1)?.time) : null;
-          visibleSymbolRef.current = chartData.length ? symbol : visibleSymbolRef.current;
+          hasVisibleCandlesRef.current = data.candles.length > 0;
+          lastCandleTimeRef.current = data.candles.length ? Math.floor(data.candles.at(-1)!.openTime / 1000) : null;
+          visibleSymbolRef.current = data.candles.length ? symbol : visibleSymbolRef.current;
           setLatestPrice(data.candles.at(-1)?.close ?? null);
-          if (chartData.length && fit) chart.timeScale().fitContent();
+          if (data.candles.length && fit) chart.timeScale().fitContent();
         }
         setError(null);
       } catch (err) {
@@ -363,13 +637,12 @@ export function LiveCandleChart({
         }
         const merged = getCachedKlines(symbol, interval, limit);
         const candles = merged?.candles?.length ? merged.candles : data.candles;
-        const chartData = candles.map(toChartCandle);
-        if (chartData.length) {
-          series.setData(chartData);
+        if (candles.length) {
+          updateChartData(candles);
           chartCandlesRef.current = candles;
           oldestOpenTimeRef.current = candles[0]?.openTime ?? null;
           hasVisibleCandlesRef.current = true;
-          lastCandleTimeRef.current = Number(chartData.at(-1)?.time);
+          lastCandleTimeRef.current = Math.floor(candles.at(-1)!.openTime / 1000);
           visibleSymbolRef.current = symbol;
           setLatestPrice(candles.at(-1)?.close ?? null);
         }
@@ -400,7 +673,7 @@ export function LiveCandleChart({
         const merged = mergeCandleHistory(olderCandles, chartCandlesRef.current, MAX_CHART_CANDLES);
         chartCandlesRef.current = merged;
         oldestOpenTimeRef.current = merged[0]?.openTime ?? oldestOpenTime;
-        series.setData(merged.map(toChartCandle));
+        updateChartData(merged);
         setError(null);
       } catch (err) {
         if (!disposed) setError(err instanceof Error ? err.message : String(err));
@@ -450,7 +723,15 @@ export function LiveCandleChart({
         lastCandleTimeRef.current = Number(next.time);
         visibleSymbolRef.current = symbol;
         hasVisibleCandlesRef.current = true;
+        
         series.update(next);
+        volumeSeries.update({
+          time: next.time,
+          value: candle.volume,
+          color: candle.close >= candle.open ? "rgba(16, 185, 129, 0.18)" : "rgba(244, 63, 94, 0.18)"
+        });
+
+        setIndicatorCandles([...chartCandlesRef.current]);
         setLoading(false);
         const close = Number(row[4]);
         if (Number.isFinite(close)) setLatestPrice(close);
@@ -473,6 +754,112 @@ export function LiveCandleChart({
     };
   }, [interval, symbol, t]);
 
+  // --- Manage EMAs Line Series ---
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    if (showEma20 && ema20.length > 0) {
+      if (!ema20SeriesRef.current) {
+        ema20SeriesRef.current = chart.addSeries(LineSeries, {
+          color: "#f59e0b",
+          title: "EMA 20",
+          lastValueVisible: false,
+          priceLineVisible: false,
+          lineWidth: 2
+        });
+      }
+      ema20SeriesRef.current.setData(ema20);
+    } else if (ema20SeriesRef.current) {
+      chart.removeSeries(ema20SeriesRef.current);
+      ema20SeriesRef.current = null;
+    }
+
+    if (showEma50 && ema50.length > 0) {
+      if (!ema50SeriesRef.current) {
+        ema50SeriesRef.current = chart.addSeries(LineSeries, {
+          color: "#3b82f6",
+          title: "EMA 50",
+          lastValueVisible: false,
+          priceLineVisible: false,
+          lineWidth: 2
+        });
+      }
+      ema50SeriesRef.current.setData(ema50);
+    } else if (ema50SeriesRef.current) {
+      chart.removeSeries(ema50SeriesRef.current);
+      ema50SeriesRef.current = null;
+    }
+
+    if (showEma200 && ema200.length > 0) {
+      if (!ema200SeriesRef.current) {
+        ema200SeriesRef.current = chart.addSeries(LineSeries, {
+          color: "#ec4899",
+          title: "EMA 200",
+          lastValueVisible: false,
+          priceLineVisible: false,
+          lineWidth: 2
+        });
+      }
+      ema200SeriesRef.current.setData(ema200);
+    } else if (ema200SeriesRef.current) {
+      chart.removeSeries(ema200SeriesRef.current);
+      ema200SeriesRef.current = null;
+    }
+  }, [showEma20, showEma50, showEma200, ema20, ema50, ema200]);
+
+  // --- Manage Bollinger Bands Line Series ---
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    if (showBb && bbData.length > 0) {
+      if (!bbUpperSeriesRef.current) {
+        bbUpperSeriesRef.current = chart.addSeries(LineSeries, {
+          color: "rgba(6, 182, 212, 0.65)",
+          lineWidth: 1,
+          title: "BB Upper",
+          lastValueVisible: false,
+          priceLineVisible: false
+        });
+        bbMiddleSeriesRef.current = chart.addSeries(LineSeries, {
+          color: "rgba(113, 113, 122, 0.4)",
+          lineWidth: 1,
+          lineStyle: LineStyle.Dotted,
+          title: "BB Basis",
+          lastValueVisible: false,
+          priceLineVisible: false
+        });
+        bbLowerSeriesRef.current = chart.addSeries(LineSeries, {
+          color: "rgba(6, 182, 212, 0.65)",
+          lineWidth: 1,
+          title: "BB Lower",
+          lastValueVisible: false,
+          priceLineVisible: false
+        });
+      }
+      if (bbUpperSeriesRef.current && bbMiddleSeriesRef.current && bbLowerSeriesRef.current) {
+        bbUpperSeriesRef.current.setData(bbData.map(d => ({ time: d.time, value: d.upper })));
+        bbMiddleSeriesRef.current.setData(bbData.map(d => ({ time: d.time, value: d.middle })));
+        bbLowerSeriesRef.current.setData(bbData.map(d => ({ time: d.time, value: d.lower })));
+      }
+    } else {
+      if (bbUpperSeriesRef.current) {
+        chart.removeSeries(bbUpperSeriesRef.current);
+        bbUpperSeriesRef.current = null;
+      }
+      if (bbMiddleSeriesRef.current) {
+        chart.removeSeries(bbMiddleSeriesRef.current);
+        bbMiddleSeriesRef.current = null;
+      }
+      if (bbLowerSeriesRef.current) {
+        chart.removeSeries(bbLowerSeriesRef.current);
+        bbLowerSeriesRef.current = null;
+      }
+    }
+  }, [showBb, bbData]);
+
+  // --- Manage Order/Position Overlay Lines ---
   useEffect(() => {
     clearPriceLines();
     const series = seriesRef.current;
@@ -490,6 +877,616 @@ export function LiveCandleChart({
       });
     });
   }, [overlayLines, theme]);
+
+  // --- Synced RSI Sub-Chart ---
+  useEffect(() => {
+    if (!showRsi) {
+      if (rsiChartRef.current) {
+        rsiChartRef.current.remove();
+        rsiChartRef.current = null;
+        rsiSeriesRef.current = null;
+      }
+      return;
+    }
+
+    const container = rsiContainerRef.current;
+    if (!container) return;
+
+    const colors = chartColors(theme);
+    const rsiChart = createChart(container, {
+      width: container.clientWidth,
+      height: 110,
+      layout: {
+        background: { type: ColorType.Solid, color: colors.background },
+        textColor: colors.text,
+        fontFamily: "var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+      },
+      grid: {
+        vertLines: { color: colors.grid },
+        horzLines: { color: colors.grid }
+      },
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: { color: colors.crosshair },
+        horzLine: { color: colors.crosshair }
+      },
+      rightPriceScale: {
+        borderVisible: false,
+        visible: true
+      },
+      timeScale: {
+        borderVisible: false,
+        visible: false
+      }
+    });
+
+    const rsiSeries = rsiChart.addSeries(LineSeries, {
+      color: "#a78bfa",
+      title: "RSI",
+      lastValueVisible: true,
+      priceLineVisible: false,
+      lineWidth: 2
+    });
+
+    rsiSeries.createPriceLine({
+      price: 70,
+      color: "rgba(244, 63, 94, 0.45)",
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: "Overbought (70)"
+    });
+    rsiSeries.createPriceLine({
+      price: 30,
+      color: "rgba(16, 185, 129, 0.45)",
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: "Oversold (30)"
+    });
+
+    rsiChartRef.current = rsiChart;
+    rsiSeriesRef.current = rsiSeries;
+
+    if (rsiData.length > 0) {
+      rsiSeries.setData(rsiData);
+    }
+
+    return () => {
+      if (rsiChartRef.current) {
+        rsiChartRef.current.remove();
+        rsiChartRef.current = null;
+        rsiSeriesRef.current = null;
+      }
+    };
+  }, [showRsi, theme]);
+
+  useEffect(() => {
+    if (rsiSeriesRef.current && rsiData.length > 0) {
+      rsiSeriesRef.current.setData(rsiData);
+    }
+  }, [rsiData]);
+
+  // --- Synced MACD Sub-Chart ---
+  useEffect(() => {
+    if (!showMacd) {
+      if (macdChartRef.current) {
+        macdChartRef.current.remove();
+        macdChartRef.current = null;
+        macdLineSeriesRef.current = null;
+        macdSignalSeriesRef.current = null;
+        macdHistSeriesRef.current = null;
+      }
+      return;
+    }
+
+    const container = macdContainerRef.current;
+    if (!container) return;
+
+    const colors = chartColors(theme);
+    const macdChart = createChart(container, {
+      width: container.clientWidth,
+      height: 110,
+      layout: {
+        background: { type: ColorType.Solid, color: colors.background },
+        textColor: colors.text,
+        fontFamily: "var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+      },
+      grid: {
+        vertLines: { color: colors.grid },
+        horzLines: { color: colors.grid }
+      },
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: { color: colors.crosshair },
+        horzLine: { color: colors.crosshair }
+      },
+      rightPriceScale: {
+        borderVisible: false,
+        visible: true
+      },
+      timeScale: {
+        borderVisible: false,
+        visible: false
+      }
+    });
+
+    const macdHistSeries = macdChart.addSeries(HistogramSeries, {
+      priceFormat: { type: "price", precision: 2 },
+      lastValueVisible: false,
+      priceLineVisible: false
+    });
+
+    const macdLineSeries = macdChart.addSeries(LineSeries, {
+      color: "#2563eb",
+      title: "MACD",
+      lastValueVisible: true,
+      priceLineVisible: false,
+      lineWidth: 2
+    });
+
+    const macdSignalSeries = macdChart.addSeries(LineSeries, {
+      color: "#ea580c",
+      title: "Signal",
+      lastValueVisible: true,
+      priceLineVisible: false,
+      lineWidth: 2
+    });
+
+    macdChartRef.current = macdChart;
+    macdLineSeriesRef.current = macdLineSeries;
+    macdSignalSeriesRef.current = macdSignalSeries;
+    macdHistSeriesRef.current = macdHistSeries;
+
+    if (macdData.length > 0) {
+      macdLineSeries.setData(macdData.map(d => ({ time: d.time, value: d.macd })));
+      macdSignalSeries.setData(macdData.map(d => ({ time: d.time, value: d.signal })));
+      macdHistSeries.setData(macdData.map(d => ({
+        time: d.time,
+        value: d.hist,
+        color: d.hist >= 0 ? "rgba(16, 185, 129, 0.4)" : "rgba(244, 63, 94, 0.4)"
+      })));
+    }
+
+    return () => {
+      if (macdChartRef.current) {
+        macdChartRef.current.remove();
+        macdChartRef.current = null;
+        macdLineSeriesRef.current = null;
+        macdSignalSeriesRef.current = null;
+        macdHistSeriesRef.current = null;
+      }
+    };
+  }, [showMacd, theme]);
+
+  useEffect(() => {
+    if (macdLineSeriesRef.current && macdSignalSeriesRef.current && macdHistSeriesRef.current) {
+      macdLineSeriesRef.current.setData(macdData.map(d => ({ time: d.time, value: d.macd })));
+      macdSignalSeriesRef.current.setData(macdData.map(d => ({ time: d.time, value: d.signal })));
+      macdHistSeriesRef.current.setData(macdData.map(d => ({
+        time: d.time,
+        value: d.hist,
+        color: d.hist >= 0 ? "rgba(16, 185, 129, 0.4)" : "rgba(244, 63, 94, 0.4)"
+      })));
+    }
+  }, [macdData]);
+
+  // --- Synchronize Scroll / Zoom of main + secondary charts ---
+  useEffect(() => {
+    const main = chartRef.current;
+    const rsi = rsiChartRef.current;
+    const macd = macdChartRef.current;
+    if (!main) return;
+
+    let isSyncing = false;
+    
+    const sync = (source: IChartApi, targets: (IChartApi | null)[]) => {
+      if (isSyncing) return;
+      isSyncing = true;
+      const range = source.timeScale().getVisibleLogicalRange();
+      if (range) {
+        for (const target of targets) {
+          if (target) {
+            target.timeScale().setVisibleLogicalRange(range);
+          }
+        }
+      }
+      isSyncing = false;
+    };
+
+    const onMainChange = () => sync(main, [rsi, macd]);
+    const onRsiChange = rsi ? () => sync(rsi, [main, macd]) : null;
+    const onMacdChange = macd ? () => sync(macd, [main, rsi]) : null;
+
+    main.timeScale().subscribeVisibleLogicalRangeChange(onMainChange);
+    if (rsi && onRsiChange) rsi.timeScale().subscribeVisibleLogicalRangeChange(onRsiChange);
+    if (macd && onMacdChange) macd.timeScale().subscribeVisibleLogicalRangeChange(onMacdChange);
+
+    // Initial sync
+    sync(main, [rsi, macd]);
+
+    return () => {
+      if (main) main.timeScale().unsubscribeVisibleLogicalRangeChange(onMainChange);
+      if (rsi && onRsiChange) rsi.timeScale().unsubscribeVisibleLogicalRangeChange(onRsiChange);
+      if (macd && onMacdChange) macd.timeScale().unsubscribeVisibleLogicalRangeChange(onMacdChange);
+    };
+  }, [showRsi, showMacd]);
+
+  // --- Synchronize Crosshairs pointers ---
+  useEffect(() => {
+    const main = chartRef.current;
+    const rsi = rsiChartRef.current;
+    const macd = macdChartRef.current;
+    if (!main) return;
+
+    const onMainMove = (param: any) => {
+      const time = param.time;
+      const point = param.point;
+      if (!point || !time) {
+        if (rsi) rsi.clearCrosshairPosition();
+        if (macd) macd.clearCrosshairPosition();
+        return;
+      }
+      if (rsi && rsiSeriesRef.current) {
+        const x = rsi.timeScale().timeToCoordinate(time);
+        if (x !== null) rsi.setCrosshairPosition(50, time, rsiSeriesRef.current);
+      }
+      if (macd && macdLineSeriesRef.current) {
+        const x = macd.timeScale().timeToCoordinate(time);
+        if (x !== null) macd.setCrosshairPosition(0, time, macdLineSeriesRef.current);
+      }
+    };
+    
+    main.subscribeCrosshairMove(onMainMove);
+
+    return () => {
+      if (main) main.unsubscribeCrosshairMove(onMainMove);
+    };
+  }, [showRsi, showMacd]);
+
+  // --- Drawing Tools Canvas Operations ---
+
+  const getPointFromCoords = (x: number, y: number) => {
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (!chart || !series) return null;
+
+    const price = series.coordinateToPrice(y);
+    if (price === null) return null;
+
+    const logical = chart.timeScale().coordinateToLogical(x);
+    if (logical === null) return null;
+
+    const index = Math.round(logical);
+    const data = chartCandlesRef.current;
+    if (data.length === 0) return null;
+
+    let time: number;
+    if (index < 0) {
+      const diff = 0 - index;
+      const intervalMs = intervalToMs(interval);
+      time = Math.floor((data[0].openTime - diff * intervalMs) / 1000);
+    } else if (index >= data.length) {
+      const diff = index - (data.length - 1);
+      const intervalMs = intervalToMs(interval);
+      time = Math.floor((data[data.length - 1].openTime + diff * intervalMs) / 1000);
+    } else {
+      time = Math.floor(data[index].openTime / 1000);
+    }
+
+    return { time, price };
+  };
+
+  const getMousePos = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+  };
+
+  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (activeTool === "cursor") return;
+    const pos = getMousePos(e);
+    if (!pos) return;
+
+    // Reset active ruler on new click
+    setActiveRuler(null);
+
+    const pt = getPointFromCoords(pos.x, pos.y);
+    if (!pt) return;
+
+    if (activeTool === "trend") {
+      setActiveDrawing({ type: "trend", start: pt, end: pt });
+    } else if (activeTool === "horizontal") {
+      setDrawings(prev => ({
+        ...prev,
+        horizontalLines: [...prev.horizontalLines, pt.price]
+      }));
+    } else if (activeTool === "brush") {
+      setActiveDrawing({ type: "brush", start: pt, end: pt, stroke: [pt] });
+    } else if (activeTool === "ruler") {
+      setActiveDrawing({ type: "ruler", start: pt, end: pt });
+    }
+  };
+
+  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!activeDrawing) return;
+    const pos = getMousePos(e);
+    if (!pos) return;
+
+    const pt = getPointFromCoords(pos.x, pos.y);
+    if (!pt) return;
+
+    if (activeDrawing.type === "trend") {
+      setActiveDrawing(prev => prev ? { ...prev, end: pt } : null);
+    } else if (activeDrawing.type === "brush") {
+      setActiveDrawing(prev => prev ? { ...prev, stroke: [...(prev.stroke || []), pt], end: pt } : null);
+    } else if (activeDrawing.type === "ruler") {
+      setActiveDrawing(prev => prev ? { ...prev, end: pt } : null);
+    }
+  };
+
+  const handleCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!activeDrawing) return;
+    const pos = getMousePos(e);
+    if (!pos) {
+      setActiveDrawing(null);
+      return;
+    }
+
+    const pt = getPointFromCoords(pos.x, pos.y) || activeDrawing.end;
+
+    if (activeDrawing.type === "trend") {
+      setDrawings(prev => ({
+        ...prev,
+        trendLines: [...prev.trendLines, { start: activeDrawing.start, end: pt }]
+      }));
+    } else if (activeDrawing.type === "brush") {
+      setDrawings(prev => ({
+        ...prev,
+        brushStrokes: [...prev.brushStrokes, [...(activeDrawing.stroke || []), pt]]
+      }));
+    } else if (activeDrawing.type === "ruler") {
+      setActiveRuler({ start: activeDrawing.start, end: pt });
+    }
+
+    setActiveDrawing(null);
+  };
+
+  const drawDrawings = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (!ctx || !chart || !series) return;
+
+    // Handle high-DPI scaling
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+    }
+
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    const timeScale = chart.timeScale();
+    const toPixels = (point: { time: number; price: number }) => {
+      const x = timeScale.timeToCoordinate(point.time as Time);
+      const y = series.priceToCoordinate(point.price);
+      return { x, y };
+    };
+
+    const dark = theme === "dark";
+    const colorTrend = dark ? "#10b981" : "#059669";
+    const colorBrush = dark ? "#38bdf8" : "#0284c7";
+    const colorRuler = dark ? "rgba(167, 139, 250, 0.2)" : "rgba(124, 58, 237, 0.12)";
+    const colorText = dark ? "#f4f4f5" : "#18181b";
+
+    // --- Draw Bollinger Bands area fill on Canvas ---
+    if (showBb && bbData.length > 0) {
+      ctx.fillStyle = dark ? "rgba(6, 182, 212, 0.04)" : "rgba(6, 182, 212, 0.025)";
+      ctx.beginPath();
+      let first = true;
+      for (const pt of bbData) {
+        const p = toPixels({ time: Number(pt.time), price: pt.upper });
+        if (p.x !== null && p.y !== null) {
+          if (first) {
+            ctx.moveTo(p.x, p.y);
+            first = false;
+          } else {
+            ctx.lineTo(p.x, p.y);
+          }
+        }
+      }
+      for (let i = bbData.length - 1; i >= 0; i--) {
+        const p = toPixels({ time: Number(bbData[i].time), price: bbData[i].lower });
+        if (p.x !== null && p.y !== null) {
+          ctx.lineTo(p.x, p.y);
+        }
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // --- Trend Lines ---
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = colorTrend;
+    for (const line of drawings.trendLines) {
+      const p1 = toPixels(line.start);
+      const p2 = toPixels(line.end);
+      if (p1.x !== null && p1.y !== null && p2.x !== null && p2.y !== null) {
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+      }
+    }
+
+    if (activeDrawing && activeDrawing.type === "trend") {
+      const p1 = toPixels(activeDrawing.start);
+      const p2 = toPixels(activeDrawing.end);
+      if (p1.x !== null && p1.y !== null && p2.x !== null && p2.y !== null) {
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+      }
+    }
+
+    // --- Horizontal Lines ---
+    ctx.setLineDash([4, 4]);
+    for (const price of drawings.horizontalLines) {
+      const y = series.priceToCoordinate(price);
+      if (y !== null) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(rect.width, y);
+        ctx.stroke();
+      }
+    }
+    ctx.setLineDash([]);
+
+    // --- Brush Strokes ---
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = colorBrush;
+    for (const stroke of drawings.brushStrokes) {
+      ctx.beginPath();
+      let first = true;
+      for (const pt of stroke) {
+        const p = toPixels(pt);
+        if (p.x !== null && p.y !== null) {
+          if (first) {
+            ctx.moveTo(p.x, p.y);
+            first = false;
+          } else {
+            ctx.lineTo(p.x, p.y);
+          }
+        }
+      }
+      ctx.stroke();
+    }
+
+    if (activeDrawing && activeDrawing.type === "brush" && activeDrawing.stroke) {
+      ctx.beginPath();
+      let first = true;
+      for (const pt of activeDrawing.stroke) {
+        const p = toPixels(pt);
+        if (p.x !== null && p.y !== null) {
+          if (first) {
+            ctx.moveTo(p.x, p.y);
+            first = false;
+          } else {
+            ctx.lineTo(p.x, p.y);
+          }
+        }
+      }
+      ctx.stroke();
+    }
+
+    // --- Ruler Boxes ---
+    const drawRulerBox = (start: { time: number; price: number }, end: { time: number; price: number }) => {
+      const p1 = toPixels(start);
+      const p2 = toPixels(end);
+      if (p1.x !== null && p1.y !== null && p2.x !== null && p2.y !== null) {
+        ctx.fillStyle = colorRuler;
+        ctx.fillRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+
+        ctx.strokeStyle = dark ? "#a78bfa" : "#7c3aed";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+
+        const priceDiff = end.price - start.price;
+        const pct = (priceDiff / start.price) * 100;
+        
+        const startLogical = timeScale.coordinateToLogical(p1.x);
+        const endLogical = timeScale.coordinateToLogical(p2.x);
+        const bars = startLogical !== null && endLogical !== null ? Math.abs(Math.round(endLogical - startLogical)) : 0;
+
+        const text = `${priceDiff > 0 ? "+" : ""}${priceDiff.toFixed(1)} (${priceDiff > 0 ? "+" : ""}${pct.toFixed(2)}%) · ${bars} bars`;
+        ctx.font = "bold 11px var(--font-geist-mono), monospace";
+        ctx.fillStyle = dark ? "#000000" : "#ffffff";
+        
+        const textWidth = ctx.measureText(text).width;
+        const boxX = p2.x - textWidth / 2;
+        const boxY = p2.y > p1.y ? p2.y + 10 : p2.y - 25;
+
+        ctx.fillStyle = dark ? "rgba(24, 24, 27, 0.85)" : "rgba(255, 255, 255, 0.9)";
+        ctx.strokeStyle = dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.1)";
+        ctx.beginPath();
+        
+        // Custom round rect for retro look
+        const rX = boxX - 6;
+        const rY = boxY - 14;
+        const rW = textWidth + 12;
+        const rH = 20;
+        ctx.roundRect(rX, rY, rW, rH, 4);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = dark ? "#f4f4f5" : "#18181b";
+        ctx.fillText(text, boxX, boxY);
+      }
+    };
+
+    if (activeDrawing && activeDrawing.type === "ruler") {
+      drawRulerBox(activeDrawing.start, activeDrawing.end);
+    }
+    if (activeRuler) {
+      drawRulerBox(activeRuler.start, activeRuler.end);
+    }
+  };
+
+  // Redraw when viewport or drawing state changes
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    const handleRange = () => {
+      drawDrawings();
+    };
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange(handleRange);
+    return () => {
+      if (chart) chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleRange);
+    };
+  }, [drawings, activeDrawing, activeRuler, showBb, bbData]);
+
+  // Resize canvas overlay
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+
+    const resizeCanvas = () => {
+      const rect = container.getBoundingClientRect();
+      canvas.style.width = `${rect.width}px`;
+      canvas.style.height = `${rect.height}px`;
+      drawDrawings();
+    };
+
+    resizeCanvas();
+    const observer = new ResizeObserver(() => {
+      resizeCanvas();
+    });
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [drawings, activeDrawing, activeRuler, showBb, bbData, chartHeight]);
+
+  const clearAllDrawings = () => {
+    setDrawings({ trendLines: [], horizontalLines: [], brushStrokes: [] });
+    setActiveRuler(null);
+    setActiveDrawing(null);
+  };
 
   function clearPriceLines() {
     const series = seriesRef.current;
@@ -527,6 +1524,7 @@ export function LiveCandleChart({
 
   return (
     <section className={`panel overflow-hidden ${compact ? "p-4" : "p-5"}`}>
+      {/* Top Header Section */}
       <div className={`${compact ? "mb-3" : "mb-4"} flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between`}>
         <div>
           <div className="mb-2 flex items-center gap-2">
@@ -550,52 +1548,204 @@ export function LiveCandleChart({
         </div>
       </div>
 
-      <div className="mb-3 flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex flex-wrap gap-1 rounded-lg border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-950/60">
-          {TIMEFRAMES.map((item) => (
+      {/* Top Chart Toolbar (Indicators, Timeframe, Height) */}
+      <div className="mb-3 flex flex-col gap-2 border-b border-zinc-200/50 pb-3 dark:border-zinc-800/50 lg:flex-row lg:items-center lg:justify-between">
+        
+        {/* Timeframe & Indicators */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Timeframes */}
+          <div className="flex flex-wrap gap-0.5 rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 dark:border-zinc-800 dark:bg-zinc-950/60">
+            {TIMEFRAMES.map((item) => (
+              <button
+                key={item}
+                className={`rounded px-2.5 py-1 text-[11px] font-bold uppercase transition ${
+                  interval === item
+                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950"
+                    : "text-zinc-500 hover:bg-white dark:text-zinc-400 dark:hover:bg-zinc-800/80"
+                }`}
+                onClick={() => setInterval(item)}
+                type="button"
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+
+          <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 mx-1 hidden sm:block" />
+
+          {/* Indicators dropdown buttons */}
+          <div className="flex flex-wrap gap-1">
+            <IndicatorToggle active={showEma20} onClick={() => setShowEma20(p => !p)} label="EMA 20" />
+            <IndicatorToggle active={showEma50} onClick={() => setShowEma50(p => !p)} label="EMA 50" />
+            <IndicatorToggle active={showEma200} onClick={() => setShowEma200(p => !p)} label="EMA 200" />
+            <IndicatorToggle active={showBb} onClick={() => setShowBb(p => !p)} label="BB" />
+            <IndicatorToggle active={showRsi} onClick={() => setShowRsi(p => !p)} label="RSI" />
+            <IndicatorToggle active={showMacd} onClick={() => setShowMacd(p => !p)} label="MACD" />
+          </div>
+        </div>
+
+        {/* View adjustments & Height (Stretching) */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Height Adjuster (Aspect Ratio) */}
+          <div className="flex rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 dark:border-zinc-800 dark:bg-zinc-950/60">
             <button
-              key={item}
-              className={`rounded-md px-2.5 py-1.5 text-xs font-semibold transition ${
-                interval === item
-                  ? "bg-zinc-950 text-white dark:bg-zinc-100 dark:text-zinc-950"
-                  : "text-zinc-600 hover:bg-white dark:text-zinc-300 dark:hover:bg-zinc-800"
-              }`}
-              onClick={() => setInterval(item)}
+              onClick={() => setChartHeight(280)}
+              className={`rounded px-2 py-1 text-[10px] font-bold transition ${chartHeight === 280 ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"}`}
+              title="Wide Aspect Ratio (Stretched)"
               type="button"
             >
-              {item}
+              Wide
             </button>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-1">
-          <ChartButton label={t("chart.panLeft")} onClick={() => pan(24)}>
-            <CaretLeft size={15} />
-          </ChartButton>
-          <ChartButton label={t("chart.panRight")} onClick={() => pan(-24)}>
-            <CaretRight size={15} />
-          </ChartButton>
-          <ChartButton label={t("chart.zoomIn")} onClick={() => zoom(0.72)}>
-            <MagnifyingGlassPlus size={15} />
-          </ChartButton>
-          <ChartButton label={t("chart.zoomOut")} onClick={() => zoom(1.38)}>
-            <MagnifyingGlassMinus size={15} />
-          </ChartButton>
-          <ChartButton label={t("chart.resetView")} onClick={resetView}>
-            <ArrowsOutSimple size={15} />
-          </ChartButton>
+            <button
+              onClick={() => setChartHeight(380)}
+              className={`rounded px-2 py-1 text-[10px] font-bold transition ${chartHeight === 380 ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"}`}
+              title="Balanced Aspect Ratio"
+              type="button"
+            >
+              Normal
+            </button>
+            <button
+              onClick={() => setChartHeight(480)}
+              className={`rounded px-2 py-1 text-[10px] font-bold transition ${chartHeight === 480 ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"}`}
+              title="Tall Aspect Ratio"
+              type="button"
+            >
+              Tall
+            </button>
+          </div>
+
+          <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 mx-1" />
+
+          {/* Standard Navigation Toggles */}
+          <div className="flex gap-0.5">
+            <ChartButton label={t("chart.panLeft")} onClick={() => pan(24)}>
+              <CaretLeft size={14} />
+            </ChartButton>
+            <ChartButton label={t("chart.panRight")} onClick={() => pan(-24)}>
+              <CaretRight size={14} />
+            </ChartButton>
+            <ChartButton label={t("chart.zoomIn")} onClick={() => zoom(0.72)}>
+              <MagnifyingGlassPlus size={14} />
+            </ChartButton>
+            <ChartButton label={t("chart.zoomOut")} onClick={() => zoom(1.38)}>
+              <MagnifyingGlassMinus size={14} />
+            </ChartButton>
+            <ChartButton label={t("chart.resetView")} onClick={resetView}>
+              <ArrowsOutSimple size={14} />
+            </ChartButton>
+          </div>
         </div>
       </div>
 
-      <div ref={containerRef} className="w-full rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950/70" style={{ height }} />
+      {/* Main Workspace: Sidebar Tools + Canvas / Chart sync boxes */}
+      <div className="flex gap-3 min-w-0">
+        
+        {/* Left Vertical Drawing Sidebar */}
+        <div className="flex flex-col gap-1 rounded-xl border border-zinc-200 bg-zinc-50/50 p-1.5 dark:border-zinc-800/80 dark:bg-zinc-950/60 self-start shadow-sm shrink-0">
+          <SidebarButton
+            active={activeTool === "cursor"}
+            onClick={() => {
+              setActiveTool("cursor");
+              setActiveRuler(null);
+            }}
+            title="Cursor / Navigate (Pan)"
+          >
+            <Cursor size={16} weight={activeTool === "cursor" ? "fill" : "regular"} />
+          </SidebarButton>
+          <SidebarButton
+            active={activeTool === "trend"}
+            onClick={() => setActiveTool("trend")}
+            title="Trend Line Segment"
+          >
+            <span className="font-bold text-sm select-none leading-none inline-block -rotate-12 h-4 w-4 text-center">╱</span>
+          </SidebarButton>
+          <SidebarButton
+            active={activeTool === "horizontal"}
+            onClick={() => setActiveTool("horizontal")}
+            title="Horizontal Line"
+          >
+            <Minus size={16} weight="bold" />
+          </SidebarButton>
+          <SidebarButton
+            active={activeTool === "brush"}
+            onClick={() => setActiveTool("brush")}
+            title="Pencil Brush (Freehand)"
+          >
+            <PencilSimple size={16} weight={activeTool === "brush" ? "fill" : "regular"} />
+          </SidebarButton>
+          <SidebarButton
+            active={activeTool === "ruler"}
+            onClick={() => setActiveTool("ruler")}
+            title="Ruler (Measure Price/Time)"
+          >
+            <Ruler size={16} weight={activeTool === "ruler" ? "fill" : "regular"} />
+          </SidebarButton>
+          
+          <div className="h-px bg-zinc-200 dark:bg-zinc-800 my-1 w-full" />
+          
+          <SidebarButton
+            active={false}
+            onClick={clearAllDrawings}
+            title="Clear All Drawings"
+            className="text-rose-500 dark:text-rose-400 hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-300"
+          >
+            <Trash size={16} />
+          </SidebarButton>
+        </div>
 
-      <div className="mt-3 flex flex-wrap gap-3 text-xs text-zinc-500 dark:text-zinc-400">
+        {/* Sync Chart stack */}
+        <div className="flex-1 flex flex-col gap-2 min-w-0">
+          {/* Candlestick Main Frame */}
+          <div className="relative w-full overflow-hidden">
+            <div ref={containerRef} className="w-full rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950/70" style={{ height: chartHeight }} />
+            
+            {/* Transparent overlay drawing canvas */}
+            <canvas
+              ref={canvasRef}
+              className="absolute top-0 left-0 w-full h-full"
+              style={{
+                pointerEvents: activeTool === "cursor" ? "none" : "auto",
+                cursor: activeTool === "cursor" ? "default" : "crosshair"
+              }}
+              onMouseDown={handleCanvasMouseDown}
+              onMouseMove={handleCanvasMouseMove}
+              onMouseUp={handleCanvasMouseUp}
+            />
+          </div>
+
+          {/* RSI Pane */}
+          {showRsi && (
+            <div className="relative w-full rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950/70 p-1 animate-fade-in">
+              <div className="absolute top-2 left-4 text-[10px] font-bold font-mono z-10 text-zinc-500 uppercase tracking-wider">RSI (14)</div>
+              <div ref={rsiContainerRef} className="w-full" style={{ height: 110 }} />
+            </div>
+          )}
+
+          {/* MACD Pane */}
+          {showMacd && (
+            <div className="relative w-full rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950/70 p-1 animate-fade-in">
+              <div className="absolute top-2 left-4 text-[10px] font-bold font-mono z-10 text-zinc-500 uppercase tracking-wider">MACD (12, 26, 9)</div>
+              <div ref={macdContainerRef} className="w-full" style={{ height: 110 }} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Legend & hints */}
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-zinc-500 dark:text-zinc-400">
         <Legend color="bg-amber-400" label={t("chart.entry")} />
         <Legend color="bg-sky-400" label={t("chart.averageEntry")} />
         <Legend color="bg-violet-400" label={t("chart.order")} />
         <Legend color="bg-rose-400" label={t("chart.stopLoss")} />
         <Legend color="bg-emerald-400" label={t("chart.takeProfit")} />
         <Legend color="bg-teal-500" label={t("chart.completedMarkers")} />
-        <span>{t("chart.interactionHint")}</span>
+        {activeTool !== "cursor" ? (
+          <span className="text-emerald-500 font-semibold animate-pulse">
+            Active Tool: {activeTool.toUpperCase()}. Draw on chart.
+          </span>
+        ) : (
+          <span>{t("chart.interactionHint")}</span>
+        )}
         {!overlayLines.length ? <span>{t("chart.waitingForPlan")}</span> : null}
       </div>
       {error ? <p className="mt-3 text-xs leading-5 text-rose-600 dark:text-rose-300">{error}</p> : null}
@@ -603,9 +1753,57 @@ export function LiveCandleChart({
   );
 }
 
+// --- Helper UI Components ---
+
+function IndicatorToggle({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-md px-2 py-1 text-[10px] font-bold uppercase transition ${
+        active
+          ? "bg-emerald-500/25 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300 border border-emerald-500/35"
+          : "border border-zinc-200/80 bg-zinc-50 text-zinc-500 hover:bg-white hover:text-zinc-800 dark:border-zinc-800/80 dark:bg-zinc-950/30 dark:text-zinc-400 dark:hover:bg-zinc-900/60 dark:hover:text-zinc-200"
+      }`}
+      type="button"
+    >
+      {label}
+    </button>
+  );
+}
+
+function SidebarButton({
+  active,
+  onClick,
+  children,
+  title,
+  className = ""
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+  title: string;
+  className?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`flex size-8 items-center justify-center rounded-lg transition duration-200 ${
+        active
+          ? "bg-emerald-500 text-white shadow-[0_0_8px_rgba(16,185,129,0.35)]"
+          : `text-zinc-500 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-800/80 ${className}`
+      }`}
+      type="button"
+      aria-label={title}
+    >
+      {children}
+    </button>
+  );
+}
+
 function ChartButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
   return (
-    <button className="ghost-button px-2.5 py-2" onClick={onClick} title={label} type="button" aria-label={label}>
+    <button className="ghost-button px-2 py-1.5 shrink-0" onClick={onClick} title={label} type="button" aria-label={label}>
       {children}
     </button>
   );
@@ -619,6 +1817,8 @@ function Legend({ color, label }: { color: string; label: string }) {
     </span>
   );
 }
+
+// --- Helper Data / Formatters ---
 
 function toChartCandle(candle: KlineCandle): CandlestickData<Time> {
   return {
@@ -766,10 +1966,10 @@ function takeProfitState({
 function chartColors(theme: "dark" | "light") {
   const dark = theme === "dark";
   return {
-    background: dark ? "#09090b" : "#fafafa",
+    background: dark ? "#09090b" : "#surface",
     text: dark ? "#d4d4d8" : "#52525b",
-    grid: dark ? "rgba(63,63,70,0.46)" : "rgba(212,212,216,0.78)",
-    crosshair: dark ? "rgba(212,212,216,0.55)" : "rgba(82,82,91,0.45)",
+    grid: dark ? "rgba(63,63,70,0.18)" : "rgba(212,212,216,0.38)",
+    crosshair: dark ? "rgba(212,212,216,0.4)" : "rgba(82,82,91,0.3)",
     up: "#10b981",
     down: "#f43f5e",
     entry: "#f59e0b",

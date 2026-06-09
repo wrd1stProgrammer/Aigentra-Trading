@@ -424,3 +424,150 @@ def list_records(db: Session, model: Type, limit: int = 20) -> list:
 def get_record(db: Session, model: Type, record_id: int) -> Optional[dict]:
     record = db.get(model, record_id)
     return serialize_record(record) if record else None
+
+
+def prune_trader_database(db: Session, trader_id: str, symbol: str) -> None:
+    from app.db import (
+        TraderRunLogRecord,
+        TradePlanRecord,
+        CandidateTradeRecord,
+        AIReviewRecord,
+        PositionManagementReviewRecord,
+        PaperOrderRecord,
+        PaperPositionRecord,
+        TradeEventRecord,
+        EquitySnapshotRecord,
+        TelegramAlertDeliveryRecord
+    )
+    from sqlalchemy import update, delete
+    
+    # 1. Prune EquitySnapshots: keep all from today, keep only latest per day for past days
+    snapshots = db.execute(
+        select(EquitySnapshotRecord)
+        .where(
+            EquitySnapshotRecord.trader_id == trader_id,
+            EquitySnapshotRecord.symbol == symbol
+        )
+        .order_by(desc(EquitySnapshotRecord.created_at))
+    ).scalars().all()
+    
+    if snapshots:
+        today_date = utc_now().date()
+        daily_best = {}  # date -> snapshot
+        to_keep = set()
+        
+        for snap in snapshots:
+            snap_time = snap.candle_time or snap.created_at
+            if not snap_time:
+                continue
+            snap_date = snap_time.date()
+            if snap_date == today_date:
+                to_keep.add(snap.id)
+            else:
+                if snap_date not in daily_best:
+                    daily_best[snap_date] = snap
+                    to_keep.add(snap.id)
+        
+        for snap in snapshots:
+            if snap.id not in to_keep:
+                db.delete(snap)
+
+    # 2. Prune paper positions (keep latest 30 closed)
+    pos_stmt = select(PaperPositionRecord).where(
+        PaperPositionRecord.trader_id == trader_id,
+        PaperPositionRecord.symbol == symbol,
+        PaperPositionRecord.status != "open"
+    ).order_by(desc(PaperPositionRecord.created_at), desc(PaperPositionRecord.id))
+    closed_positions = db.execute(pos_stmt).scalars().all()
+    if len(closed_positions) > 30:
+        pos_ids_to_del = [pos.id for pos in closed_positions[30:]]
+        db.execute(
+            update(TradeEventRecord)
+            .where(TradeEventRecord.position_id.in_(pos_ids_to_del))
+            .values(position_id=None)
+        )
+        db.execute(
+            update(PositionManagementReviewRecord)
+            .where(PositionManagementReviewRecord.position_id.in_(pos_ids_to_del))
+            .values(position_id=None)
+        )
+        for pos in closed_positions[30:]:
+            db.delete(pos)
+
+    # 3. Prune paper orders (keep latest 30 non-open)
+    ord_stmt = select(PaperOrderRecord).where(
+        PaperOrderRecord.trader_id == trader_id,
+        PaperOrderRecord.symbol == symbol,
+        PaperOrderRecord.status != "open"
+    ).order_by(desc(PaperOrderRecord.created_at), desc(PaperOrderRecord.id))
+    closed_orders = db.execute(ord_stmt).scalars().all()
+    if len(closed_orders) > 30:
+        ord_ids_to_del = [o.id for o in closed_orders[30:]]
+        db.execute(
+            update(PaperPositionRecord)
+            .where(PaperPositionRecord.order_id.in_(ord_ids_to_del))
+            .values(order_id=None)
+        )
+        db.execute(
+            update(TradeEventRecord)
+            .where(TradeEventRecord.order_id.in_(ord_ids_to_del))
+            .values(order_id=None)
+        )
+        db.execute(
+            update(PositionManagementReviewRecord)
+            .where(PositionManagementReviewRecord.order_id.in_(ord_ids_to_del))
+            .values(order_id=None)
+        )
+        for o in closed_orders[30:]:
+            db.delete(o)
+
+    # 4. Prune trade events (keep latest 30)
+    ev_stmt = select(TradeEventRecord).where(
+        TradeEventRecord.trader_id == trader_id,
+        TradeEventRecord.symbol == symbol
+    ).order_by(desc(TradeEventRecord.created_at), desc(TradeEventRecord.id))
+    events = db.execute(ev_stmt).scalars().all()
+    if len(events) > 30:
+        ev_ids_to_del = [ev.id for ev in events[30:]]
+        db.execute(
+            delete(TelegramAlertDeliveryRecord)
+            .where(TelegramAlertDeliveryRecord.trade_event_id.in_(ev_ids_to_del))
+        )
+        for ev in events[30:]:
+            db.delete(ev)
+
+    # 5. Prune trader run logs (keep latest 30)
+    run_stmt = select(TraderRunLogRecord).where(
+        TraderRunLogRecord.trader_id == trader_id,
+        TraderRunLogRecord.symbol == symbol
+    ).order_by(desc(TraderRunLogRecord.created_at), desc(TraderRunLogRecord.id))
+    runs = db.execute(run_stmt).scalars().all()
+    if len(runs) > 30:
+        run_ids_to_del = [r.id for r in runs[30:]]
+        db.execute(update(CandidateTradeRecord).where(CandidateTradeRecord.run_id.in_(run_ids_to_del)).values(run_id=None))
+        db.execute(update(AIReviewRecord).where(AIReviewRecord.run_id.in_(run_ids_to_del)).values(run_id=None))
+        db.execute(update(TradePlanRecord).where(TradePlanRecord.run_id.in_(run_ids_to_del)).values(run_id=None))
+        for r in runs[30:]:
+            db.delete(r)
+
+    # 6. Prune simpler tables
+    def prune_simple_table(model, limit=30, status_filter=None):
+        stmt = select(model).where(
+            model.trader_id == trader_id,
+            model.symbol == symbol
+        )
+        if status_filter is not None:
+            stmt = stmt.where(status_filter)
+        stmt = stmt.order_by(desc(model.created_at), desc(model.id))
+        records = db.execute(stmt).scalars().all()
+        if len(records) > limit:
+            for record in records[limit:]:
+                db.delete(record)
+
+    prune_simple_table(CandidateTradeRecord, limit=30)
+    prune_simple_table(AIReviewRecord, limit=30)
+    prune_simple_table(PositionManagementReviewRecord, limit=30)
+    prune_simple_table(TradePlanRecord, limit=30, status_filter=(TradePlanRecord.status != "ACTIVE_PAPER_EXPOSURE"))
+    
+    db.flush()
+
