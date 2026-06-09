@@ -254,6 +254,32 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, [symbol, traderId]);
 
   useEffect(() => {
+    if (
+      detailQuery.data?.managementReviews &&
+      detailQuery.data.managementReviews.length === reviewsLimit &&
+      visibleScenarioTimelineItems.length < 8 &&
+      reviewsLimit < 200
+    ) {
+      setReviewsLimit((current) => {
+        const next = current + 20;
+        setVisibleScenarioCount(next);
+        return next;
+      });
+    }
+  }, [detailQuery.data?.managementReviews, reviewsLimit, visibleScenarioTimelineItems.length]);
+
+  useEffect(() => {
+    if (
+      detailQuery.data?.events &&
+      detailQuery.data.events.length === eventsLimit &&
+      sidebarTradeHistoryItems.length < 5 &&
+      eventsLimit < 150
+    ) {
+      setEventsLimit((current) => current + 15);
+    }
+  }, [detailQuery.data?.events, eventsLimit, sidebarTradeHistoryItems.length]);
+
+  useEffect(() => {
     const latestItem = scenarioTimelineItems[0];
     if (liveAlertContextRef.current !== alertContextKey) {
       liveAlertContextRef.current = alertContextKey;
