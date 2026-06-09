@@ -374,27 +374,61 @@ def _fill_order(
         result.events.append(event)
         return False
 
-    position = PaperPositionRecord(
-        order_id=order.id,
-        trader_id=order.trader_id,
-        symbol=order.symbol,
-        status="open",
-        side=order.side,
-        quantity=order.quantity,
-        entry_price=fill_price,
-        leverage=order.leverage,
-        notional=notional,
-        margin=margin,
-        entry_fee=fee,
-        unrealized_pnl=Decimal("0"),
-        realized_pnl=Decimal("0"),
-        take_profit_price=order.take_profit_price,
-        stop_loss_price=order.stop_loss_price,
-        payload_json=order.payload_json,
-        opened_at=candle.timestamp or utc_now(),
-    )
-    db.add(position)
-    db.flush()
+    # Check for existing open position to merge (Binance futures style)
+    existing_position = db.execute(
+        select(PaperPositionRecord)
+        .where(
+            PaperPositionRecord.trader_id == order.trader_id,
+            PaperPositionRecord.symbol == order.symbol,
+            PaperPositionRecord.side == order.side,
+            PaperPositionRecord.status == "open",
+        )
+    ).scalar_one_or_none()
+
+    if existing_position:
+        # Merge order into existing position
+        new_qty = existing_position.quantity + order.quantity
+        new_notional = existing_position.notional + notional
+        # Weighted entry price
+        new_entry_price = new_notional / new_qty
+        
+        # Update existing position
+        existing_position.quantity = new_qty
+        existing_position.entry_price = new_entry_price
+        existing_position.notional = new_notional
+        existing_position.margin += margin
+        existing_position.entry_fee += fee
+        
+        # If the order specifies a new take_profit or stop_loss, update them. Otherwise keep existing.
+        if order.take_profit_price is not None:
+            existing_position.take_profit_price = order.take_profit_price
+        if order.stop_loss_price is not None:
+            existing_position.stop_loss_price = order.stop_loss_price
+            
+        existing_position.updated_at = utc_now()
+        position = existing_position
+    else:
+        position = PaperPositionRecord(
+            order_id=order.id,
+            trader_id=order.trader_id,
+            symbol=order.symbol,
+            status="open",
+            side=order.side,
+            quantity=order.quantity,
+            entry_price=fill_price,
+            leverage=order.leverage,
+            notional=notional,
+            margin=margin,
+            entry_fee=fee,
+            unrealized_pnl=Decimal("0"),
+            realized_pnl=Decimal("0"),
+            take_profit_price=order.take_profit_price,
+            stop_loss_price=order.stop_loss_price,
+            payload_json=order.payload_json,
+            opened_at=candle.timestamp or utc_now(),
+        )
+        db.add(position)
+        db.flush()
 
     order.status = "filled"
     order.filled_price = fill_price

@@ -128,6 +128,8 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const [selectedScenario, setSelectedScenario] = useState<TraderScenario | null>(null);
   const [liveAlert, setLiveAlert] = useState<LiveDetailAlert | null>(null);
   const [visibleScenarioCount, setVisibleScenarioCount] = useState(20);
+  const [reviewsLimit, setReviewsLimit] = useState(20);
+  const [eventsLimit, setEventsLimit] = useState(10);
   const liveAlertKeyRef = useRef<string | null>(null);
   const liveAlertHydratedRef = useRef(false);
   const liveAlertContextRef = useRef<string | null>(null);
@@ -151,7 +153,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, [fallback, queryClient, symbol, traderId]);
 
   const detailQuery = useQuery({
-    ...traderDetailBundleQueryOptions(traderId, symbol),
+    ...traderDetailBundleQueryOptions(traderId, symbol, reviewsLimit, eventsLimit),
     placeholderData: (previousData, previousQuery) => {
       const queryKey = previousQuery?.queryKey;
       if (
@@ -162,7 +164,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       ) {
         return previousData;
       }
-      return getCachedTraderDetailBundle(traderId, symbol) ?? fallbackDetailBundle;
+      return getCachedTraderDetailBundle(traderId, symbol, reviewsLimit, eventsLimit) ?? fallbackDetailBundle;
     }
   });
   const equitySnapshotsQuery = useQuery({
@@ -226,8 +228,12 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     [latestPlan, locale, orders, positions, standing, symbol, t]
   );
   const tradeHistoryItems = useMemo(
-    () => buildTradeHistoryItems({ events, closedPositions, reviews, plans, symbol, locale, t }),
+    () => buildTradeHistoryItems({ events, closedPositions, reviews, plans, symbol, locale, t, limit: 12 }),
     [closedPositions, events, locale, plans, reviews, symbol, t]
+  );
+  const sidebarTradeHistoryItems = useMemo(
+    () => buildTradeHistoryItems({ events, closedPositions, reviews, plans, symbol, locale, t, limit: eventsLimit }),
+    [closedPositions, events, locale, plans, reviews, symbol, t, eventsLimit]
   );
   const pnlCalendar = useMemo(
     () => buildMonthlyPnlCalendar({
@@ -243,6 +249,8 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
 
   useEffect(() => {
     setVisibleScenarioCount(20);
+    setReviewsLimit(20);
+    setEventsLimit(10);
   }, [symbol, traderId]);
 
   useEffect(() => {
@@ -275,8 +283,16 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const handleScenarioScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     const target = event.currentTarget;
     if (target.scrollTop + target.clientHeight < target.scrollHeight - 180) return;
-    setVisibleScenarioCount((current) => Math.min(current + 20, scenarioTimelineItems.length));
-  }, [scenarioTimelineItems.length]);
+    setReviewsLimit((current) => {
+      const next = current + 10;
+      setVisibleScenarioCount(next);
+      return next;
+    });
+  }, []);
+
+  const onLoadMoreEvents = useCallback(() => {
+    setEventsLimit((current) => current + 10);
+  }, []);
 
   if (!trader || !standing) {
     return <div className="rounded-xl border border-zinc-200 bg-white p-8 dark:border-zinc-800 dark:bg-zinc-950">{t("common.loading")}</div>;
@@ -378,7 +394,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
           <TradingJournal tradeHistoryItems={tradeHistoryItems} t={t} />
         </div>
 
-        <DetailSidebar holdingItems={holdingItems} tradeHistoryItems={tradeHistoryItems} pnlCalendar={pnlCalendar} standing={standing} latestReview={latestReview} latestPlan={latestPlan} locale={locale} t={t} />
+        <DetailSidebar holdingItems={holdingItems} tradeHistoryItems={sidebarTradeHistoryItems} pnlCalendar={pnlCalendar} standing={standing} latestReview={latestReview} latestPlan={latestPlan} locale={locale} t={t} onLoadMoreEvents={onLoadMoreEvents} />
       </section>
 
       {error ? <div className="mt-4 rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200">{error}</div> : null}

@@ -1486,7 +1486,7 @@ def list_filtered_records(
     status: Optional[str] = None,
     include_payload: bool = False,
 ) -> list[dict]:
-    safe_limit = max(1, min(limit, 100))
+    safe_limit = max(1, min(limit, 1000))
     stmt = select(model)
     if symbol:
         stmt = stmt.where(model.symbol == normalize_symbol(symbol))
@@ -2311,6 +2311,8 @@ def build_trader_detail_payload(
     clean_symbol: str,
     trader,
     summaries: Optional[list[dict[str, Any]]] = None,
+    reviews_limit: int = 20,
+    events_limit: int = 10,
 ) -> dict[str, Any]:
     if summaries is None:
         summaries = [trader_summary_for_profile(db, trader, clean_symbol)]
@@ -2320,10 +2322,10 @@ def build_trader_detail_payload(
         "trader": trader,
         "summaries": summaries,
         "positions": list_filtered_records(db, PaperPositionRecord, limit=12, symbol=clean_symbol, trader_id=trader_id, status="open", include_payload=True),
-        "closedPositions": list_filtered_records(db, PaperPositionRecord, limit=20, symbol=clean_symbol, trader_id=trader_id, status="closed", include_payload=True),
+        "closedPositions": list_filtered_records(db, PaperPositionRecord, limit=max(20, events_limit), symbol=clean_symbol, trader_id=trader_id, status="closed", include_payload=True),
         "orders": list_filtered_records(db, PaperOrderRecord, limit=12, symbol=clean_symbol, trader_id=trader_id, status="open", include_payload=True),
-        "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=10, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
-        "events": list_filtered_records(db, TradeEventRecord, limit=10, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
+        "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=reviews_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
+        "events": list_filtered_records(db, TradeEventRecord, limit=events_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
         "tradePlans": [serialize_record_for_ui(plan, include_payload=True) for plan in active_plans],
         "cacheHit": False,
         "stale": False,
@@ -2389,8 +2391,10 @@ def refresh_trader_detail_cache_background(trader_id: str, symbol: str) -> None:
                 clean_symbol,
                 trader,
                 summaries=[snapshot_summary] if snapshot_summary else None,
+                reviews_limit=20,
+                events_limit=10,
             )
-            TRADER_DETAIL_CACHE[refresh_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
+            TRADER_DETAIL_CACHE[(trader_id, clean_symbol, 20, 10)] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
     finally:
         TRADER_DETAIL_REFRESHING.discard(refresh_key)
 
@@ -3672,6 +3676,8 @@ async def league_trader_detail(
     trader_id: str,
     symbol: str = Query("BTCUSDT"),
     refresh: bool = Query(False),
+    reviews_limit: int = Query(20, alias="reviewsLimit"),
+    events_limit: int = Query(10, alias="eventsLimit"),
     db: Session = Depends(get_db),
 ):
     try:
@@ -3679,7 +3685,7 @@ async def league_trader_detail(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Trader not found.") from exc
     clean_symbol = normalize_symbol(symbol)
-    cache_key = (trader_id, clean_symbol)
+    cache_key = (trader_id, clean_symbol, reviews_limit, events_limit)
     cached = TRADER_DETAIL_CACHE.get(cache_key)
     now = time.monotonic()
     cache_was_stale = bool(cached and cached[0] <= now)
@@ -3698,6 +3704,8 @@ async def league_trader_detail(
         clean_symbol,
         trader,
         summaries=[snapshot_summary] if snapshot_summary else None,
+        reviews_limit=reviews_limit,
+        events_limit=events_limit,
     )
     if not any(summary.get("traderId") == trader_id for summary in payload["summaries"]):
         schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol)

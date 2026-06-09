@@ -1,7 +1,7 @@
 "use client";
 
 import { CaretDown, ChartPieSlice } from "@phosphor-icons/react";
-import { useState } from "react";
+import { useState, type UIEvent } from "react";
 import type { ManagementReview } from "@/lib/api";
 import { formatNumber, formatPercent } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
@@ -90,12 +90,31 @@ function detailToneClass(tone: HoldingItem["details"][number]["tone"]) {
   return "text-zinc-950 dark:text-zinc-50";
 }
 
-export function TradeHistoryPanel({ items, t }: { items: TradeHistoryItem[]; t: Translator }) {
+export function TradeHistoryPanel({
+  items,
+  t,
+  onLoadMore
+}: {
+  items: TradeHistoryItem[];
+  t: Translator;
+  onLoadMore?: () => void;
+}) {
   const [expandedTradeHistoryId, setExpandedTradeHistoryId] = useState<string | null>(null);
+
+  const handleScroll = (event: UIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    if (target.scrollTop + target.clientHeight >= target.scrollHeight - 10) {
+      onLoadMore?.();
+    }
+  };
+
   return (
     <section data-testid="trade-history-panel" className="rounded-2xl bg-white p-5 ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800">
       <h2 className="text-lg font-semibold tracking-tight">{t("detail.executionLog")}</h2>
-      <div className="mt-5 max-h-[360px] divide-y divide-zinc-100 overflow-y-auto pr-1 dark:divide-zinc-900">
+      <div
+        className="mt-5 max-h-[360px] divide-y divide-zinc-100 overflow-y-auto pr-1 dark:divide-zinc-900"
+        onScroll={handleScroll}
+      >
         {items.map((item) => (
           <div key={item.id} className="py-3">
             <div className="grid grid-cols-[74px_minmax(0,1fr)_auto] items-center gap-3">

@@ -89,7 +89,8 @@ export function buildTradeHistoryItems({
   plans: _plans,
   symbol,
   locale,
-  t
+  t,
+  limit = 12
 }: {
   events: PaperTradeEvent[];
   closedPositions?: PaperPosition[];
@@ -98,11 +99,12 @@ export function buildTradeHistoryItems({
   symbol: LeagueSymbol;
   locale: Locale;
   t: Translator;
+  limit?: number;
 }): TradeHistoryItem[] {
   const closeEvents = events.filter(isPositionJournalEvent);
   const positionItems = closedPositions
     .filter((position) => !position.symbol || position.symbol === symbol)
-    .slice(0, 12)
+    .slice(0, limit)
     .map((position, index) => {
       const event = matchingCloseEventForPosition(position, closeEvents);
       return {
@@ -116,7 +118,7 @@ export function buildTradeHistoryItems({
       const positionId = eventPositionId(event);
       return !positionId || !knownClosedPositionIds.has(positionId);
     })
-    .slice(0, Math.max(0, 12 - positionItems.length))
+    .slice(0, Math.max(0, limit - positionItems.length))
     .map((event, index) => ({
       item: buildClosedEventHistoryItem({ event, events, index, symbol, locale, t }),
       sortMs: timelineTimeValue(event.createdAt ?? event.timestamp)
@@ -125,7 +127,7 @@ export function buildTradeHistoryItems({
   return [...positionItems, ...fallbackEventItems]
     .sort((left, right) => right.sortMs - left.sortMs)
     .map(({ item }) => item)
-    .slice(0, 12);
+    .slice(0, limit);
 }
 
 function buildClosedPositionHistoryItem({

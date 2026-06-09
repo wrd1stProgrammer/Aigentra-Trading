@@ -21,5 +21,5 @@ test("leaderboard adjacent live queries also refresh while viewing", () => {
 });
 
 test("trader detail page keeps the live bundle polling after navigation", () => {
-  assert.match(detailSource, /traderDetailBundleQueryOptions\(traderId, symbol\)/, "detail page should use the shared live query options");
+  assert.match(detailSource, /traderDetailBundleQueryOptions\(traderId, symbol, reviewsLimit, eventsLimit\)/, "detail page should use the shared live query options");
 });

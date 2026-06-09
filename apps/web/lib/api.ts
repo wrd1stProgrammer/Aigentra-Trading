@@ -646,11 +646,16 @@ export function getLeaderboardBundle(symbol: string) {
   });
 }
 
-export function getTraderDetailBundle(traderId: string, symbol: string) {
+export function getTraderDetailBundle(traderId: string, symbol: string, reviewsLimit = 20, eventsLimit = 10) {
+  const params = new URLSearchParams({
+    symbol,
+    reviewsLimit: String(reviewsLimit),
+    eventsLimit: String(eventsLimit)
+  });
   return request<TraderDetailBundle>(
-    `/api/league/traders/${encodeURIComponent(traderId)}?symbol=${encodeURIComponent(symbol)}`
+    `/api/league/traders/${encodeURIComponent(traderId)}?${params.toString()}`
   ).then((bundle) => {
-    writeBrowserCache(`trader:${traderId}:${symbol}`, bundle);
+    writeBrowserCache(`trader:${traderId}:${symbol}:${reviewsLimit}:${eventsLimit}`, bundle);
     return bundle;
   });
 }
@@ -659,8 +664,8 @@ export function getCachedLeaderboardBundle(symbol: string) {
   return readBrowserCache<LeaderboardBundle>(`leaderboard:${symbol}`, LEADERBOARD_BROWSER_CACHE_MS);
 }
 
-export function getCachedTraderDetailBundle(traderId: string, symbol: string) {
-  return readBrowserCache<TraderDetailBundle>(`trader:${traderId}:${symbol}`, LEADERBOARD_BROWSER_CACHE_MS);
+export function getCachedTraderDetailBundle(traderId: string, symbol: string, reviewsLimit = 20, eventsLimit = 10) {
+  return readBrowserCache<TraderDetailBundle>(`trader:${traderId}:${symbol}:${reviewsLimit}:${eventsLimit}`, LEADERBOARD_BROWSER_CACHE_MS);
 }
 
 export const leaderboardBundleQueryKey = (symbol: string) => ["league", "leaderboard", symbol] as const;
@@ -680,12 +685,13 @@ export function prefetchLeaderboardBundle(queryClient: QueryClient, symbol: stri
   return queryClient.prefetchQuery(leaderboardBundleQueryOptions(symbol));
 }
 
-export const traderDetailBundleQueryKey = (traderId: string, symbol: string) => ["league", "trader", traderId, symbol] as const;
+export const traderDetailBundleQueryKey = (traderId: string, symbol: string, reviewsLimit: number, eventsLimit: number) =>
+  ["league", "trader", traderId, symbol, reviewsLimit, eventsLimit] as const;
 
-export function traderDetailBundleQueryOptions(traderId: string, symbol: string) {
+export function traderDetailBundleQueryOptions(traderId: string, symbol: string, reviewsLimit = 20, eventsLimit = 10) {
   return {
-    queryKey: traderDetailBundleQueryKey(traderId, symbol),
-    queryFn: () => getTraderDetailBundle(traderId, symbol),
+    queryKey: traderDetailBundleQueryKey(traderId, symbol, reviewsLimit, eventsLimit),
+    queryFn: () => getTraderDetailBundle(traderId, symbol, reviewsLimit, eventsLimit),
     staleTime: LEAGUE_QUERY_STALE_TIME_MS,
     gcTime: LEAGUE_QUERY_GC_TIME_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,

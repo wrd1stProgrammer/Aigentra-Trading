@@ -139,7 +139,7 @@ def test_leaderboard_fast_rebuilds_expired_cache(monkeypatch):
 
 
 def test_trader_detail_rebuilds_expired_cache(monkeypatch):
-    cache_key = ("channel-rider", "BTCUSDT")
+    cache_key = ("channel-rider", "BTCUSDT", 20, 10)
     main.TRADER_DETAIL_CACHE.clear()
     main.TRADER_DETAIL_CACHE[cache_key] = (
         0,
@@ -154,7 +154,7 @@ def test_trader_detail_rebuilds_expired_cache(monkeypatch):
         },
     )
 
-    def fake_payload(db, trader_id, clean_symbol, trader, summaries=None):
+    def fake_payload(db, trader_id, clean_symbol, trader, summaries=None, **kwargs):
         return {
             "symbol": clean_symbol,
             "trader": trader,
@@ -194,7 +194,7 @@ def test_trader_detail_uses_snapshot_summary_without_full_recompute(monkeypatch)
     def fail_summary(*args, **kwargs):
         raise AssertionError("detail route should use snapshot summary on the fast path")
 
-    def fake_payload(db, trader_id, clean_symbol, trader, summaries=None):
+    def fake_payload(db, trader_id, clean_symbol, trader, summaries=None, **kwargs):
         assert summaries == [snapshot]
         return {
             "symbol": clean_symbol,
@@ -220,7 +220,7 @@ def test_trader_detail_uses_snapshot_summary_without_full_recompute(monkeypatch)
 
 
 def test_trader_detail_refresh_query_replaces_cached_payload(monkeypatch):
-    cache_key = ("channel-rider", "BTCUSDT")
+    cache_key = ("channel-rider", "BTCUSDT", 20, 10)
     main.TRADER_DETAIL_CACHE.clear()
     main.TRADER_DETAIL_CACHE[cache_key] = (
         time.monotonic() + 300,
@@ -235,7 +235,7 @@ def test_trader_detail_refresh_query_replaces_cached_payload(monkeypatch):
         },
     )
 
-    def fake_payload(db, trader_id, clean_symbol, trader, summaries=None):
+    def fake_payload(db, trader_id, clean_symbol, trader, summaries=None, **kwargs):
         return {
             "symbol": clean_symbol,
             "trader": trader,

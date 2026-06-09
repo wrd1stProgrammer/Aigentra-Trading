@@ -427,6 +427,8 @@ def get_record(db: Session, model: Type, record_id: int) -> Optional[dict]:
 
 
 def prune_trader_database(db: Session, trader_id: str, symbol: str) -> None:
+    # Disable database pruning/deletion policy per user request
+    return
     from app.db import (
         TraderRunLogRecord,
         TradePlanRecord,

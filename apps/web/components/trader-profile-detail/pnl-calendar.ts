@@ -2,6 +2,8 @@ type Locale = "ko" | "en";
 
 type SnapshotInput = {
   readonly equity?: number | string | null;
+  readonly unrealizedPnl?: number | string | null;
+  readonly unrealized_pnl?: number | string | null;
   readonly createdAt?: string | null;
   readonly timestamp?: string | null;
 };
@@ -52,7 +54,7 @@ export function buildMonthlyPnlCalendar({
 }): MonthlyPnlCalendar {
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
-  const snapshotEquityByDay = latestSnapshotEquityByDay(snapshots);
+  const snapshotEquityByDay = latestSnapshotRealizedEquityByDay(snapshots);
   const eventPnlByDay = realizedPnlByDay(events);
   const days: PnlCalendarDay[] = [];
   let currentEquity = startingEquity;
@@ -106,12 +108,16 @@ export function normalizeEquitySnapshots(value: unknown): SnapshotInput[] {
   return [];
 }
 
-function latestSnapshotEquityByDay(snapshots: readonly SnapshotInput[]) {
+function latestSnapshotRealizedEquityByDay(snapshots: readonly SnapshotInput[]) {
   const values = new Map<string, number>();
   for (const snapshot of [...snapshots].sort((left, right) => timeValue(left) - timeValue(right))) {
     const equity = firstFiniteNumber(snapshot.equity);
+    const unrealized = firstFiniteNumber(snapshot.unrealizedPnl ?? snapshot.unrealized_pnl);
     const key = dateKeyFromInput(snapshot.createdAt ?? snapshot.timestamp);
-    if (equity !== null && key) values.set(key, equity);
+    if (equity !== null && key) {
+      const realizedEquity = equity - (unrealized ?? 0);
+      values.set(key, realizedEquity);
+    }
   }
   return values;
 }
