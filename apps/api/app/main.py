@@ -1193,17 +1193,17 @@ async def run_management_reviews(
         .order_by(PaperPositionRecord.opened_at.asc(), PaperPositionRecord.id.asc())
     ).scalars().all()
 
-    # Group orders by (side, rounded_price) to avoid reviewing duplicate split orders separately.
-    # Only the oldest/smallest order in each group is reviewed; the rest are skipped.
-    _order_group_keys: set[str] = set()
-    orders: list[PaperOrderRecord] = []
-    for _ord in all_orders:
-        _side_key = (_ord.side or "").upper()
-        _price_key = round(float(_ord.limit_price or 0) / 10) * 10  # round to nearest $10
-        _group_key = f"{_side_key}:{_price_key}"
-        if _group_key not in _order_group_keys:
-            _order_group_keys.add(_group_key)
-            orders.append(_ord)
+    # Pick only 1 representative pending order — the one whose limit_price is closest
+    # to the current market price. All split/partial orders are ignored for review purposes.
+    # This ensures exactly 1 "진입 대기" review per cycle regardless of order count.
+    _current_price = float(snapshot.get("price") or 0)
+    if all_orders:
+        orders = [min(
+            all_orders,
+            key=lambda o: abs(float(o.limit_price or 0) - _current_price)
+        )]
+    else:
+        orders = []
 
     active_exposure_count = len(orders) + len(positions)
     max_reviews = min(max(configured_max_reviews, active_exposure_count), 10)
