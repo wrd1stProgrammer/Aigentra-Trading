@@ -19,7 +19,7 @@ def test_traders_list():
     response = client.get("/api/traders")
     assert response.status_code == 200
     data = response.json()
-    assert len(data["traders"]) == 10
+    assert len(data["traders"]) == 20
     assert {trader["id"] for trader in data["traders"]} == {
         "channel-rider",
         "volume-breaker",
@@ -31,6 +31,16 @@ def test_traders_list():
         "range-maker",
         "funding-contrarian",
         "orderflow-sniper",
+        "donchian-breakout",
+        "ichimoku-cloud-pilot",
+        "vwap-reclaimer",
+        "wyckoff-spring",
+        "rsi-divergence-scout",
+        "session-raider",
+        "imbalance-hunter",
+        "momentum-ignition",
+        "bollinger-reversion",
+        "atr-trail-commander",
     }
 
 

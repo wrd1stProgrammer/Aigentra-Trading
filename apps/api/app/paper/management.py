@@ -112,6 +112,106 @@ TRADER_MANAGEMENT_PROFILES: dict[str, dict[str, Any]] = {
             "protect": "scalp_fast_derisk",
         },
     },
+    "donchian-breakout": {
+        "order_stale_seconds": 720,
+        "cooldown_seconds": 300,
+        "events": {
+            "pending_invalid": "donchian_range_reentry_cancel",
+            "pending_stale": "donchian_retest_missed",
+            "position_fail": "donchian_breakout_failed",
+            "protect": "donchian_atr_trail_review",
+        },
+    },
+    "ichimoku-cloud-pilot": {
+        "order_stale_seconds": 1500,
+        "cooldown_seconds": 420,
+        "events": {
+            "pending_invalid": "cloud_proxy_lost_cancel",
+            "pending_stale": "cloud_pullback_stale",
+            "position_fail": "cloud_trend_failed",
+            "protect": "cloud_trail_stop_review",
+        },
+    },
+    "vwap-reclaimer": {
+        "order_stale_seconds": 420,
+        "cooldown_seconds": 240,
+        "events": {
+            "pending_invalid": "vwap_reclaim_lost_cancel",
+            "pending_stale": "fair_value_edge_decayed",
+            "position_fail": "vwap_acceptance_failed",
+            "protect": "vwap_mean_profit_protection",
+        },
+    },
+    "wyckoff-spring": {
+        "order_stale_seconds": 540,
+        "cooldown_seconds": 240,
+        "events": {
+            "pending_invalid": "spring_reclaim_failed_cancel",
+            "pending_stale": "spring_retest_expired",
+            "position_fail": "spring_trap_failed",
+            "protect": "spring_fast_derisk",
+        },
+    },
+    "rsi-divergence-scout": {
+        "order_stale_seconds": 900,
+        "cooldown_seconds": 300,
+        "events": {
+            "pending_invalid": "divergence_structure_lost",
+            "pending_stale": "divergence_confirmation_stale",
+            "position_fail": "momentum_reaccelerated_exit",
+            "protect": "divergence_profit_protection",
+        },
+    },
+    "session-raider": {
+        "order_stale_seconds": 240,
+        "cooldown_seconds": 120,
+        "events": {
+            "pending_invalid": "session_range_reentry_cancel",
+            "pending_stale": "session_window_expired",
+            "position_fail": "session_break_failed",
+            "protect": "session_fast_take_profit",
+        },
+    },
+    "imbalance-hunter": {
+        "order_stale_seconds": 900,
+        "cooldown_seconds": 300,
+        "events": {
+            "pending_invalid": "imbalance_midpoint_failed",
+            "pending_stale": "imbalance_retest_missed",
+            "position_fail": "displacement_origin_failed",
+            "protect": "imbalance_extension_trail",
+        },
+    },
+    "momentum-ignition": {
+        "order_stale_seconds": 300,
+        "cooldown_seconds": 150,
+        "events": {
+            "pending_invalid": "ignition_flow_flipped",
+            "pending_stale": "ignition_window_expired",
+            "position_fail": "momentum_flow_reversal",
+            "protect": "momentum_fast_derisk",
+        },
+    },
+    "bollinger-reversion": {
+        "order_stale_seconds": 600,
+        "cooldown_seconds": 240,
+        "events": {
+            "pending_invalid": "band_walk_cancel",
+            "pending_stale": "reversion_edge_decayed",
+            "position_fail": "band_walk_failure_exit",
+            "protect": "mean_reversion_midpoint_take",
+        },
+    },
+    "atr-trail-commander": {
+        "order_stale_seconds": 2100,
+        "cooldown_seconds": 600,
+        "events": {
+            "pending_invalid": "atr_structure_invalidated",
+            "pending_stale": "atr_pullback_stale",
+            "position_fail": "atr_trend_break_exit",
+            "protect": "atr_trailing_stop_review",
+        },
+    },
 }
 
 

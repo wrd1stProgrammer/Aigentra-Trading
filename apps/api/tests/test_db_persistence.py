@@ -706,7 +706,7 @@ async def test_scanner_once_checks_btc_traders_and_persists_runs(monkeypatch, te
     result = await run_scanner_once(symbols=["BTCUSDT"], provider="mock", locale="ko", defer_leaderboard_refresh=False)
 
     assert result["symbols"] == ["BTCUSDT"]
-    assert result["counts"]["tradersChecked"] == 10
+    assert result["counts"]["tradersChecked"] == 20
     assert result["counts"]["candidates"] >= 1
     assert result["counts"]["aiReviews"] >= 1
     assert result["durationBreakdownMs"]["prefilterDbMs"] >= 0

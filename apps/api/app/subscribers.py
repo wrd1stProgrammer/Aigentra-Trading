@@ -33,6 +33,16 @@ TRADER_NAMES = {
     "range-maker": "Range Maker",
     "funding-contrarian": "Funding Contrarian",
     "orderflow-sniper": "Orderflow Sniper",
+    "donchian-breakout": "Donchian Breakout",
+    "ichimoku-cloud-pilot": "Ichimoku Cloud Pilot",
+    "vwap-reclaimer": "VWAP Reclaimer",
+    "wyckoff-spring": "Wyckoff Spring",
+    "rsi-divergence-scout": "RSI Divergence Scout",
+    "session-raider": "Session Raider",
+    "imbalance-hunter": "Imbalance Hunter",
+    "momentum-ignition": "Momentum Ignition",
+    "bollinger-reversion": "Bollinger Reversion",
+    "atr-trail-commander": "ATR Trail Commander",
 }
 
 

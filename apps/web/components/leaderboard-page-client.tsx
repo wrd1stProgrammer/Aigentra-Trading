@@ -80,7 +80,17 @@ const traderFlags: Record<string, string> = {
   "trend-sentinel": "🇺🇸",
   "range-maker": "🇰🇷",
   "funding-contrarian": "🇰🇷",
-  "orderflow-sniper": "🇺🇸"
+  "orderflow-sniper": "🇺🇸",
+  "donchian-breakout": "₿",
+  "ichimoku-cloud-pilot": "₿",
+  "vwap-reclaimer": "₿",
+  "wyckoff-spring": "₿",
+  "rsi-divergence-scout": "₿",
+  "session-raider": "₿",
+  "imbalance-hunter": "₿",
+  "momentum-ignition": "₿",
+  "bollinger-reversion": "₿",
+  "atr-trail-commander": "₿"
 };
 
 const periodLabels = {

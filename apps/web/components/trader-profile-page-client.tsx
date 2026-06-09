@@ -11,7 +11,8 @@ import {
   traderDetailBundleQueryOptions,
   type LeaderboardBundle,
   type TraderDetailBundle,
-  type TraderProfile
+  type TraderProfile,
+  type PaperPosition
 } from "@/lib/api";
 import { useAppContext } from "@/components/app-provider";
 import { buildScenarios, buildStandings, type LeagueSymbol, type TraderScenario } from "@/lib/league";
@@ -32,6 +33,89 @@ import {
 } from "@/components/trader-profile-detail/panels";
 import { SYMBOLS } from "@/components/trader-profile-detail/types";
 import { traderVisuals } from "@/lib/league";
+
+function mergePositions(positions: PaperPosition[]): PaperPosition[] {
+  const firstFiniteNumber = (...values: readonly unknown[]) => {
+    for (const value of values) {
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      if (typeof value === "string" && value.trim() !== "") {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+    }
+    return null;
+  };
+
+  const groups = new Map<string, PaperPosition[]>();
+  for (const pos of positions) {
+    const symbol = pos.symbol || "UNKNOWN";
+    const side = String(pos.side ?? "").toUpperCase();
+    const normalizedSide = (side === "SELL" || side === "SHORT") ? "SHORT" : "LONG";
+    const status = String(pos.status ?? "open").toLowerCase();
+    
+    const key = `${symbol}-${normalizedSide}-${status}`;
+    const list = groups.get(key) ?? [];
+    list.push(pos);
+    groups.set(key, list);
+  }
+
+  const result: PaperPosition[] = [];
+  for (const [key, list] of groups.entries()) {
+    if (list.length === 0) continue;
+    if (list.length === 1 || !key.endsWith("-open")) {
+      result.push(...list);
+      continue;
+    }
+
+    const first = list[0];
+    let totalQty = 0;
+    let weightedEntrySum = 0;
+    let weightedLiqSum = 0;
+    let totalMargin = 0;
+    let totalPnl = 0;
+    let maxLeverage = 0;
+    
+    for (const pos of list) {
+      const qty = Math.abs(firstFiniteNumber(pos.quantity, pos.size) ?? 0);
+      const entryPrice = firstFiniteNumber(pos.averageEntryPrice, pos.avgEntryPrice, pos.entryPrice, pos.openPrice) ?? 0;
+      const liqPrice = firstFiniteNumber(pos.liquidationPrice, pos.liquidation_price) ?? 0;
+      const margin = firstFiniteNumber(pos.margin, pos.openMargin) ?? 0;
+      const pnl = firstFiniteNumber(pos.unrealizedPnl, pos.realizedPnl) ?? 0;
+      const leverage = firstFiniteNumber(pos.leverage) ?? 0;
+      
+      totalQty += qty;
+      weightedEntrySum += qty * entryPrice;
+      weightedLiqSum += qty * liqPrice;
+      totalMargin += margin;
+      totalPnl += pnl;
+      if (leverage > maxLeverage) maxLeverage = leverage;
+    }
+
+    const avgEntryPrice = totalQty > 0 ? weightedEntrySum / totalQty : 0;
+    const avgLiqPrice = totalQty > 0 ? weightedLiqSum / totalQty : 0;
+    const mergedId = `position-merged-${first.symbol}-${first.side}`;
+    
+    const merged: PaperPosition = {
+      ...first,
+      id: mergedId,
+      quantity: totalQty,
+      size: totalQty,
+      averageEntryPrice: avgEntryPrice,
+      avgEntryPrice: avgEntryPrice,
+      entryPrice: avgEntryPrice,
+      openPrice: avgEntryPrice,
+      liquidationPrice: avgLiqPrice > 0 ? avgLiqPrice : undefined,
+      liquidation_price: avgLiqPrice > 0 ? avgLiqPrice : undefined,
+      margin: totalMargin,
+      openMargin: totalMargin,
+      unrealizedPnl: totalPnl,
+      realizedPnl: totalPnl,
+      leverage: maxLeverage > 0 ? maxLeverage : first.leverage,
+    };
+    result.push(merged);
+  }
+  return result;
+}
 
 export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const { locale, t } = useAppContext();
@@ -90,10 +174,12 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
 
   const { trader, summaries, positions, closedPositions, orders, reviews, events, plans } = useMemo(() => {
     const bundle = detailQuery.data;
+    const rawPositions = bundle?.positions ?? [];
+    const mergedPositions = mergePositions(rawPositions);
     return {
       trader: bundle?.trader ?? fallback,
       summaries: bundle?.summaries ?? [],
-      positions: bundle?.positions ?? [],
+      positions: mergedPositions,
       closedPositions: bundle?.closedPositions ?? [],
       orders: bundle?.orders ?? [],
       reviews: bundle?.managementReviews ?? [],

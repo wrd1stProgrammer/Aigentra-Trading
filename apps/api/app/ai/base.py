@@ -231,6 +231,66 @@ TRADER_REVIEW_POLICIES: Dict[str, Dict[str, Any]] = {
         "adjustWhen": "edge exists but chase risk or fee drag argues for smaller size",
         "rejectWhen": "flow is neutral/flipped, volatility is chaotic, or RR is negative after fees",
     },
+    "donchian-breakout": {
+        "temperament": "breakout participant; accept clean BTC range expansion but reject late chase back inside the range",
+        "approveWhen": "Donchian boundary break, volume/OI participation, retest plan, and ATR stop are coherent",
+        "adjustWhen": "breakout is valid but second retest entry should be cancelled or leverage capped",
+        "rejectWhen": "price is back inside the range, volume is absent, or TP is already too close after fees",
+    },
+    "ichimoku-cloud-pilot": {
+        "temperament": "patient trend rider; prefer continuation only when cloud proxy and HTF structure agree",
+        "approveWhen": "cloud proxy hold, 4H trend, RSI health, and wider RR support a holdable trade",
+        "adjustWhen": "trend is valid but cloud is flat, funding is crowded, or entry needs deeper scale spacing",
+        "rejectWhen": "cloud proxy is broken, trend is mixed, or the trade is only a short-term bounce",
+    },
+    "vwap-reclaimer": {
+        "temperament": "fair-value reclaim trader; approve only if reclaim/rejection is not just noise",
+        "approveWhen": "VWAP/EMA20 proxy reclaim or failure closes cleanly with fading counter-flow",
+        "adjustWhen": "reclaim is real but target is close, so size/leverage should be smaller",
+        "rejectWhen": "price is chopping around fair value or flow expands against the reclaim",
+    },
+    "wyckoff-spring": {
+        "temperament": "range-extreme reversal specialist; decisive after spring/upthrust, but fast to invalidate",
+        "approveWhen": "sweep distance, wick, volume spike, and reclaim/fail close all confirm a trap",
+        "adjustWhen": "spring/upthrust is plausible but stop needs to sit outside the true wick extreme",
+        "rejectWhen": "the market accepts beyond the swept level or higher timeframe breakout pressure dominates",
+    },
+    "rsi-divergence-scout": {
+        "temperament": "confirmation-first reversal scout; divergence alone is not enough",
+        "approveWhen": "momentum divergence, structure reclaim/failure, and fee-adjusted RR are all present",
+        "adjustWhen": "divergence exists but HTF trend is strong, requiring smaller size or faster partials",
+        "rejectWhen": "RSI divergence is weak, no structure trigger exists, or trend acceleration continues",
+    },
+    "session-raider": {
+        "temperament": "time-window specialist; aggressive only during real liquidity transition windows",
+        "approveWhen": "session range break, body expansion, volume, and fast expiry plan align",
+        "adjustWhen": "break is valid but order should expire quickly or TP should be closer",
+        "rejectWhen": "thin-liquidity wick, stale session timing, or immediate re-entry into range",
+    },
+    "imbalance-hunter": {
+        "temperament": "displacement retest trader; prefers clean midpoint entries over chasing candles",
+        "approveWhen": "strong displacement left a meaningful imbalance and retest entry is on the correct side",
+        "adjustWhen": "imbalance is valid but continuation entry should be smaller after first fill",
+        "rejectWhen": "midpoint is sliced through, displacement is weak, or liquidity target is too near",
+    },
+    "momentum-ignition": {
+        "temperament": "high-conviction momentum trader; can approve higher leverage, but never average down",
+        "approveWhen": "EMA stack, RSI thrust, OI, taker flow, and continuation room align",
+        "adjustWhen": "ignition is valid but volatility requires leverage cap or immediate trail plan",
+        "rejectWhen": "this is late chase, flow is mixed, or stop distance is too tight for BTC volatility",
+    },
+    "bollinger-reversion": {
+        "temperament": "statistical mean-reversion trader; conservative in trends, active in contained ranges",
+        "approveWhen": "band stretch, RSI exhaustion, weak trend regime, and midpoint target are coherent",
+        "adjustWhen": "reversion is plausible but trend strength argues for reduced size",
+        "rejectWhen": "band-walk trend is active, volume expands through the band, or target is too small",
+    },
+    "atr-trail-commander": {
+        "temperament": "trend commander; less eager to take quick profits and more willing to trail winners",
+        "approveWhen": "HTF trend, ATR stop, continuation structure, and wider target plan support a hold",
+        "adjustWhen": "trend is valid but stop is too wide or scale entries should be further apart",
+        "rejectWhen": "ATR stop cannot fit account risk or the trend has already exhausted",
+    },
 }
 
 
@@ -274,6 +334,46 @@ TRADER_MANAGEMENT_POLICIES: Dict[str, Dict[str, Any]] = {
     "orderflow-sniper": {
         "bias": "micro scalps expire quickly; flow flips are close/reduce events",
         "allowedAggression": "can add or pyramid only on immediate taker-flow confirmation with tight stop unchanged; otherwise reduce or close quickly",
+    },
+    "donchian-breakout": {
+        "bias": "keep winners alive outside the broken range; cancel if price accepts back inside",
+        "allowedAggression": "add on a clean retest of the broken Donchian boundary; pyramid only after new range expansion with ATR trail intact",
+    },
+    "ichimoku-cloud-pilot": {
+        "bias": "hold while cloud proxy and HTF trend remain intact",
+        "allowedAggression": "average only near the cloud edge; pyramid after continuation candle clears the prior swing and stop can trail below/above cloud",
+    },
+    "vwap-reclaimer": {
+        "bias": "mean/fair-value trades should protect quickly when reclaim stalls",
+        "allowedAggression": "add only on fair-value retest hold/fail; do not pyramid far from VWAP proxy unless flow expands in favor",
+    },
+    "wyckoff-spring": {
+        "bias": "trap trades must work quickly; invalidation is the wick extreme acceptance",
+        "allowedAggression": "small add on retest of swept level is allowed; pyramid only after displacement away from the spring/upthrust",
+    },
+    "rsi-divergence-scout": {
+        "bias": "divergence trades need structure confirmation and should reduce if momentum re-accelerates",
+        "allowedAggression": "average only at the planned divergence swing; pyramid after a confirmed higher-low/lower-high and improving RSI",
+    },
+    "session-raider": {
+        "bias": "session trades are time-sensitive; stale orders and flat momentum should be cancelled fast",
+        "allowedAggression": "one add is allowed only during the same session impulse; no late pyramiding after the window closes",
+    },
+    "imbalance-hunter": {
+        "bias": "manage the imbalance midpoint; cancel if midpoint fails",
+        "allowedAggression": "add at the imbalance midpoint or after continuation resumes; pyramid only if displacement extension remains open",
+    },
+    "momentum-ignition": {
+        "bias": "ride clean ignition but cut immediately when flow flips",
+        "allowedAggression": "pyramid only with sustained OI/taker confirmation and no stop widening; never average down after failed ignition",
+    },
+    "bollinger-reversion": {
+        "bias": "take profit toward the mean and do not fight band-walk trends",
+        "allowedAggression": "average only within planned band extension while trend strength stays weak; no pyramiding beyond mean target",
+    },
+    "atr-trail-commander": {
+        "bias": "prefer ATR trailing over early fixed exits while HTF trend remains intact",
+        "allowedAggression": "pyramid after profit cushion and fresh continuation confirmation; average only if ATR stop and account risk remain valid",
     },
 }
 

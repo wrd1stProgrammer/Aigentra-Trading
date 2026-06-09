@@ -992,6 +992,16 @@ def heartbeat_event_for_order(trader_id: str, order: PaperOrderRecord, snapshot:
         "range-maker": "Periodic agent review: decide whether the range edge is still valid or a breakout risk cancels the order.",
         "funding-contrarian": "Periodic agent review: reassess whether the funding edge still exists before fading crowding.",
         "orderflow-sniper": "Periodic agent review: expire stale microstructure entries quickly if orderflow edge decays.",
+        "donchian-breakout": "Periodic agent review: decide whether the broken Donchian boundary still deserves a retest entry or should be cancelled.",
+        "ichimoku-cloud-pilot": "Periodic agent review: reassess cloud-proxy trend quality and whether the continuation pullback is still valid.",
+        "vwap-reclaimer": "Periodic agent review: decide whether fair-value reclaim/rejection still holds or the mean edge has decayed.",
+        "wyckoff-spring": "Periodic agent review: reassess whether the spring/upthrust trap still has reclaim/failure quality before fill.",
+        "rsi-divergence-scout": "Periodic agent review: reassess divergence confirmation and whether structure still supports the reversal entry.",
+        "session-raider": "Periodic agent review: expire session orders fast if the liquidity transition window or impulse is gone.",
+        "imbalance-hunter": "Periodic agent review: decide whether the imbalance midpoint retest is still respected or failed.",
+        "momentum-ignition": "Periodic agent review: reassess ignition flow quickly; do not keep pending momentum entries after flow flips.",
+        "bollinger-reversion": "Periodic agent review: decide whether band reversion remains valid or a band-walk trend cancels the order.",
+        "atr-trail-commander": "Periodic agent review: reassess whether the ATR pullback order still fits the larger BTC trend.",
     }
     reason = pending_reasons.get(trader_id, "Periodic agent review: reassess pending paper order.")
     return ManagementEvent(
@@ -1034,6 +1044,16 @@ def heartbeat_event_for_position(trader_id: str, position: PaperPositionRecord, 
         "range-maker": "Periodic agent review: actively de-risk at range midpoint and close if the range breaks.",
         "funding-contrarian": "Periodic agent review: actively harvest funding normalization or reduce if the crowded side accelerates again.",
         "orderflow-sniper": "Periodic agent review: actively manage fast scalp exposure with no patience for flow flips.",
+        "donchian-breakout": "Periodic agent review: actively manage range expansion, retest validity, and ATR trailing after breakout.",
+        "ichimoku-cloud-pilot": "Periodic agent review: actively decide whether cloud trend integrity still supports holding or adding.",
+        "vwap-reclaimer": "Periodic agent review: actively protect fair-value reclaim trades when price stalls around the mean.",
+        "wyckoff-spring": "Periodic agent review: actively decide whether the spring/upthrust trap is still working or should be exited.",
+        "rsi-divergence-scout": "Periodic agent review: actively monitor whether divergence reversal is confirmed or momentum re-accelerated.",
+        "session-raider": "Periodic agent review: actively manage session momentum and close if the window edge has expired.",
+        "imbalance-hunter": "Periodic agent review: actively monitor imbalance midpoint respect and displacement extension.",
+        "momentum-ignition": "Periodic agent review: actively ride clean ignition but reduce immediately if OI/taker flow flips.",
+        "bollinger-reversion": "Periodic agent review: actively take midpoint profits or exit if band-walk trend starts.",
+        "atr-trail-commander": "Periodic agent review: actively trail ATR trend winners and avoid premature breakeven while HTF trend holds.",
     }
     reason = position_reasons.get(trader_id, "Periodic agent review: actively manage open paper position.")
     return ManagementEvent(

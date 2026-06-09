@@ -8,7 +8,17 @@ export const traderIds = [
   "trend-sentinel",
   "range-maker",
   "funding-contrarian",
-  "orderflow-sniper"
+  "orderflow-sniper",
+  "donchian-breakout",
+  "ichimoku-cloud-pilot",
+  "vwap-reclaimer",
+  "wyckoff-spring",
+  "rsi-divergence-scout",
+  "session-raider",
+  "imbalance-hunter",
+  "momentum-ignition",
+  "bollinger-reversion",
+  "atr-trail-commander"
 ] as const;
 
 export type TraderId = (typeof traderIds)[number];
@@ -102,6 +112,96 @@ export const fallbackTraders = [
     riskLevel: "HIGH",
     currentPlan: "Only taking fast simulated scalps when 1m/5m flow is unusually clean.",
     baseRiskPercent: 0.3,
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "donchian-breakout",
+    name: "Donchian Breakout",
+    description: "Trades BTC range expansion after recent highs or lows break with volume.",
+    riskLevel: "MEDIUM_HIGH",
+    currentPlan: "Waiting for BTC to break a Donchian boundary with real participation.",
+    baseRiskPercent: 0.62,
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "ichimoku-cloud-pilot",
+    name: "Ichimoku Cloud Pilot",
+    description: "Uses a cloud-style trend proxy to ride BTC continuation setups.",
+    riskLevel: "MEDIUM",
+    currentPlan: "Waiting for BTC to hold the cloud proxy after a controlled pullback.",
+    baseRiskPercent: 0.58,
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "vwap-reclaimer",
+    name: "VWAP Reclaimer",
+    description: "Trades reclaim or rejection around BTC intraday fair value.",
+    riskLevel: "MEDIUM",
+    currentPlan: "Waiting for BTC to reclaim or reject fair value with volume confirmation.",
+    baseRiskPercent: 0.5,
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "wyckoff-spring",
+    name: "Wyckoff Spring",
+    description: "Looks for BTC spring/upthrust behavior around range extremes.",
+    riskLevel: "HIGH",
+    currentPlan: "Waiting for BTC to sweep a range extreme and quickly reclaim or fail it.",
+    baseRiskPercent: 0.56,
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "rsi-divergence-scout",
+    name: "RSI Divergence Scout",
+    description: "Scans BTC momentum divergence before structure reclaim or failure.",
+    riskLevel: "MEDIUM",
+    currentPlan: "Waiting for BTC exhaustion divergence plus a structure confirmation candle.",
+    baseRiskPercent: 0.48,
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "session-raider",
+    name: "Session Raider",
+    description: "Trades BTC session-range breaks around major liquidity handoff windows.",
+    riskLevel: "MEDIUM_HIGH",
+    currentPlan: "Waiting for BTC to break a session range during a high-liquidity transition.",
+    baseRiskPercent: 0.52,
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "imbalance-hunter",
+    name: "Imbalance Hunter",
+    description: "Uses BTC displacement candles and imbalance-style pullbacks.",
+    riskLevel: "MEDIUM_HIGH",
+    currentPlan: "Waiting for BTC displacement to leave an imbalance and retest it cleanly.",
+    baseRiskPercent: 0.57,
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "momentum-ignition",
+    name: "Momentum Ignition",
+    description: "Takes BTC momentum only when trend, RSI, volume, and OI align.",
+    riskLevel: "HIGH",
+    currentPlan: "Waiting for BTC momentum, OI, and taker pressure to ignite together.",
+    baseRiskPercent: 0.6,
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "bollinger-reversion",
+    name: "Bollinger Reversion",
+    description: "Fades BTC statistical overextension only when trend strength is contained.",
+    riskLevel: "LOW_MEDIUM",
+    currentPlan: "Waiting for BTC to stretch statistically while trend strength stays contained.",
+    baseRiskPercent: 0.42,
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "atr-trail-commander",
+    name: "ATR Trail Commander",
+    description: "Lets BTC trend winners breathe using ATR stops and slower management.",
+    riskLevel: "MEDIUM",
+    currentPlan: "Waiting for BTC trend continuation where ATR stop leaves room to hold.",
+    baseRiskPercent: 0.55,
     mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
   }
 ] as const;

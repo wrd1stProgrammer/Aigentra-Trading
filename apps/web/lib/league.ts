@@ -70,6 +70,66 @@ export const traderVisuals: Record<string, { tone: string; accent: string; initi
     accent: "#06b6d4",
     initials: "OS",
     alias: "Orderflow Desk"
+  },
+  "donchian-breakout": {
+    tone: "from-blue-600 to-slate-900",
+    accent: "#2563eb",
+    initials: "DB",
+    alias: "Breakout Desk"
+  },
+  "ichimoku-cloud-pilot": {
+    tone: "from-indigo-500 to-violet-800",
+    accent: "#6366f1",
+    initials: "IC",
+    alias: "Cloud Desk"
+  },
+  "vwap-reclaimer": {
+    tone: "from-teal-500 to-cyan-800",
+    accent: "#14b8a6",
+    initials: "VR",
+    alias: "Fair Value Desk"
+  },
+  "wyckoff-spring": {
+    tone: "from-fuchsia-500 to-rose-800",
+    accent: "#d946ef",
+    initials: "WS",
+    alias: "Spring Desk"
+  },
+  "rsi-divergence-scout": {
+    tone: "from-purple-500 to-indigo-800",
+    accent: "#a855f7",
+    initials: "RD",
+    alias: "Divergence Desk"
+  },
+  "session-raider": {
+    tone: "from-yellow-500 to-orange-700",
+    accent: "#eab308",
+    initials: "SR",
+    alias: "Session Desk"
+  },
+  "imbalance-hunter": {
+    tone: "from-red-500 to-stone-900",
+    accent: "#ef4444",
+    initials: "IH",
+    alias: "Imbalance Desk"
+  },
+  "momentum-ignition": {
+    tone: "from-green-500 to-emerald-900",
+    accent: "#22c55e",
+    initials: "MI",
+    alias: "Momentum Desk"
+  },
+  "bollinger-reversion": {
+    tone: "from-slate-500 to-zinc-800",
+    accent: "#64748b",
+    initials: "BR",
+    alias: "Reversion Desk"
+  },
+  "atr-trail-commander": {
+    tone: "from-cyan-600 to-slate-900",
+    accent: "#0891b2",
+    initials: "AT",
+    alias: "ATR Desk"
   }
 };
 

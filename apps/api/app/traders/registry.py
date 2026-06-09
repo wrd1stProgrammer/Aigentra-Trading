@@ -1,5 +1,17 @@
 from typing import Dict, List
 
+from app.traders.btc_specialists import (
+    AtrTrailCommander,
+    BollingerReversion,
+    DonchianBreakout,
+    IchimokuCloudPilot,
+    ImbalanceHunter,
+    MomentumIgnition,
+    RsiDivergenceScout,
+    SessionRaider,
+    VwapReclaimer,
+    WyckoffSpring,
+)
 from app.traders.channel_rider import ChannelRider
 from app.traders.funding_contrarian import FundingContrarian
 from app.traders.leverage_hunter import LeverageHunter
@@ -27,6 +39,16 @@ TRADER_STRATEGIES: Dict[str, TraderStrategy] = {
         RangeMaker(),
         FundingContrarian(),
         OrderflowSniper(),
+        DonchianBreakout(),
+        IchimokuCloudPilot(),
+        VwapReclaimer(),
+        WyckoffSpring(),
+        RsiDivergenceScout(),
+        SessionRaider(),
+        ImbalanceHunter(),
+        MomentumIgnition(),
+        BollingerReversion(),
+        AtrTrailCommander(),
     ]
 }
 
