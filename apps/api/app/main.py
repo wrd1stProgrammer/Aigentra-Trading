@@ -1182,7 +1182,7 @@ async def run_management_reviews(
     if configured_max_reviews <= 0:
         return []
 
-    orders = db.execute(
+    all_orders = db.execute(
         select(PaperOrderRecord)
         .where(PaperOrderRecord.trader_id == trader_id, PaperOrderRecord.symbol == symbol, PaperOrderRecord.status == "open")
         .order_by(PaperOrderRecord.submitted_at.asc(), PaperOrderRecord.id.asc())
@@ -1192,6 +1192,18 @@ async def run_management_reviews(
         .where(PaperPositionRecord.trader_id == trader_id, PaperPositionRecord.symbol == symbol, PaperPositionRecord.status == "open")
         .order_by(PaperPositionRecord.opened_at.asc(), PaperPositionRecord.id.asc())
     ).scalars().all()
+
+    # Group orders by (side, rounded_price) to avoid reviewing duplicate split orders separately.
+    # Only the oldest/smallest order in each group is reviewed; the rest are skipped.
+    _order_group_keys: set[str] = set()
+    orders: list[PaperOrderRecord] = []
+    for _ord in all_orders:
+        _side_key = (_ord.side or "").upper()
+        _price_key = round(float(_ord.limit_price or 0) / 10) * 10  # round to nearest $10
+        _group_key = f"{_side_key}:{_price_key}"
+        if _group_key not in _order_group_keys:
+            _order_group_keys.add(_group_key)
+            orders.append(_ord)
 
     active_exposure_count = len(orders) + len(positions)
     max_reviews = min(max(configured_max_reviews, active_exposure_count), 10)
