@@ -3568,9 +3568,13 @@ async def league_leaderboard_fast(
     init_db()
     cache_key = (clean_symbol, include_empty, include_related)
     cached = LEAGUE_BUNDLE_CACHE.get(cache_key)
+    if cached and len(cached[1].get("traders", [])) != len(list_traders()):
+        LEAGUE_BUNDLE_CACHE.pop(cache_key, None)
+        cached = None
     now = time.monotonic()
     cache_was_stale = bool(cached and cached[0] <= now)
     if not refresh and cached:
+
         is_fresh = cached[0] > now
         if is_fresh:
             return {**cached[1], "cacheHit": True, "stale": False, "scheduledRefresh": False}
@@ -3588,11 +3592,9 @@ async def league_leaderboard_fast(
             if trader_id
         }
         missing_ids = known_trader_ids - existing_ids
-        if refresh:
-            refresh_leaderboard_snapshots(db, clean_symbol, None if refresh else missing_ids)
+        if refresh or missing_ids:
+            refresh_leaderboard_snapshots(db, clean_symbol, missing_ids if not refresh else None)
             db.commit()
-        elif missing_ids:
-            schedule_thread_refresh(refresh_league_bundle_cache_background, clean_symbol, include_empty, include_related)
 
         payload = build_league_bundle_payload(
             db,

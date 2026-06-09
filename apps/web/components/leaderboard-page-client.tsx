@@ -380,8 +380,9 @@ function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, 
           <div className="text-right whitespace-nowrap">{t("leaderboard.sharpe")}</div>
           <div className="text-right" />
         </div>
-        <div className="divide-y divide-[var(--border)]">
+        <div className="divide-y divide-[var(--border)] max-h-[600px] overflow-y-auto custom-scrollbar pr-1">
           {standings.map((trader) => {
+
             const exposure = exposureByTrader.get(trader.id);
             const progress = traderProgress(trader, exposure, t, locale);
             const isActive = activeTraderId === trader.id;
