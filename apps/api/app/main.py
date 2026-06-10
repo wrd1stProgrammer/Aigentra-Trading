@@ -1099,6 +1099,9 @@ def apply_management_actions(
                 new_limit = safe_management_limit(order, action.price, mark_price)
                 if new_limit is not None:
                     record = update_paper_order_limit(db, order, new_limit, reason, result)
+            elif action_type in {"CLOSE_POSITION", "REDUCE_SIZE", "REDUCE_RISK"}:
+                # AI가 오더에 CLOSE_POSITION / REDUCE_SIZE 를 보낸 경우 → 오더 취소로 처리
+                record = cancel_paper_order(db, order, reason, result)
             elif action_type in {"HOLD", "LET_PROFIT_RUN", "NEEDS_MORE_DATA"}:
                 applied.append({"type": action_type, "applied": False, "reason": "No paper state change requested."})
                 continue
@@ -1117,7 +1120,20 @@ def apply_management_actions(
                 if new_stop is not None:
                     record = update_position_stop(db, position, new_stop, reason, result)
             elif action_type in {"TAKE_PARTIAL_PROFIT", "REDUCE_RISK", "REDUCE_SIZE"}:
-                fraction = Decimal(str(action.quantityFraction if action.quantityFraction is not None else 0.25))
+                raw_fraction = action.quantityFraction
+                if raw_fraction is None:
+                    # AI가 quantityFraction을 주지 않은 경우:
+                    # decision=CLOSE_POSITION이거나 reason에 전량 종료 의도가 있으면 전량 청산
+                    _full_close_keywords = ("전량", "전부", "완전히", "all", "full", "entire", "close all", "close position")
+                    _reason_lower = (reason or "").lower()
+                    _is_full_close = (
+                        review.decision == "CLOSE_POSITION"
+                        or any(kw in (reason or "") for kw in _full_close_keywords[:3])
+                        or any(kw in _reason_lower for kw in _full_close_keywords[3:])
+                    )
+                    raw_fraction = 1.0 if _is_full_close else 0.25
+                fraction = Decimal(str(raw_fraction))
+                # reduce_position_by_management 내부에서 fraction>=0.999이면 close_position_by_management 호출
                 record = reduce_position_by_management(db, state, position, mark_price, fraction, candle, reason, result)
             elif action_type in {"ADD_TO_POSITION", "PYRAMID_POSITION"}:
                 record = create_position_add_order(
@@ -1154,6 +1170,26 @@ def apply_management_actions(
                 "price": float(mark_price) if record is not None else action.price,
             }
         )
+
+    # ── Fallback: decision=CLOSE_POSITION인데 실제로 포지션을 닫는 액션이 없는 경우 직접 청산 ──
+    # AI가 decision에 CLOSE_POSITION을 담았지만 actions 리스트에 CLOSE_POSITION/REDUCE_SIZE 없이
+    # HOLD나 빈 배열만 보낸 경우, decision을 우선시하여 포지션을 강제 종료한다.
+    if (
+        exposure.kind == "position"
+        and review.decision == "CLOSE_POSITION"
+        and not any(a.get("applied") for a in applied)
+    ):
+        position = db.get(PaperPositionRecord, exposure.id)
+        if position and position.status == "open":
+            fallback_reason = review.rationale or event.reason or "AI decision: CLOSE_POSITION (fallback)"
+            record = close_position_by_management(db, state, position, mark_price, candle, fallback_reason, result)
+            applied.append({
+                "type": "CLOSE_POSITION",
+                "applied": record is not None,
+                "reason": fallback_reason,
+                "price": float(mark_price) if record is not None else None,
+                "fallback": True,
+            })
 
     return applied
 
