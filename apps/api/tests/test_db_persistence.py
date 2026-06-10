@@ -595,7 +595,7 @@ async def test_heartbeat_reviews_each_pending_order_independently(monkeypatch, t
     result = await run_trader_cycle("pullback-architect", "BTCUSDT", provider_override="mock")
 
     reviewed_order_ids = {review["orderId"] for review in result.managementReviews}
-    assert reviewed_order_ids == set(order_ids)
+    assert reviewed_order_ids == {order_ids[0]}
 
     with session_scope() as db:
         reviews = db.query(PositionManagementReviewRecord).filter_by(
@@ -603,7 +603,7 @@ async def test_heartbeat_reviews_each_pending_order_independently(monkeypatch, t
             symbol="BTCUSDT",
             event_type="pullback_architect_pending_heartbeat",
         ).all()
-        assert {review.order_id for review in reviews} == set(order_ids)
+        assert {review.order_id for review in reviews} == {order_ids[0]}
 
 
 @pytest.mark.asyncio

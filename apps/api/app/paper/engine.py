@@ -21,6 +21,7 @@ from app.paper.repositories import (
     normalize_trader_id,
     to_decimal,
 )
+from app.repositories import from_json, to_json
 
 
 @dataclass(frozen=True)
@@ -278,6 +279,83 @@ def reduce_position_by_management(
     return event
 
 
+def handle_take_profit_exit(
+    db: Session,
+    state: TraderStateRecord,
+    position: PaperPositionRecord,
+    exit_price: Any,
+    candle: Union[Candle, dict[str, Any]],
+    result: Optional[PaperEngineResult] = None,
+) -> None:
+    if position.status != "open":
+        return
+    parsed_candle = candle if isinstance(candle, Candle) else Candle.from_mapping(position.symbol or "", candle)
+    price = to_decimal(exit_price, "exit_price")
+    
+    payload = from_json(position.payload_json) or {}
+    take_profits = payload.get("takeProfits")
+    
+    if not take_profits or not isinstance(take_profits, list) or len(take_profits) <= 1:
+        _close_position(db, state, position, price, "take_profit", parsed_candle, result)
+        if result:
+            result.closed_positions.append(position)
+        return
+
+    is_long = position.side == "long"
+    target_idx = -1
+    for idx, tp in enumerate(take_profits):
+        if tp.get("status") == "filled":
+            continue
+        tp_price = Decimal(str(tp["price"]))
+        crossed = (is_long and parsed_candle.high >= tp_price) or (not is_long and parsed_candle.low <= tp_price)
+        if crossed:
+            target_idx = idx
+            break
+
+    if target_idx == -1:
+        _close_position(db, state, position, price, "take_profit", parsed_candle, result)
+        if result:
+            result.closed_positions.append(position)
+        return
+
+    target = take_profits[target_idx]
+    weight = Decimal(str(target.get("weight", 0.5)))
+    
+    # Mark target as filled
+    target["status"] = "filled"
+    payload["takeProfits"] = take_profits
+    position.payload_json = to_json(payload)
+    
+    initial_qty = Decimal(str(payload.get("initialQuantity", position.quantity)))
+    close_qty = initial_qty * weight
+    close_qty = min(close_qty, position.quantity)
+    
+    is_last = all(tp.get("status") == "filled" for tp in take_profits)
+    remaining_qty = position.quantity - close_qty
+    
+    if is_last or remaining_qty < Decimal("0.001"):
+        _close_position(db, state, position, price, "take_profit", parsed_candle, result)
+        if result:
+            result.closed_positions.append(position)
+    else:
+        fraction = close_qty / position.quantity
+        reason = target.get("reason", f"Take Profit Target {target_idx + 1}")
+        
+        event = reduce_position_by_management(db, state, position, price, fraction, parsed_candle, reason, result)
+        if event:
+            event.event_type = "take_partial_profit"
+            event_payload = from_json(event.payload_json) or {}
+            event_payload["source"] = "strategy_take_profit"
+            event_payload["takeProfitIndex"] = target_idx
+            event.payload_json = to_json(event_payload)
+            
+        next_tp = next((tp for tp in take_profits if tp.get("status") != "filled"), None)
+        if next_tp:
+            position.take_profit_price = Decimal(str(next_tp["price"]))
+        else:
+            position.take_profit_price = None
+
+
 def process_candle(db: Session, trader_id: str, symbol: str, candle: Union[Candle, dict[str, Any]]) -> PaperEngineResult:
     clean_trader_id = normalize_trader_id(trader_id)
     parsed_candle = candle if isinstance(candle, Candle) else Candle.from_mapping(symbol, candle)
@@ -299,8 +377,11 @@ def process_candle(db: Session, trader_id: str, symbol: str, candle: Union[Candl
         if exit_price is None:
             exit_price, reason = _management_exit_signal(position, parsed_candle)
         if exit_price is not None:
-            _close_position(db, state, position, exit_price, reason, parsed_candle, result)
-            result.closed_positions.append(position)
+            if reason == "take_profit":
+                handle_take_profit_exit(db, state, position, exit_price, parsed_candle, result)
+            else:
+                _close_position(db, state, position, exit_price, reason, parsed_candle, result)
+                result.closed_positions.append(position)
             continue
         _maybe_move_stop_to_breakeven(db, position, parsed_candle, result)
 
@@ -399,15 +480,41 @@ def _fill_order(
         existing_position.margin += margin
         existing_position.entry_fee += fee
         
-        # If the order specifies a new take_profit or stop_loss, update them. Otherwise keep existing.
-        if order.take_profit_price is not None:
+        # Merge payload properties
+        pos_payload = from_json(existing_position.payload_json) or {}
+        order_payload = from_json(order.payload_json) or {}
+        pos_payload["initialQuantity"] = float(new_qty)
+        if "takeProfits" in order_payload:
+            pos_payload["takeProfits"] = order_payload["takeProfits"]
+        existing_position.payload_json = to_json(pos_payload)
+        
+        # Update take_profit_price and stop_loss_price
+        tps = pos_payload.get("takeProfits")
+        if tps:
+            first_tp = next((tp for tp in tps if tp.get("status") != "filled"), None)
+            if first_tp:
+                existing_position.take_profit_price = Decimal(str(first_tp["price"]))
+            else:
+                existing_position.take_profit_price = None
+        elif order.take_profit_price is not None:
             existing_position.take_profit_price = order.take_profit_price
+            
         if order.stop_loss_price is not None:
             existing_position.stop_loss_price = order.stop_loss_price
             
         existing_position.updated_at = utc_now()
         position = existing_position
     else:
+        # Parse payload for new position
+        order_payload = from_json(order.payload_json) or {}
+        pos_payload = dict(order_payload)
+        pos_payload["initialQuantity"] = float(order.quantity)
+        if "takeProfits" in order_payload:
+            pos_payload["takeProfits"] = order_payload["takeProfits"]
+            first_tp = order_payload["takeProfits"][0] if order_payload["takeProfits"] else None
+            if first_tp:
+                order.take_profit_price = Decimal(str(first_tp["price"]))
+                
         position = PaperPositionRecord(
             order_id=order.id,
             trader_id=order.trader_id,
@@ -424,7 +531,7 @@ def _fill_order(
             realized_pnl=Decimal("0"),
             take_profit_price=order.take_profit_price,
             stop_loss_price=order.stop_loss_price,
-            payload_json=order.payload_json,
+            payload_json=to_json(pos_payload),
             opened_at=candle.timestamp or utc_now(),
         )
         db.add(position)

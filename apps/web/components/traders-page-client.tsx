@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { ArrowRight, Play, Pulse, ShieldCheck, Timer } from "@phosphor-icons/react";
 import {
@@ -40,6 +41,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { statusLabel, traderStatusSummary } from "@/lib/status";
 
 export function TradersPageClient() {
+  const queryClient = useQueryClient();
   const { locale, t } = useAppContext();
   const [traders, setTraders] = useState<TraderProfile[]>(fallbackTraders as unknown as TraderProfile[]);
   const [symbol, setSymbol] = useState("BTCUSDT");
@@ -101,6 +103,8 @@ export function TradersPageClient() {
     setError(null);
     try {
       setResult(await runTraderCycle(id, symbol, undefined, locale));
+      void queryClient.invalidateQueries({ queryKey: ["league"] });
+      void queryClient.invalidateQueries({ queryKey: ["paper"] });
       void loadPaperState();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -114,6 +118,8 @@ export function TradersPageClient() {
     setError(null);
     try {
       setEngineResult(await runPaperEngineOnce(symbol, locale));
+      void queryClient.invalidateQueries({ queryKey: ["league"] });
+      void queryClient.invalidateQueries({ queryKey: ["paper"] });
       await loadPaperState();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -128,6 +134,8 @@ export function TradersPageClient() {
     try {
       const nextResult = await runScannerOnce("BTCUSDT", "mock", locale);
       setScannerResult(nextResult);
+      void queryClient.invalidateQueries({ queryKey: ["league"] });
+      void queryClient.invalidateQueries({ queryKey: ["paper"] });
       await loadPaperState();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

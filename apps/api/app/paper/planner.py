@@ -239,6 +239,7 @@ def create_paper_orders_from_plan(
             "orderIntent": candidate.orderIntent.model_dump() if candidate.orderIntent else None,
             "leveragePlan": candidate.leveragePlan.model_dump() if candidate.leveragePlan else None,
             "target": target.model_dump() if target else None,
+            "takeProfits": [tp.model_dump() for tp in plan.takeProfits] if plan.takeProfits else None,
             **review_payload_fields(review),
         }
         order = place_paper_order(

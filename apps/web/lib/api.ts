@@ -782,8 +782,31 @@ export function getTrader(id: string) {
   return request<TraderProfile>(`/api/traders/${id}`);
 }
 
+export function clearBrowserCacheForTrader(traderId?: string, symbol?: string) {
+  if (typeof window === "undefined") return;
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i++) {
+      const key = window.sessionStorage.key(i);
+      if (key) {
+        const matchesTrader = traderId ? key.includes(`trader:${traderId}`) : key.includes("trader:");
+        const matchesLeaderboard = symbol ? key.includes(`leaderboard:${symbol}`) : key.includes("leaderboard:");
+        if (matchesTrader || matchesLeaderboard) {
+          keysToRemove.push(key);
+        }
+      }
+    }
+    for (const key of keysToRemove) {
+      window.sessionStorage.removeItem(key);
+    }
+  } catch {
+    // Ignore
+  }
+}
+
 export function runTraderCycle(traderId: string, symbol: string, provider?: "mock" | "gemini", locale: Locale = "ko") {
   const query = provider ? `?provider=${provider}` : "";
+  clearBrowserCacheForTrader(traderId, symbol);
   return request<RunCycleResult>(`/api/traders/${traderId}/run-cycle${query}`, {
     method: "POST",
     body: JSON.stringify({ symbol, locale })
@@ -791,6 +814,7 @@ export function runTraderCycle(traderId: string, symbol: string, provider?: "moc
 }
 
 export function runAllTraders(symbol: string, locale: Locale = "ko") {
+  clearBrowserCacheForTrader(undefined, symbol);
   return request<{ symbol: string; provider: string; results: RunCycleResult[] }>("/api/demo/run-all-traders", {
     method: "POST",
     body: JSON.stringify({ symbol, locale })
@@ -798,6 +822,7 @@ export function runAllTraders(symbol: string, locale: Locale = "ko") {
 }
 
 export function runPaperEngineOnce(symbol: string, locale: Locale = "ko") {
+  clearBrowserCacheForTrader(undefined, symbol);
   return requestFirst<PaperEngineRunResult>([
     "/api/paper/engine/run-once",
     "/api/paper-trading/engine/run-once",
@@ -810,6 +835,7 @@ export function runPaperEngineOnce(symbol: string, locale: Locale = "ko") {
 
 export function runAiReviewDemo(symbol: string, provider?: "mock" | "gemini", locale: Locale = "ko") {
   const query = provider ? `?provider=${provider}` : "";
+  clearBrowserCacheForTrader(undefined, symbol);
   return request<Record<string, any>>(`/api/ai/review-demo${query}`, {
     method: "POST",
     body: JSON.stringify({ symbol, locale })

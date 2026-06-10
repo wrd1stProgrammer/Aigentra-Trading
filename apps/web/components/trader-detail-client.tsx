@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Play } from "@phosphor-icons/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { getTrader, runTraderCycle, RunCycleResult, TraderProfile } from "@/lib/api";
 import { fallbackTraders, traderNameKey, traderShortKey } from "@/lib/traders";
 import { formatCurrency, formatPercent } from "@/lib/format";
@@ -15,6 +16,7 @@ import { StatusBadge } from "@/components/status-badge";
 
 export function TraderDetailClient({ traderId }: { traderId: string }) {
   const { locale, t } = useAppContext();
+  const queryClient = useQueryClient();
   const fallback = useMemo(
     () => fallbackTraders.find((trader) => trader.id === traderId) as unknown as TraderProfile | undefined,
     [traderId]
@@ -34,6 +36,8 @@ export function TraderDetailClient({ traderId }: { traderId: string }) {
     setError(null);
     try {
       setResult(await runTraderCycle(traderId, symbol, undefined, locale));
+      void queryClient.invalidateQueries({ queryKey: ["league"] });
+      void queryClient.invalidateQueries({ queryKey: ["paper"] });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
