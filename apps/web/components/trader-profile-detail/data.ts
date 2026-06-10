@@ -141,12 +141,19 @@ export function buildTradeHistoryItems({
   const mergedMap = new Map<string, {
     item: TradeHistoryItem;
     sortMs: number;
-    raw: { pnl: number | null; quantity: number | null };
+    raw: {
+      pnl: number | null;
+      quantity: number | null;
+      weightedEntrySum: number;
+      entryQtySum: number;
+    };
   }>();
 
   for (const entry of [...positionItems, ...fallbackEventItems]) {
     const { item, sortMs, raw } = entry;
-    const key = `${item.time}-${item.sideLabel}-${item.entryLabel}-${item.exitLabel}-${item.action}-${item.label}`;
+    // Group by time, sideLabel, exitLabel, action, and label (removing entryLabel from key)
+    const key = `${item.time}-${item.sideLabel}-${item.exitLabel}-${item.action}-${item.label}`;
+    const entryPrice = firstFiniteNumber(item.entryLabel.replace(/,/g, ""));
     
     if (mergedMap.has(key)) {
       const existing = mergedMap.get(key)!;
@@ -155,6 +162,12 @@ export function buildTradeHistoryItems({
       
       existing.raw.pnl = newPnl;
       existing.raw.quantity = newQuantity;
+      
+      if (entryPrice !== null && raw.quantity !== null) {
+        existing.raw.weightedEntrySum += entryPrice * raw.quantity;
+        existing.raw.entryQtySum += raw.quantity;
+      }
+      
       existing.item.pnlLabel = newPnl === null ? "-" : formatCurrency(newPnl, locale);
       existing.item.pnlTone = pnlTone(newPnl);
       existing.item.quantity = formatTradeQuantity(newQuantity, null, locale);
@@ -168,11 +181,26 @@ export function buildTradeHistoryItems({
         existing.sortMs = sortMs;
       }
     } else {
+      const entryQty = raw.quantity ?? 0;
+      const weightedSum = entryPrice !== null ? entryPrice * entryQty : 0;
       mergedMap.set(key, {
         item: { ...item },
         sortMs,
-        raw: { ...raw }
+        raw: {
+          pnl: raw.pnl,
+          quantity: raw.quantity,
+          weightedEntrySum: weightedSum,
+          entryQtySum: entryPrice !== null ? entryQty : 0
+        }
       });
+    }
+  }
+
+  // Calculate weighted average entry price for each merged item
+  for (const merged of mergedMap.values()) {
+    if (merged.raw.entryQtySum > 0) {
+      const avgEntry = merged.raw.weightedEntrySum / merged.raw.entryQtySum;
+      merged.item.entryLabel = formatNumber(avgEntry, 0, locale);
     }
   }
 
