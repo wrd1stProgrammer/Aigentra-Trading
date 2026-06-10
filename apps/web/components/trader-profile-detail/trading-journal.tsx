@@ -21,6 +21,7 @@ export function TradingJournal({ tradeHistoryItems, t }: { tradeHistoryItems: Tr
               <TableHead>{t("detail.transactionTime")}</TableHead>
               <TableHead>{t("detail.transactionSide")}</TableHead>
               <TableHead>{t("detail.transactionLeverage")}</TableHead>
+              <TableHead>{t("common.quantity")}</TableHead>
               <TableHead>{t("detail.transactionEntry")}</TableHead>
               <TableHead>{t("detail.transactionExit")}</TableHead>
               <TableHead>{t("detail.transactionPnl")}</TableHead>
@@ -37,6 +38,7 @@ export function TradingJournal({ tradeHistoryItems, t }: { tradeHistoryItems: Tr
                   </span>
                 </TableCell>
                 <TableCell className="font-mono">{item.leverageLabel}</TableCell>
+                <TableCell className="font-mono">{item.quantity}</TableCell>
                 <TableCell className="font-mono">{item.entryLabel}</TableCell>
                 <TableCell className="font-mono">{item.exitLabel}</TableCell>
                 <TableCell className={`font-mono font-semibold ${pnlClass(item.pnlTone)}`}>{item.pnlLabel}</TableCell>
