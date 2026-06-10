@@ -2142,6 +2142,43 @@ def refreshed_leaderboard_records(
     return [record for record in ranked if record.trader_id in trader_ids]
 
 
+def find_drifted_trader_snapshots(db: Session, symbol: str) -> set[str]:
+    # Query actual open position counts by trader
+    pos_stmt = (
+        select(PaperPositionRecord.trader_id, func.count(PaperPositionRecord.id))
+        .where(PaperPositionRecord.symbol == symbol, PaperPositionRecord.status == "open")
+        .group_by(PaperPositionRecord.trader_id)
+    )
+    actual_positions = {trader_id: count for trader_id, count in db.execute(pos_stmt).all()}
+
+    # Query actual open order counts by trader
+    order_stmt = (
+        select(PaperOrderRecord.trader_id, func.count(PaperOrderRecord.id))
+        .where(PaperOrderRecord.symbol == symbol, PaperOrderRecord.status == "open")
+        .group_by(PaperOrderRecord.trader_id)
+    )
+    actual_orders = {trader_id: count for trader_id, count in db.execute(order_stmt).all()}
+
+    # Query snapshot counts by trader
+    snap_stmt = select(
+        TraderLeaderboardSnapshotRecord.trader_id,
+        TraderLeaderboardSnapshotRecord.open_positions,
+        TraderLeaderboardSnapshotRecord.open_orders,
+    ).where(TraderLeaderboardSnapshotRecord.symbol == symbol)
+    snapshots = db.execute(snap_stmt).all()
+
+    drifted = set()
+    for trader_id, snap_pos, snap_orders in snapshots:
+        if not trader_id:
+            continue
+        act_pos = actual_positions.get(trader_id, 0)
+        act_orders = actual_orders.get(trader_id, 0)
+        if snap_pos != act_pos or snap_orders != act_orders:
+            drifted.add(trader_id)
+
+    return drifted
+
+
 def refresh_leaderboard_snapshots(
     db: Session,
     symbol: str,
@@ -2786,6 +2823,16 @@ async def run_scanner_once(
                 "managementReviews": management_reviews,
             }
         )
+
+    # Detect drifted snapshots and add them to refresh target
+    for symbol in clean_symbols:
+        try:
+            with session_scope() as db:
+                drifted_ids = find_drifted_trader_snapshots(db, symbol)
+                if drifted_ids:
+                    changed_traders_by_symbol.setdefault(symbol, set()).update(drifted_ids)
+        except Exception:
+            pass
 
     leaderboard_started = time.perf_counter()
     for symbol, trader_ids_to_refresh in changed_traders_by_symbol.items():
