@@ -110,9 +110,12 @@ export function buildTradeHistoryItems({
     .filter((position) => !position.symbol || position.symbol === symbol)
     .map((position, index) => {
       const event = matchingCloseEventForPosition(position, closeEvents);
+      const pnl = firstFiniteNumber(position.realizedPnl, position.realized_pnl, event?.realizedPnl, event?.realized_pnl);
+      const quantity = firstFiniteNumber(position.quantity, position.size, event?.quantity);
       return {
         item: buildClosedPositionHistoryItem({ position, event, index, symbol, locale, t }),
-        sortMs: timelineTimeValue(position.closedAt ?? position.updatedAt ?? position.createdAt ?? event?.createdAt ?? event?.timestamp)
+        sortMs: timelineTimeValue(position.closedAt ?? position.updatedAt ?? position.createdAt ?? event?.createdAt ?? event?.timestamp),
+        raw: { pnl, quantity }
       };
     });
   const knownClosedPositionIds = new Set(closedPositions.map((position) => normalizedId(position.id)).filter(isPresentString));
@@ -125,12 +128,55 @@ export function buildTradeHistoryItems({
       }
       return true;
     })
-    .map((event, index) => ({
-      item: buildClosedEventHistoryItem({ event, events, index, symbol, locale, t }),
-      sortMs: timelineTimeValue(event.createdAt ?? event.timestamp)
-    }));
+    .map((event, index) => {
+      const pnl = firstFiniteNumber(event.realizedPnl, event.realized_pnl, recordValue(event.payload)?.realizedPnl);
+      const quantity = firstFiniteNumber(event.quantity);
+      return {
+        item: buildClosedEventHistoryItem({ event, events, index, symbol, locale, t }),
+        sortMs: timelineTimeValue(event.createdAt ?? event.timestamp),
+        raw: { pnl, quantity }
+      };
+    });
 
-  return [...positionItems, ...fallbackEventItems]
+  const mergedMap = new Map<string, {
+    item: TradeHistoryItem;
+    sortMs: number;
+    raw: { pnl: number | null; quantity: number | null };
+  }>();
+
+  for (const entry of [...positionItems, ...fallbackEventItems]) {
+    const { item, sortMs, raw } = entry;
+    const key = `${item.time}-${item.sideLabel}-${item.entryLabel}-${item.exitLabel}-${item.action}-${item.label}`;
+    
+    if (mergedMap.has(key)) {
+      const existing = mergedMap.get(key)!;
+      const newPnl = (existing.raw.pnl ?? 0) + (raw.pnl ?? 0);
+      const newQuantity = (existing.raw.quantity ?? 0) + (raw.quantity ?? 0);
+      
+      existing.raw.pnl = newPnl;
+      existing.raw.quantity = newQuantity;
+      existing.item.pnlLabel = newPnl === null ? "-" : formatCurrency(newPnl, locale);
+      existing.item.pnlTone = pnlTone(newPnl);
+      existing.item.quantity = formatTradeQuantity(newQuantity, null, locale);
+      
+      if (existing.item.basisDetail !== item.basisDetail && item.basisDetail) {
+        if (!existing.item.basisDetail.includes(item.basisDetail)) {
+          existing.item.basisDetail = `${existing.item.basisDetail}\n${item.basisDetail}`;
+        }
+      }
+      if (sortMs > existing.sortMs) {
+        existing.sortMs = sortMs;
+      }
+    } else {
+      mergedMap.set(key, {
+        item: { ...item },
+        sortMs,
+        raw: { ...raw }
+      });
+    }
+  }
+
+  return Array.from(mergedMap.values())
     .sort((left, right) => right.sortMs - left.sortMs)
     .map(({ item }) => item)
     .slice(0, limit);
