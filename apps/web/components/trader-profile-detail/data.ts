@@ -14,9 +14,13 @@ const POSITION_JOURNAL_EVENT_TYPES = [
   "POSITION_CLOSED",
   "TAKE_PROFIT",
   "PARTIAL_TAKE_PROFIT",
+  "TAKE_PARTIAL_PROFIT",
   "STOP_LOSS",
   "LIQUIDATION",
-  "CLOSE_POSITION"
+  "CLOSE_POSITION",
+  "POSITION_REDUCED_BY_AI",
+  "REDUCE_SIZE",
+  "REDUCE_RISK"
 ] as const;
 
 export function buildScenarioTimelineItems({
@@ -104,7 +108,6 @@ export function buildTradeHistoryItems({
   const closeEvents = events.filter(isPositionJournalEvent);
   const positionItems = closedPositions
     .filter((position) => !position.symbol || position.symbol === symbol)
-    .slice(0, limit)
     .map((position, index) => {
       const event = matchingCloseEventForPosition(position, closeEvents);
       return {
@@ -116,9 +119,12 @@ export function buildTradeHistoryItems({
   const fallbackEventItems = closeEvents
     .filter((event) => {
       const positionId = eventPositionId(event);
-      return !positionId || !knownClosedPositionIds.has(positionId);
+      const isClosed = Boolean(positionId && knownClosedPositionIds.has(positionId));
+      if (isClosed) {
+        return !isFinalCloseEvent(event);
+      }
+      return true;
     })
-    .slice(0, Math.max(0, limit - positionItems.length))
     .map((event, index) => ({
       item: buildClosedEventHistoryItem({ event, events, index, symbol, locale, t }),
       sortMs: timelineTimeValue(event.createdAt ?? event.timestamp)
@@ -225,7 +231,7 @@ function buildClosedEventHistoryItem({
   return {
     id: `event-${event.id ?? index}`,
     time: event.createdAt ? formatDateTime(event.createdAt, locale) : "-",
-    action: t("detail.closeTrade"),
+    action: getEventActionLabel(event.eventType, event.type, t),
     actionTone: result.tone,
     label: event.symbol ?? symbol,
     quantity: formatTradeQuantity(event.quantity, null, locale),
@@ -282,9 +288,46 @@ function pnlTone(value: number | null): TradeHistoryItem["pnlTone"] {
   return value > 0 ? "good" : "bad";
 }
 
+function isFinalCloseEvent(event: PaperTradeEvent) {
+  const normalized = normalizeKey(event.eventType ?? event.type);
+  return (
+    normalized.includes("POSITION_CLOSED") ||
+    normalized.includes("CLOSE_POSITION") ||
+    normalized.includes("STOP_LOSS") ||
+    normalized.includes("LIQUIDATION") ||
+    (normalized.includes("TAKE_PROFIT") && !normalized.includes("PARTIAL"))
+  );
+}
+
+function getEventActionLabel(eventType: unknown, type: unknown, t: Translator): string {
+  const normalized = normalizeKey(eventType ?? type);
+  if (normalized.includes("PARTIAL_TAKE_PROFIT") || normalized.includes("TAKE_PARTIAL_PROFIT")) {
+    return t("status.partialTakeProfit");
+  }
+  if (
+    normalized.includes("REDUCE_SIZE") ||
+    normalized.includes("POSITION_REDUCED_BY_AI") ||
+    normalized.includes("REDUCE_RISK")
+  ) {
+    return t("status.positionReducedByAi");
+  }
+  return t("detail.closeTrade");
+}
+
 function matchingCloseEventForPosition(position: PaperPosition, events: PaperTradeEvent[]) {
   const positionId = normalizedId(position.id);
   const orderId = normalizedId(position.orderId ?? position.order_id);
+  
+  // Try to find the final close event first
+  const finalEvent = events.find((event) => {
+    const eventPosition = eventPositionId(event);
+    const eventOrder = eventOrderId(event);
+    const matchesPosition = Boolean((positionId && eventPosition === positionId) || (orderId && eventOrder === orderId));
+    return matchesPosition && isFinalCloseEvent(event);
+  });
+  if (finalEvent) return finalEvent;
+
+  // Fallback to any matching close event
   return events.find((event) => {
     const eventPosition = eventPositionId(event);
     const eventOrder = eventOrderId(event);

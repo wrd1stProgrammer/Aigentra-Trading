@@ -13,6 +13,7 @@ import { useAppContext } from "@/components/app-provider";
 const links = [
   { href: "/", key: "nav.home", icon: ChartLineUp },
   { href: "/leaderboard", key: "nav.leaderboard", icon: Trophy },
+  { href: "/consensus", key: "nav.consensus", icon: Users },
   { href: "/account", key: "nav.account", icon: UserCircle },
   { href: "/login", key: "nav.login", icon: SignIn }
 ];
@@ -46,11 +47,13 @@ function CandleNotch({
 const fallbackLabels = {
   ko: {
     "nav.account": "내 알림",
-    "nav.login": "로그인"
+    "nav.login": "로그인",
+    "nav.consensus": "AI 센티멘트"
   },
   en: {
     "nav.account": "Alerts",
-    "nav.login": "Login"
+    "nav.login": "Login",
+    "nav.consensus": "AI Consensus"
   }
 } as const;
 
