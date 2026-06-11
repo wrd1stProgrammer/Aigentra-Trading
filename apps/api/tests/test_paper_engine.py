@@ -332,3 +332,72 @@ def test_partial_take_profit_reduces_position_size(temp_db):
         db.refresh(position)
         assert position.status == "closed"
         assert position.close_reason == "take_profit"
+
+
+def test_close_position_cancels_remaining_orders_for_same_plan(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)
+        
+        from app.repositories import to_json
+        payload = {"tradePlanId": 999}
+        
+        # Place two limit orders representing a split entry plan
+        order1 = place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=100.0,
+            quantity=0.5,
+            leverage=10,
+            take_profit_price=110.0,
+            stop_loss_price=95.0,
+        )
+        order1.payload_json = to_json(payload)
+        
+        order2 = place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=98.0,
+            quantity=0.5,
+            leverage=10,
+            take_profit_price=110.0,
+            stop_loss_price=95.0,
+        )
+        order2.payload_json = to_json(payload)
+        db.flush()
+        
+        # Process candle where order1 fills
+        first = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 102, "high": 103, "low": 99.5, "close": 100},
+        )
+        assert first.filled_orders == [order1]
+        
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        assert position.status == "open"
+        db.refresh(order2)
+        assert order2.status == "open"
+        
+        # Process candle where position hits take profit (high = 110), but price doesn't drop to 98 (low = 99)
+        second = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 100, "high": 110, "low": 99, "close": 109.5},
+        )
+        assert second.closed_positions == [position]
+        assert position.close_reason == "take_profit"
+        
+        db.refresh(order2)
+        # Verify order2 has been automatically cancelled!
+        assert order2.status == "canceled"
+
+
+

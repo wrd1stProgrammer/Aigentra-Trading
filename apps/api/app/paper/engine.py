@@ -407,7 +407,19 @@ def _fill_price(order: PaperOrderRecord, candle: Candle) -> Optional[Decimal]:
         return candle.open
     if order.limit_price is None:
         return None
-    return order.limit_price if candle.low <= order.limit_price <= candle.high else None
+    
+    side = (order.side or "long").lower()
+    if side == "long":
+        # Buy Limit: price falls to or below the limit price
+        if candle.low <= order.limit_price:
+            return order.limit_price if candle.open >= order.limit_price else candle.open
+    else:
+        # Sell Limit: price rises to or above the limit price
+        if candle.high >= order.limit_price:
+            return order.limit_price if candle.open <= order.limit_price else candle.open
+            
+    return None
+
 
 
 def _fill_order(
@@ -718,6 +730,23 @@ def _close_position(
         },
     )
     result.events.append(event)
+
+    # Cancel any remaining open orders for the same trade plan
+    try:
+        from app.paper.plan_state import trade_plan_id_from_payload
+        pos_payload = from_json(position.payload_json) if isinstance(position.payload_json, str) else position.payload_json
+        plan_id = trade_plan_id_from_payload(pos_payload)
+        if plan_id is not None:
+            open_orders = list_open_orders(db, position.trader_id or "", position.symbol or "")
+            for order in open_orders:
+                order_payload = from_json(order.payload_json) if isinstance(order.payload_json, str) else order.payload_json
+                order_plan_id = trade_plan_id_from_payload(order_payload)
+                if order_plan_id == plan_id:
+                    cancel_paper_order(db, order, f"Position closed: {reason}", result)
+    except Exception as e:
+        # Avoid crashing core execution if order cleanup fails, but print it
+        print(f"Failed to cancel remaining orders on position close: {e}")
+
 
 
 def _mark_to_market(db: Session, state: TraderStateRecord, trader_id: str, symbol: str, mark_price: Decimal) -> None:
