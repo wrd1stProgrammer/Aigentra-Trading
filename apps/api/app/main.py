@@ -1,3 +1,4 @@
+# Trigger backend deploy after migration sync
 from contextlib import asynccontextmanager
 import asyncio
 from datetime import datetime, timedelta, timezone
