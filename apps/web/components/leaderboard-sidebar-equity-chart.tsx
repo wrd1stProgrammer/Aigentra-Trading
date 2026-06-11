@@ -57,12 +57,13 @@ function formatTooltipTime(timeStr: string | null | undefined, locale: "ko" | "e
   const date = new Date(timeStr);
   if (Number.isNaN(date.getTime())) return "";
 
-  const months = date.getMonth() + 1;
-  const days = date.getDate();
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `${months}/${days} ${hours}:${minutes}`;
+  const months = date.getUTCMonth() + 1;
+  const days = date.getUTCDate();
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${months}/${days} ${hours}:${minutes} (UTC)`;
 }
+
 
 export function EquityAreaChart({
   trader,
@@ -130,14 +131,15 @@ export function EquityAreaChart({
     const date = new Date(p.time);
     if (Number.isNaN(date.getTime())) continue;
 
-    const dayStr = `${date.getMonth() + 1}/${date.getDate()}`;
+    const dayStr = `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
     if (dayStr !== lastDayStr) {
       const x = plotMarginLeft + (i / Math.max(points.length - 1, 1)) * plotWidth;
-      const label = `${date.getMonth() + 1}/${date.getDate()}`;
+      const label = `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
       dayLabels.push({ x, label });
       lastDayStr = dayStr;
     }
   }
+
 
   // Filter X-axis labels to ensure they are at least 70px apart
   const filteredDayLabels: Array<{ x: number; label: string }> = [];

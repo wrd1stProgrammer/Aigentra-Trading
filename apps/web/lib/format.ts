@@ -34,7 +34,8 @@ export function formatDateTime(value: string | null | undefined, locale?: Locale
     month: "short",
     day: "numeric",
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
+    timeZone: "UTC"
   }).format(date);
 }
 
@@ -45,6 +46,8 @@ export function formatClockTime(value: string | null | undefined, locale?: Local
   return new Intl.DateTimeFormat(intlLocale(locale), {
     hour: "2-digit",
     minute: "2-digit",
-    hourCycle: "h23"
+    hourCycle: "h23",
+    timeZone: "UTC"
   }).format(date);
 }
+

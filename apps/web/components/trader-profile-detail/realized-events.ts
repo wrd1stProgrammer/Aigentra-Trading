@@ -131,9 +131,11 @@ function formatDateTime(value: string | null | undefined, locale: Locale) {
     month: "short",
     day: "numeric",
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
+    timeZone: "UTC"
   }).format(date);
 }
+
 
 function timeValue(value: string | null | undefined) {
   if (!value) return Number.NEGATIVE_INFINITY;
