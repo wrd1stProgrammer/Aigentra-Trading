@@ -12,8 +12,11 @@ import {
   type LeaderboardBundle,
   type TraderDetailBundle,
   type TraderProfile,
-  type PaperPosition
+  type PaperPosition,
+  getTraderTradeHistory,
+  type MergedTradeHistoryItem
 } from "@/lib/api";
+import { formatCurrency, formatDateTime, formatNumber } from "@/lib/format";
 import { useAppContext } from "@/components/app-provider";
 import { buildScenarios, buildStandings, type LeagueSymbol, type TraderScenario } from "@/lib/league";
 import { fallbackTraders } from "@/lib/traders";
@@ -31,7 +34,7 @@ import {
   TimelineRow,
   TradingJournal
 } from "@/components/trader-profile-detail/panels";
-import { SYMBOLS } from "@/components/trader-profile-detail/types";
+import { SYMBOLS, type TradeHistoryItem } from "@/components/trader-profile-detail/types";
 import { traderVisuals } from "@/lib/league";
 
 function mergePositions(positions: PaperPosition[]): PaperPosition[] {
@@ -117,6 +120,44 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
   return result;
 }
 
+function mapMergedItemToHistoryItem(
+  item: MergedTradeHistoryItem,
+  locale: any,
+  t: any
+): TradeHistoryItem {
+  const pnlTone = item.pnl > 0.01 ? "good" : item.pnl < -0.01 ? "bad" : "neutral";
+  const resultTone = pnlTone;
+  
+  let resultLabel = t("detail.resultBreakeven");
+  if (item.pnl > 0.01) resultLabel = t("detail.resultTakeProfit");
+  if (item.pnl < -0.01) resultLabel = t("detail.resultStopLoss");
+  
+  let basisDetail = t("detail.resultReasonBreakeven");
+  const reasonUpper = item.closeReason.toUpperCase();
+  if (reasonUpper.includes("TAKE_PROFIT")) basisDetail = t("detail.resultReasonTakeProfit");
+  if (reasonUpper.includes("STOP_LOSS") || reasonUpper.includes("LIQUIDATION")) basisDetail = t("detail.resultReasonStopLoss");
+  
+  return {
+    id: `merged-${item.time}-${item.side}-${item.exitPrice}`,
+    time: formatDateTime(item.time, locale),
+    action: t("detail.closeTrade"),
+    actionTone: resultTone,
+    label: item.symbol,
+    quantity: `${formatNumber(item.quantity, 4, locale)}`,
+    basis: t("detail.basis"),
+    basisDetail: basisDetail,
+    priceLabel: `${t("common.price")} ${formatNumber(item.exitPrice, 0, locale)}`,
+    sideLabel: item.side === "SHORT" ? t("leaderboard.side.short") : t("leaderboard.side.long"),
+    leverageLabel: `x${formatNumber(item.leverage, 0, locale)}`,
+    entryLabel: formatNumber(item.entryPrice, 0, locale),
+    exitLabel: formatNumber(item.exitPrice, 0, locale),
+    pnlLabel: formatCurrency(item.pnl, locale),
+    pnlTone: pnlTone,
+    resultLabel: resultLabel,
+    isPositionAction: true
+  };
+}
+
 export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const { locale, t } = useAppContext();
   const queryClient = useQueryClient();
@@ -129,7 +170,39 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const [liveAlert, setLiveAlert] = useState<LiveDetailAlert | null>(null);
   const [visibleScenarioCount, setVisibleScenarioCount] = useState(20);
   const [reviewsLimit, setReviewsLimit] = useState(20);
-  const [eventsLimit, setEventsLimit] = useState(10);
+  const [eventsLimit, setEventsLimit] = useState(100);
+  const [historyItems, setHistoryItems] = useState<TradeHistoryItem[]>([]);
+  const [historyOffset, setHistoryOffset] = useState(0);
+  const [historyHasMore, setHistoryHasMore] = useState(true);
+  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+
+  const loadHistory = useCallback(async (reset = false) => {
+    const nextOffset = reset ? 0 : historyOffset;
+    if (reset) {
+      setHistoryHasMore(true);
+    }
+    setLoadingMoreHistory(true);
+    try {
+      const res = await getTraderTradeHistory(traderId, symbol, 10, nextOffset);
+      const items = res.items || [];
+      const mapped = items.map(item => mapMergedItemToHistoryItem(item, locale, t));
+      
+      setHistoryItems(prev => reset ? mapped : [...prev, ...mapped]);
+      setHistoryOffset(nextOffset + items.length);
+      if (items.length < 10) {
+        setHistoryHasMore(false);
+      }
+    } catch (err) {
+      console.error("Failed to load trade history:", err);
+    } finally {
+      setLoadingMoreHistory(false);
+    }
+  }, [traderId, symbol, historyOffset, locale, t]);
+
+  useEffect(() => {
+    void loadHistory(true);
+  }, [traderId, symbol]);
+
   const liveAlertKeyRef = useRef<string | null>(null);
   const liveAlertHydratedRef = useRef(false);
   const liveAlertContextRef = useRef<string | null>(null);
@@ -417,7 +490,13 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
             </div>
           </section>
 
-          <TradingJournal tradeHistoryItems={tradeHistoryItems} t={t} />
+          <TradingJournal
+            tradeHistoryItems={historyItems}
+            t={t}
+            onLoadMore={() => void loadHistory(false)}
+            hasMore={historyHasMore}
+            loadingMore={loadingMoreHistory}
+          />
         </div>
 
         <DetailSidebar holdingItems={holdingItems} tradeHistoryItems={sidebarTradeHistoryItems} pnlCalendar={pnlCalendar} standing={standing} latestReview={latestReview} latestPlan={latestPlan} locale={locale} t={t} onLoadMoreEvents={onLoadMoreEvents} />

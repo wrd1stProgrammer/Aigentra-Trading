@@ -4,21 +4,46 @@ import { ListChecks } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import type { TradeHistoryItem, Translator } from "@/components/trader-profile-detail/types";
 
-export function TradingJournal({ tradeHistoryItems, t }: { tradeHistoryItems: TradeHistoryItem[]; t: Translator }) {
+export function TradingJournal({
+  tradeHistoryItems,
+  t,
+  onLoadMore,
+  hasMore = false,
+  loadingMore = false
+}: {
+  tradeHistoryItems: TradeHistoryItem[];
+  t: Translator;
+  onLoadMore?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+}) {
   const positionActionItems = tradeHistoryItems.filter((item) => item.isPositionAction);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (!onLoadMore || loadingMore || !hasMore) return;
+    const target = e.currentTarget;
+    const isNearBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 30;
+    if (isNearBottom) {
+      onLoadMore();
+    }
+  };
+
   return (
     <section className="rounded-2xl bg-white p-5 ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ListChecks size={20} />
-          <h2 className="text-lg font-semibold tracking-tight">{t("detail.tradingJournal")}</h2>
+          <h2 className="text-lg font-semibold tracking-tight">{t("detail.tradingJournal")} (UTC)</h2>
         </div>
       </div>
-      <div className="mt-5 max-h-[460px] overflow-y-auto rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800">
+      <div 
+        className="mt-5 max-h-[460px] overflow-y-auto rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800"
+        onScroll={handleScroll}
+      >
         <table className="min-w-[760px] w-full border-separate border-spacing-0 text-left text-sm">
           <thead className="sticky top-0 z-[1] bg-zinc-50 text-xs font-semibold text-zinc-400 dark:bg-zinc-900 dark:text-zinc-500">
             <tr>
-              <TableHead>{t("detail.transactionTime")}</TableHead>
+              <TableHead>{`${t("detail.transactionTime")} (UTC)`}</TableHead>
               <TableHead>{t("detail.transactionSide")}</TableHead>
               <TableHead>{t("detail.transactionLeverage")}</TableHead>
               <TableHead>{t("common.quantity")}</TableHead>
@@ -51,7 +76,14 @@ export function TradingJournal({ tradeHistoryItems, t }: { tradeHistoryItems: Tr
             ))}
           </tbody>
         </table>
-        {!positionActionItems.length ? <div className="p-6 text-center text-sm text-zinc-500 dark:text-zinc-400">{t("detail.noTradeHistory")}</div> : null}
+        {!positionActionItems.length && !loadingMore ? (
+          <div className="p-6 text-center text-sm text-zinc-500 dark:text-zinc-400">{t("detail.noTradeHistory")}</div>
+        ) : null}
+        {loadingMore ? (
+          <div className="p-4 text-center text-sm text-zinc-500 dark:text-zinc-400 bg-zinc-50/50 dark:bg-zinc-900/50">
+            <span className="inline-block animate-pulse">{t("common.loading") || "Loading..."}</span>
+          </div>
+        ) : null}
       </div>
     </section>
   );

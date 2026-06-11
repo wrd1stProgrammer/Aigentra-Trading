@@ -2407,7 +2407,7 @@ def build_trader_detail_payload(
         "trader": trader,
         "summaries": summaries,
         "positions": list_filtered_records(db, PaperPositionRecord, limit=12, symbol=clean_symbol, trader_id=trader_id, status="open", include_payload=True),
-        "closedPositions": list_filtered_records(db, PaperPositionRecord, limit=max(20, events_limit), symbol=clean_symbol, trader_id=trader_id, status="closed", include_payload=True),
+        "closedPositions": list_filtered_records(db, PaperPositionRecord, limit=max(100, events_limit), symbol=clean_symbol, trader_id=trader_id, status="closed", include_payload=True),
         "orders": list_filtered_records(db, PaperOrderRecord, limit=12, symbol=clean_symbol, trader_id=trader_id, status="open", include_payload=True),
         "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=reviews_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
         "events": list_filtered_records(db, TradeEventRecord, limit=events_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
@@ -3807,6 +3807,172 @@ async def league_trader_detail(
     payload["scheduledRefresh"] = bool(cache_was_stale and not refresh)
     TRADER_DETAIL_CACHE[cache_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
     return payload
+
+
+@app.get("/api/league/traders/{trader_id}/trade-history")
+async def league_trader_trade_history(
+    trader_id: str,
+    symbol: str = Query("BTCUSDT"),
+    limit: int = Query(10),
+    offset: int = Query(0),
+    db: Session = Depends(get_db),
+):
+    from datetime import timezone
+    import json
+    clean_symbol = normalize_symbol(symbol)
+    
+    # 1. Fetch closed positions (sufficiently large limit to construct a complete history on backend)
+    positions = db.execute(
+        select(PaperPositionRecord)
+        .where(
+            PaperPositionRecord.trader_id == trader_id,
+            PaperPositionRecord.symbol == clean_symbol,
+            PaperPositionRecord.status == "closed",
+        )
+        .order_by(desc(PaperPositionRecord.closed_at))
+        .limit(1000)
+    ).scalars().all()
+    
+    # 2. Fetch trade events representing realized PnL changes
+    event_types = [
+        "POSITION_CLOSED", "TAKE_PROFIT", "PARTIAL_TAKE_PROFIT", "TAKE_PARTIAL_PROFIT",
+        "STOP_LOSS", "LIQUIDATION", "CLOSE_POSITION", "POSITION_REDUCED_BY_AI",
+        "REDUCE_SIZE", "REDUCE_RISK"
+    ]
+    stmt = select(TradeEventRecord).where(
+        TradeEventRecord.trader_id == trader_id,
+        TradeEventRecord.symbol == clean_symbol
+    )
+    stmt = stmt.where(TradeEventRecord.event_type.in_(event_types))
+    events = db.execute(stmt.order_by(desc(TradeEventRecord.created_at)).limit(1000)).scalars().all()
+    
+    # 3. Group and aggregate records by hour/minute, side, exit price, and symbol
+    merged_items = {}
+    
+    def parse_float(val):
+        if val is None:
+            return 0.0
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return 0.0
+
+    # Aggregate positions
+    for pos in positions:
+        closed_at = pos.closed_at or pos.updated_at or pos.created_at
+        if not closed_at:
+            continue
+        time_key = closed_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        
+        exit_price = parse_float(pos.exit_price)
+        entry_price = parse_float(pos.entry_price)
+        qty = parse_float(pos.quantity)
+        pnl = parse_float(pos.realized_pnl)
+        leverage = parse_float(pos.leverage)
+        side = (pos.side or "SHORT").upper()
+        
+        key = (time_key, side, f"{exit_price:.2f}", clean_symbol)
+        
+        if key in merged_items:
+            existing = merged_items[key]
+            existing["quantity"] += qty
+            existing["pnl"] += pnl
+            existing["weighted_entry_sum"] += entry_price * qty
+            existing["entry_qty_sum"] += qty
+            if leverage > existing["leverage"]:
+                existing["leverage"] = leverage
+        else:
+            merged_items[key] = {
+                "time": closed_at.isoformat(),
+                "side": side,
+                "exitPrice": exit_price,
+                "symbol": clean_symbol,
+                "quantity": qty,
+                "pnl": pnl,
+                "leverage": leverage,
+                "weighted_entry_sum": entry_price * qty,
+                "entry_qty_sum": qty,
+                "action": "close",
+                "closeReason": pos.close_reason or "closed",
+            }
+            
+    # Aggregate fallback events (that might not match known positions)
+    known_pos_ids = {pos.id for pos in positions}
+    for ev in events:
+        if ev.position_id in known_pos_ids:
+            continue
+        created_at = ev.created_at
+        if not created_at:
+            continue
+        time_key = created_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        
+        price = parse_float(ev.price)
+        qty = parse_float(ev.quantity)
+        pnl = parse_float(ev.realized_pnl)
+        
+        payload = {}
+        if ev.payload_json:
+            try:
+                payload = json.loads(ev.payload_json)
+            except Exception:
+                pass
+                
+        entry_price = parse_float(payload.get("entryPrice") or payload.get("averageEntryPrice") or price)
+        leverage = parse_float(payload.get("leverage") or 1.0)
+        side_val = str(payload.get("side") or ev.event_type or "SHORT").upper()
+        side = "SHORT" if ("SHORT" in side_val or "SELL" in side_val) else "LONG"
+            
+        key = (time_key, side, f"{price:.2f}", clean_symbol)
+        
+        if key in merged_items:
+            existing = merged_items[key]
+            existing["quantity"] += qty
+            existing["pnl"] += pnl
+            existing["weighted_entry_sum"] += entry_price * qty
+            existing["entry_qty_sum"] += qty
+            if leverage > existing["leverage"]:
+                existing["leverage"] = leverage
+        else:
+            merged_items[key] = {
+                "time": created_at.isoformat(),
+                "side": side,
+                "exitPrice": price,
+                "symbol": clean_symbol,
+                "quantity": qty,
+                "pnl": pnl,
+                "leverage": leverage,
+                "weighted_entry_sum": entry_price * qty,
+                "entry_qty_sum": qty,
+                "action": ev.event_type.lower(),
+                "closeReason": payload.get("reason") or "closed",
+            }
+            
+    # Finalize items and calculate average entry prices
+    results = []
+    for item in merged_items.values():
+        if item["entry_qty_sum"] > 0:
+            item["entryPrice"] = item["weighted_entry_sum"] / item["entry_qty_sum"]
+        else:
+            item["entryPrice"] = item["exitPrice"]
+            
+        del item["weighted_entry_sum"]
+        del item["entry_qty_sum"]
+        results.append(item)
+        
+    # Sort by time desc (most recent first)
+    results.sort(key=lambda x: x["time"], reverse=True)
+    
+    # Paginate
+    paginated = results[offset : offset + limit]
+    
+    return {
+        "symbol": clean_symbol,
+        "traderId": trader_id,
+        "total": len(results),
+        "offset": offset,
+        "limit": limit,
+        "items": paginated
+    }
 
 
 @app.post("/api/traders/{trader_id}/run-cycle")

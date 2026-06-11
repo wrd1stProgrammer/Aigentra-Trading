@@ -841,3 +841,41 @@ export function runAiReviewDemo(symbol: string, provider?: "mock" | "gemini", lo
     body: JSON.stringify({ symbol, locale })
   });
 }
+
+export type MergedTradeHistoryItem = {
+  time: string;
+  side: "LONG" | "SHORT";
+  exitPrice: number;
+  symbol: string;
+  quantity: number;
+  pnl: number;
+  leverage: number;
+  action: string;
+  closeReason: string;
+  entryPrice: number;
+};
+
+export type MergedTradeHistoryResponse = {
+  symbol: string;
+  traderId: string;
+  total: number;
+  offset: number;
+  limit: number;
+  items: MergedTradeHistoryItem[];
+};
+
+export function getTraderTradeHistory(
+  traderId: string,
+  symbol: string = "BTCUSDT",
+  limit: number = 10,
+  offset: number = 0
+) {
+  const params = new URLSearchParams({
+    symbol,
+    limit: String(limit),
+    offset: String(offset)
+  });
+  return request<MergedTradeHistoryResponse>(
+    `/api/league/traders/${encodeURIComponent(traderId)}/trade-history?${params.toString()}`
+  );
+}
