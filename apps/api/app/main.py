@@ -2399,18 +2399,45 @@ def build_trader_detail_payload(
     reviews_limit: int = 20,
     events_limit: int = 10,
 ) -> dict[str, Any]:
+    from sqlalchemy import Date, func
+    from datetime import date
     if summaries is None:
         summaries = [trader_summary_for_profile(db, trader, clean_symbol)]
     active_plans = list_active_trade_plans(db, trader_id, clean_symbol, limit=5)
+    
+    # Aggregate daily realized PnL for monthly calendar (extremely lightweight)
+    stmt = (
+        select(
+            func.cast(TradeEventRecord.created_at, Date).label("date_key"),
+            func.sum(TradeEventRecord.realized_pnl).label("pnl_sum")
+        )
+        .where(
+            TradeEventRecord.trader_id == trader_id,
+            TradeEventRecord.symbol == clean_symbol,
+            TradeEventRecord.realized_pnl != 0
+        )
+        .group_by(func.cast(TradeEventRecord.created_at, Date))
+        .order_by(func.cast(TradeEventRecord.created_at, Date))
+    )
+    daily_pnl_rows = db.execute(stmt).all()
+    daily_pnl = [
+        {
+            "date": r.date_key.isoformat() if isinstance(r.date_key, date) else str(r.date_key),
+            "pnl": float(r.pnl_sum)
+        }
+        for r in daily_pnl_rows
+    ]
+
     return {
         "symbol": clean_symbol,
         "trader": trader,
         "summaries": summaries,
         "positions": list_filtered_records(db, PaperPositionRecord, limit=12, symbol=clean_symbol, trader_id=trader_id, status="open", include_payload=True),
-        "closedPositions": list_filtered_records(db, PaperPositionRecord, limit=max(100, events_limit), symbol=clean_symbol, trader_id=trader_id, status="closed", include_payload=True),
+        "closedPositions": list_filtered_records(db, PaperPositionRecord, limit=20, symbol=clean_symbol, trader_id=trader_id, status="closed", include_payload=True),
         "orders": list_filtered_records(db, PaperOrderRecord, limit=12, symbol=clean_symbol, trader_id=trader_id, status="open", include_payload=True),
         "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=reviews_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
         "events": list_filtered_records(db, TradeEventRecord, limit=events_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
+        "dailyPnl": daily_pnl,
         "tradePlans": [serialize_record_for_ui(plan, include_payload=True) for plan in active_plans],
         "cacheHit": False,
         "stale": False,

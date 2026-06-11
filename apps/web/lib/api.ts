@@ -364,6 +364,7 @@ export type TraderDetailBundle = {
   orders: PaperOrder[];
   managementReviews: ManagementReview[];
   events: PaperTradeEvent[];
+  dailyPnl: { date: string; pnl: number }[];
   tradePlans: Record<string, any>[];
 };
 

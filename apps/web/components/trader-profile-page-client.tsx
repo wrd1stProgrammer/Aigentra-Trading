@@ -221,6 +221,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       orders: (leaderboardBundle?.orders ?? []).filter((item) => item.traderId === traderId),
       managementReviews: (leaderboardBundle?.managementReviews ?? []).filter((item) => item.traderId === traderId),
       events: [],
+      dailyPnl: [],
       tradePlans: []
     };
   }, [fallback, queryClient, symbol, traderId]);
@@ -247,7 +248,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     staleTime: 60_000
   });
 
-  const { trader, summaries, positions, closedPositions, orders, reviews, events, plans } = useMemo(() => {
+  const { trader, summaries, positions, closedPositions, orders, reviews, events, dailyPnl, plans } = useMemo(() => {
     const bundle = detailQuery.data;
     const rawPositions = bundle?.positions ?? [];
     const mergedPositions = mergePositions(rawPositions);
@@ -259,6 +260,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       orders: bundle?.orders ?? [],
       reviews: bundle?.managementReviews ?? [],
       events: bundle?.events ?? [],
+      dailyPnl: bundle?.dailyPnl ?? [],
       plans: bundle?.tradePlans ?? []
     };
   }, [detailQuery.data, fallback]);
@@ -313,9 +315,9 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       locale,
       startingEquity: accountStartingEquity(standing?.equity, standing?.totalPnl),
       snapshots: normalizeEquitySnapshots(equitySnapshotsQuery.data),
-      events
+      dailyPnl
     }),
-    [equitySnapshotsQuery.data, events, locale, standing?.equity, standing?.totalPnl]
+    [equitySnapshotsQuery.data, dailyPnl, locale, standing?.equity, standing?.totalPnl]
   );
   const timelineRail = visibleScenarioTimelineItems.length > 0;
   const alertContextKey = `${traderId}:${symbol}`;

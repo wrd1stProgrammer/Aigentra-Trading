@@ -44,18 +44,33 @@ export function buildMonthlyPnlCalendar({
   locale,
   startingEquity,
   snapshots,
-  events
+  events,
+  dailyPnl
 }: {
   readonly now?: Date;
   readonly locale: Locale;
   readonly startingEquity: number;
   readonly snapshots: readonly SnapshotInput[];
-  readonly events: readonly EventInput[];
+  readonly events?: readonly EventInput[];
+  readonly dailyPnl?: readonly { readonly date: string; readonly pnl: number; }[];
 }): MonthlyPnlCalendar {
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
   const snapshotEquityByDay = latestSnapshotRealizedEquityByDay(snapshots);
-  const eventPnlByDay = realizedPnlByDay(events);
+  
+  const eventPnlByDay = new Map<string, number>();
+  if (dailyPnl) {
+    for (const item of dailyPnl) {
+      if (item.date) {
+        eventPnlByDay.set(item.date, (eventPnlByDay.get(item.date) ?? 0) + (item.pnl ?? 0));
+      }
+    }
+  } else if (events) {
+    const parsed = realizedPnlByDay(events);
+    for (const [key, val] of parsed.entries()) {
+      eventPnlByDay.set(key, val);
+    }
+  }
   const days: PnlCalendarDay[] = [];
   let currentEquity = startingEquity;
 
