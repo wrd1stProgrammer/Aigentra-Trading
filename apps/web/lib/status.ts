@@ -9,6 +9,7 @@ type StatusLike = Pick<
 
 const STATUS_KEYS: Record<string, string> = {
   ACTIVE_PAPER_EXPOSURE: "status.managing",
+  ADJUST_AND_APPROVE: "status.adjustAndApprove",
   APPROVE: "status.approved",
   APPROVED: "status.approved",
   CANCEL_PENDING_ORDER: "status.cancelPendingOrder",

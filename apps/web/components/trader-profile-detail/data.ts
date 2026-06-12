@@ -26,35 +26,57 @@ const POSITION_JOURNAL_EVENT_TYPES = [
 export function buildScenarioTimelineItems({
   scenarios,
   events,
-  latestPlan,
+  plans = [],
   reviews,
   locale,
   t
 }: {
   scenarios: TraderScenario[];
   events: PaperTradeEvent[];
-  latestPlan: PlanView;
+  plans?: PlanView[];
   reviews: ManagementReview[];
   locale: Locale;
   t: Translator;
 }): TimelineItem[] {
-  const items: TimelineItem[] = buildRealizedEventTimelineItems({ events, locale, t });
-  if (latestPlan.entries.length || latestPlan.status) {
-    const entryPrice = latestPlan.entries[0]?.price ?? null;
-    const title = `${statusLabel(latestPlan.status, t)} ${latestPlan.side ? latestPlan.side.toUpperCase() : ""}`.trim();
-    items.push({
-      id: "latest-plan",
-      time: latestPlan.createdAt ? formatDateTime(latestPlan.createdAt, locale) : "-",
-      title,
-      body: scenarioDisplayText(latestPlan.notes[0] ?? latestPlan.entries[0]?.reason ?? t("detail.planEntryReady"), t),
-      importance: "watch",
-      movement: latestPlan.side ? latestPlan.side.toUpperCase() : statusLabel(latestPlan.status, t),
-      movementTone: latestPlan.side?.toUpperCase() === "SHORT" ? "bad" : "good",
-      priceLabel: entryPrice === null ? "-" : `${t("common.price")} ${formatNumber(entryPrice, 0, locale)}`,
-      iconLabel: latestPlan.side?.slice(0, 1) ?? "P",
-      sortMs: timelineTimeValue(latestPlan.createdAt)
-    });
-  }
+  const items: TimelineItem[] = [];
+  
+  plans.forEach((plan, index) => {
+    if (plan.entries.length || plan.status) {
+      const entryPrice = plan.entries[0]?.price ?? null;
+      const title = `${statusLabel(plan.status, t)} ${plan.side ? plan.side.toUpperCase() : ""}`.trim();
+      
+      const planScenario: TraderScenario = {
+        id: `plan-${plan.createdAt ?? index}`,
+        title,
+        phase: "PLANNING",
+        status: plan.status ?? "-",
+        side: plan.side,
+        price: entryPrice,
+        stop: plan.stopLoss,
+        target: plan.takeProfits[0]?.price ?? null,
+        leverage: plan.leverage,
+        riskPercent: plan.riskPercent,
+        rationale: plan.notes[0] ?? plan.entries[0]?.reason ?? null,
+        summary: plan.notes.join("\n") || null,
+        createdAt: plan.createdAt,
+        source: "review"
+      };
+
+      items.push({
+        id: `plan-${plan.createdAt ?? index}`,
+        time: plan.createdAt ? formatDateTime(plan.createdAt, locale) : "-",
+        title,
+        body: scenarioDisplayText(plan.notes[0] ?? plan.entries[0]?.reason ?? t("detail.planEntryReady"), t),
+        importance: "important",
+        movement: plan.side ? plan.side.toUpperCase() : statusLabel(plan.status, t),
+        movementTone: plan.side?.toUpperCase() === "SHORT" ? "bad" : "good",
+        priceLabel: entryPrice === null ? "-" : `${t("common.price")} ${formatNumber(entryPrice, 0, locale)}`,
+        iconLabel: plan.side?.slice(0, 1) ?? "P",
+        sortMs: timelineTimeValue(plan.createdAt),
+        scenario: planScenario
+      });
+    }
+  });
 
   for (const scenario of dedupeScenarioTimelineScenarios(scenarios)) {
     const movement = scenario.side ? scenario.side.toUpperCase() : statusLabel(scenario.action ?? scenario.status, t);

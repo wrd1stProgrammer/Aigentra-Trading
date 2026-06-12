@@ -2404,7 +2404,7 @@ def build_trader_detail_payload(
     from datetime import date
     if summaries is None:
         summaries = [trader_summary_for_profile(db, trader, clean_symbol)]
-    active_plans = list_active_trade_plans(db, trader_id, clean_symbol, limit=5)
+    trade_plans = list_filtered_records(db, TradePlanRecord, limit=30, symbol=clean_symbol, trader_id=trader_id, include_payload=True)
     
     # Aggregate daily realized PnL for monthly calendar (extremely lightweight)
     stmt = (
@@ -2439,7 +2439,7 @@ def build_trader_detail_payload(
         "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=reviews_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
         "events": list_filtered_records(db, TradeEventRecord, limit=events_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
         "dailyPnl": daily_pnl,
-        "tradePlans": [serialize_record_for_ui(plan, include_payload=True) for plan in active_plans],
+        "tradePlans": trade_plans,
         "cacheHit": False,
         "stale": False,
     }

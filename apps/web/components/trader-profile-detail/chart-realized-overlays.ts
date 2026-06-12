@@ -50,6 +50,18 @@ function realizedKind(event: RealizedOverlayEvent) {
   const normalized = normalizeKey(event.eventType ?? event.type);
   if (normalized.includes("TAKE_PROFIT") || normalized.includes("PARTIAL_TAKE_PROFIT")) return "takeProfit";
   if (normalized.includes("STOP_LOSS") || normalized.includes("LIQUIDATION")) return "stopLoss";
+  
+  if (normalized.includes("POSITION_CLOSED")) {
+    const payload = recordValue(event.payload);
+    const reason = normalizeKey(payload?.reason);
+    if (reason.includes("TAKE_PROFIT") || reason.includes("PROFIT") || reason.includes("TP")) return "takeProfit";
+    if (reason.includes("STOP_LOSS") || reason.includes("LOSS") || reason.includes("SL") || reason.includes("FAILURE")) return "stopLoss";
+    
+    const pnl = firstFiniteNumber(payload?.realizedPnl, payload?.pnl);
+    if (pnl !== null) {
+      return pnl >= 0 ? "takeProfit" : "stopLoss";
+    }
+  }
   return null;
 }
 

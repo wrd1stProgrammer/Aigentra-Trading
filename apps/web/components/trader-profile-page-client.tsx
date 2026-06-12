@@ -36,6 +36,21 @@ import {
 } from "@/components/trader-profile-detail/panels";
 import { SYMBOLS, type TradeHistoryItem } from "@/components/trader-profile-detail/types";
 import { traderVisuals } from "@/lib/league";
+import { CaretLeft, CaretRight, Clock } from "@phosphor-icons/react";
+
+function toDateString(date: Date): string {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getSunday(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() - day);
+  return d;
+}
 
 function mergePositions(positions: PaperPosition[]): PaperPosition[] {
   const firstFiniteNumber = (...values: readonly unknown[]) => {
@@ -169,12 +184,44 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const [selectedScenario, setSelectedScenario] = useState<TraderScenario | null>(null);
   const [liveAlert, setLiveAlert] = useState<LiveDetailAlert | null>(null);
   const [visibleScenarioCount, setVisibleScenarioCount] = useState(20);
-  const [reviewsLimit, setReviewsLimit] = useState(20);
-  const [eventsLimit, setEventsLimit] = useState(100);
+  const [reviewsLimit, setReviewsLimit] = useState(40);
+  const [eventsLimit, setEventsLimit] = useState(30);
   const [historyItems, setHistoryItems] = useState<TradeHistoryItem[]>([]);
   const [historyOffset, setHistoryOffset] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(true);
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string>(() => toDateString(new Date()));
+  const [weekStart, setWeekStart] = useState<Date>(() => getSunday(new Date()));
+
+  const handlePrevWeek = useCallback(() => {
+    setWeekStart((prev) => {
+      const next = new Date(prev);
+      next.setUTCDate(next.getUTCDate() - 7);
+      return next;
+    });
+    setSelectedDate((prev) => {
+      const date = new Date(prev);
+      date.setUTCDate(date.getUTCDate() - 7);
+      return toDateString(date);
+    });
+  }, []);
+
+  const handleNextWeek = useCallback(() => {
+    setWeekStart((prev) => {
+      const next = new Date(prev);
+      next.setUTCDate(next.getUTCDate() + 7);
+      return next;
+    });
+    setSelectedDate((prev) => {
+      const date = new Date(prev);
+      date.setUTCDate(date.getUTCDate() + 7);
+      return toDateString(date);
+    });
+  }, []);
+
+  const handleLoadMoreHistory = useCallback(() => {
+    setReviewsLimit((current) => current + 20);
+  }, []);
 
   const loadHistory = useCallback(async (reset = false) => {
     const nextOffset = reset ? 0 : historyOffset;
@@ -288,16 +335,23 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
 
   const latestReview = reviews[0];
   const visual = traderVisuals[traderId] ?? traderVisuals["channel-rider"];
-  const latestPlan = useMemo(() => normalizePlan(plans[0]), [plans]);
+  const normalizedPlans = useMemo(() => plans.map(normalizePlan), [plans]);
+  const latestPlan = useMemo(() => normalizedPlans[0] ?? normalizePlan(), [normalizedPlans]);
   const chartResult = useMemo(() => ({ tradePlan: latestPlan }), [latestPlan]);
   const scenarioTimelineItems = useMemo(
-    () => buildScenarioTimelineItems({ scenarios, events, latestPlan, reviews, locale, t }),
-    [events, latestPlan, locale, reviews, scenarios, t]
+    () => buildScenarioTimelineItems({ scenarios, events, plans: normalizedPlans, reviews, locale, t }),
+    [events, normalizedPlans, locale, reviews, scenarios, t]
   );
   const visibleScenarioTimelineItems = useMemo(
     () => scenarioTimelineItems.slice(0, visibleScenarioCount),
     [scenarioTimelineItems, visibleScenarioCount]
   );
+  const filteredTimelineItems = useMemo(() => {
+    return scenarioTimelineItems.filter((item) => {
+      const itemDate = new Date(item.sortMs ?? 0);
+      return toDateString(itemDate) === selectedDate;
+    });
+  }, [scenarioTimelineItems, selectedDate]);
   const holdingItems = useMemo(
     () => buildHoldingItems({ standing, positions, orders, latestPlan, symbol, locale, t }),
     [latestPlan, locale, orders, positions, standing, symbol, t]
@@ -322,11 +376,30 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const timelineRail = visibleScenarioTimelineItems.length > 0;
   const alertContextKey = `${traderId}:${symbol}`;
 
+  const lastTraderIdRef = useRef<string | null>(null);
+  const lastSymbolRef = useRef<string | null>(null);
+
   useEffect(() => {
-    setVisibleScenarioCount(20);
-    setReviewsLimit(20);
-    setEventsLimit(10);
-  }, [symbol, traderId]);
+    const keyChanged = lastTraderIdRef.current !== traderId || lastSymbolRef.current !== symbol;
+    if (keyChanged) {
+      lastTraderIdRef.current = traderId;
+      lastSymbolRef.current = symbol;
+      setVisibleScenarioCount(20);
+      setReviewsLimit(40);
+      setEventsLimit(30);
+      
+      if (scenarioTimelineItems.length > 0) {
+        const latestItem = scenarioTimelineItems[0];
+        const latestDate = new Date(latestItem.sortMs ?? 0);
+        setSelectedDate(toDateString(latestDate));
+        setWeekStart(getSunday(latestDate));
+      } else {
+        const today = new Date();
+        setSelectedDate(toDateString(today));
+        setWeekStart(getSunday(today));
+      }
+    }
+  }, [symbol, traderId, scenarioTimelineItems]);
 
   useEffect(() => {
     if (
@@ -342,6 +415,24 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       });
     }
   }, [detailQuery.data?.managementReviews, reviewsLimit, visibleScenarioTimelineItems.length]);
+
+  useEffect(() => {
+    if (!detailQuery.data?.managementReviews) return;
+    const loadedReviews = detailQuery.data.managementReviews;
+    if (loadedReviews.length === 0) return;
+
+    const oldestReview = loadedReviews[loadedReviews.length - 1];
+    if (oldestReview && oldestReview.createdAt) {
+      const oldestDate = new Date(oldestReview.createdAt);
+      if (
+        oldestDate > weekStart &&
+        loadedReviews.length === reviewsLimit &&
+        reviewsLimit < 300
+      ) {
+        setReviewsLimit((current) => current + 30);
+      }
+    }
+  }, [detailQuery.data?.managementReviews, weekStart, reviewsLimit]);
 
   useEffect(() => {
     if (
@@ -459,14 +550,96 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                 <h2 className="text-xl font-semibold tracking-tight">{t("detail.scenarios")}</h2>
                 <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t("detail.scenarioHint")}</p>
               </div>
-              <span className="rounded-full bg-zinc-100 px-3 py-1 font-mono text-sm font-semibold text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
-                {scenarioTimelineItems.length}
-              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handlePrevWeek}
+                  className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-500 dark:text-zinc-400 transition"
+                  title={locale === "ko" ? "이전 주" : "Previous Week"}
+                >
+                  <CaretLeft size={20} />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleNextWeek}
+                  className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-500 dark:text-zinc-400 transition"
+                  title={locale === "ko" ? "다음 주" : "Next Week"}
+                >
+                  <CaretRight size={20} />
+                </button>
+              </div>
             </div>
-            <div data-testid="scenario-timeline" className="relative mt-8 max-h-[980px] overflow-y-auto pr-2" onScroll={handleScenarioScroll}>
-              {timelineRail ? <div className="timelineRail absolute left-[13px] top-3 h-[calc(100%-1.5rem)] w-px bg-zinc-200 dark:bg-zinc-800" /> : null}
+
+            {/* Horizontal week calendar selector */}
+            <div className="mt-6">
+              <div className="grid grid-cols-7 gap-2 md:gap-3 overflow-x-auto pb-1 scrollbar-none flex-nowrap flex md:grid">
+                {Array.from({ length: 7 }).map((_, offset) => {
+                  const cardDate = new Date(weekStart);
+                  cardDate.setUTCDate(weekStart.getUTCDate() + offset);
+                  const dateKey = toDateString(cardDate);
+                  
+                  // Count timeline items for this date
+                  const itemCount = scenarioTimelineItems.filter((item) => {
+                    const itemDate = new Date(item.sortMs ?? 0);
+                    return toDateString(itemDate) === dateKey;
+                  }).length;
+                  
+                  const isSelected = selectedDate === dateKey;
+                  
+                  const dayName = new Intl.DateTimeFormat(locale === "ko" ? "ko-KR" : "en-US", {
+                    weekday: "short",
+                    timeZone: "UTC"
+                  }).format(cardDate);
+                  
+                  const dateLabel = new Intl.DateTimeFormat(locale === "ko" ? "ko-KR" : "en-US", {
+                    month: "short",
+                    day: "numeric",
+                    timeZone: "UTC"
+                  }).format(cardDate);
+                  
+                  const subtext = itemCount > 0 
+                    ? (locale === "ko" ? `${itemCount}건` : `${itemCount} items`)
+                    : (locale === "ko" ? "거래 없음" : "No trades");
+                  
+                  return (
+                    <div
+                      key={dateKey}
+                      onClick={() => setSelectedDate(dateKey)}
+                      className={`flex-1 min-w-[80px] md:min-w-0 flex flex-col items-center justify-center p-3 rounded-xl border text-center transition cursor-pointer select-none ${
+                        isSelected
+                          ? "bg-blue-50/50 border-blue-500 text-blue-900 dark:bg-blue-950/30 dark:border-blue-500 dark:text-blue-200"
+                          : "bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-50 dark:bg-zinc-950 dark:border-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-900/50"
+                      }`}
+                    >
+                      <span className={`text-xs font-semibold ${
+                        isSelected 
+                          ? "text-blue-600 dark:text-blue-400" 
+                          : "text-zinc-400 dark:text-zinc-500"
+                      }`}>
+                        {dayName}
+                      </span>
+                      <span className="text-sm font-bold mt-1">
+                        {dateLabel}
+                      </span>
+                      <span className={`text-[10px] mt-1.5 font-medium ${
+                        itemCount > 0
+                          ? (isSelected ? "text-blue-600 dark:text-blue-400" : "text-emerald-600 dark:text-emerald-400 font-semibold")
+                          : "text-zinc-400 dark:text-zinc-600"
+                      }`}>
+                        {subtext}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div data-testid="scenario-timeline" className="relative mt-8 max-h-[700px] overflow-y-auto pr-2" onScroll={handleScenarioScroll}>
+              {filteredTimelineItems.length > 0 ? (
+                <div className="timelineRail absolute left-[13px] top-3 h-[calc(100%-1.5rem)] w-px bg-zinc-200 dark:bg-zinc-800" />
+              ) : null}
               <div className="space-y-7">
-                {visibleScenarioTimelineItems.map((item, index) => (
+                {filteredTimelineItems.map((item, index) => (
                   <TimelineRow
                     key={item.id}
                     item={item}
@@ -474,21 +647,23 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                     onClick={item.scenario ? () => setSelectedScenario(item.scenario ?? null) : undefined}
                   />
                 ))}
-                {!scenarioTimelineItems.length ? (
-                  <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-                    {t("detail.noScenarios")}
+                {!filteredTimelineItems.length ? (
+                  <div className="rounded-xl border border-dashed border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+                    {locale === "ko" ? "선택한 날짜에 등록된 시나리오가 없습니다." : "No scenarios on the selected date."}
                   </div>
                 ) : null}
-                {visibleScenarioTimelineItems.length < scenarioTimelineItems.length ? (
-                  <button
-                    type="button"
-                    className="focus-ring w-full rounded-xl border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-600 transition hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-900"
-                    onClick={() => setVisibleScenarioCount((current) => Math.min(current + 20, scenarioTimelineItems.length))}
-                  >
-                    {t("detail.loadMoreScenarios")}
-                  </button>
-                ) : null}
               </div>
+            </div>
+
+            <div className="mt-6 border-t border-zinc-100 pt-4 flex justify-center dark:border-zinc-900">
+              <button
+                type="button"
+                className="focus-ring flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-zinc-500 hover:text-zinc-800 transition dark:text-zinc-400 dark:hover:text-zinc-200"
+                onClick={handleLoadMoreHistory}
+              >
+                <Clock size={14} />
+                {locale === "ko" ? "이전 거래 이력 더 불러오기" : "Load Older Trade History"}
+              </button>
             </div>
           </section>
 

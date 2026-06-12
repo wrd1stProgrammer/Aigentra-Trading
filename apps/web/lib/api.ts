@@ -880,3 +880,15 @@ export function getTraderTradeHistory(
     `/api/league/traders/${encodeURIComponent(traderId)}/trade-history?${params.toString()}`
   );
 }
+
+export function getTraderAiReviews(traderId: string, symbol: string, limit = 40) {
+  const params = new URLSearchParams({
+    trader_id: traderId,
+    symbol,
+    limit: String(limit)
+  });
+  return request<{ aiReviews: any[] }>(
+    `/api/ai/reviews?${params.toString()}`
+  );
+}
+

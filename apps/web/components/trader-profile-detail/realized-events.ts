@@ -51,6 +51,12 @@ function realizedTimelineItem(event: RealizedEventInput, index: number, locale: 
   const quantity = firstFiniteNumber(event.quantity, payload?.quantity);
   const pnl = firstFiniteNumber(event.realizedPnl, payload?.realizedPnl);
   const reason = firstString(event.reason, event.message, payload?.reason, payload?.message);
+  
+  const eventType = normalizeKey(event.eventType ?? event.type);
+  if (eventType.includes("POSITION_CLOSED") && !isAIReviewReason(reason)) {
+    return null;
+  }
+
   const side = sideLabel(event.side);
   const completedTitle = kind === "takeProfit" ? t("detail.takeProfitCompleted") : t("detail.stopLossCompleted");
   const movement = kind === "takeProfit" ? t("chart.takeProfit") : t("chart.stopLoss");
@@ -74,6 +80,18 @@ function realizedKind(event: RealizedEventInput) {
   const normalized = normalizeKey(event.eventType ?? event.type);
   if (normalized.includes("TAKE_PROFIT") || normalized.includes("PARTIAL_TAKE_PROFIT")) return "takeProfit";
   if (normalized.includes("STOP_LOSS") || normalized.includes("LIQUIDATION")) return "stopLoss";
+  
+  if (normalized.includes("POSITION_CLOSED")) {
+    const payload = recordValue(event.payload);
+    const reason = normalizeKey(payload?.reason);
+    if (reason.includes("TAKE_PROFIT") || reason.includes("PROFIT") || reason.includes("TP")) return "takeProfit";
+    if (reason.includes("STOP_LOSS") || reason.includes("LOSS") || reason.includes("SL") || reason.includes("FAILURE")) return "stopLoss";
+    
+    const pnl = firstFiniteNumber(event.realizedPnl, payload?.realizedPnl);
+    if (pnl !== null) {
+      return pnl >= 0 ? "takeProfit" : "stopLoss";
+    }
+  }
   return null;
 }
 
@@ -141,4 +159,26 @@ function timeValue(value: string | null | undefined) {
   if (!value) return Number.NEGATIVE_INFINITY;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? Number.NEGATIVE_INFINITY : date.getTime();
+}
+
+function isAIReviewReason(reason: string | null | undefined): boolean {
+  if (!reason) return false;
+  const trimmed = reason.trim();
+  if (!trimmed) return false;
+  
+  const lower = trimmed.toLowerCase().replace(/[-_\s]+/g, "");
+  if (
+    lower === "stoploss" ||
+    lower === "takeprofit" ||
+    lower === "liquidation" ||
+    lower === "closeposition" ||
+    lower === "close" ||
+    lower === "tp" ||
+    lower === "sl" ||
+    lower === "none" ||
+    lower === "null"
+  ) {
+    return false;
+  }
+  return true;
 }
