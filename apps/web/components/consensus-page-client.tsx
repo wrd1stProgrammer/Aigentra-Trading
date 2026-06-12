@@ -24,16 +24,6 @@ import { fallbackTraders } from "@/lib/traders";
 import { formatNumber } from "@/lib/format";
 import { type Locale } from "@/lib/i18n";
 
-const LiveCandleChart = dynamic(
-  () => import("@/components/live-candle-chart").then((module) => module.LiveCandleChart),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="h-[380px] w-full animate-pulse rounded-2xl bg-[#0c0d0d] border border-white/[0.08]" />
-    )
-  }
-);
-
 // Nationalities for traders
 const traderFlags: Record<string, string> = {
   "channel-rider": "🇰🇷",
@@ -487,38 +477,6 @@ export function ConsensusPageClient() {
         </div>
       </div>
 
-      {/* Live Candle Chart Widget */}
-      <div className="rounded-2xl border border-white/[0.08] bg-[#0c0d0d] p-6 shadow-xl relative overflow-hidden">
-        <div className="flex items-center justify-between border-b border-white/[0.06] pb-4 mb-6">
-          <div>
-            <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wider">
-              {locale === "ko" ? "실시간 비트코인 차트 및 포지션 타점" : "Live BTC Chart & Position Entries"}
-            </h2>
-            <p className="text-[11px] text-zinc-500 mt-0.5">
-              {t("consensus.activeTradersOnly")}
-            </p>
-          </div>
-          {currentPrice && (
-            <div className="text-right">
-              <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider block">
-                BTCUSDT
-              </span>
-              <span className="text-sm font-bold font-mono text-amber-400">
-                ${formatNumber(currentPrice, 0, locale)}
-              </span>
-            </div>
-          )}
-        </div>
-        
-        <LiveCandleChart
-          symbol="BTCUSDT"
-          result={null}
-          paperPositions={bundle.positions ?? []}
-          paperOrders={bundle.orders ?? []}
-          managementReviews={bundle.managementReviews ?? []}
-          height={380}
-        />
-      </div>
 
       {/* Top Ratio and Averages Panel */}
       <div className="grid gap-6 md:grid-cols-2">
