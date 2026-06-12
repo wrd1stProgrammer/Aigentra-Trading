@@ -2,6 +2,7 @@
 
 import React, { useMemo } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useQuery } from "@tanstack/react-query";
 import { CircleNotch } from "@phosphor-icons/react";
 import { useAppContext } from "@/components/app-provider";
@@ -22,6 +23,16 @@ import { buildScenarios, buildStandings, traderVisuals } from "@/lib/league";
 import { fallbackTraders } from "@/lib/traders";
 import { formatNumber } from "@/lib/format";
 import { type Locale } from "@/lib/i18n";
+
+const LiveCandleChart = dynamic(
+  () => import("@/components/live-candle-chart").then((module) => module.LiveCandleChart),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[380px] w-full animate-pulse rounded-2xl bg-[#0c0d0d] border border-white/[0.08]" />
+    )
+  }
+);
 
 // Nationalities for traders
 const traderFlags: Record<string, string> = {
@@ -476,15 +487,38 @@ export function ConsensusPageClient() {
         </div>
       </div>
 
-      {/* Average Entry Price Chart Widget */}
-      <AverageEntryPriceChart
-        currentPrice={currentPrice}
-        averages={averages}
-        activeLongTraders={activeLongTraders}
-        activeShortTraders={activeShortTraders}
-        locale={locale}
-        t={t}
-      />
+      {/* Live Candle Chart Widget */}
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c0d0d] p-6 shadow-xl relative overflow-hidden">
+        <div className="flex items-center justify-between border-b border-white/[0.06] pb-4 mb-6">
+          <div>
+            <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wider">
+              {locale === "ko" ? "실시간 비트코인 차트 및 포지션 타점" : "Live BTC Chart & Position Entries"}
+            </h2>
+            <p className="text-[11px] text-zinc-500 mt-0.5">
+              {t("consensus.activeTradersOnly")}
+            </p>
+          </div>
+          {currentPrice && (
+            <div className="text-right">
+              <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider block">
+                BTCUSDT
+              </span>
+              <span className="text-sm font-bold font-mono text-amber-400">
+                ${formatNumber(currentPrice, 0, locale)}
+              </span>
+            </div>
+          )}
+        </div>
+        
+        <LiveCandleChart
+          symbol="BTCUSDT"
+          result={null}
+          paperPositions={bundle.positions ?? []}
+          paperOrders={bundle.orders ?? []}
+          managementReviews={bundle.managementReviews ?? []}
+          height={380}
+        />
+      </div>
 
       {/* Top Ratio and Averages Panel */}
       <div className="grid gap-6 md:grid-cols-2">
@@ -826,269 +860,3 @@ function ActiveTraderRow({ trader, locale, t }: { trader: any; locale: Locale; t
   );
 }
 
-function AverageEntryPriceChart({
-  currentPrice,
-  averages,
-  activeLongTraders,
-  activeShortTraders,
-  locale,
-  t
-}: {
-  currentPrice: number | null;
-  averages: {
-    long: { entry: number | null; tp: number | null; sl: number | null };
-    short: { entry: number | null; tp: number | null; sl: number | null };
-  };
-  activeLongTraders: any[];
-  activeShortTraders: any[];
-  locale: Locale;
-  t: (key: string) => string;
-}) {
-  // Calculate price bounds
-  const prices = [
-    currentPrice,
-    averages.long.entry,
-    averages.short.entry,
-    ...activeLongTraders.map((t) => t.activeState.price),
-    ...activeShortTraders.map((t) => t.activeState.price),
-  ].filter((v): v is number => v !== null && v > 0);
-
-  if (prices.length === 0) {
-    return (
-      <div className="rounded-2xl border border-white/[0.08] bg-[#0c0d0d] p-6 text-center text-zinc-500 text-xs shadow-xl">
-        {t("consensus.noActivePositions")}
-      </div>
-    );
-  }
-
-  const rawMin = Math.min(...prices);
-  const rawMax = Math.max(...prices);
-  const diff = rawMax - rawMin;
-  const padding = diff > 0 ? diff * 0.08 : rawMin * 0.01;
-  const minPrice = rawMin - padding;
-  const maxPrice = rawMax + padding;
-
-  const getX = (price: number) => {
-    if (maxPrice === minPrice) return 50;
-    const pct = ((price - minPrice) / (maxPrice - minPrice)) * 90 + 5; // 5% to 95% margin
-    return Math.max(5, Math.min(95, pct));
-  };
-
-  const getInitials = (id: string) => {
-    return id
-      .split("-")
-      .map((w) => w[0]?.toUpperCase() ?? "")
-      .join("");
-  };
-
-  return (
-    <div className="rounded-2xl border border-white/[0.08] bg-[#0c0d0d] p-6 shadow-xl relative overflow-hidden">
-      <div className="flex items-center justify-between border-b border-white/[0.06] pb-4 mb-6">
-        <div>
-          <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wider">
-            {t("consensus.chartTitle")}
-          </h2>
-          <p className="text-[11px] text-zinc-500 mt-0.5">
-            {t("consensus.activeTradersOnly")}
-          </p>
-        </div>
-        {currentPrice && (
-          <div className="text-right">
-            <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider block">
-              BTCUSDT {t("consensus.currentPrice")}
-            </span>
-            <span className="text-sm font-bold font-mono text-amber-400">
-              ${formatNumber(currentPrice, 0, locale)}
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div className="relative w-full h-[130px] select-none">
-        <svg className="w-full h-full overflow-visible" viewBox="0 0 1000 130">
-          {/* Main Horizontal Axis */}
-          <line
-            x1="5%"
-            y1="65"
-            x2="95%"
-            y2="65"
-            stroke="rgba(255,255,255,0.08)"
-            strokeWidth="4"
-            strokeLinecap="round"
-          />
-
-          {/* Grid lines / ticks */}
-          <line x1="5%" y1="60" x2="5%" y2="70" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
-          <line x1="50%" y1="60" x2="50%" y2="70" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
-          <line x1="95%" y1="60" x2="95%" y2="70" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
-
-          {/* Axis Labels */}
-          <text x="5%" y="82" fill="rgba(255,255,255,0.3)" fontSize="9" textAnchor="middle" className="font-mono">
-            ${formatNumber(minPrice, 0, locale)}
-          </text>
-          <text x="50%" y="82" fill="rgba(255,255,255,0.3)" fontSize="9" textAnchor="middle" className="font-mono">
-            ${formatNumber((minPrice + maxPrice) / 2, 0, locale)}
-          </text>
-          <text x="95%" y="82" fill="rgba(255,255,255,0.3)" fontSize="9" textAnchor="middle" className="font-mono">
-            ${formatNumber(maxPrice, 0, locale)}
-          </text>
-
-          {/* Long Average Entry Line & Dot */}
-          {averages.long.entry && (
-            <>
-              <line
-                x1={`${getX(averages.long.entry)}%`}
-                y1="25"
-                x2={`${getX(averages.long.entry)}%`}
-                y2="65"
-                stroke="rgba(16,185,129,0.3)"
-                strokeWidth="1.5"
-              />
-              <circle
-                cx={`${getX(averages.long.entry)}%`}
-                cy="65"
-                r="7"
-                fill="#10b981"
-                stroke="#0c0d0d"
-                strokeWidth="2.5"
-              />
-              <text
-                x={`${getX(averages.long.entry)}%`}
-                y="20"
-                fill="#10b981"
-                fontSize="10"
-                fontWeight="bold"
-                textAnchor="middle"
-              >
-                {t("consensus.avgLong")}: ${formatNumber(averages.long.entry, 0, locale)}
-              </text>
-            </>
-          )}
-
-          {/* Short Average Entry Line & Dot */}
-          {averages.short.entry && (
-            <>
-              <line
-                x1={`${getX(averages.short.entry)}%`}
-                y1="65"
-                x2={`${getX(averages.short.entry)}%`}
-                y2="105"
-                stroke="rgba(244,63,94,0.3)"
-                strokeWidth="1.5"
-              />
-              <circle
-                cx={`${getX(averages.short.entry)}%`}
-                cy="65"
-                r="7"
-                fill="#f43f5e"
-                stroke="#0c0d0d"
-                strokeWidth="2.5"
-              />
-              <text
-                x={`${getX(averages.short.entry)}%`}
-                y="118"
-                fill="#f43f5e"
-                fontSize="10"
-                fontWeight="bold"
-                textAnchor="middle"
-              >
-                {t("consensus.avgShort")}: ${formatNumber(averages.short.entry, 0, locale)}
-              </text>
-            </>
-          )}
-
-          {/* Current Live Price Marker */}
-          {currentPrice && (
-            <>
-              <line
-                x1={`${getX(currentPrice)}%`}
-                y1="10"
-                x2={`${getX(currentPrice)}%`}
-                y2="120"
-                stroke="#f59e0b"
-                strokeWidth="1.5"
-                strokeDasharray="4 4"
-                opacity="0.85"
-              />
-              <circle cx={`${getX(currentPrice)}%`} cy="65" r="3" fill="#f59e0b" />
-            </>
-          )}
-
-          {/* Individual Long Traders */}
-          {activeLongTraders.map((trader) => {
-            const price = trader.activeState.price;
-            if (!price) return null;
-            const x = getX(price);
-            const initials = getInitials(trader.id);
-            return (
-              <g key={`long-${trader.id}`} className="group/dot cursor-pointer">
-                <line
-                  x1={`${x}%`}
-                  y1="45"
-                  x2={`${x}%`}
-                  y2="65"
-                  stroke="rgba(16,185,129,0.15)"
-                  strokeWidth="1"
-                />
-                <circle
-                  cx={`${x}%`}
-                  cy="45"
-                  r="4"
-                  fill="#10b981"
-                  opacity="0.8"
-                />
-                <text
-                  x={`${x}%`}
-                  y="34"
-                  fill="rgba(255,255,255,0.4)"
-                  fontSize="8"
-                  textAnchor="middle"
-                  className="font-mono"
-                >
-                  {initials} (${(price / 1000).toFixed(1)}k)
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Individual Short Traders */}
-          {activeShortTraders.map((trader) => {
-            const price = trader.activeState.price;
-            if (!price) return null;
-            const x = getX(price);
-            const initials = getInitials(trader.id);
-            return (
-              <g key={`short-${trader.id}`} className="group/dot cursor-pointer">
-                <line
-                  x1={`${x}%`}
-                  y1="65"
-                  x2={`${x}%`}
-                  y2="85"
-                  stroke="rgba(244,63,94,0.15)"
-                  strokeWidth="1"
-                />
-                <circle
-                  cx={`${x}%`}
-                  cy="85"
-                  r="4"
-                  fill="#f43f5e"
-                  opacity="0.8"
-                />
-                <text
-                  x={`${x}%`}
-                  y="96"
-                  fill="rgba(255,255,255,0.4)"
-                  fontSize="8"
-                  textAnchor="middle"
-                  className="font-mono"
-                >
-                  {initials} (${(price / 1000).toFixed(1)}k)
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-    </div>
-  );
-}
