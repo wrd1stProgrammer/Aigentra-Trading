@@ -96,8 +96,8 @@ export function traderStatusSummary(summary: StatusLike | null | undefined, t: T
 
 export function statusTone(value: unknown): "good" | "bad" | "warn" | "neutral" {
   const normalized = normalizeStatus(value);
-  if (["OPEN_POSITION", "COMPLETED", "APPROVE", "APPROVED", "MOVE_STOP_TO_BREAKEVEN", "HOLD", "OK"].includes(normalized)) return "good";
-  if (["REVIEW", "REVIEWED"].includes(normalized)) return "neutral";
+  if (["OPEN_POSITION", "APPROVE", "APPROVED", "MOVE_STOP_TO_BREAKEVEN", "HOLD", "OK"].includes(normalized)) return "good";
+  if (["REVIEW", "REVIEWED", "COMPLETED"].includes(normalized)) return "neutral";
   if (["PAPER_TRADING_PENDING", "PENDING_ORDER", "PENDING", "MANAGING", "ACTIVE_PAPER_EXPOSURE", "DEFENSIVE", "MOVE_STOP", "NEAR_STOP_RISK_REDUCTION", "REDUCE_SIZE", "REDUCE_RISK", "RISK_MANAGEMENT", "PARTIAL_TAKE_PROFIT", "TAKE_PARTIAL_PROFIT", "WAITING", "WATCHLIST"].includes(normalized)) return "warn";
   if (["REJECTED", "CANCEL_ORDER", "CANCEL_PENDING_ORDER", "CANCEL_REMAINING_ORDERS", "CLOSE_POSITION", "ERROR"].includes(normalized)) return "bad";
   return "neutral";

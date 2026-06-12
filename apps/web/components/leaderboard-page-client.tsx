@@ -874,7 +874,7 @@ function traderProgress(trader: TraderStanding, exposure: TraderExposure | undef
     return {
       label: t("leaderboard.status.reviewed"),
       detail: getElapsedTimeString(summary?.updatedAt),
-      tone: "good"
+      tone: "neutral"
     };
   }
   if (phase === "PENDING_ORDER") {
