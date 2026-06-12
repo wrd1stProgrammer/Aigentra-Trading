@@ -39,6 +39,7 @@ import { traderVisuals } from "@/lib/league";
 import { CaretLeft, CaretRight, Clock } from "@phosphor-icons/react";
 
 function toDateString(date: Date): string {
+  if (Number.isNaN(date.getTime())) return "";
   const y = date.getUTCFullYear();
   const m = String(date.getUTCMonth() + 1).padStart(2, "0");
   const d = String(date.getUTCDate()).padStart(2, "0");
@@ -47,6 +48,7 @@ function toDateString(date: Date): string {
 
 function getSunday(date: Date): Date {
   const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return getSunday(new Date());
   const day = d.getUTCDay();
   d.setUTCDate(d.getUTCDate() - day);
   return d;
@@ -391,8 +393,14 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       if (scenarioTimelineItems.length > 0) {
         const latestItem = scenarioTimelineItems[0];
         const latestDate = new Date(latestItem.sortMs ?? 0);
-        setSelectedDate(toDateString(latestDate));
-        setWeekStart(getSunday(latestDate));
+        if (!Number.isNaN(latestDate.getTime()) && latestItem.sortMs !== Number.NEGATIVE_INFINITY) {
+          setSelectedDate(toDateString(latestDate));
+          setWeekStart(getSunday(latestDate));
+        } else {
+          const today = new Date();
+          setSelectedDate(toDateString(today));
+          setWeekStart(getSunday(today));
+        }
       } else {
         const today = new Date();
         setSelectedDate(toDateString(today));
