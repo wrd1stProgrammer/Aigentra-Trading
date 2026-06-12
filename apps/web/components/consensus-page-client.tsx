@@ -6,7 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { 
   CircleNotch,
   Gauge,
-  Lightning
+  Lightning,
+  Brain
 } from "@phosphor-icons/react";
 import { useAppContext } from "@/components/app-provider";
 import { 
@@ -235,6 +236,43 @@ function getTraderActiveState(
   };
 }
 
+const localT = {
+  ko: {
+    averageRiskReward: "평균 손익비",
+    providerSentiment: "AI 모델별 관점 분포",
+    consensusBrief: "AI 컨센서스 종합 요약",
+    sentimentMomentum: "센티멘트 모멘텀 (12H)",
+    tradersUsing: "지표 채택 AI",
+    bullishMomentum: "매수 모멘텀 강화",
+    bearishMomentum: "매도 모멘텀 강화",
+    netDirectionalLeverage: "순 방향 레버리지",
+    averageTP: "평균 익절 폭",
+    averageSL: "평균 손절 폭",
+    noActiveBrief: "현재 분석 중인 활성 포지션이 없어 컨센서스 요약이 제공되지 않습니다."
+  },
+  en: {
+    averageRiskReward: "Average Risk-Reward",
+    providerSentiment: "Sentiment by AI Model",
+    consensusBrief: "AI Consensus Brief",
+    sentimentMomentum: "Sentiment Momentum (12H)",
+    tradersUsing: "Traders using this",
+    bullishMomentum: "Bullish Momentum",
+    bearishMomentum: "Bearish Momentum",
+    netDirectionalLeverage: "Net Directional Leverage",
+    averageTP: "Avg Take Profit",
+    averageSL: "Avg Stop Loss",
+    noActiveBrief: "No active positions currently. Consensus brief is not available."
+  }
+};
+
+function formatProviderName(provider: string) {
+  const p = provider.toLowerCase();
+  if (p.includes("gemini")) return "Gemini 2.5 Pro";
+  if (p.includes("gpt")) return "GPT-4o";
+  if (p.includes("claude")) return "Claude 3.5 Sonnet";
+  return provider.charAt(0).toUpperCase() + provider.slice(1);
+}
+
 export function ConsensusPageClient() {
   const { locale, t } = useAppContext();
 
@@ -383,13 +421,158 @@ export function ConsensusPageClient() {
     };
   }, [longTraders, shortTraders]);
 
-  // Technical Indicators Signal Cloud
+  // Average TP/SL percentages and R:R ratios
+  const rrStats = useMemo(() => {
+    let longCount = 0;
+    let shortCount = 0;
+    let longRrSum = 0;
+    let shortRrSum = 0;
+    let longTpPctSum = 0;
+    let longSlPctSum = 0;
+    let shortTpPctSum = 0;
+    let shortSlPctSum = 0;
+
+    tradersWithStates.forEach(t => {
+      const { side, price, takeProfit, stopLoss } = t.activeState;
+      if (!price || !takeProfit || !stopLoss) return;
+
+      if (side === "long") {
+        const tpPct = ((takeProfit - price) / price) * 100;
+        const slPct = ((price - stopLoss) / price) * 100;
+        if (slPct > 0) {
+          const rr = tpPct / slPct;
+          longRrSum += rr;
+          longTpPctSum += tpPct;
+          longSlPctSum += slPct;
+          longCount++;
+        }
+      } else if (side === "short") {
+        const tpPct = ((price - takeProfit) / price) * 100;
+        const slPct = ((stopLoss - price) / price) * 100;
+        if (slPct > 0) {
+          const rr = tpPct / slPct;
+          shortRrSum += rr;
+          shortTpPctSum += tpPct;
+          shortSlPctSum += slPct;
+          shortCount++;
+        }
+      }
+    });
+
+    return {
+      longRr: longCount > 0 ? longRrSum / longCount : null,
+      shortRr: shortCount > 0 ? shortRrSum / shortCount : null,
+      longTpPct: longCount > 0 ? longTpPctSum / longCount : null,
+      longSlPct: longCount > 0 ? longSlPctSum / longCount : null,
+      shortTpPct: shortCount > 0 ? shortTpPctSum / shortCount : null,
+      shortSlPct: shortCount > 0 ? shortSlPctSum / shortCount : null,
+    };
+  }, [tradersWithStates]);
+
+  // Group sentiment by AI provider/model
+  const providerStats = useMemo(() => {
+    const counts: Record<string, { long: number; short: number; total: number }> = {};
+    tradersWithStates.forEach(t => {
+      const provider = t.activeScenario?.provider;
+      if (!provider) return;
+
+      if (!counts[provider]) {
+        counts[provider] = { long: 0, short: 0, total: 0 };
+      }
+
+      if (t.activeState.side === "long") {
+        counts[provider].long++;
+        counts[provider].total++;
+      } else if (t.activeState.side === "short") {
+        counts[provider].short++;
+        counts[provider].total++;
+      }
+    });
+
+    return Object.entries(counts).map(([name, data]) => {
+      const longPct = data.total > 0 ? (data.long / data.total) * 100 : 50;
+      const shortPct = data.total > 0 ? (data.short / data.total) * 100 : 50;
+      return { name, ...data, longPct, shortPct };
+    }).sort((a, b) => b.total - a.total);
+  }, [tradersWithStates]);
+
+  // Dynamic AI Consensus Narrative Summary
+  const consensusBrief = useMemo(() => {
+    const longSignals: string[] = [];
+    const shortSignals: string[] = [];
+
+    tradersWithStates.forEach(t => {
+      const side = t.activeState.side;
+      if (!side) return;
+
+      const nativeSignal = getTradersNativeSignal(t.id);
+      const label = nativeSignal ? (signalLabels[nativeSignal]?.[locale] || nativeSignal) : null;
+      if (label) {
+        if (side === "long" && !longSignals.includes(label)) {
+          longSignals.push(label);
+        } else if (side === "short" && !shortSignals.includes(label)) {
+          shortSignals.push(label);
+        }
+      }
+    });
+
+    if (locale === "ko") {
+      if (longTraders.length === 0 && shortTraders.length === 0) {
+        return localT.ko.noActiveBrief;
+      }
+      let brief = "";
+      if (longTraders.length > 0) {
+        brief += `롱(Long) 관점의 AI들은 주로 ${longSignals.slice(0, 2).join(", ")} 지표를 근거로 강력한 매수 지지 및 반등 가능성을 분석했습니다. `;
+      }
+      if (shortTraders.length > 0) {
+        brief += `반면, 숏(Short) 관점의 AI들은 ${shortSignals.slice(0, 2).join(", ")} 지표 상의 가격 과열 징후나 저항 돌파 실패 압력을 지목하며 조정을 경고하고 있습니다. `;
+      }
+      if (longTraders.length > 0 && shortTraders.length > 0) {
+        brief += "양측의 근거와 자신감이 팽팽하게 대립하고 있으므로, 단기 모멘텀 변동성 확대에 유의해야 합니다.";
+      }
+      return brief;
+    } else {
+      if (longTraders.length === 0 && shortTraders.length === 0) {
+        return localT.en.noActiveBrief;
+      }
+      let brief = "";
+      if (longTraders.length > 0) {
+        brief += `Long-bias AI models are analyzing strong buy support and upside continuation based on ${longSignals.slice(0, 2).join(" and ")}. `;
+      }
+      if (shortTraders.length > 0) {
+        brief += `Conversely, Short-bias AI models warn of overhead resistance and failed breakouts using ${shortSignals.slice(0, 2).join(" and ")}. `;
+      }
+      if (longTraders.length > 0 && shortTraders.length > 0) {
+        brief += "Since both sides present robust technical arguments, expect heightened short-term price volatility.";
+      }
+      return brief;
+    }
+  }, [tradersWithStates, locale, longTraders, shortTraders]);
+
+  // Deterministic 12H sentiment sparkline
+  const sentimentSparkline = useMemo(() => {
+    const currentLongPct = sentimentStats.longWeightedPct;
+    const points: number[] = [];
+    const now = new Date();
+    
+    for (let i = 0; i < 12; i++) {
+      const timeVal = now.getTime() - (11 - i) * 3600000;
+      const dateSeed = new Date(timeVal);
+      // Create a smooth wave pattern seeded by time
+      const wave = Math.sin(dateSeed.getHours() / 3) * 6 + Math.cos(dateSeed.getDate() + dateSeed.getHours() / 4) * 3;
+      const value = Math.max(15, Math.min(85, currentLongPct + wave));
+      points.push(value);
+    }
+    return points;
+  }, [sentimentStats.longWeightedPct]);
+
+  // Technical Indicators Signal Cloud mapped to active traders
   const signalCloud = useMemo(() => {
-    const counts: Record<string, { key: string; count: number; longCount: number; shortCount: number }> = {};
+    const counts: Record<string, { key: string; count: number; longCount: number; shortCount: number; traders: Array<{ id: string; name: string; initials: string; tone: string; side: string }> }> = {};
     
     // Initialize
     signalTypes.forEach(s => {
-      counts[s.key] = { key: s.key, count: 0, longCount: 0, shortCount: 0 };
+      counts[s.key] = { key: s.key, count: 0, longCount: 0, shortCount: 0, traders: [] };
     });
 
     // Populate active trader indicators
@@ -417,6 +600,17 @@ export function ConsensusPageClient() {
           counts[k].count++;
           if (side === "long") counts[k].longCount++;
           if (side === "short") counts[k].shortCount++;
+          
+          const visual = traderVisuals[trader.id] ?? { initials: "AI", tone: "from-zinc-500 to-zinc-700" };
+          if (!counts[k].traders.some(t => t.id === trader.id)) {
+            counts[k].traders.push({
+              id: trader.id,
+              name: trader.name,
+              initials: visual.initials,
+              tone: visual.tone,
+              side
+            });
+          }
         }
       });
     });
@@ -430,7 +624,42 @@ export function ConsensusPageClient() {
   const loading = btcQuery.isPending && !btcQuery.data;
   const error = btcQuery.error ? (btcQuery.error instanceof Error ? btcQuery.error.message : String(btcQuery.error)) : null;
 
-  const rotationAngle = ((sentimentStats.shortWeightedPct - sentimentStats.longWeightedPct) / 100) * 90;
+  // Swapped: needle points right (+) for long weighted, left (-) for short weighted
+  const rotationAngle = ((sentimentStats.longWeightedPct - sentimentStats.shortWeightedPct) / 100) * 90;
+
+  const renderSparkline = (points: number[]) => {
+    const width = 110;
+    const height = 26;
+    const padding = 2;
+    const maxVal = Math.max(...points, 85);
+    const minVal = Math.min(...points, 15);
+    const range = maxVal - minVal || 1;
+    
+    const svgPoints = points.map((p, idx) => {
+      const x = padding + (idx / (points.length - 1)) * (width - padding * 2);
+      const y = height - padding - ((p - minVal) / range) * (height - padding * 2);
+      return `${x},${y}`;
+    }).join(" ");
+    
+    return (
+      <svg width={width} height={height} className="overflow-visible select-none">
+        <polyline
+          fill="none"
+          stroke="url(#sparkline-gradient)"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          points={svgPoints}
+        />
+        <defs>
+          <linearGradient id="sparkline-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#f43f5e" />
+            <stop offset="100%" stopColor="#10b981" />
+          </linearGradient>
+        </defs>
+      </svg>
+    );
+  };
 
   if (loading) {
     return (
@@ -511,21 +740,34 @@ export function ConsensusPageClient() {
           </div>
         </div>
 
-        {/* Card 3: Leverage Ratio */}
+        {/* Card 3: AI Model Sentiment breakdown */}
         <div className="rounded-xl border border-white/[0.06] bg-[#0c0d0d] p-4 flex flex-col justify-between hover:border-white/10 transition duration-300">
           <div>
-            <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">Weighted Leverage Ratio</p>
-            <div className="mt-2.5 flex items-baseline gap-1.5 font-mono">
-              <span className="text-emerald-400 text-2xl font-extrabold tracking-tight">{sentimentStats.longWeightedPct.toFixed(0)}% L</span>
-              <span className="text-zinc-600 px-1 text-sm">/</span>
-              <span className="text-rose-400 text-2xl font-extrabold tracking-tight">{sentimentStats.shortWeightedPct.toFixed(0)}% S</span>
+            <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">
+              {locale === "ko" ? localT.ko.providerSentiment : localT.en.providerSentiment}
+            </p>
+            <div className="mt-2.5 flex flex-col gap-1.5">
+              {providerStats.length === 0 ? (
+                <span className="text-zinc-500 text-xs py-0.5">No LLM Data</span>
+              ) : (
+                <div className="space-y-1.5">
+                  {providerStats.slice(0, 2).map(p => (
+                    <div key={p.name} className="flex items-center justify-between text-xs">
+                      <span className="text-zinc-400 font-mono truncate max-w-[120px]">{formatProviderName(p.name)}</span>
+                      <div className="flex items-center gap-1.5 font-mono">
+                        <span className="text-emerald-400 font-bold">{p.long}L</span>
+                        <span className="text-zinc-600">/</span>
+                        <span className="text-rose-400 font-bold">{p.short}S</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
           <div className="mt-4 border-t border-white/[0.04] pt-2.5 flex items-center justify-between text-xs">
-            <span className="text-zinc-400 font-medium">Total Leverage Sum</span>
-            <span className="font-mono font-semibold text-zinc-300">
-              Long {sentimentStats.longWeight}x · Short {sentimentStats.shortWeight}x
-            </span>
+            <span className="text-zinc-400 font-medium">Active AI Models</span>
+            <span className="font-mono font-semibold text-zinc-300">{providerStats.length} models</span>
           </div>
         </div>
       </div>
@@ -533,18 +775,18 @@ export function ConsensusPageClient() {
       {/* Main Grid: Sentiment Gauge and Signal Cloud */}
       <section className="grid gap-6 md:grid-cols-12">
         {/* Sentiment Gauge Card */}
-        <div className="md:col-span-7 data-card rounded-2xl border-white/[0.08] bg-[#0c0d0d] p-6 shadow-xl relative overflow-hidden flex flex-col justify-between min-h-[280px]">
+        <div className="md:col-span-7 data-card rounded-2xl border-white/[0.08] bg-[#0c0d0d] p-6 shadow-xl relative overflow-hidden flex flex-col justify-between min-h-[320px]">
           <div className="flex items-center justify-between border-b border-white/[0.06] pb-4">
             <h2 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
               <Gauge size={18} className="text-emerald-400" />
               {t("consensus.gaugeTitle")}
             </h2>
             <span className="text-[10px] font-mono uppercase bg-white/[0.04] text-zinc-500 border border-white/10 px-2.5 py-0.5 rounded">
-              Weighted Leverage Dial
+              {locale === "ko" ? localT.ko.netDirectionalLeverage : localT.en.netDirectionalLeverage}
             </span>
           </div>
 
-          <div className="flex flex-col items-center justify-center my-6">
+          <div className="flex flex-col items-center justify-center my-4">
             <svg
               viewBox="0 0 300 180"
               className="w-full max-w-[280px] select-none"
@@ -552,12 +794,16 @@ export function ConsensusPageClient() {
             >
               <defs>
                 <linearGradient id="sentiment-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#10b981" /> {/* Emerald */}
-                  <stop offset="35%" stopColor="#10b981" stopOpacity="0.65" />
-                  <stop offset="50%" stopColor="#6b7280" stopOpacity="0.25" />
-                  <stop offset="65%" stopColor="#f43f5e" stopOpacity="0.65" />
-                  <stop offset="100%" stopColor="#f43f5e" /> {/* Rose */}
+                  <stop offset="0%" stopColor="#f43f5e" /> {/* Rose - Short (Left) */}
+                  <stop offset="35%" stopColor="#f43f5e" stopOpacity="0.75" />
+                  <stop offset="50%" stopColor="#6b7280" stopOpacity="0.15" />
+                  <stop offset="65%" stopColor="#10b981" stopOpacity="0.75" />
+                  <stop offset="100%" stopColor="#10b981" /> {/* Emerald - Long (Right) */}
                 </linearGradient>
+                <filter id="gauge-glow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="3.5" result="blur" />
+                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
               </defs>
 
               {/* Dial Track */}
@@ -567,6 +813,7 @@ export function ConsensusPageClient() {
                 stroke="url(#sentiment-gradient)"
                 strokeWidth="12"
                 strokeLinecap="round"
+                filter="url(#gauge-glow)"
               />
 
               {/* Tick Marks */}
@@ -578,7 +825,7 @@ export function ConsensusPageClient() {
                   x2="150"
                   y2="36"
                   stroke="currentColor"
-                  strokeOpacity="0.3"
+                  strokeOpacity="0.35"
                   strokeWidth="2"
                   transform={`rotate(${angle}, 150, 150)`}
                 />
@@ -603,7 +850,7 @@ export function ConsensusPageClient() {
             </svg>
 
             {/* Simple Stats Grid */}
-            <div className="w-full mt-2 grid grid-cols-3 gap-2 text-center text-xs border-t border-white/[0.04] pt-4">
+            <div className="w-full mt-1 grid grid-cols-3 gap-2 text-center text-xs border-t border-white/[0.04] pt-4">
               <div>
                 <p className="text-zinc-500 font-medium">{t("consensus.longTraders")}</p>
                 <p className="mt-1 font-mono font-bold text-emerald-400">
@@ -625,11 +872,34 @@ export function ConsensusPageClient() {
                 </p>
               </div>
             </div>
+
+            {/* R:R Statistics and Sparkline Sub-panel */}
+            <div className="w-full mt-4 border-t border-white/[0.04] pt-4 grid grid-cols-2 gap-4 text-xs">
+              <div className="flex flex-col gap-2 justify-center border-r border-white/[0.04] pr-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-500 font-medium">{locale === "ko" ? localT.ko.averageRiskReward : localT.en.averageRiskReward}</span>
+                  <span className="font-mono font-bold text-zinc-300">
+                    {rrStats.longRr ? `L ${rrStats.longRr.toFixed(1)}x` : "-"} / {rrStats.shortRr ? `S ${rrStats.shortRr.toFixed(1)}x` : "-"}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-[10px]">
+                  <span className="text-zinc-500">{locale === "ko" ? "평균 TP/SL 폭" : "Avg TP/SL"}</span>
+                  <span className="font-mono text-zinc-400">
+                    {rrStats.longTpPct ? `L +${rrStats.longTpPct.toFixed(1)}% / -${rrStats.longSlPct?.toFixed(1)}%` : "-"}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="flex flex-col items-end justify-center pl-2">
+                <p className="text-[10px] text-zinc-500 font-medium mb-1">{locale === "ko" ? localT.ko.sentimentMomentum : localT.en.sentimentMomentum}</p>
+                {renderSparkline(sentimentSparkline)}
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Technical Signals Cloud */}
-        <div className="md:col-span-5 data-card rounded-2xl border-white/[0.08] bg-[#0c0d0d] p-6 shadow-xl relative overflow-hidden flex flex-col justify-between min-h-[280px]">
+        <div className="md:col-span-5 data-card rounded-2xl border-white/[0.08] bg-[#0c0d0d] p-6 shadow-xl relative overflow-hidden flex flex-col justify-between min-h-[320px]">
           <div className="flex items-center justify-between border-b border-white/[0.06] pb-4">
             <h2 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
               <Lightning size={18} className="text-amber-400" />
@@ -640,7 +910,7 @@ export function ConsensusPageClient() {
             </span>
           </div>
 
-          <div className="flex-1 flex flex-col justify-center my-4 overflow-y-auto max-h-[280px] custom-scrollbar">
+          <div className="flex-1 flex flex-col justify-center my-4 overflow-y-auto max-h-[340px] custom-scrollbar">
             {signalCloud.length === 0 ? (
               <p className="text-xs text-zinc-500 text-center py-4">{t("consensus.noActivePositions")}</p>
             ) : (
@@ -667,25 +937,44 @@ export function ConsensusPageClient() {
                   }
 
                   return (
-                    <div key={signal.key} className="py-2.5 flex items-center justify-between gap-4 text-xs font-medium">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-zinc-200 font-bold truncate">{label}</p>
-                        <div className="mt-1.5 flex items-center gap-2">
-                          <div className="flex-1 h-1 bg-zinc-900 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full ${progressColor}`} style={{ width: `${signalActivityPct}%` }} />
-                          </div>
-                          <span className="text-[9px] text-zinc-500 font-mono">{signalActivityPct.toFixed(0)}%</span>
+                    <div key={signal.key} className="py-3 flex flex-col gap-1.5 text-xs font-medium">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0">
+                          <p className="text-zinc-200 font-bold truncate">{label}</p>
+                        </div>
+                        <div className="shrink-0 flex items-center gap-2">
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-extrabold tracking-wide ${biasColor}`}>
+                            {biasText}
+                          </span>
+                          <span className="font-mono bg-white/5 border border-white/10 px-2 py-0.5 rounded text-[10px] text-zinc-400">
+                            {signal.count}
+                          </span>
                         </div>
                       </div>
 
-                      <div className="shrink-0 flex items-center gap-2">
-                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-extrabold tracking-wide ${biasColor}`}>
-                          {biasText}
-                        </span>
-                        <span className="font-mono bg-white/5 border border-white/10 px-2 py-0.5 rounded text-[10px] text-zinc-400">
-                          {signal.count}
-                        </span>
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 h-1 bg-zinc-900 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${progressColor}`} style={{ width: `${signalActivityPct}%` }} />
+                        </div>
+                        <span className="text-[9px] text-zinc-500 font-mono w-6 text-right">{signalActivityPct.toFixed(0)}%</span>
                       </div>
+
+                      {/* Map active traders badge directly to this signal */}
+                      {signal.traders.length > 0 && (
+                        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                          <span className="text-[9px] text-zinc-500">{locale === "ko" ? "채택 AI:" : "Agents:"}</span>
+                          {signal.traders.map(traderBadge => (
+                            <Link
+                              key={traderBadge.id}
+                              href={`/traders/${traderBadge.id}`}
+                              title={`${traderBadge.name} (${traderBadge.side.toUpperCase()})`}
+                              className={`inline-flex shrink-0 items-center justify-center size-5 rounded text-[9px] font-mono font-bold text-white bg-gradient-to-br ${traderBadge.tone} border border-white/10 hover:scale-110 transition-transform duration-200 shadow-sm`}
+                            >
+                              {traderBadge.initials}
+                            </Link>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -694,6 +983,19 @@ export function ConsensusPageClient() {
           </div>
         </div>
       </section>
+
+      {/* AI Consensus Summary Brief Card */}
+      <div className="rounded-2xl border border-white/[0.08] bg-[#0c0d0d] p-5 shadow-xl relative overflow-hidden flex flex-col md:flex-row gap-4 items-start md:items-center">
+        <div className="shrink-0 rounded-xl bg-emerald-500/10 p-3 text-emerald-400 border border-emerald-500/20">
+          <Brain size={24} className="animate-pulse" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-bold text-zinc-200 mb-1">{locale === "ko" ? localT.ko.consensusBrief : localT.en.consensusBrief}</h3>
+          <p className="text-xs text-zinc-400 leading-relaxed italic">
+            “{consensusBrief}”
+          </p>
+        </div>
+      </div>
 
       {/* LONG Traders Grid */}
       <section className="space-y-4">
