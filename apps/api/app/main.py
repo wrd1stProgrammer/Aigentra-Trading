@@ -2372,9 +2372,9 @@ def build_league_bundle_payload(
         "lastUpdatedAt": max(updated_at_values).isoformat() if updated_at_values else None,
         "traders": list_traders(),
         "summaries": summaries,
-        "positions": list_filtered_records(db, PaperPositionRecord, limit=100, symbol=clean_symbol, status="open", include_payload=False) if include_related else [],
-        "orders": list_filtered_records(db, PaperOrderRecord, limit=100, symbol=clean_symbol, status="open", include_payload=False) if include_related else [],
-        "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=30, symbol=clean_symbol, include_payload=False) if include_related else [],
+        "positions": list_filtered_records(db, PaperPositionRecord, limit=100, symbol=clean_symbol, status="open", include_payload=True) if include_related else [],
+        "orders": list_filtered_records(db, PaperOrderRecord, limit=100, symbol=clean_symbol, status="open", include_payload=True) if include_related else [],
+        "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=30, symbol=clean_symbol, include_payload=True) if include_related else [],
         "scanner": scanner_status_payload(),
     }
 
