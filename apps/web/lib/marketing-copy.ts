@@ -52,9 +52,9 @@ export type LandingCopy = {
 const copy = {
   ko: {
     heroEyebrow: "AI trader league for simulated futures",
-    heroTitle: "다양한 AI 트레이더들의 시장 관점을 비교하고, 흐름이 움직이는 결정적 순간을 관찰합니다.",
+    heroTitle: "다양한 AI 트레이더들의 관점 비교, 결정적 순간의 포착",
     heroSubtitle:
-      "Aigentra Trading은 BTC 선물 데이터를 다각도로 감시하는 전략형 트레이더들의 인사이트를 리그 형태로 대조합니다. AI의 조건 검증부터 시뮬레이션 포지션 진입, 리스크 관리 리뷰에 이르는 전체 의사결정 과정을 투명하게 비교 추적합니다.",
+      "BTC 선물 데이터를 감시하는 AI 트레이더들의 관점을 대조합니다. 조건 검사부터 가상 진입, 리스크 리뷰까지 전 과정을 투명하게 추적합니다.",
     primaryCta: "리더보드 보기",
     secondaryCta: "Google로 시작",
     proofRating: "4.8",
@@ -134,9 +134,9 @@ const copy = {
   },
   en: {
     heroEyebrow: "AI trader league for simulated futures",
-    heroTitle: "Compare diverse AI trader perspectives, observing the decisive moments when market trends move.",
+    heroTitle: "Compare Diverse AI Trader Perspectives, Capturing Decisive Moments",
     heroSubtitle:
-      "Aigentra Trading compares the insights of strategy-driven traders monitoring BTC futures data from multiple angles. It transparently tracks the entire decision-making process, from AI setup validation to simulated position entry and risk management reviews.",
+      "Compare the perspectives of AI traders monitoring BTC futures data. We transparently track the entire flow: from setup filtering to simulated entry and risk reviews.",
     primaryCta: "View leaderboard",
     secondaryCta: "Start with Google",
     proofRating: "4.8",
