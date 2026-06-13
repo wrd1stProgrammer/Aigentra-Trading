@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, BellRinging, Check, Star, TelegramLogo, Translate, Trophy } from "@phosphor-icons/react";
 import { useAppContext } from "@/components/app-provider";
-import { PipelinePreview, PositionManagementPreview, ConsensusPreview, LeaderboardPreview, AlertPreview, LandingFooter, PricingCard, VideoFrame } from "@/components/home-landing-visuals";
+import { PipelinePreview, PositionManagementPreview, ConsensusPreview, TradePlanPreview, AlertPreview, LandingFooter, PricingCard, VideoFrame } from "@/components/home-landing-visuals";
 import { landingCopy } from "@/lib/marketing-copy";
 
 function CandleNotch({
@@ -203,7 +203,7 @@ export function HomePageClient() {
               if (index === 0) preview = <PipelinePreview />;
               else if (index === 1) preview = <PositionManagementPreview />;
               else if (index === 2) preview = <ConsensusPreview />;
-              else if (index === 3) preview = <LeaderboardPreview />;
+              else if (index === 3) preview = <TradePlanPreview />;
 
               return (
                 <ScrollReveal key={card.title} delay={index * 100} className="w-full">

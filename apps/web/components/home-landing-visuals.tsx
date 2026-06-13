@@ -246,60 +246,50 @@ export function ConsensusPreview() {
   );
 }
 
-export function LeaderboardPreview() {
+export function TradePlanPreview() {
   return (
     <div className="flex h-full w-full flex-col justify-center gap-3 py-1">
-      {/* Mini Leaderboard Table */}
-      <div className="rounded-xl border border-white/10 bg-[#111413] overflow-hidden text-left shadow-md">
-        <div className="bg-white/[0.03] px-3.5 py-1.5 border-b border-white/[0.06] flex items-center justify-between">
-          <span className="font-mono text-[9px] text-zinc-400 font-bold">Simulated Leaderboard</span>
-          <span className="text-[8px] text-zinc-500 font-mono flex items-center gap-1">
-            <span className="size-1 bg-emerald-500 rounded-full animate-pulse" /> Live OKX Feed
+      {/* Trade Plan Box */}
+      <div className="rounded-xl border border-white/10 bg-[#111413] p-4 text-left shadow-md">
+        <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5">
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-xs font-bold text-white">BTCUSDT Trade Plan</h4>
+              <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
+            </div>
+            <p className="font-mono text-[9px] text-zinc-500">Strategy: Pullback Architect</p>
+          </div>
+          <span className="rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 font-mono text-[9px] font-bold text-amber-300">
+            PENDING
           </span>
         </div>
-        <div className="divide-y divide-white/[0.06]">
-          {/* Row 1 */}
-          <div className="px-3.5 py-2 flex items-center justify-between font-mono text-[10px]">
-            <div className="flex items-center gap-2">
-              <span className="text-amber-400 font-bold">1st</span>
-              <span className="text-zinc-200 font-semibold">Pullback Architect</span>
-            </div>
-            <div className="flex items-center gap-3.5">
-              <span className="text-emerald-400 font-bold">ROI +42.8%</span>
-              <span className="text-zinc-500 text-[9px]">Win: 78%</span>
-            </div>
+
+        {/* Expected Scenario details */}
+        <div className="mt-3 font-mono text-[10px] text-zinc-400 space-y-1.5">
+          <div className="flex justify-between border-b border-white/[0.02] pb-1.5">
+            <span className="text-zinc-500">Expected Scenario:</span>
+            <span className="text-zinc-200">Rebound from EMA 200</span>
           </div>
-          {/* Row 2 */}
-          <div className="px-3.5 py-2 flex items-center justify-between font-mono text-[10px]">
-            <div className="flex items-center gap-2">
-              <span className="text-zinc-400 font-bold">2nd</span>
-              <span className="text-zinc-200 font-semibold">Channel Rider</span>
+          <div className="grid grid-cols-3 gap-2 text-center pt-1">
+            <div className="rounded bg-white/[0.02] p-1.5 border border-white/[0.04]">
+              <span className="text-zinc-500 text-[8px] block">Entry Limit</span>
+              <span className="text-zinc-200 font-semibold text-[10px]">67,200</span>
             </div>
-            <div className="flex items-center gap-3.5">
-              <span className="text-emerald-400 font-bold">ROI +28.5%</span>
-              <span className="text-zinc-500 text-[9px]">Win: 65%</span>
+            <div className="rounded bg-rose-950/10 p-1.5 border border-rose-500/10">
+              <span className="text-rose-400 text-[8px] block">Stop Loss (SL)</span>
+              <span className="text-rose-300 font-semibold text-[10px]">65,800</span>
             </div>
-          </div>
-          {/* Row 3 */}
-          <div className="px-3.5 py-2 flex items-center justify-between font-mono text-[10px]">
-            <div className="flex items-center gap-2">
-              <span className="text-amber-600 font-bold">3rd</span>
-              <span className="text-zinc-200 font-semibold">Funding Contrarian</span>
-            </div>
-            <div className="flex items-center gap-3.5">
-              <span className="text-emerald-400 font-bold">ROI +18.4%</span>
-              <span className="text-zinc-500 text-[9px]">Win: 72%</span>
+            <div className="rounded bg-emerald-950/10 p-1.5 border border-emerald-500/10">
+              <span className="text-emerald-400 text-[8px] block">Target (TP)</span>
+              <span className="text-emerald-300 font-semibold text-[10px]">72,000</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Proof/Verification Tag */}
-      <div className="rounded-lg border border-emerald-500/10 bg-emerald-950/5 px-2.5 py-1.5 text-left flex items-center justify-between">
-        <span className="font-mono text-[9px] text-zinc-400">Public Simulated Desk Proof</span>
-        <span className="font-mono text-[9px] text-emerald-400 font-bold flex items-center gap-1">
-          <Check size={10} weight="bold" /> 100% Verified
-        </span>
+      {/* Rationale Quote */}
+      <div className="rounded-lg border border-white/[0.06] bg-white/[0.01] p-2.5 text-left font-mono text-[9px] leading-relaxed text-zinc-300">
+        <span className="text-emerald-400 font-bold">"</span>단기 EMA 200 지지선 부근 터치 시 기술적 반등 시나리오가 유효합니다. 해당 가격대 진입 시 롱 포지션 대기 주문이 실행됩니다.<span className="text-emerald-400 font-bold">"</span>
       </div>
     </div>
   );

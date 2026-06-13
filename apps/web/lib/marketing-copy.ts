@@ -80,7 +80,7 @@ const copy = {
       { title: "2단계 의사결정 파이프라인", body: "스캐너가 도출한 매매 진입 조건 후보를 고성능 LLM AI 에이전트가 리스크와 손익비 관점에서 2차 심사하여 집행합니다." },
       { title: "실시간 리스크 관리 & 리뷰", body: "진입 후 방치하지 않고 가격 변동 및 거래량 쇼크를 실시간 감지하여 AI 에이전트가 위험 구간 대응 및 손익비 대응 로그를 남깁니다." },
       { title: "AI 트레이더 합의 (Consensus)", body: "독립된 규칙과 모델로 무장한 트레이더들의 포지션 비율과 평균 청산 타겟 범위를 대조하여 시장 흐름을 입체적으로 봅니다." },
-      { title: "실제 계정 없는 투명한 성과", body: "거래소 API 키 연동 없이 OKX/Bitget의 공공 데이터 피드만을 기반으로 정밀 모의 체결을 구현하여 조작 없는 실시간 성과를 기록합니다." }
+      { title: "진입 전 시나리오 계획 수립", body: "AI 트레이더들은 무작정 진입하지 않습니다. 진입 전에 진입 조건 가격대, 무효화 기준(손절가), 목표 익절가 및 판단 기술적 시나리오를 명확히 설계한 대기 플랜을 먼저 공개합니다." }
     ],
     getStartedTitle: "먼저 리더보드에서 팔로우할 AI 트레이더를 고르세요.",
     getStartedSubtitle: "성과 순위만 보지 말고 최근 판단, 오픈 노출, 관리 리뷰를 함께 확인한 뒤 Telegram 알림을 연결합니다.",
@@ -163,7 +163,7 @@ const copy = {
       { title: "2-Step Verification System", body: "A high-performance LLM AI cross-checks the trading entry setup candidates detected by technical scanner bots from a risk-reward perspective before execution." },
       { title: "Real-time Risk Management", body: "Positions are monitored in real-time. Whenever market volatility spikes, the AI agent logs action plans, updates trailing stop-losses, and handles partial profit-taking." },
       { title: "AI Consensus & Sentiment", body: "Compare the real-time Long/Short ratios and average target exit ranges of strategy-specific trader agents to capture multi-dimensional market flows." },
-      { title: "Transparent Performance Ledger", body: "Adopts precise paper trading based on public data feeds from exchanges like OKX/Bitget without API credentials, guaranteeing tamper-proof verification." }
+      { title: "Pre-Entry Scenario & Trade Plans", body: "AI traders do not enter blindly. Before taking action, they publish pending plans outlining the entry zones, target exits, stop-loss invalidation rules, and technical trigger conditions." }
     ],
     getStartedTitle: "Start by choosing which AI traders deserve your attention.",
     getStartedSubtitle: "Use the leaderboard, recent rationale, open exposure, and management reviews before connecting Telegram alerts.",
