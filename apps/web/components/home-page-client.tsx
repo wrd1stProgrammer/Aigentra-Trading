@@ -93,14 +93,14 @@ export function HomePageClient() {
     <div className="landing-page bg-white text-zinc-950 antialiased overflow-x-hidden">
       <section
         data-testid="landing-hero"
-        className="relative overflow-hidden bg-[#070908] text-white py-6"
+        className="relative overflow-hidden bg-[#070908] text-white pt-6 pb-0"
         style={{
           backgroundImage:
             "linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px), radial-gradient(circle at 50% 25%, rgba(16,185,129,0.15), transparent 40%)",
           backgroundSize: "128px 128px, 128px 128px, auto"
         }}
       >
-        <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16 pb-12">
+        <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16 pb-16">
           {/* Vertical grid lines */}
           <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
@@ -179,8 +179,8 @@ export function HomePageClient() {
         </div>
       </div>
 
-      <section data-testid="landing-agent-system" className="relative overflow-hidden bg-[#070908] pt-16 pb-24 text-white">
-        <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16">
+      <section data-testid="landing-agent-system" className="relative overflow-hidden bg-[#070908] pt-0 pb-24 text-white">
+          <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16 pt-16">
           {/* Vertical grid lines */}
           <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
