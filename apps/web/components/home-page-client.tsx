@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, BellRinging, Check, Star, TelegramLogo, Translate, Trophy } from "@phosphor-icons/react";
 import { useAppContext } from "@/components/app-provider";
-import { AgentWorkflowPreview, AlertPreview, LandingFooter, PricingCard, ProductProofCard, VideoFrame } from "@/components/home-landing-visuals";
+import { AgentWorkflowPreview, AlertPreview, LandingFooter, PricingCard, VideoFrame } from "@/components/home-landing-visuals";
 import { landingCopy } from "@/lib/marketing-copy";
 
 function CandleNotch({
@@ -143,36 +143,12 @@ export function HomePageClient() {
             <p className="mt-6 max-w-[62ch] text-pretty text-base sm:text-lg leading-relaxed text-zinc-400 break-keep animate-fade-in-up animation-delay-100">
               {copy.heroSubtitle}
             </p>
-            <div className="mt-8 inline-flex flex-wrap items-center justify-center gap-3 rounded-full border border-white/10 bg-white/[0.035] px-5 py-2.5 text-xs text-zinc-300 animate-fade-in-up animation-delay-200 hover:border-white/20 transition-colors">
-              <span className="flex text-emerald-400">
-                {Array.from({ length: 5 }).map((_, index) => (
-                  <Star key={index} size={13} weight="fill" />
-                ))}
-              </span>
-              <strong className="text-white">{copy.proofRating}/5</strong>
-              <span className="h-4 w-px bg-white/12" />
-              <span>{copy.proofLabel}</span>
-            </div>
             <div className="mt-8 flex flex-col items-center gap-4 animate-fade-in-up animation-delay-300">
               <Link href="/leaderboard" className="focus-ring inline-flex items-center justify-center gap-2.5 rounded-full bg-emerald-500 px-8 py-4 text-base font-bold text-white shadow-neon-emerald hover:bg-emerald-400 active:scale-[0.99] transition duration-300">
                 <Trophy size={18} weight="bold" />
                 {copy.primaryCta}
               </Link>
               <p className="hidden max-w-[56ch] text-xs text-zinc-500 sm:block break-keep">{copy.videoSubtitle}</p>
-            </div>
-            <div className="mt-14 hidden w-full gap-4 sm:grid sm:grid-cols-3 animate-fade-in-up animation-delay-500">
-              {copy.stats.map((stat) => (
-                <div key={stat.label} className="rounded-xl border border-white/[0.06] bg-gradient-to-b from-white/[0.04] to-transparent p-5 text-left hover:border-white/12 transition duration-300">
-                  <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">{stat.label}</p>
-                  <p className="mt-2 font-mono text-2xl font-bold tracking-tight text-white">{stat.value}</p>
-                  <p className="mt-1.5 text-xs leading-5 text-zinc-500 break-keep">{stat.detail}</p>
-                </div>
-              ))}
-            </div>
-            <div className="mt-6 hidden w-full sm:block animate-fade-in-up animation-delay-500">
-              <div data-testid="landing-product-proof" className="w-full text-left">
-                <ProductProofCard copy={copy} />
-              </div>
             </div>
           </div>
 

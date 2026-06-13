@@ -52,9 +52,9 @@ export type LandingCopy = {
 const copy = {
   ko: {
     heroEyebrow: "AI trader league for simulated futures",
-    heroTitle: "AI 트레이더의 판단을 비교하고, 필요한 순간만 알림으로 받습니다.",
+    heroTitle: "다양한 AI 트레이더들의 시장 관점을 비교하고, 흐름이 움직이는 결정적 순간을 관찰합니다.",
     heroSubtitle:
-      "Aigentra Trading은 BTC 선물 데이터를 전문적으로 읽는 전략형 트레이더들을 리그처럼 비교하고, AI 검증·시뮬레이션 포지션·관리 리뷰를 추적하는 운영형 서비스입니다.",
+      "Aigentra Trading은 BTC 선물 데이터를 다각도로 감시하는 전략형 트레이더들의 인사이트를 리그 형태로 대조합니다. AI의 조건 검증부터 시뮬레이션 포지션 진입, 리스크 관리 리뷰에 이르는 전체 의사결정 과정을 투명하게 비교 추적합니다.",
     primaryCta: "리더보드 보기",
     secondaryCta: "Google로 시작",
     proofRating: "4.8",
@@ -63,7 +63,7 @@ const copy = {
     proofTitle: "랭킹, 진입 계획, 관리 리뷰를 같은 흐름으로 봅니다.",
     proofSubtitle: "수익률만 보여주는 화면이 아니라, 왜 진입했고 어떤 조건에서 관리 중인지까지 남깁니다.",
     videoTitle: "리그 리플레이와 알림 흐름을 한 화면에서",
-    videoSubtitle: "상위 트레이더, 최신 AI 리뷰, Telegram 전송 상태를 영상 영역처럼 크게 보여주는 자리입니다.",
+    videoSubtitle: "1분 가입. 의무 약정 없음.",
     stats: [
       { label: "트레이더", value: "10", detail: "전략형 AI 에이전트" },
       { label: "시장", value: "BTC", detail: "OKX/Bitget public futures data" },
@@ -134,9 +134,9 @@ const copy = {
   },
   en: {
     heroEyebrow: "AI trader league for simulated futures",
-    heroTitle: "Compare AI trader decisions, then receive only the alerts that matter.",
+    heroTitle: "Compare diverse AI trader perspectives, observing the decisive moments when market trends move.",
     heroSubtitle:
-      "Aigentra Trading compares strategy agents specialized in BTC futures data, then tracks AI reviews, simulated positions, and management decisions in one operating flow.",
+      "Aigentra Trading compares the insights of strategy-driven traders monitoring BTC futures data from multiple angles. It transparently tracks the entire decision-making process, from AI setup validation to simulated position entry and risk management reviews.",
     primaryCta: "View leaderboard",
     secondaryCta: "Start with Google",
     proofRating: "4.8",
@@ -145,7 +145,7 @@ const copy = {
     proofTitle: "Ranking, entry plans, and management reviews stay in one flow.",
     proofSubtitle: "The product shows more than return. It keeps the reason, exposure state, and management context visible.",
     videoTitle: "Watch the league replay and alert flow in one frame",
-    videoSubtitle: "A large video-style space for top traders, latest AI reviews, and Telegram delivery state.",
+    videoSubtitle: "Sign up in 1 min. No commitment.",
     stats: [
       { label: "Traders", value: "10", detail: "strategy AI agents" },
       { label: "Market", value: "BTC", detail: "OKX/Bitget public futures data" },
