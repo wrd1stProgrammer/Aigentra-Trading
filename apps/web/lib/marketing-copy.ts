@@ -74,12 +74,13 @@ const copy = {
       { title: "상세 근거 확인", body: "트레이더별 차트, 최신 시나리오, 보유 현황, 거래 캘린더로 판단 흐름을 내려봅니다." },
       { title: "관심 트레이더 알림", body: "구독 계정은 즐겨찾기한 트레이더의 진입, 청산, 리스크 관리 이벤트를 Telegram으로 받을 수 있습니다." }
     ],
-    agentSystemTitle: "서비스는 AI 트레이더를 감시하고, 사용자는 필요한 트레이더만 구독합니다.",
-    agentSystemSubtitle: "각 컨셉 에이전트는 같은 시장을 다른 방식으로 읽습니다. 사용자는 성과, 노출, 판단 기록을 비교한 뒤 알림 받을 트레이더를 고릅니다.",
+    agentSystemTitle: "단순 신호 수신을 넘어, AI 트레이더들의 관점을 대조합니다.",
+    agentSystemSubtitle: "서로 다른 규칙을 학습한 전략봇들과 리스크를 심사하는 LLM 에이전트들의 매매 과정을 한눈에 모니터링하세요.",
     agentCards: [
-      { title: "컨셉별 AI 트레이더", body: "추세, 풀백, 펀딩, 리스크 축소처럼 서로 다른 운용 관점을 분리합니다." },
-      { title: "시뮬레이션 주문 기록", body: "진입 대기, 체결, 익절, 손절, 관리 리뷰를 실제 계좌 연결 없이 보관합니다." },
-      { title: "구독자 알림 라우팅", body: "선택한 트레이더의 액션만 Telegram으로 보내도록 계정별 설정을 분리합니다." }
+      { title: "2단계 의사결정 파이프라인", body: "스캐너가 도출한 매매 진입 조건 후보를 고성능 LLM AI 에이전트가 리스크와 손익비 관점에서 2차 심사하여 집행합니다." },
+      { title: "실시간 리스크 관리 & 리뷰", body: "진입 후 방치하지 않고 가격 변동 및 거래량 쇼크를 실시간 감지하여 AI 에이전트가 위험 구간 대응 및 손익비 대응 로그를 남깁니다." },
+      { title: "AI 트레이더 합의 (Consensus)", body: "독립된 규칙과 모델로 무장한 트레이더들의 포지션 비율과 평균 청산 타겟 범위를 대조하여 시장 흐름을 입체적으로 봅니다." },
+      { title: "실제 계정 없는 투명한 성과", body: "거래소 API 키 연동 없이 OKX/Bitget의 공공 데이터 피드만을 기반으로 정밀 모의 체결을 구현하여 조작 없는 실시간 성과를 기록합니다." }
     ],
     getStartedTitle: "먼저 리더보드에서 팔로우할 AI 트레이더를 고르세요.",
     getStartedSubtitle: "성과 순위만 보지 말고 최근 판단, 오픈 노출, 관리 리뷰를 함께 확인한 뒤 Telegram 알림을 연결합니다.",
@@ -156,12 +157,13 @@ const copy = {
       { title: "Inspect the evidence", body: "Drill into charts, latest scenarios, holdings, and the monthly trading calendar for each trader." },
       { title: "Follow favorites", body: "Subscribers can favorite traders and receive entry, exit, risk, and management events through Telegram." }
     ],
-    agentSystemTitle: "The service monitors virtual AI traders. You subscribe to the traders worth following.",
-    agentSystemSubtitle: "Each concept agent reads the same market through a different playbook. Compare performance, exposure, and decision history before choosing alert subscriptions.",
+    agentSystemTitle: "Beyond Simple Signal Alerts: Compare Multi-Dimensional AI Trader Perspectives.",
+    agentSystemSubtitle: "Monitor the entire trading process of strategy-driven bots and cross-validating LLM agents at a glance.",
     agentCards: [
-      { title: "Concept AI traders", body: "Separate trend, pullback, funding, and risk-reduction behaviors into named agents." },
-      { title: "Simulation order ledger", body: "Store pending entries, fills, take profits, stops, and management reviews without exchange account access." },
-      { title: "Subscriber alert routing", body: "Send only selected trader actions to Telegram, scoped to each signed-in account." }
+      { title: "2-Step Verification System", body: "A high-performance LLM AI cross-checks the trading entry setup candidates detected by technical scanner bots from a risk-reward perspective before execution." },
+      { title: "Real-time Risk Management", body: "Positions are monitored in real-time. Whenever market volatility spikes, the AI agent logs action plans, updates trailing stop-losses, and handles partial profit-taking." },
+      { title: "AI Consensus & Sentiment", body: "Compare the real-time Long/Short ratios and average target exit ranges of strategy-specific trader agents to capture multi-dimensional market flows." },
+      { title: "Transparent Performance Ledger", body: "Adopts precise paper trading based on public data feeds from exchanges like OKX/Bitget without API credentials, guaranteeing tamper-proof verification." }
     ],
     getStartedTitle: "Start by choosing which AI traders deserve your attention.",
     getStartedSubtitle: "Use the leaderboard, recent rationale, open exposure, and management reviews before connecting Telegram alerts.",

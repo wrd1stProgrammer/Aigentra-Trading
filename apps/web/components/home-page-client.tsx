@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, BellRinging, Check, Star, TelegramLogo, Translate, Trophy } from "@phosphor-icons/react";
 import { useAppContext } from "@/components/app-provider";
-import { AgentWorkflowPreview, AlertPreview, LandingFooter, PricingCard, VideoFrame } from "@/components/home-landing-visuals";
+import { PipelinePreview, PositionManagementPreview, ConsensusPreview, LeaderboardPreview, AlertPreview, LandingFooter, PricingCard, VideoFrame } from "@/components/home-landing-visuals";
 import { landingCopy } from "@/lib/marketing-copy";
 
 function CandleNotch({
@@ -196,20 +196,29 @@ export function HomePageClient() {
             </div>
           </ScrollReveal>
 
-          <div className="mt-14 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-            <ScrollReveal className="w-full">
-              <AgentWorkflowPreview />
-            </ScrollReveal>
-            <div className="grid gap-4">
-              {copy.agentCards.map((card, index) => (
-                <ScrollReveal key={card.title} delay={index * 100}>
-                  <article className="rounded-[22px] border border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] p-6 shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] hover:border-emerald-500/20 hover:-translate-y-0.5 transition-all duration-300">
-                    <h3 className="text-lg font-bold text-white tracking-tight break-keep">{card.title}</h3>
-                    <p className="mt-3 text-sm leading-6 text-zinc-400 break-keep">{card.body}</p>
+          <div className="mt-14 grid gap-8 md:grid-cols-2">
+            {copy.agentCards.map((card, index) => {
+              // Render appropriate preview component
+              let preview = null;
+              if (index === 0) preview = <PipelinePreview />;
+              else if (index === 1) preview = <PositionManagementPreview />;
+              else if (index === 2) preview = <ConsensusPreview />;
+              else if (index === 3) preview = <LeaderboardPreview />;
+
+              return (
+                <ScrollReveal key={card.title} delay={index * 100} className="w-full">
+                  <article className="rounded-[24px] border border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] p-3 shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] flex flex-col justify-between hover:border-emerald-500/20 hover:-translate-y-0.5 transition-all duration-300 h-full">
+                    <div className="relative overflow-hidden rounded-[18px] border border-white/5 bg-[#090b0a] p-4 min-h-[220px] flex items-center justify-center">
+                      {preview}
+                    </div>
+                    <div className="p-5">
+                      <h3 className="text-lg font-bold text-white tracking-tight break-keep">{card.title}</h3>
+                      <p className="mt-2.5 text-sm leading-6 text-zinc-400 break-keep">{card.body}</p>
+                    </div>
                   </article>
                 </ScrollReveal>
-              ))}
-            </div>
+              );
+            })}
           </div>
         </div>
       </section>

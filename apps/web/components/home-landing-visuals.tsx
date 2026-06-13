@@ -83,40 +83,223 @@ export function VideoFrame({ title, subtitle, compact = false }: { readonly titl
   );
 }
 
-export function AgentWorkflowPreview() {
+export function PipelinePreview() {
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <div className="rounded-[22px] border border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] p-6 shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] hover:border-emerald-500/30 hover:shadow-[0_8px_32px_rgba(16,185,129,0.06)] hover:-translate-y-1 transition-all duration-300">
-        <p className="mb-4 font-mono text-sm text-zinc-400">Graph analysis...</p>
-        {["Probable scenarios", "Fibonacci", "RSI score", "Support/Resistance", "Macro context"].map((item) => (
-          <div key={item} className="flex items-center justify-between border-b border-white/10 py-3 text-sm text-zinc-200 last:border-b-0">
-            <span>{item}</span>
-            <span className="flex size-5 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-300">
-              <Check size={12} weight="bold" />
-            </span>
+    <div className="flex h-full w-full flex-col justify-center px-1 py-2">
+      <div className="grid gap-3 sm:grid-cols-[1fr_auto_1.1fr] items-center">
+        {/* Step 1: Scanner Setup */}
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3.5 text-left shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[9px] uppercase tracking-wider text-amber-400 font-bold">[ Step 1: Scanner ]</span>
+            <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
           </div>
-        ))}
+          <h4 className="mt-2 text-xs font-bold text-white">BTCUSDT Setup</h4>
+          <div className="mt-2 space-y-1 font-mono text-[10px] text-zinc-400">
+            <div className="flex justify-between">
+              <span>Strategy:</span>
+              <span className="text-zinc-200">Pullback EMA</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Side:</span>
+              <span className="text-emerald-400 font-bold">LONG</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Trigger:</span>
+              <span className="text-zinc-200">67,524 USDT</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Connection Vector Arrow */}
+        <div className="flex flex-row sm:flex-col items-center justify-center py-1 sm:py-0">
+          <div className="h-[2px] w-6 sm:h-6 sm:w-[2px] bg-gradient-to-r sm:bg-gradient-to-b from-amber-400/80 to-emerald-400/80" />
+          <span className="text-[10px] text-emerald-400 font-mono font-bold animate-pulse py-0.5">🤖</span>
+          <div className="h-[2px] w-6 sm:h-6 sm:w-[2px] bg-gradient-to-r sm:bg-gradient-to-b from-emerald-400/80 to-emerald-500" />
+        </div>
+
+        {/* Step 2: AI Risk Review */}
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-950/10 p-3.5 text-left shadow-md relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-12 h-12 bg-emerald-500/5 blur-xl rounded-full" />
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-400 font-bold">[ Step 2: AI Review ]</span>
+            <span className="font-mono text-[9px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full scale-90">Gemini</span>
+          </div>
+          <h4 className="mt-2 text-xs font-bold text-white flex items-center gap-1.5">
+            Decision: <span className="text-amber-300">ADJUSTED</span>
+          </h4>
+          <div className="mt-2 rounded bg-black/40 border border-white/[0.04] p-2 font-mono text-[9px] leading-relaxed text-zinc-300">
+            <span className="text-emerald-400 font-bold">"</span>최근 15분봉 하락 장대음봉 감지. 변동성 증가로 레버리지를 <span className="text-amber-300 font-semibold">10x ➔ 5x</span>로 축소하여 모의 진입 승인.<span className="text-emerald-400 font-bold">"</span>
+          </div>
+        </div>
       </div>
-      <div className="rounded-[22px] border border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] p-6 shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] hover:border-emerald-500/30 hover:shadow-[0_8px_32px_rgba(16,185,129,0.06)] hover:-translate-y-1 transition-all duration-300">
-        <div className="mb-5 flex items-center justify-between">
-          <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 font-mono text-xs text-zinc-300">Total Profit: 318$</span>
-          <span className="flex items-center gap-1.5 font-mono text-xs text-emerald-300">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            LIVE
+    </div>
+  );
+}
+
+export function PositionManagementPreview() {
+  return (
+    <div className="flex h-full w-full flex-col justify-center gap-3 py-1">
+      {/* Active Position Ticket */}
+      <div className="rounded-xl border border-white/10 bg-[#111413] p-4 text-left shadow-md">
+        <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5">
+          <div>
+            <h4 className="text-xs font-bold text-white">BTCUSDT Long Position</h4>
+            <p className="font-mono text-[9px] text-zinc-500">Leverage: 5x | Simulated</p>
+          </div>
+          <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.15)] animate-pulse">
+            ROI +32.40%
           </span>
         </div>
-        <MiniChart tall />
-        <div className="mt-5 space-y-3">
-          {["Explanations", "Technical analysis", "Probable scenarios"].map((item) => (
-            <div key={item} className="flex items-center justify-between rounded-[10px] border border-emerald-500/10 bg-emerald-950/20 px-4 py-2.5">
-              <span className="text-sm font-medium text-zinc-200">{item}</span>
-              <span className="font-mono text-[11px] text-emerald-300/80 bg-emerald-500/10 px-2 py-0.5 rounded-full">reviewed</span>
-            </div>
-          ))}
+        
+        <div className="grid grid-cols-2 gap-2 pt-2.5 font-mono text-[10px] text-zinc-400">
+          <div>
+            <span className="text-zinc-500">Entry Price:</span>
+            <p className="text-zinc-200 font-semibold mt-0.5">67,520 USDT</p>
+          </div>
+          <div className="text-right">
+            <span className="text-zinc-500">Mark Price:</span>
+            <p className="text-emerald-400 font-bold mt-0.5">71,840 USDT</p>
+          </div>
         </div>
+
+        {/* TP / SL Slider Bar */}
+        <div className="mt-3">
+          <div className="flex justify-between font-mono text-[8px] text-zinc-500 mb-1">
+            <span>SL: 66,000</span>
+            <span>Current: 71,840</span>
+            <span>TP: 73,000</span>
+          </div>
+          <div className="relative h-1 w-full rounded-full bg-zinc-800 overflow-hidden">
+            {/* SL indicator */}
+            <div className="absolute left-[10%] top-0 h-full w-1 bg-rose-500" />
+            {/* Current Price progress */}
+            <div className="absolute left-[10%] right-[20%] top-0 h-full bg-gradient-to-r from-emerald-500/30 to-emerald-400" />
+            {/* Current Price dot */}
+            <div className="absolute left-[80%] top-1/2 -translate-y-1/2 size-2 rounded-full bg-emerald-400 border border-black shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+            {/* TP indicator */}
+            <div className="absolute right-[10%] top-0 h-full w-1 bg-emerald-500" />
+          </div>
+        </div>
+      </div>
+
+      {/* AI Risk Review Alert */}
+      <div className="rounded-lg border border-amber-500/20 bg-amber-950/10 p-2 text-left flex gap-2.5 items-start">
+        <div className="size-1.5 bg-amber-400 rounded-full animate-ping mt-1.5 shrink-0" />
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-[9px] font-bold text-amber-300">AI Risk Warning [18:24]</span>
+            <span className="font-mono text-[8px] text-zinc-500">Auto</span>
+          </div>
+          <p className="mt-0.5 font-mono text-[9px] leading-relaxed text-zinc-300 break-keep">
+            단기 매도 거래량 급증 포착. 스톱로스를 본절가(67,520)로 상향 이동하고 자산의 30%를 부분 익절 관리합니다.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function ConsensusPreview() {
+  return (
+    <div className="flex h-full w-full flex-col justify-center gap-2.5 py-1">
+      {/* Long/Short Ratio Bar */}
+      <div>
+        <div className="flex justify-between items-end mb-1">
+          <span className="font-mono text-[10px] font-bold text-emerald-400">LONG 70%</span>
+          <span className="font-mono text-[9px] text-zinc-500">AI Consensus Ratio</span>
+          <span className="font-mono text-[10px] font-bold text-rose-400">SHORT 30%</span>
+        </div>
+        <div className="flex h-3 w-full overflow-hidden rounded-full border border-white/5 bg-zinc-950 p-0.5">
+          <div className="h-full rounded-l-full bg-gradient-to-r from-emerald-500 to-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.3)]" style={{ width: "70%" }} />
+          <div className="h-full rounded-r-full bg-gradient-to-r from-rose-500 to-rose-400 shadow-[0_0_12px_rgba(244,63,94,0.3)]" style={{ width: "30%" }} />
+        </div>
+      </div>
+
+      {/* Target price averages */}
+      <div className="grid grid-cols-2 gap-2 rounded-xl bg-black/40 border border-white/[0.04] p-2.5 text-left font-mono text-[9px] text-zinc-400">
+        <div>
+          <span className="text-zinc-500">Avg Entry Price</span>
+          <p className="text-zinc-200 font-bold text-[11px] mt-0.5">67,820 USDT</p>
+        </div>
+        <div className="text-right">
+          <span className="text-zinc-500">Target Exit Range</span>
+          <p className="text-emerald-400 font-bold text-[11px] mt-0.5">72,500 - 73,100 USDT</p>
+        </div>
+      </div>
+
+      {/* Active strategy position list */}
+      <div className="space-y-1.5">
+        <div className="flex justify-between items-center rounded-lg border border-white/[0.04] bg-white/[0.01] px-2.5 py-1 font-mono text-[9px] text-zinc-300">
+          <span className="font-semibold">Pullback Architect</span>
+          <span className="text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded text-[8px]">LONG (ROI +24.8%)</span>
+        </div>
+        <div className="flex justify-between items-center rounded-lg border border-white/[0.04] bg-white/[0.01] px-2.5 py-1 font-mono text-[9px] text-zinc-300">
+          <span className="font-semibold">Channel Rider</span>
+          <span className="text-rose-400 font-bold bg-rose-500/10 px-1.5 py-0.5 rounded text-[8px]">SHORT (ROI +1.33%)</span>
+        </div>
+        <div className="flex justify-between items-center rounded-lg border border-white/[0.04] bg-white/[0.01] px-2.5 py-1 font-mono text-[9px] text-zinc-300">
+          <span className="font-semibold">Funding Contrarian</span>
+          <span className="text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded text-[8px]">LONG (ROI +5.20%)</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function LeaderboardPreview() {
+  return (
+    <div className="flex h-full w-full flex-col justify-center gap-3 py-1">
+      {/* Mini Leaderboard Table */}
+      <div className="rounded-xl border border-white/10 bg-[#111413] overflow-hidden text-left shadow-md">
+        <div className="bg-white/[0.03] px-3.5 py-1.5 border-b border-white/[0.06] flex items-center justify-between">
+          <span className="font-mono text-[9px] text-zinc-400 font-bold">Simulated Leaderboard</span>
+          <span className="text-[8px] text-zinc-500 font-mono flex items-center gap-1">
+            <span className="size-1 bg-emerald-500 rounded-full animate-pulse" /> Live OKX Feed
+          </span>
+        </div>
+        <div className="divide-y divide-white/[0.06]">
+          {/* Row 1 */}
+          <div className="px-3.5 py-2 flex items-center justify-between font-mono text-[10px]">
+            <div className="flex items-center gap-2">
+              <span className="text-amber-400 font-bold">1st</span>
+              <span className="text-zinc-200 font-semibold">Pullback Architect</span>
+            </div>
+            <div className="flex items-center gap-3.5">
+              <span className="text-emerald-400 font-bold">ROI +42.8%</span>
+              <span className="text-zinc-500 text-[9px]">Win: 78%</span>
+            </div>
+          </div>
+          {/* Row 2 */}
+          <div className="px-3.5 py-2 flex items-center justify-between font-mono text-[10px]">
+            <div className="flex items-center gap-2">
+              <span className="text-zinc-400 font-bold">2nd</span>
+              <span className="text-zinc-200 font-semibold">Channel Rider</span>
+            </div>
+            <div className="flex items-center gap-3.5">
+              <span className="text-emerald-400 font-bold">ROI +28.5%</span>
+              <span className="text-zinc-500 text-[9px]">Win: 65%</span>
+            </div>
+          </div>
+          {/* Row 3 */}
+          <div className="px-3.5 py-2 flex items-center justify-between font-mono text-[10px]">
+            <div className="flex items-center gap-2">
+              <span className="text-amber-600 font-bold">3rd</span>
+              <span className="text-zinc-200 font-semibold">Funding Contrarian</span>
+            </div>
+            <div className="flex items-center gap-3.5">
+              <span className="text-emerald-400 font-bold">ROI +18.4%</span>
+              <span className="text-zinc-500 text-[9px]">Win: 72%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Proof/Verification Tag */}
+      <div className="rounded-lg border border-emerald-500/10 bg-emerald-950/5 px-2.5 py-1.5 text-left flex items-center justify-between">
+        <span className="font-mono text-[9px] text-zinc-400">Public Simulated Desk Proof</span>
+        <span className="font-mono text-[9px] text-emerald-400 font-bold flex items-center gap-1">
+          <Check size={10} weight="bold" /> 100% Verified
+        </span>
       </div>
     </div>
   );
