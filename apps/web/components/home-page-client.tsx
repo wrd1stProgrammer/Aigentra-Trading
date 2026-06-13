@@ -89,7 +89,7 @@ export function HomePageClient() {
     <div className="landing-page bg-white text-zinc-950 antialiased overflow-x-hidden">
       <section
         data-testid="landing-hero"
-        className="relative overflow-hidden border-b border-white/10 bg-[#070908] text-white py-6"
+        className="relative overflow-hidden bg-[#070908] text-white py-6"
         style={{
           backgroundImage:
             "linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px), radial-gradient(circle at 50% 25%, rgba(16,185,129,0.15), transparent 40%)",
@@ -103,8 +103,6 @@ export function HomePageClient() {
           {/* Corner Markers / Notches */}
           <CandleNotch position="top-left" theme="dark" pulse />
           <CandleNotch position="top-right" theme="dark" pulse />
-          <CandleNotch position="bottom-left" theme="dark" pulse />
-          <CandleNotch position="bottom-right" theme="dark" pulse />
 
           {/* Header */}
           <div className="flex items-center justify-between border-b border-white/10 pb-5 pt-4">
@@ -158,14 +156,31 @@ export function HomePageClient() {
         </div>
       </section>
 
-      <section data-testid="landing-agent-system" className="relative overflow-hidden bg-[#070908] py-24 text-white">
+      {/* Connection Divider Block */}
+      <div className="relative bg-[#070908]">
+        <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16 h-12">
+          {/* Vertical grid lines */}
+          <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
+          <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
+          
+          {/* Connector Box Border (Horizontal lines) */}
+          <div className="absolute inset-x-0 top-0 border-t border-white/10" />
+          <div className="absolute inset-x-0 bottom-0 border-b border-white/10" />
+
+          {/* Corner Markers / Notches */}
+          <CandleNotch position="top-left" theme="dark" pulse />
+          <CandleNotch position="top-right" theme="dark" pulse />
+          <CandleNotch position="bottom-left" theme="dark" pulse />
+          <CandleNotch position="bottom-right" theme="dark" pulse />
+        </div>
+      </div>
+
+      <section data-testid="landing-agent-system" className="relative overflow-hidden bg-[#070908] pt-16 pb-24 text-white">
         <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16">
           {/* Vertical grid lines */}
           <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
           {/* Corner Markers / Notches */}
-          <CandleNotch position="top-left" theme="dark" pulse />
-          <CandleNotch position="top-right" theme="dark" pulse />
           <CandleNotch position="bottom-left" theme="dark" pulse />
           <CandleNotch position="bottom-right" theme="dark" pulse />
 
