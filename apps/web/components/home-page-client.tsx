@@ -9,13 +9,17 @@ import { landingCopy } from "@/lib/marketing-copy";
 function CandleNotch({
   position,
   theme = "dark",
-  pulse = false
+  pulse = false,
+  flush = false
 }: {
   position: "top-left" | "top-right" | "bottom-left" | "bottom-right";
   theme?: "dark" | "light";
   pulse?: boolean;
+  flush?: boolean;
 }) {
-  const verticalClass = position.startsWith("top") ? "top-2.5" : "bottom-2.5";
+  const verticalClass = flush
+    ? (position.startsWith("top") ? "top-0 -translate-y-1/2" : "bottom-0 translate-y-1/2")
+    : (position.startsWith("top") ? "top-2.5" : "bottom-2.5");
   const horizontalClass = position.endsWith("left") ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2";
   const bodyColor = theme === "dark" ? "bg-emerald-500" : "bg-emerald-600";
   const wickColor = theme === "dark" ? "bg-emerald-500/60" : "bg-emerald-600/60";
@@ -168,10 +172,10 @@ export function HomePageClient() {
           <div className="absolute inset-x-0 bottom-0 border-b border-white/10" />
 
           {/* Corner Markers / Notches */}
-          <CandleNotch position="top-left" theme="dark" pulse />
-          <CandleNotch position="top-right" theme="dark" pulse />
-          <CandleNotch position="bottom-left" theme="dark" pulse />
-          <CandleNotch position="bottom-right" theme="dark" pulse />
+          <CandleNotch position="top-left" theme="dark" pulse flush />
+          <CandleNotch position="top-right" theme="dark" pulse flush />
+          <CandleNotch position="bottom-left" theme="dark" pulse flush />
+          <CandleNotch position="bottom-right" theme="dark" pulse flush />
         </div>
       </div>
 
