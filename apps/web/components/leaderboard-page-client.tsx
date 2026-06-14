@@ -1131,7 +1131,7 @@ function OptionActivityStream({
       const event = review.event ?? payload.event ?? {};
       const rawTxt = String(review.rationale ?? nested.rationale ?? review.userSummary ?? nested.userSummary ?? event.reason ?? "-");
       if (rawTxt && rawTxt !== "-") {
-        rText = rawTxt.substring(0, 45) + (rawTxt.length > 45 ? "..." : "");
+        rText = rawTxt.substring(0, 150) + (rawTxt.length > 150 ? "..." : "");
       }
 
       items.push({
