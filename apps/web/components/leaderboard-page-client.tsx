@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState, useEffect, type ReactNode } from "react";
+import { useCallback, useMemo, useState, useEffect, useRef, type ReactNode } from "react";
 import {
   ActivityIcon,
   ArrowRight,
@@ -978,10 +978,16 @@ function OptionActivityStream({
   const [hasMore, setHasMore] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
 
+  const isFetchingRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const observerTarget = useRef<HTMLDivElement>(null);
+
   // Initial load
   useEffect(() => {
     let active = true;
     const initialFetch = async () => {
+      if (isFetchingRef.current) return;
+      isFetchingRef.current = true;
       setIsLoading(true);
       try {
         const res = await getManagementReviews(20, 0);
@@ -1007,6 +1013,7 @@ function OptionActivityStream({
       } catch (err) {
         console.error("Failed to load initial reviews:", err);
       } finally {
+        isFetchingRef.current = false;
         if (active) setIsLoading(false);
       }
     };
@@ -1018,7 +1025,8 @@ function OptionActivityStream({
 
   // Infinite scroll load more
   const loadMore = useCallback(async () => {
-    if (isLoading || !hasMore) return;
+    if (isFetchingRef.current || !hasMore) return;
+    isFetchingRef.current = true;
     setIsLoading(true);
     try {
       const nextOffset = offset + 20;
@@ -1049,17 +1057,35 @@ function OptionActivityStream({
     } catch (err) {
       console.error("Failed to load more reviews:", err);
     } finally {
+      isFetchingRef.current = false;
       setIsLoading(false);
     }
-  }, [offset, isLoading, hasMore]);
+  }, [offset, hasMore]);
 
-  // Scroll detection handler
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const target = e.currentTarget;
-    if (target.scrollHeight - target.scrollTop <= target.clientHeight + 25) {
-      loadMore();
+  // Set up IntersectionObserver
+  useEffect(() => {
+    if (!hasMore || isLoading) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          loadMore();
+        }
+      },
+      {
+        root: containerRef.current,
+        threshold: 0.1
+      }
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
     }
-  };
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [loadMore, hasMore, isLoading]);
 
   const logItems = useMemo(() => {
     const items: Array<{
@@ -1160,8 +1186,8 @@ function OptionActivityStream({
     <div className="p-6 rounded-b-[22px] overflow-hidden text-left">
       <div className="rounded-xl border border-white/5 bg-black/60 p-4 font-mono text-xs text-zinc-300 shadow-inner flex flex-col justify-between">
         <div 
+          ref={containerRef}
           className="max-h-[220px] overflow-y-auto space-y-2 pr-2 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent scroll-smooth"
-          onScroll={handleScroll}
         >
           {logItems.map((log) => {
             let dotColor = "bg-emerald-400";
@@ -1186,6 +1212,9 @@ function OptionActivityStream({
               </Link>
             );
           })}
+          
+          {/* Intersection Observer Sentinel */}
+          <div ref={observerTarget} className="h-1" />
           
           {isLoading && (
             <div className="flex items-center justify-center py-2 text-zinc-500 font-mono text-[10px] gap-1.5 animate-pulse">
