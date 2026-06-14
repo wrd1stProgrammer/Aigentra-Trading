@@ -1530,12 +1530,14 @@ def list_filtered_records(
     model,
     *,
     limit: int = 20,
+    offset: int = 0,
     symbol: Optional[str] = None,
     trader_id: Optional[str] = None,
     status: Optional[str] = None,
     include_payload: bool = False,
 ) -> list[dict]:
     safe_limit = max(1, min(limit, 1000))
+    safe_offset = max(0, offset)
     stmt = select(model)
     if symbol:
         stmt = stmt.where(model.symbol == normalize_symbol(symbol))
@@ -1543,7 +1545,12 @@ def list_filtered_records(
         stmt = stmt.where(model.trader_id == trader_id)
     if status:
         stmt = stmt.where(model.status == status)
-    records = db.execute(stmt.order_by(desc(model.created_at), desc(model.id)).limit(safe_limit)).scalars().all()
+    
+    stmt = stmt.order_by(desc(model.created_at), desc(model.id))
+    if safe_offset > 0:
+        stmt = stmt.offset(safe_offset)
+        
+    records = db.execute(stmt.limit(safe_limit)).scalars().all()
     return [serialize_record_for_ui(record, include_payload=include_payload) for record in records]
 
 
@@ -4315,6 +4322,7 @@ async def paper_events(
 @app.get("/api/position-management/reviews")
 async def position_management_reviews(
     limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     symbol: Optional[str] = Query(None),
     trader_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
@@ -4325,6 +4333,7 @@ async def position_management_reviews(
             db,
             PositionManagementReviewRecord,
             limit=limit,
+            offset=offset,
             symbol=symbol,
             trader_id=trader_id,
             status=status,

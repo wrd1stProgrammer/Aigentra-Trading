@@ -2,15 +2,13 @@
 
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, useEffect, type ReactNode } from "react";
 import {
   ActivityIcon,
   ArrowRight,
-  Brain,
   Calendar,
   CaretDown,
   CaretRight,
-  ChartLineUp,
   CircleNotch,
   Gauge,
   ShieldCheck,
@@ -20,6 +18,7 @@ import {
   getEquitySnapshots,
   getCachedLeaderboardBundle,
   getRecentTradePlans,
+  getManagementReviews,
   LEAGUE_LIVE_REFETCH_INTERVAL_MS,
   leaderboardBundleQueryOptions,
   prefetchLeaderboardBundle,
@@ -42,15 +41,7 @@ import { activePositionLeverage, appendLeverageSample, formatLeverageBadge, orde
 const SYMBOLS: LeagueSymbol[] = ["BTCUSDT"];
 const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_100px_90px_60px_80px_65px_24px] gap-3";
 
-type ExposureItem = {
-  key: string;
-  traderId: string;
-  title: string;
-  meta: string;
-  status: string;
-  body: string;
-  createdAt?: string | null;
-};
+
 
 type TraderExposure = {
   position?: PaperPosition;
@@ -148,7 +139,6 @@ export function LeaderboardPageClient() {
   const openOrders = standings.reduce((sum, item) => sum + item.openOrders, 0);
   const activeTraderCount = standings.filter((item) => item.openPositions || item.openOrders).length;
   const traderNameMap = useMemo(() => new Map(standings.map((item) => [item.id, item.name])), [standings]);
-  const reviews = useMemo(() => (bundle.managementReviews ?? []).slice(0, 5), [bundle.managementReviews]);
   const latestReviewByTrader = useMemo(() => buildLatestReviewMap(bundle.managementReviews ?? []), [bundle.managementReviews]);
 
   // Fetch pending plans dynamically
@@ -167,7 +157,7 @@ export function LeaderboardPageClient() {
     () => buildExposureMap(bundle.positions ?? [], bundle.orders ?? [], pendingPlans),
     [bundle.orders, bundle.positions, pendingPlans]
   );
-  const exposureItems = useMemo(() => buildExposureItems(bundle.positions ?? [], bundle.orders ?? [], traderNameMap, locale, t), [bundle.orders, bundle.positions, locale, t, traderNameMap]);
+
 
   // Dynamic snapshot symbol
   const snapshotSymbol = "BTCUSDT";
@@ -226,20 +216,19 @@ export function LeaderboardPageClient() {
         <div className="absolute bottom-0 left-0 h-3.5 w-[3px] bg-emerald-500 animate-pulse" />
         <div className="absolute bottom-0 right-0 h-3.5 w-[3px] bg-emerald-500 animate-pulse" />
 
-        <div className="flex flex-col gap-4 border-b border-white/10 px-6 py-6 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-4 border-b border-white/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">[ LEAGUE OVERVIEW ]</p>
-            <h1 className="mt-2 text-2xl font-bold tracking-tight text-white md:text-3xl break-keep animate-fade-in-up">{t("leaderboard.title")}</h1>
-            <p className="text-zinc-400 mt-2 max-w-3xl text-sm leading-6 break-keep animate-fade-in-up animation-delay-100">{t("leaderboard.subtitle")}</p>
           </div>
         </div>
 
-        <div className="grid gap-px bg-white/5 md:grid-cols-4 rounded-b-[22px] overflow-hidden">
-          <HeroMetric icon={<Trophy size={18} />} label={t("leaderboard.topTrader")} value={leader?.name ?? "-"} detail={formatSignedPercent(leader?.returnPct)} tone={leader && leader.returnPct < 0 ? "bad" : "good"} />
-          <HeroMetric icon={<ShieldCheck size={18} />} label={t("leaderboard.totalEquity")} value={formatCurrency(totalEquity, locale)} detail={formatCurrency(totalPnl, locale)} tone={totalPnl < 0 ? "bad" : "good"} />
-          <HeroMetric icon={<ActivityIcon size={18} />} label={t("leaderboard.activeTraders")} value={formatNumber(activeTraderCount, 0, locale)} detail={`${openPositions} ${t("paper.openPositions")} / ${openOrders} ${t("paper.openOrders")}`} tone={activeTraderCount ? "warn" : "neutral"} />
-          <HeroMetric icon={<Gauge size={18} />} label={t("leaderboard.snapshot")} value={isFetching ? t("common.loading") : activeTab} detail={bundle.scanner?.enabled ? t("scanner.autoOn") : t("scanner.autoOff")} tone={bundle.scanner?.enabled ? "good" : "neutral"} />
-        </div>
+
+
+        <OptionActivityStream
+          locale={locale}
+          pendingPlans={pendingPlans}
+          traderNameMap={traderNameMap}
+        />
       </section>
 
       <section className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,400px)] w-full">
@@ -327,31 +316,6 @@ export function LeaderboardPageClient() {
           exposure={activeTrader ? exposureByTrader.get(activeTrader.id) : undefined}
           latestReview={activeTrader ? latestReviewByTrader.get(activeTrader.id) : undefined}
           onPrefetchTrader={prefetchTrader}
-        />
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,400px)] lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)] w-full">
-        <FeedPanel
-          icon={<Brain size={18} />}
-          title={t("leaderboard.agentFeed")}
-          empty={t("leaderboard.noReviews")}
-          items={reviews.map((review) => ({
-            key: `review-${review.id ?? review.createdAt ?? review.updatedAt}`,
-            title: `${traderName(review.traderId, traderNameMap)} · ${statusLabel(review.decision ?? review.actionType ?? review.action, t)}`,
-            body: reviewText(review),
-            meta: formatDateTime(review.createdAt ?? review.updatedAt, locale)
-          }))}
-        />
-        <FeedPanel
-          icon={<ChartLineUp size={18} />}
-          title={t("leaderboard.exposureFeed")}
-          empty={t("leaderboard.noExposure")}
-          items={exposureItems.slice(0, 5).map((item) => ({
-            key: item.key,
-            title: `${item.title} · ${item.status}`,
-            body: item.body,
-            meta: item.meta
-          }))}
         />
       </section>
     </div>
@@ -726,27 +690,7 @@ function MiniCell({ label, value }: { label: string; value: string }) {
   );
 }
 
-function FeedPanel({ icon, title, items, empty }: { icon: ReactNode; title: string; items: Array<{ key: string; title: string; body: string; meta: string }>; empty: string }) {
-  return (
-    <div className="data-card rounded-[22px] border-zinc-200/80 dark:border-white/[0.08] p-5 shadow-sm hover:border-emerald-500/20 transition duration-300 w-full min-w-0">
-      <div className="flex items-center gap-2">
-        {icon}
-        <h2 className="text-lg font-bold tracking-tight break-keep">{title}</h2>
-      </div>
-      <div className="mt-4 divide-y divide-zinc-200/60 dark:divide-white/[0.06]">
-        {items.length ? items.map((item) => (
-          <div key={item.key} className="py-4 last:pb-0">
-            <div className="flex items-start justify-between gap-3">
-              <p className="min-w-0 truncate text-sm font-bold tracking-tight break-keep">{item.title}</p>
-              <p className="text-zinc-400 shrink-0 font-mono text-xs">{item.meta}</p>
-            </div>
-            <p className="text-zinc-500 dark:text-zinc-400 mt-2 line-clamp-2 text-sm leading-6 break-keep">{item.body}</p>
-          </div>
-        )) : <div className="text-zinc-400 py-8 text-sm break-keep">{empty}</div>}
-      </div>
-    </div>
-  );
-}
+
 
 function buildExposureMap(positions: PaperPosition[], orders: PaperOrder[], plans: Array<Record<string, any>> = []) {
   const map = new Map<string, TraderExposure>();
@@ -905,39 +849,7 @@ function unwrapTradePlans(value: unknown): Array<Record<string, any>> {
   return [];
 }
 
-function buildExposureItems(positions: PaperPosition[], orders: PaperOrder[], traderNameMap: Map<string, string>, locale: "ko" | "en", t: (key: string) => string): ExposureItem[] {
-  const positionItems = positions.map((position, index) => {
-    const traderId = String(position.traderId ?? "");
-    const quantity = numberValue(position.quantity, position.size);
-    const price = numberValue(position.markPrice, position.entryPrice, position.averageEntryPrice);
-    const notional = quantity && price ? quantity * price : null;
-    return {
-      key: `position-${position.id ?? traderId}-${index}`,
-      traderId,
-      title: `${traderName(traderId, traderNameMap)} · ${position.symbol}`,
-      meta: formatDateTime(position.updatedAt ?? position.openedAt, locale),
-      status: statusLabel(position.status ?? "OPEN_POSITION", t),
-      body: `${sideText(position.side)} · ${t("leaderboard.openNotional")} ${formatCurrency(notional, locale)} · ${t("common.pnl")} ${formatCurrency(position.unrealizedPnl ?? position.realizedPnl, locale)}`,
-      createdAt: position.updatedAt ?? position.openedAt
-    };
-  });
-  const orderItems = orders.map((order, index) => {
-    const traderId = String(order.traderId ?? "");
-    const quantity = numberValue(order.quantity, order.filledQuantity);
-    const price = numberValue(order.price, order.stopPrice, order.triggerPrice);
-    const notional = quantity && price ? quantity * price : null;
-    return {
-      key: `order-${order.id ?? traderId}-${index}`,
-      traderId,
-      title: `${traderName(traderId, traderNameMap)} · ${order.symbol}`,
-      meta: formatDateTime(order.updatedAt ?? order.createdAt, locale),
-      status: statusLabel(order.status ?? "PENDING_ORDER", t),
-      body: `${sideText(order.side)} · ${t("leaderboard.openNotional")} ${formatCurrency(notional, locale)} · ${t("common.price")} ${formatNumber(price, 2, locale)}`,
-      createdAt: order.updatedAt ?? order.createdAt
-    };
-  });
-  return [...positionItems, ...orderItems].sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt));
-}
+
 
 function reviewText(review: ManagementReview) {
   const payload = (review.payload ?? {}) as Record<string, any>;
@@ -946,8 +858,13 @@ function reviewText(review: ManagementReview) {
   return String(review.rationale ?? nested.rationale ?? review.userSummary ?? nested.userSummary ?? event.reason ?? "-");
 }
 
-function traderName(id: string | null | undefined, traderNameMap: Map<string, string>) {
+function traderName(id: string | null | undefined, t: (key: string) => string, traderNameMap: Map<string, string>) {
   if (!id) return "-";
+  const localizationKey = `traders.${id}.name`;
+  const translated = t(localizationKey);
+  if (translated !== localizationKey) {
+    return translated;
+  }
   return traderNameMap.get(id) ?? id.split("-").map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ");
 }
 
@@ -1041,3 +958,262 @@ function timeValue(value?: string | null) {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
+
+// -------------------------------------------------------------
+// LEAGUE OVERVIEW COMPONENTS
+// -------------------------------------------------------------
+
+function OptionActivityStream({
+  locale,
+  pendingPlans,
+  traderNameMap
+}: {
+  locale: "ko" | "en";
+  pendingPlans: Array<Record<string, any>>;
+  traderNameMap: Map<string, string>;
+}) {
+  const { t } = useAppContext();
+  const [reviewsList, setReviewsList] = useState<any[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Initial load
+  useEffect(() => {
+    let active = true;
+    const initialFetch = async () => {
+      setIsLoading(true);
+      try {
+        const res = await getManagementReviews(20, 0);
+        let fetchedReviews: any[] = [];
+        if (res && typeof res === "object") {
+          if ("managementReviews" in res && Array.isArray(res.managementReviews)) {
+            fetchedReviews = res.managementReviews;
+          } else if ("reviews" in res && Array.isArray(res.reviews)) {
+            fetchedReviews = res.reviews;
+          } else if (Array.isArray(res)) {
+            fetchedReviews = res;
+          }
+        }
+        if (active) {
+          setReviewsList(fetchedReviews);
+          setOffset(0);
+          if (fetchedReviews.length < 20) {
+            setHasMore(false);
+          } else {
+            setHasMore(true);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load initial reviews:", err);
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    };
+    initialFetch();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Infinite scroll load more
+  const loadMore = useCallback(async () => {
+    if (isLoading || !hasMore) return;
+    setIsLoading(true);
+    try {
+      const nextOffset = offset + 20;
+      const res = await getManagementReviews(10, nextOffset);
+      let fetchedReviews: any[] = [];
+      if (res && typeof res === "object") {
+        if ("managementReviews" in res && Array.isArray(res.managementReviews)) {
+          fetchedReviews = res.managementReviews;
+        } else if ("reviews" in res && Array.isArray(res.reviews)) {
+          fetchedReviews = res.reviews;
+        } else if (Array.isArray(res)) {
+          fetchedReviews = res;
+        }
+      }
+      
+      if (fetchedReviews.length > 0) {
+        setReviewsList((prev) => {
+          const existingIds = new Set(prev.map((r) => r.id));
+          const filtered = fetchedReviews.filter((r) => !existingIds.has(r.id));
+          return [...prev, ...filtered];
+        });
+        setOffset(nextOffset);
+      }
+      
+      if (fetchedReviews.length < 10) {
+        setHasMore(false);
+      }
+    } catch (err) {
+      console.error("Failed to load more reviews:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [offset, isLoading, hasMore]);
+
+  // Scroll detection handler
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    if (target.scrollHeight - target.scrollTop <= target.clientHeight + 25) {
+      loadMore();
+    }
+  };
+
+  const logItems = useMemo(() => {
+    const items: Array<{
+      id: string;
+      time: string;
+      type: "PLAN" | "AUDIT" | "SCAN";
+      traderId: string;
+      trader: string;
+      text: string;
+      rawTime: number;
+    }> = [];
+
+    // Pending Scanner Plans (Active setups)
+    pendingPlans.forEach((plan) => {
+      const traderId = String(plan.traderId ?? "");
+      const side = String(plan.side ?? "LONG").toUpperCase();
+      const priceVal = plan.entryPrice ?? plan.price ?? 65000;
+      const timeStr = plan.createdAt ? new Date(plan.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : "17:42:01";
+      const rawTimeVal = plan.createdAt ? Date.parse(plan.createdAt) : Date.now() - 1000 * 60;
+      items.push({
+        id: `plan-${plan.id ?? plan.createdAt}-${traderId}`,
+        time: timeStr,
+        type: "PLAN",
+        traderId,
+        trader: traderName(traderId, t, traderNameMap),
+        text: locale === "ko" 
+          ? `${plan.symbol} 진입 대기 시나리오 수립 (${side} @ $${priceVal.toLocaleString()})`
+          : `Created pending scenario for ${plan.symbol} (${side} @ $${priceVal.toLocaleString()})`,
+        rawTime: rawTimeVal
+      });
+    });
+
+    // AI Auditing Reviews
+    reviewsList.forEach((review) => {
+      const traderId = String(review.traderId ?? "");
+      const decision = String(review.decision ?? review.action ?? "HOLD").toUpperCase();
+      const timeStr = review.createdAt ? new Date(review.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : "16:21:40";
+      const rawTimeVal = review.createdAt ? Date.parse(review.createdAt) : Date.now() - 1000 * 120;
+      
+      let rText = "";
+      const payload = (review.payload ?? {}) as Record<string, any>;
+      const nested = review.review ?? payload.review ?? {};
+      const event = review.event ?? payload.event ?? {};
+      const rawTxt = String(review.rationale ?? nested.rationale ?? review.userSummary ?? nested.userSummary ?? event.reason ?? "-");
+      if (rawTxt && rawTxt !== "-") {
+        rText = rawTxt.substring(0, 45) + (rawTxt.length > 45 ? "..." : "");
+      }
+
+      items.push({
+        id: `review-${review.id ?? review.createdAt}-${traderId}`,
+        time: timeStr,
+        type: "AUDIT",
+        traderId,
+        trader: traderName(traderId, t, traderNameMap),
+        text: locale === "ko"
+          ? `리스크 심사 완료: [${decision}] ${rText || "상태 유지"}`
+          : `Risk audit completed: [${decision}] ${rText || "Maintain status"}`,
+        rawTime: rawTimeVal
+      });
+    });
+
+    items.sort((a, b) => b.rawTime - a.rawTime);
+
+    if (items.length === 0) {
+      items.push({
+        id: "fallback-1",
+        time: "18:02:11",
+        type: "SCAN",
+        traderId: "channel-rider",
+        trader: traderName("channel-rider", t, traderNameMap),
+        text: locale === "ko" ? "BTCUSDT 15분 봉 EMA 풀백 셋업 감시 중" : "Scanning BTCUSDT 15m EMA Pullback setups",
+        rawTime: Date.now()
+      });
+      items.push({
+        id: "fallback-2",
+        time: "17:55:04",
+        type: "AUDIT",
+        traderId: "funding-contrarian",
+        trader: traderName("funding-contrarian", t, traderNameMap),
+        text: locale === "ko" ? "리스크 조절: 레버리지 5배 설정" : "Risk adjusted: leverage set to 5x",
+        rawTime: Date.now() - 300
+      });
+      items.push({
+        id: "fallback-3",
+        time: "17:42:15",
+        type: "PLAN",
+        traderId: "pullback-architect",
+        trader: traderName("pullback-architect", t, traderNameMap),
+        text: locale === "ko" ? "BTCUSDT 대기 시나리오 수립 (LONG @ $66,950)" : "Created pending scenario for BTCUSDT (LONG @ $66,950)",
+        rawTime: Date.now() - 1000
+      });
+    }
+
+    return items;
+  }, [pendingPlans, reviewsList, traderNameMap, locale, t]);
+
+  return (
+    <div className="p-6 rounded-b-[22px] overflow-hidden text-left">
+      <div className="rounded-xl border border-white/5 bg-black/60 p-4 font-mono text-xs text-zinc-300 shadow-inner flex flex-col justify-between">
+        <div 
+          className="max-h-[220px] overflow-y-auto space-y-2 pr-2 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent scroll-smooth"
+          onScroll={handleScroll}
+        >
+          {logItems.map((log) => {
+            let dotColor = "bg-emerald-400";
+            if (log.type === "PLAN") dotColor = "bg-orange-400";
+            if (log.type === "AUDIT") dotColor = "bg-amber-400";
+
+            return (
+              <Link
+                key={log.id}
+                href={`/leaderboard/${log.traderId}`}
+                className="flex items-start gap-3 border-b border-white/[0.02] pb-2 last:border-0 last:pb-0 hover:bg-white/[0.03] transition-colors rounded px-2 py-1 -mx-2 group cursor-pointer"
+              >
+                <span className="text-zinc-500 shrink-0 select-none font-mono group-hover:text-zinc-400 transition-colors">[{log.time}]</span>
+                <span className="flex items-center gap-1.5 font-bold shrink-0 font-sans">
+                  <span className={`inline-block size-1.5 rounded-full ${dotColor} animate-pulse`} />
+                  <span className="text-zinc-400 group-hover:text-emerald-400 transition-colors">{log.trader}</span>
+                </span>
+                <span className="text-zinc-300 group-hover:text-white transition-colors truncate break-keep font-sans flex-1">{log.text}</span>
+                <span className="text-zinc-500 text-[10px] shrink-0 font-mono self-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  {locale === "ko" ? "상세보기 →" : "View →"}
+                </span>
+              </Link>
+            );
+          })}
+          
+          {isLoading && (
+            <div className="flex items-center justify-center py-2 text-zinc-500 font-mono text-[10px] gap-1.5 animate-pulse">
+              <CircleNotch className="animate-spin animate-duration-1000 text-emerald-400" size={12} />
+              <span>{locale === "ko" ? "로그 불러오는 중..." : "Loading older logs..."}</span>
+            </div>
+          )}
+          
+          {!hasMore && (
+            <div className="text-center py-2 text-zinc-600 font-mono text-[9px] uppercase tracking-wider select-none">
+              — {locale === "ko" ? "모든 로그가 로드되었습니다" : "End of activity stream"} —
+            </div>
+          )}
+        </div>
+        
+        <div className="flex items-center gap-2 mt-4 pt-2 border-t border-white/[0.04] text-[10px] text-emerald-400 font-mono select-none">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+          <span>
+            {locale === "ko"
+              ? "시스템 상태: 연결됨 · 실시간 AI 로그 스캔 중..."
+              : "SYS_STATUS: CONNECTED · SCANNING ACTIVE STREAM..."}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+

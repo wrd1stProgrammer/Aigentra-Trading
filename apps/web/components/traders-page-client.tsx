@@ -79,7 +79,7 @@ export function TradersPageClient() {
         getPaperOrders(20, symbol, "open"),
         getTradeEvents(20, symbol),
         getEquitySnapshots(20),
-        getManagementReviews(20, symbol).catch(() => []),
+        getManagementReviews(20, 0, symbol).catch(() => []),
         getScannerStatus().catch(() => null)
       ]);
       const summaryResult = await getTraderPaperSummary(symbol);

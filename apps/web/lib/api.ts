@@ -760,8 +760,8 @@ export function getEquitySnapshots(limit = 20, traderId?: string, symbol?: strin
   ]);
 }
 
-export function getManagementReviews(limit = 20, symbol?: string, traderId?: string) {
-  const params = new URLSearchParams({ limit: String(limit) });
+export function getManagementReviews(limit = 20, offset = 0, symbol?: string, traderId?: string) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (symbol) params.set("symbol", symbol);
   if (traderId) params.set("trader_id", traderId);
   return requestFirst<

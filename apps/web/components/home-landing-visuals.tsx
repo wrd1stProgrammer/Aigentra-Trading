@@ -19,12 +19,12 @@ const signalRows = [
 export function VideoFrame({ title, subtitle, compact = false }: { readonly title: string; readonly subtitle: string; readonly compact?: boolean }) {
   return (
     <div
-      className={`relative overflow-hidden rounded-[18px] border border-white/15 bg-[#111413] p-3 shadow-[0_22px_90px_rgba(0,0,0,0.48)] ${
+      className={`relative overflow-hidden rounded-2xl border border-white/15 bg-[#111413] p-3 shadow-[0_22px_90px_rgba(0,0,0,0.48)] ${
         compact ? "min-h-[360px]" : "min-h-[430px]"
       }`}
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(96,165,250,0.22),transparent_26%),radial-gradient(circle_at_92%_95%,rgba(249,115,22,0.25),transparent_24%),linear-gradient(90deg,rgba(16,185,129,0.08),transparent)]" />
-      <div className="relative h-full rounded-[14px] border border-white/12 bg-[#090b0a] p-5 text-white md:p-7">
+      <div className="relative h-full rounded-xl border border-white/12 bg-[#090b0a] p-5 text-white md:p-7">
         <div className="flex items-center justify-between border-b border-white/10 pb-4">
           <div className="flex items-center gap-3">
             <span className="grid size-9 place-items-center rounded-lg border border-emerald-400/30 bg-emerald-400/10 text-emerald-300">
@@ -81,54 +81,57 @@ export function VideoFrame({ title, subtitle, compact = false }: { readonly titl
       </div>
     </div>
   );
-}
-
-export function PipelinePreview() {
+}export function PipelinePreview() {
   return (
-    <div className="flex h-full w-full flex-col justify-center px-1 py-2">
-      <div className="grid gap-3 sm:grid-cols-[1fr_auto_1.1fr] items-center">
-        {/* Step 1: Scanner Setup */}
-        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3.5 text-left shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[9px] uppercase tracking-wider text-amber-400 font-bold">[ Step 1: Scanner ]</span>
-            <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
+    <div className="w-full text-left font-sans">
+      <div className="flex items-center justify-between border-b border-white/5 pb-2.5 mb-4">
+        <span className="text-[10px] uppercase tracking-wider text-emerald-400 font-bold font-mono">Decision Pipeline</span>
+        <span className="text-[9px] text-zinc-500 font-mono">BTCUSDT · Active</span>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-[1fr_auto_1fr] items-center">
+        {/* Scanner Setup */}
+        <div className="rounded-xl border border-white/[0.05] bg-black/40 p-4 shadow-lg">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="size-2 rounded-full bg-emerald-500" />
+            <p className="text-[10px] text-zinc-400 uppercase font-semibold tracking-wider font-mono">1. Scanner Setup</p>
           </div>
-          <h4 className="mt-2 text-xs font-bold text-white">BTCUSDT Setup</h4>
-          <div className="mt-2 space-y-1 font-mono text-[10px] text-zinc-400">
-            <div className="flex justify-between">
-              <span>Strategy:</span>
-              <span className="text-zinc-200">Pullback EMA</span>
+          <div className="space-y-2 text-xs">
+            <div className="flex justify-between border-b border-white/[0.03] pb-1.5">
+              <span className="text-zinc-500">Strategy</span>
+              <span className="text-zinc-200 font-semibold">Pullback EMA 200</span>
+            </div>
+            <div className="flex justify-between border-b border-white/[0.03] pb-1.5">
+              <span className="text-zinc-500">Trigger Limit</span>
+              <span className="text-emerald-400 font-bold font-mono">67,200 USDT</span>
             </div>
             <div className="flex justify-between">
-              <span>Side:</span>
-              <span className="text-emerald-400 font-bold">LONG</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Trigger:</span>
-              <span className="text-zinc-200">67,524 USDT</span>
+              <span className="text-zinc-500">Timeframe</span>
+              <span className="text-zinc-200 font-semibold font-mono">15m / 1h / 4h</span>
             </div>
           </div>
         </div>
 
-        {/* Connection Vector Arrow */}
-        <div className="flex flex-row sm:flex-col items-center justify-center py-1 sm:py-0">
-          <div className="h-[2px] w-6 sm:h-6 sm:w-[2px] bg-gradient-to-r sm:bg-gradient-to-b from-amber-400/80 to-emerald-400/80" />
-          <span className="text-[10px] text-emerald-400 font-mono font-bold animate-pulse py-0.5">🤖</span>
-          <div className="h-[2px] w-6 sm:h-6 sm:w-[2px] bg-gradient-to-r sm:bg-gradient-to-b from-emerald-400/80 to-emerald-500" />
+        {/* Vector Line */}
+        <div className="flex flex-row sm:flex-col items-center justify-center py-2 sm:py-0">
+          <div className="h-[1px] w-6 sm:h-10 sm:w-[1px] bg-gradient-to-r sm:bg-gradient-to-b from-emerald-500/30 to-amber-500/30" />
+          <span className="text-xs py-1.5 bg-white/[0.03] border border-white/10 rounded-full px-2 font-mono">AI</span>
+          <div className="h-[1px] w-6 sm:h-10 sm:w-[1px] bg-gradient-to-r sm:bg-gradient-to-b from-amber-500/30 to-amber-500/60" />
         </div>
 
-        {/* Step 2: AI Risk Review */}
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-950/10 p-3.5 text-left shadow-md relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-12 h-12 bg-emerald-500/5 blur-xl rounded-full" />
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-400 font-bold">[ Step 2: AI Review ]</span>
-            <span className="font-mono text-[9px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full scale-90">Gemini</span>
+        {/* AI Auditor */}
+        <div className="rounded-xl border border-amber-500/15 bg-gradient-to-b from-[#1c1811] to-[#0f0d09] p-4 shadow-lg">
+          <div className="flex justify-between items-center mb-3">
+            <div className="flex items-center gap-2">
+              <span className="size-2 rounded-full bg-amber-400" />
+              <p className="text-[10px] text-amber-300 uppercase font-bold tracking-wider font-mono">2. AI Risk Audit</p>
+            </div>
+            <span className="text-[8px] bg-amber-400/10 border border-amber-400/20 text-amber-300 px-1.5 py-0.5 rounded font-mono font-semibold">Gemini-3.5</span>
           </div>
-          <h4 className="mt-2 text-xs font-bold text-white flex items-center gap-1.5">
-            Decision: <span className="text-amber-300">ADJUSTED</span>
-          </h4>
-          <div className="mt-2 rounded bg-black/40 border border-white/[0.04] p-2 font-mono text-[9px] leading-relaxed text-zinc-300">
-            <span className="text-emerald-400 font-bold">"</span>최근 15분봉 하락 장대음봉 감지. 변동성 증가로 레버리지를 <span className="text-amber-300 font-semibold">10x ➔ 5x</span>로 축소하여 모의 진입 승인.<span className="text-emerald-400 font-bold">"</span>
+          <div className="space-y-1.5">
+            <div className="text-[9px] text-amber-400/80 font-semibold font-mono">Decision: ADJUSTED RISK</div>
+            <p className="text-[11px] leading-relaxed text-zinc-300 break-keep font-sans">
+              최근 하락 채널 가속화 감지. 레버리지를 10x에서 5x로 하향하고 모의 진입을 승인합니다.
+            </p>
           </div>
         </div>
       </div>
@@ -138,60 +141,53 @@ export function PipelinePreview() {
 
 export function PositionManagementPreview() {
   return (
-    <div className="flex h-full w-full flex-col justify-center gap-3 py-1">
-      {/* Active Position Ticket */}
-      <div className="rounded-xl border border-white/10 bg-[#111413] p-4 text-left shadow-md">
-        <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5">
-          <div>
-            <h4 className="text-xs font-bold text-white">BTCUSDT Long Position</h4>
-            <p className="font-mono text-[9px] text-zinc-500">Leverage: 5x | Simulated</p>
-          </div>
-          <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.15)] animate-pulse">
-            ROI +32.40%
-          </span>
-        </div>
-        
-        <div className="grid grid-cols-2 gap-2 pt-2.5 font-mono text-[10px] text-zinc-400">
-          <div>
-            <span className="text-zinc-500">Entry Price:</span>
-            <p className="text-zinc-200 font-semibold mt-0.5">67,520 USDT</p>
-          </div>
-          <div className="text-right">
-            <span className="text-zinc-500">Mark Price:</span>
-            <p className="text-emerald-400 font-bold mt-0.5">71,840 USDT</p>
-          </div>
-        </div>
-
-        {/* TP / SL Slider Bar */}
-        <div className="mt-3">
-          <div className="flex justify-between font-mono text-[8px] text-zinc-500 mb-1">
-            <span>SL: 66,000</span>
-            <span>Current: 71,840</span>
-            <span>TP: 73,000</span>
-          </div>
-          <div className="relative h-1 w-full rounded-full bg-zinc-800 overflow-hidden">
-            {/* SL indicator */}
-            <div className="absolute left-[10%] top-0 h-full w-1 bg-rose-500" />
-            {/* Current Price progress */}
-            <div className="absolute left-[10%] right-[20%] top-0 h-full bg-gradient-to-r from-emerald-500/30 to-emerald-400" />
-            {/* Current Price dot */}
-            <div className="absolute left-[80%] top-1/2 -translate-y-1/2 size-2 rounded-full bg-emerald-400 border border-black shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
-            {/* TP indicator */}
-            <div className="absolute right-[10%] top-0 h-full w-1 bg-emerald-500" />
-          </div>
-        </div>
+    <div className="w-full text-left font-sans">
+      <div className="flex items-center justify-between border-b border-white/5 pb-2.5 mb-4">
+        <span className="text-[10px] uppercase tracking-wider text-emerald-400 font-bold font-mono">Position Risk Monitor</span>
+        <span className="text-[9px] text-zinc-500 font-mono">BTCUSDT · Simulated</span>
       </div>
 
-      {/* AI Risk Review Alert */}
-      <div className="rounded-lg border border-amber-500/20 bg-amber-950/10 p-2 text-left flex gap-2.5 items-start">
-        <div className="size-1.5 bg-amber-400 rounded-full animate-ping mt-1.5 shrink-0" />
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-[9px] font-bold text-amber-300">AI Risk Warning [18:24]</span>
-            <span className="font-mono text-[8px] text-zinc-500">Auto</span>
+      <div className="grid gap-4 sm:grid-cols-[1.1fr_0.9fr] items-center">
+        {/* Position Ticket */}
+        <div className="rounded-xl border border-white/[0.05] bg-black/40 p-4 shadow-lg space-y-3">
+          <div className="flex justify-between items-center">
+            <span className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider font-mono">ROI PnL</span>
+            <span className="text-xl font-bold text-emerald-400 font-mono tracking-tight">+32.40%</span>
           </div>
-          <p className="mt-0.5 font-mono text-[9px] leading-relaxed text-zinc-300 break-keep">
-            단기 매도 거래량 급증 포착. 스톱로스를 본절가(67,520)로 상향 이동하고 자산의 30%를 부분 익절 관리합니다.
+          <div className="grid grid-cols-2 gap-2 text-xs text-zinc-400">
+            <div>
+              <span className="text-zinc-500 text-[10px] block font-mono">Entry Price</span>
+              <span className="text-zinc-200 font-semibold font-mono">67,520 USDT</span>
+            </div>
+            <div className="text-right">
+              <span className="text-zinc-500 text-[10px] block font-mono">Mark Price</span>
+              <span className="text-emerald-400 font-bold font-mono">71,840 USDT</span>
+            </div>
+          </div>
+          {/* Slider bar */}
+          <div className="pt-1">
+            <div className="relative h-1.5 w-full rounded-full bg-zinc-800">
+              <div className="absolute left-[15%] right-[25%] top-0 h-full bg-gradient-to-r from-emerald-500/30 to-emerald-400" />
+              <div className="absolute left-[75%] top-1/2 -translate-y-1/2 size-2.5 rounded-full bg-emerald-400 border border-black shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+            </div>
+            <div className="flex justify-between text-[8px] text-zinc-500 mt-1 font-mono">
+              <span>SL: 66,000</span>
+              <span>TP: 73,000</span>
+            </div>
+          </div>
+        </div>
+
+        {/* AI Action Alert */}
+        <div className="rounded-xl border border-rose-500/15 bg-gradient-to-b from-[#1a1111] to-[#0f0808] p-4 shadow-lg">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-1.5">
+              <span className="size-2 bg-rose-500 rounded-full" />
+              <span className="text-[10px] font-bold text-rose-300 uppercase tracking-wider font-mono">AI Risk Warning</span>
+            </div>
+            <span className="text-[8px] text-zinc-500 font-mono font-semibold">[18:24]</span>
+          </div>
+          <p className="text-[11px] leading-relaxed text-zinc-300 break-keep font-sans">
+            단기 매도 거래량 급증 포착. 스톱로스를 본절가(67,520)로 상향 조정하고 자산의 30%를 부분 익절 관리합니다.
           </p>
         </div>
       </div>
@@ -201,45 +197,47 @@ export function PositionManagementPreview() {
 
 export function ConsensusPreview() {
   return (
-    <div className="flex h-full w-full flex-col justify-center gap-2.5 py-1">
-      {/* Long/Short Ratio Bar */}
-      <div>
-        <div className="flex justify-between items-end mb-1">
-          <span className="font-mono text-[10px] font-bold text-emerald-400">LONG 70%</span>
-          <span className="font-mono text-[9px] text-zinc-500">AI Consensus Ratio</span>
-          <span className="font-mono text-[10px] font-bold text-rose-400">SHORT 30%</span>
-        </div>
-        <div className="flex h-3 w-full overflow-hidden rounded-full border border-white/5 bg-zinc-950 p-0.5">
-          <div className="h-full rounded-l-full bg-gradient-to-r from-emerald-500 to-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.3)]" style={{ width: "70%" }} />
-          <div className="h-full rounded-r-full bg-gradient-to-r from-rose-500 to-rose-400 shadow-[0_0_12px_rgba(244,63,94,0.3)]" style={{ width: "30%" }} />
-        </div>
+    <div className="w-full text-left font-sans">
+      <div className="flex items-center justify-between border-b border-white/5 pb-2.5 mb-4">
+        <span className="text-[10px] uppercase tracking-wider text-emerald-400 font-bold font-mono">Consensus Sentiment</span>
+        <span className="text-[9px] text-zinc-500 font-mono">10 AI Strategists</span>
       </div>
 
-      {/* Target price averages */}
-      <div className="grid grid-cols-2 gap-2 rounded-xl bg-black/40 border border-white/[0.04] p-2.5 text-left font-mono text-[9px] text-zinc-400">
-        <div>
-          <span className="text-zinc-500">Avg Entry Price</span>
-          <p className="text-zinc-200 font-bold text-[11px] mt-0.5">67,820 USDT</p>
+      <div className="grid gap-4 sm:grid-cols-[1.1fr_0.9fr] items-center">
+        {/* Consensus Gauge */}
+        <div className="rounded-xl border border-white/[0.05] bg-black/40 p-4 shadow-lg space-y-3.5">
+          <div>
+            <div className="flex justify-between text-[10px] text-zinc-400 mb-1.5 font-mono">
+              <span className="text-emerald-400 font-bold">LONG 70%</span>
+              <span className="text-rose-400 font-bold">SHORT 30%</span>
+            </div>
+            <div className="flex h-3 w-full overflow-hidden rounded bg-zinc-850 p-0.5">
+              <div className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400" style={{ width: "70%" }} />
+              <div className="h-full bg-gradient-to-r from-rose-500 to-rose-400" style={{ width: "30%" }} />
+            </div>
+          </div>
+          <div className="space-y-1 text-xs text-zinc-400">
+            <div className="flex justify-between border-b border-white/[0.03] pb-1">
+              <span className="text-zinc-500">Avg Entry</span>
+              <span className="text-zinc-200 font-semibold font-mono">67,820 USDT</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-500">Target Range</span>
+              <span className="text-emerald-400 font-bold font-mono">72,500 - 73,100</span>
+            </div>
+          </div>
         </div>
-        <div className="text-right">
-          <span className="text-zinc-500">Target Exit Range</span>
-          <p className="text-emerald-400 font-bold text-[11px] mt-0.5">72,500 - 73,100 USDT</p>
-        </div>
-      </div>
 
-      {/* Active strategy position list */}
-      <div className="space-y-1.5">
-        <div className="flex justify-between items-center rounded-lg border border-white/[0.04] bg-white/[0.01] px-2.5 py-1 font-mono text-[9px] text-zinc-300">
-          <span className="font-semibold">Pullback Architect</span>
-          <span className="text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded text-[8px]">LONG (ROI +24.8%)</span>
-        </div>
-        <div className="flex justify-between items-center rounded-lg border border-white/[0.04] bg-white/[0.01] px-2.5 py-1 font-mono text-[9px] text-zinc-300">
-          <span className="font-semibold">Channel Rider</span>
-          <span className="text-rose-400 font-bold bg-rose-500/10 px-1.5 py-0.5 rounded text-[8px]">SHORT (ROI +1.33%)</span>
-        </div>
-        <div className="flex justify-between items-center rounded-lg border border-white/[0.04] bg-white/[0.01] px-2.5 py-1 font-mono text-[9px] text-zinc-300">
-          <span className="font-semibold">Funding Contrarian</span>
-          <span className="text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded text-[8px]">LONG (ROI +5.20%)</span>
+        {/* Strategy list */}
+        <div className="space-y-2">
+          <div className="flex justify-between items-center rounded-xl border border-white/[0.04] bg-white/[0.01] px-3.5 py-2.5 text-xs text-zinc-300 shadow-md">
+            <span className="text-zinc-400 font-semibold">Pullback Architect</span>
+            <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded text-[9px] font-mono">LONG (+24.8%)</span>
+          </div>
+          <div className="flex justify-between items-center rounded-xl border border-white/[0.04] bg-white/[0.01] px-3.5 py-2.5 text-xs text-zinc-300 shadow-md">
+            <span className="text-zinc-400 font-semibold">Channel Rider</span>
+            <span className="text-rose-400 font-bold bg-rose-500/10 px-2 py-0.5 rounded text-[9px] font-mono">SHORT (+1.3%)</span>
+          </div>
         </div>
       </div>
     </div>
@@ -248,81 +246,172 @@ export function ConsensusPreview() {
 
 export function TradePlanPreview() {
   return (
-    <div className="flex h-full w-full flex-col justify-center gap-3 py-1">
-      {/* Trade Plan Box */}
-      <div className="rounded-xl border border-white/10 bg-[#111413] p-4 text-left shadow-md">
-        <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5">
-          <div>
-            <div className="flex items-center gap-2">
-              <h4 className="text-xs font-bold text-white">BTCUSDT Trade Plan</h4>
-              <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" />
-            </div>
-            <p className="font-mono text-[9px] text-zinc-500">Strategy: Pullback Architect</p>
-          </div>
-          <span className="rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 font-mono text-[9px] font-bold text-amber-300">
-            PENDING
-          </span>
-        </div>
-
-        {/* Expected Scenario details */}
-        <div className="mt-3 font-mono text-[10px] text-zinc-400 space-y-1.5">
-          <div className="flex justify-between border-b border-white/[0.02] pb-1.5">
-            <span className="text-zinc-500">Expected Scenario:</span>
-            <span className="text-zinc-200">Rebound from EMA 200</span>
-          </div>
-          <div className="grid grid-cols-3 gap-2 text-center pt-1">
-            <div className="rounded bg-white/[0.02] p-1.5 border border-white/[0.04]">
-              <span className="text-zinc-500 text-[8px] block">Entry Limit</span>
-              <span className="text-zinc-200 font-semibold text-[10px]">67,200</span>
-            </div>
-            <div className="rounded bg-rose-950/10 p-1.5 border border-rose-500/10">
-              <span className="text-rose-400 text-[8px] block">Stop Loss (SL)</span>
-              <span className="text-rose-300 font-semibold text-[10px]">65,800</span>
-            </div>
-            <div className="rounded bg-emerald-950/10 p-1.5 border border-emerald-500/10">
-              <span className="text-emerald-400 text-[8px] block">Target (TP)</span>
-              <span className="text-emerald-300 font-semibold text-[10px]">72,000</span>
-            </div>
-          </div>
-        </div>
+    <div className="w-full text-left font-sans">
+      <div className="flex items-center justify-between border-b border-white/5 pb-2.5 mb-4">
+        <span className="text-[10px] uppercase tracking-wider text-amber-400 font-bold font-mono">Scenario Plan</span>
+        <span className="text-[9px] text-amber-300 bg-amber-500/10 px-2.5 py-0.5 rounded font-mono font-semibold">Pending Trigger</span>
       </div>
 
-      {/* Rationale Quote */}
-      <div className="rounded-lg border border-white/[0.06] bg-white/[0.01] p-2.5 text-left font-mono text-[9px] leading-relaxed text-zinc-300">
-        <span className="text-emerald-400 font-bold">"</span>단기 EMA 200 지지선 부근 터치 시 기술적 반등 시나리오가 유효합니다. 해당 가격대 진입 시 롱 포지션 대기 주문이 실행됩니다.<span className="text-emerald-400 font-bold">"</span>
+      <div className="grid gap-4 mt-2 sm:grid-cols-[1.3fr_0.7fr]">
+        {/* Chart */}
+        <div className="relative h-32 rounded-xl bg-black/40 border border-white/[0.05] overflow-hidden p-1.5 shadow-lg">
+          <div className="absolute inset-0 grid grid-cols-6 grid-rows-4 opacity-[0.02] pointer-events-none">
+            {Array.from({ length: 24 }).map((_, i) => (
+              <div key={i} className="border-r border-b border-white" />
+            ))}
+          </div>
+
+          <svg className="w-full h-full" viewBox="0 0 320 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+            {/* Take Profit target line */}
+            <line x1="10" y1="20" x2="310" y2="20" stroke="#10b981" strokeWidth="1" strokeDasharray="3 3" opacity="0.6" />
+            <text x="15" y="15" fill="#34d399" fontSize="8" fontFamily="monospace">TP: 72,000 (+7.1%)</text>
+
+            {/* Current Price Line */}
+            <line x1="10" y1="48" x2="310" y2="48" stroke="#71717a" strokeWidth="0.8" strokeDasharray="2 2" opacity="0.4" />
+            <text x="15" y="43" fill="#a1a1aa" fontSize="8" fontFamily="monospace">Current: 67,950</text>
+
+            {/* Entry Limit line */}
+            <line x1="10" y1="72" x2="310" y2="72" stroke="#fbbf24" strokeWidth="1.2" strokeDasharray="4 2" opacity="0.9" />
+            <text x="15" y="67" fill="#fbbf24" fontSize="8" fontFamily="monospace" fontWeight="bold">LIMIT ENTRY: 67,200</text>
+
+            {/* Stop Loss target line */}
+            <line x1="10" y1="100" x2="310" y2="100" stroke="#f43f5e" strokeWidth="1" strokeDasharray="3 3" opacity="0.6" />
+            <text x="15" y="95" fill="#f87171" fontSize="8" fontFamily="monospace">SL: 65,800 (-2.1%)</text>
+
+            {/* EMA 200 curve */}
+            <path d="M 10 42 Q 120 62 230 72 T 310 78" stroke="#60a5fa" strokeWidth="1.2" strokeLinecap="round" opacity="0.75" />
+            <text x="235" y="65" fill="#60a5fa" fontSize="8" fontFamily="monospace">EMA 200</text>
+
+            {/* Price trend line path */}
+            <path d="M 10 38 L 45 32 L 80 44 L 115 34 L 150 52 L 185 42 L 220 58 L 255 52 L 285 70 L 295 65" stroke="#e4e4e7" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.8" />
+            
+            {/* Projected rebound line */}
+            <path d="M 295 65 L 305 72 L 312 48 L 320 28" stroke="#fbbf24" strokeWidth="1.2" strokeDasharray="3 2" strokeLinecap="round" opacity="0.8" />
+
+            {/* Trigger dot */}
+            <circle cx="305" cy="72" r="3.5" fill="#fbbf24" />
+          </svg>
+        </div>
+
+        {/* Setup Check details */}
+        <div className="flex flex-col justify-between space-y-2">
+          <div className="rounded-xl border border-white/[0.04] bg-white/[0.01] p-3 text-left space-y-2 text-xs text-zinc-300 shadow-md">
+            <span className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider font-mono">[ Technical Check ]</span>
+            <div className="space-y-1 font-semibold">
+              <div className="flex items-center gap-1.5"><span className="text-emerald-400">✔</span> EMA 200 Rebound</div>
+              <div className="flex items-center gap-1.5"><span className="text-emerald-400">✔</span> RSI Oversold (15m)</div>
+              <div className="flex items-center gap-1.5"><span className="text-emerald-400">✔</span> Consensus 70%</div>
+            </div>
+          </div>
+          <div className="space-y-1.5 text-xs font-mono">
+            <div className="flex justify-between items-center bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg text-amber-300 font-bold">
+              <span>ENTRY LIMIT</span>
+              <span>67,200</span>
+            </div>
+            <div className="flex justify-between items-center bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg text-emerald-300 font-bold">
+              <span>TARGET PNL</span>
+              <span>+35.7% (5x)</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-export function PricingCard({ plan, featured }: { readonly plan: LandingCopy["pricingPlans"][number]; readonly featured: boolean }) {
+export function PricingCard({ 
+  plan, 
+  featured,
+  billingCycle
+}: { 
+  readonly plan: LandingCopy["pricingPlans"][number]; 
+  readonly featured: boolean;
+  readonly billingCycle: "monthly" | "annual";
+}) {
+  const isFree = plan.price.toLowerCase() === "free";
+  const isKorean = plan.cadence.includes("월");
+  let displayPrice = plan.price;
+  let displayCadence = plan.cadence;
+  let subPriceDetail = "";
+
+  if (!isFree) {
+    if (billingCycle === "annual") {
+      if (plan.name === "Tactician") {
+        displayPrice = "$24.65";
+        subPriceDetail = isKorean
+          ? "연간 총 $295.80 (15% 할인)"
+          : "Billed annually at $295.80/yr (15% OFF)";
+      } else if (plan.name === "Elite Operator") {
+        displayPrice = "$41.65";
+        subPriceDetail = isKorean
+          ? "연간 총 $499.80 (15% 할인)"
+          : "Billed annually at $499.80/yr (15% OFF)";
+      }
+      displayCadence = isKorean ? "/ 월" : "/ mo";
+    } else {
+      displayPrice = plan.name === "Tactician" ? "$29" : "$49";
+      displayCadence = isKorean ? "/ 월" : "/ mo";
+    }
+  }
+
+  const badgeText = plan.name === "Observer" 
+    ? "FREE" 
+    : plan.name === "Tactician" 
+      ? "RECOMMENDED" 
+      : "POPULAR";
+
   return (
-    <article className={`rounded-[22px] border p-6 md:p-8 hover:-translate-y-1 transition-all duration-300 ${
+    <article className={`relative rounded-2xl border p-6 md:p-8 hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between h-full ${
       featured 
-        ? "border-emerald-500/35 bg-gradient-to-b from-[#0a1e16] via-[#05140e] to-[#020504] shadow-[0_4px_30px_rgba(16,185,129,0.06),inset_0_1px_1px_rgba(255,255,255,0.06)] hover:border-emerald-500/50" 
+        ? "border-emerald-500/45 bg-gradient-to-b from-[#0a2016] via-[#05160f] to-[#020605] shadow-[0_12px_40px_rgba(16,185,129,0.15),inset_0_1px_1px_rgba(255,255,255,0.06)] hover:border-emerald-500/60 md:scale-105 z-10" 
         : "border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] hover:border-emerald-500/20"
     }`}>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h3 className="text-2xl font-bold text-white tracking-tight">{plan.name}</h3>
-          <p className="mt-3 max-w-[42ch] text-sm leading-6 text-zinc-400 break-keep">{plan.description}</p>
+      {featured && (
+        <div className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-emerald-500 via-emerald-400 to-emerald-600 rounded-t-2xl shadow-[0_1px_10px_rgba(16,185,129,0.5)] pointer-events-none" />
+      )}
+      <div>
+        <div className="min-h-[130px] flex flex-col justify-between">
+          <div className="flex items-start justify-between gap-4">
+            <h3 className="text-2xl font-bold text-white tracking-tight">{plan.name}</h3>
+            <span className={`whitespace-nowrap font-mono text-[9px] px-2.5 py-0.5 rounded-full ${
+              featured
+                ? "text-emerald-300 bg-emerald-500/15 border border-emerald-500/30"
+                : "text-zinc-400 bg-white/5 border border-white/10"
+            }`}>
+              {badgeText}
+            </span>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-zinc-400 break-keep flex-1">{plan.description}</p>
         </div>
-        <span className="whitespace-nowrap font-mono text-[10px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
-          {featured ? "POPULAR" : "BEST VALUE"}
-        </span>
+
+        <div className="mt-8 min-h-[72px] flex flex-col justify-end">
+          <div className="flex items-end gap-1.5">
+            <span className="text-4xl font-bold tracking-tight text-white font-mono">{displayPrice}</span>
+            <span className="pb-1 text-zinc-500 text-xs font-semibold">{displayCadence}</span>
+            {billingCycle === "annual" && !isFree && (
+              <span className="ml-2 bg-emerald-500/10 text-emerald-400 text-[9px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/20">
+                {isKorean ? "15% 할인" : "15% OFF"}
+              </span>
+            )}
+          </div>
+          {subPriceDetail && (
+            <p className="mt-1 text-[11px] text-zinc-500 font-semibold">{subPriceDetail}</p>
+          )}
+        </div>
+
+        <Link 
+          href={plan.name === "Observer" ? "/leaderboard" : "/account"} 
+          className={`mt-8 inline-flex w-full justify-center rounded-full px-5 py-3.5 text-sm font-bold text-white transition active:scale-[0.99] duration-300 ${
+            featured 
+              ? "bg-emerald-500 shadow-neon-emerald hover:bg-emerald-400" 
+              : "bg-white/[0.06] border border-white/10 hover:bg-white/[0.1] hover:border-white/20"
+          }`}
+        >
+          {plan.cta}
+        </Link>
       </div>
-      <div className="mt-8 flex items-end gap-2">
-        <span className="text-5xl font-bold tracking-tight text-white">{plan.price}</span>
-        <span className="pb-2 text-zinc-500 text-sm">{plan.cadence}</span>
-      </div>
-      <Link href={featured ? "/leaderboard" : "/account"} className={`mt-9 inline-flex w-full justify-center rounded-full px-5 py-3.5 text-sm font-semibold text-white transition active:scale-[0.99] ${
-        featured 
-          ? "bg-emerald-500 shadow-neon-emerald hover:bg-emerald-400" 
-          : "bg-white/[0.06] border border-white/10 hover:bg-white/[0.1]"
-      }`}>
-        {plan.cta}
-      </Link>
-      <div className="mt-9 space-y-4 text-sm text-zinc-300">
+
+      <div className="mt-8 space-y-4 text-sm text-zinc-300">
         {plan.features.map((feature) => (
           <p key={feature} className="flex gap-3">
             <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-300 mt-0.5">
@@ -338,7 +427,7 @@ export function PricingCard({ plan, featured }: { readonly plan: LandingCopy["pr
 
 export function ProductProofCard({ copy }: { readonly copy: LandingCopy }) {
   return (
-    <div className="rounded-[20px] border border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] p-5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] hover:-translate-y-1 transition-all duration-300">
+    <div className="rounded-xl border border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] p-5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] hover:-translate-y-1 transition-all duration-300">
       <div className="flex items-start gap-4">
         <span className="grid size-12 place-items-center rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
           <ShieldCheck size={26} weight="bold" />
@@ -355,7 +444,7 @@ export function ProductProofCard({ copy }: { readonly copy: LandingCopy }) {
 
 export function AlertPreview() {
   return (
-    <div className="rounded-[20px] border border-white/[0.08] bg-gradient-to-b from-[#111413] to-[#080a09] p-5 shadow-xl hover:-translate-y-1 transition-all duration-300">
+    <div className="rounded-xl border border-white/[0.08] bg-gradient-to-b from-[#111413] to-[#080a09] p-5 shadow-xl hover:-translate-y-1 transition-all duration-300">
       <div className="mb-4 flex items-center gap-3">
         <span className="grid size-10 place-items-center rounded-full bg-sky-500 text-white shadow-[0_0_15px_rgba(14,165,233,0.3)]">
           <TelegramLogo size={20} weight="fill" />
@@ -413,7 +502,7 @@ export function LandingFooter({ copy }: { readonly copy: LandingCopy }) {
 
 function MiniChart({ tall = false }: { readonly tall?: boolean }) {
   return (
-    <div className={`relative overflow-hidden rounded-[14px] bg-gradient-to-b from-[#0a0f0d] to-[#040605] border border-white/[0.03] ${tall ? "h-52" : "h-44"}`}>
+    <div className={`relative overflow-hidden rounded-lg bg-gradient-to-b from-[#0a0f0d] to-[#040605] border border-white/[0.03] ${tall ? "h-52" : "h-44"}`}>
       <ChartLineUp className="absolute left-4 top-4 text-emerald-400" size={24} weight="bold" />
       <div className="absolute inset-x-5 top-1/2 border-t border-dashed border-emerald-500/25" />
       <div className="absolute bottom-5 left-5 right-5 flex items-end gap-1.5">
