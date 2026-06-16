@@ -15,9 +15,9 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.ai.factory import get_ai_provider, provider_status
+from app.ai.factory import provider_status
 from app.ai.context import build_management_review_context, build_trade_review_context
-from app.ai.mock_provider import MockAIProvider
+from app.ai.review_logging import run_position_management_with_logging, run_review_with_logging
 from app.clients.binance_client import ALLOWED_INTERVALS, ALLOWED_SYMBOLS
 from app.clients.market_data_client import MarketDataClient
 from app.core.config import get_settings
@@ -83,7 +83,6 @@ from app.repositories import (
     create_candidate_trade,
     create_market_snapshot,
     create_position_management_review,
-    create_provider_call_log,
     create_trade_plan,
     create_trader_run_log,
     from_json,
@@ -435,126 +434,6 @@ def serialize_record_for_ui(record, *, include_payload: bool = False) -> dict:
             data.setdefault("riskFlags", review.get("riskFlags") or [])
             data.setdefault("riskLevel", review.get("riskLevel"))
     return data
-
-
-async def run_review_with_logging(db: Session, payload: TradeReviewPayload, provider_name: str):
-    provider = get_ai_provider(settings, provider_name)
-    attempts = 2 if provider_name == "gemini" and provider.name == "gemini" else 1
-    last_error: Optional[Exception] = None
-
-    for _ in range(attempts):
-        start = time.perf_counter()
-        try:
-            review = await provider.review_trade_candidate(payload)
-            latency_ms = int((time.perf_counter() - start) * 1000)
-            create_provider_call_log(
-                db,
-                provider=provider.name,
-                model=provider.model,
-                success=True,
-                latency_ms=latency_ms,
-                decision=review.decision,
-                symbol=payload.symbol,
-                trader_id=payload.trader.id,
-            )
-            return review
-        except Exception as exc:
-            last_error = exc
-            latency_ms = int((time.perf_counter() - start) * 1000)
-            create_provider_call_log(
-                db,
-                provider=provider.name,
-                model=getattr(provider, "model", provider_name),
-                success=False,
-                latency_ms=latency_ms,
-                symbol=payload.symbol,
-                trader_id=payload.trader.id,
-                error_message=sanitize_error_message(str(exc)),
-            )
-
-    if settings.ai_missing_key_fallback_to_mock:
-        start = time.perf_counter()
-        mock = MockAIProvider(fallback=True)
-        review = await mock.review_trade_candidate(payload)
-        latency_ms = int((time.perf_counter() - start) * 1000)
-        create_provider_call_log(
-            db,
-            provider=mock.name,
-            model=mock.model,
-            success=True,
-            latency_ms=latency_ms,
-            decision=review.decision,
-            symbol=payload.symbol,
-            trader_id=payload.trader.id,
-            status="fallback",
-            error_message=sanitize_error_message(f"Fallback after {provider_name} failure: {last_error}"),
-        )
-        return review
-
-    raise RuntimeError(str(last_error) if last_error else "AI provider call failed.")
-
-
-async def run_position_management_with_logging(
-    db: Session,
-    payload: PositionManagementPayload,
-    provider_name: str,
-) -> PositionManagementResult:
-    provider = get_ai_provider(settings, provider_name)
-    attempts = 2 if provider_name == "gemini" and provider.name == "gemini" else 1
-    last_error: Optional[Exception] = None
-
-    for _ in range(attempts):
-        start = time.perf_counter()
-        try:
-            review = await provider.review_position_management(payload)
-            latency_ms = int((time.perf_counter() - start) * 1000)
-            create_provider_call_log(
-                db,
-                provider=provider.name,
-                model=provider.model,
-                success=True,
-                latency_ms=latency_ms,
-                decision=review.decision,
-                symbol=payload.symbol,
-                trader_id=payload.trader.id,
-                status="position_management",
-            )
-            return review
-        except Exception as exc:
-            last_error = exc
-            latency_ms = int((time.perf_counter() - start) * 1000)
-            create_provider_call_log(
-                db,
-                provider=provider.name,
-                model=getattr(provider, "model", provider_name),
-                success=False,
-                latency_ms=latency_ms,
-                symbol=payload.symbol,
-                trader_id=payload.trader.id,
-                status="position_management_error",
-                error_message=sanitize_error_message(str(exc)),
-            )
-
-    if settings.ai_missing_key_fallback_to_mock:
-        start = time.perf_counter()
-        mock = MockAIProvider(fallback=True)
-        review = await mock.review_position_management(payload)
-        latency_ms = int((time.perf_counter() - start) * 1000)
-        create_provider_call_log(
-            db,
-            provider=mock.name,
-            model=mock.model,
-            success=True,
-            latency_ms=latency_ms,
-            decision=review.decision,
-            symbol=payload.symbol,
-            trader_id=payload.trader.id,
-            status="position_management_fallback",
-            error_message=sanitize_error_message(f"Fallback after {provider_name} failure: {last_error}"),
-        )
-        return review
-
-    raise RuntimeError(str(last_error) if last_error else "Position management provider call failed.")
 
 
 def normalize_locale(locale: Optional[str]) -> str:
@@ -1306,7 +1185,7 @@ async def run_management_reviews(
             **management_context,
         )
         try:
-            review = await run_position_management_with_logging(db, payload, clean_provider)
+            review = await run_position_management_with_logging(db, payload, clean_provider, settings=settings)
             if event.eventType == PRICE_SHOCK_EVENT_TYPE:
                 review.nextReviewInSeconds = max(60, int(settings.price_shock_review_seconds or 120))
             applied_actions = apply_management_actions(
@@ -3614,7 +3493,7 @@ async def run_trader_cycle(
                         locale=clean_locale,
                         **build_trade_review_context(db, strategy.profile.id, clean_symbol),
                     )
-                    review = await run_review_with_logging(db, review_payload, requested_provider)
+                    review = await run_review_with_logging(db, review_payload, requested_provider, settings=settings)
                     review_record = create_ai_review(db, record_ids["runId"], clean_symbol, strategy.profile.id, review)
                     plan = trade_plan_from_review(clean_symbol, candidate, review)
                     if review.decision in {"APPROVE", "ADJUST_AND_APPROVE"}:
@@ -4341,7 +4220,7 @@ async def ai_review_demo(request: RunCycleRequest, provider: Optional[str] = Que
             locale=normalize_locale(request.locale),
             **build_trade_review_context(db, strategy.profile.id, clean_symbol),
         )
-        review = await run_review_with_logging(db, review_payload, requested_provider)
+        review = await run_review_with_logging(db, review_payload, requested_provider, settings=settings)
         review_record = create_ai_review(db, run_id, clean_symbol, strategy.profile.id, review)
         plan = trade_plan_from_review(clean_symbol, candidate, review)
         plan_record = None

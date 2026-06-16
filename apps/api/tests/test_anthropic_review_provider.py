@@ -1,0 +1,220 @@
+import pytest
+
+import app.main as main
+from app.db import ProviderCallLogRecord, init_db, reset_db_engine, session_scope
+from app.traders.models import ManagedExposure, ManagementEvent, PositionManagementPayload, TradeReviewPayload
+from app.traders.registry import get_strategy
+
+
+def sample_review_payload() -> TradeReviewPayload:
+    strategy = get_strategy("channel-rider")
+    candidate = strategy.evaluate(
+        {
+            "symbol": "BTCUSDT",
+            "price": 66000.0,
+            "timeframes": {
+                "15m": {"close": 66000, "rsi14": 42, "atr14": 120, "volumeZscore": 1.2, "trend": "UP"},
+                "1h": {"close": 66000, "rsi14": 45, "atr14": 320, "volumeZscore": 1.0, "trend": "UP"},
+                "4h": {"close": 66000, "ema20": 65500, "ema50": 64000, "rsi14": 55, "trend": "UP"},
+            },
+            "derivatives": {"fundingRate": 0.0001, "openInterest": 1000000},
+            "marketRegime": {"primary": "trend"},
+        }
+    )
+    return TradeReviewPayload(
+        trader=strategy.profile,
+        symbol="BTCUSDT",
+        marketSnapshot={"symbol": "BTCUSDT", "price": 66000.0, "timeframes": {}, "derivatives": {}},
+        candidate=candidate,
+        locale="ko",
+    )
+
+
+def sample_management_payload() -> PositionManagementPayload:
+    strategy = get_strategy("channel-rider")
+    return PositionManagementPayload(
+        trader=strategy.profile,
+        symbol="BTCUSDT",
+        marketSnapshot={"symbol": "BTCUSDT", "price": 66000.0, "timeframes": {}, "derivatives": {}},
+        event=ManagementEvent(
+            eventType="position_heartbeat",
+            phase="OPEN_POSITION",
+            severity="MEDIUM",
+            reason="Scheduled open-position review.",
+            suggestedAction="HOLD",
+        ),
+        exposure=ManagedExposure(
+            kind="position",
+            id=7,
+            status="OPEN",
+            side="LONG",
+            quantity=0.01,
+            entryPrice=65500.0,
+            stopLoss=65000.0,
+            takeProfit=67000.0,
+        ),
+        locale="ko",
+    )
+
+
+@pytest.mark.asyncio
+async def test_anthropic_entry_review_uses_forced_tool_input(monkeypatch):
+    from app.ai.anthropic_provider import AnthropicProvider
+
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "submit_trade_review",
+                        "input": {
+                            "decision": "APPROVE",
+                            "confidence": 84,
+                            "riskLevel": "MEDIUM",
+                            "reviewCode": "ENTRY_REVIEW",
+                            "reviewFacts": [
+                                {
+                                    "code": "entry_geometry_checked",
+                                    "labelKey": "reviewFact.entryGeometryChecked",
+                                    "severity": "info",
+                                }
+                            ],
+                            "riskFlags": ["risk_level:medium"],
+                            "adjustments": [],
+                            "earlyExitRecommendations": ["15m 종가가 진입 근거를 훼손하면 철회"],
+                            "approvalReason": "1차 조건과 리스크 구조가 일치합니다.",
+                            "counterThesis": "채널 하단이 깨지면 진입 근거가 사라집니다.",
+                        },
+                    }
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, *, headers, json):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["body"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr("app.ai.anthropic_provider.httpx.AsyncClient", FakeAsyncClient)
+
+    review = await AnthropicProvider("test-key", "claude-haiku-4-5").review_trade_candidate(sample_review_payload())
+
+    assert review.decision == "APPROVE"
+    assert review.provider == "anthropic"
+    assert review.reviewFacts[0].code == "entry_geometry_checked"
+    assert captured["body"]["tool_choice"] == {"type": "tool", "name": "submit_trade_review"}
+    assert captured["body"]["tools"][0]["strict"] is True
+
+
+@pytest.mark.asyncio
+async def test_anthropic_management_review_uses_forced_tool_input(monkeypatch):
+    from app.ai.anthropic_provider import AnthropicProvider
+
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "submit_position_management_review",
+                        "input": {
+                            "decision": "HOLD",
+                            "confidence": 73,
+                            "riskLevel": "MEDIUM",
+                            "reviewCode": "POSITION_MANAGEMENT_REVIEW",
+                            "reviewFacts": [
+                                {
+                                    "code": "management_event_reviewed",
+                                    "labelKey": "reviewFact.managementEventReviewed",
+                                    "severity": "info",
+                                }
+                            ],
+                            "riskFlags": ["risk_level:medium"],
+                            "actions": [{"type": "HOLD", "reason": "추세 훼손 전까지 유지"}],
+                            "riskChange": "UNCHANGED",
+                            "nextReviewInSeconds": 300,
+                            "rationale": "가격이 아직 관리 범위 안에 있습니다.",
+                            "counterThesis": "65000 이탈 시 손절 기준이 우선입니다.",
+                        },
+                    }
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, *, headers, json):
+            captured["body"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr("app.ai.anthropic_provider.httpx.AsyncClient", FakeAsyncClient)
+
+    review = await AnthropicProvider("test-key", "claude-haiku-4-5").review_position_management(sample_management_payload())
+
+    assert review.decision == "HOLD"
+    assert review.provider == "anthropic"
+    assert review.actions[0].type == "HOLD"
+    assert captured["body"]["tool_choice"] == {"type": "tool", "name": "submit_position_management_review"}
+    assert captured["body"]["tools"][0]["strict"] is True
+
+
+@pytest.mark.asyncio
+async def test_review_logging_persists_provider_failure_after_caller_rolls_back(tmp_path, monkeypatch):
+    from app.ai import review_logging
+
+    db_path = tmp_path / "provider-log.db"
+    reset_db_engine(f"sqlite:///{db_path}")
+    init_db()
+
+    class FailingProvider:
+        name = "anthropic"
+        model = "claude-haiku-4-5"
+
+        async def review_trade_candidate(self, payload):
+            raise ValueError("Provider response did not contain valid JSON.")
+
+    monkeypatch.setattr(review_logging, "get_ai_provider", lambda settings, provider_name: FailingProvider())
+    monkeypatch.setattr(main.settings, "ai_missing_key_fallback_to_mock", False)
+
+    with pytest.raises(RuntimeError):
+        with session_scope() as db:
+            await review_logging.run_review_with_logging(db, sample_review_payload(), "anthropic", settings=main.settings)
+
+    with session_scope() as db:
+        records = db.query(ProviderCallLogRecord).all()
+
+    assert len(records) == 1
+    assert records[0].provider == "anthropic"
+    assert records[0].success is False
+    assert records[0].status == "error"
+
+    reset_db_engine("sqlite:///:memory:")
+    init_db()

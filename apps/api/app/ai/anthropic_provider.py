@@ -1,9 +1,151 @@
-from typing import Any, Dict
+from typing import Any, Dict, Iterable
 
 import httpx
 
-from app.ai.base import BaseAIProvider, entry_approval_prompt, extract_json_object, position_management_review_prompt
+from app.ai.base import (
+    BaseAIProvider,
+    VALID_DECISIONS,
+    VALID_MANAGEMENT_ACTIONS,
+    VALID_MANAGEMENT_DECISIONS,
+    VALID_RISK_LEVELS,
+    entry_approval_prompt,
+    extract_json_object,
+    position_management_review_prompt,
+)
 from app.traders.models import PositionManagementPayload, PositionManagementResult, TradeReviewPayload, TradeReviewResult
+
+
+TRADE_REVIEW_TOOL_NAME = "submit_trade_review"
+MANAGEMENT_REVIEW_TOOL_NAME = "submit_position_management_review"
+
+
+def string_array_schema() -> dict[str, Any]:
+    return {"type": "array", "items": {"type": "string"}}
+
+
+def review_fact_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "code": {"type": "string"},
+            "labelKey": {"type": "string"},
+            "severity": {"type": "string", "enum": ["info", "warn", "error"]},
+            "detail": {"type": "string"},
+            "value": {"type": "string"},
+        },
+        "required": ["code", "labelKey", "severity"],
+        "additionalProperties": False,
+    }
+
+
+def tool_definition(name: str, description: str, schema: dict[str, Any]) -> dict[str, Any]:
+    return {"name": name, "description": description, "strict": True, "input_schema": schema}
+
+
+def trade_review_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "decision": {"type": "string", "enum": sorted(VALID_DECISIONS)},
+            "confidence": {"type": "integer", "description": "Integer confidence from 0 to 100."},
+            "riskLevel": {"type": "string", "enum": sorted(VALID_RISK_LEVELS)},
+            "reviewCode": {"type": "string"},
+            "reviewFacts": {"type": "array", "items": review_fact_schema()},
+            "riskFlags": string_array_schema(),
+            "adjustments": string_array_schema(),
+            "leverageOverride": {"type": "number"},
+            "riskPercentOverride": {"type": "number"},
+            "earlyExitRecommendations": string_array_schema(),
+            "approvalReason": {"type": "string"},
+            "counterThesis": {"type": "string"},
+        },
+        "required": [
+            "decision",
+            "confidence",
+            "riskLevel",
+            "reviewCode",
+            "reviewFacts",
+            "riskFlags",
+            "adjustments",
+            "earlyExitRecommendations",
+            "approvalReason",
+            "counterThesis",
+        ],
+        "additionalProperties": False,
+    }
+
+
+def management_action_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "type": {"type": "string", "enum": sorted(VALID_MANAGEMENT_ACTIONS)},
+            "price": {"type": "number"},
+            "quantityFraction": {"type": "number", "description": "Fraction from 0 to 1."},
+            "reason": {"type": "string"},
+        },
+        "required": ["type", "reason"],
+        "additionalProperties": False,
+    }
+
+
+def management_review_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "decision": {"type": "string", "enum": sorted(VALID_MANAGEMENT_DECISIONS)},
+            "confidence": {"type": "integer", "description": "Integer confidence from 0 to 100."},
+            "riskLevel": {"type": "string", "enum": sorted(VALID_RISK_LEVELS)},
+            "reviewCode": {"type": "string"},
+            "reviewFacts": {"type": "array", "items": review_fact_schema()},
+            "riskFlags": string_array_schema(),
+            "actions": {"type": "array", "items": management_action_schema()},
+            "riskChange": {"type": "string"},
+            "nextReviewInSeconds": {"type": "integer", "description": "Seconds until the next review, from 60 to 3600."},
+            "rationale": {"type": "string"},
+            "counterThesis": {"type": "string"},
+        },
+        "required": [
+            "decision",
+            "confidence",
+            "riskLevel",
+            "reviewCode",
+            "reviewFacts",
+            "riskFlags",
+            "actions",
+            "riskChange",
+            "nextReviewInSeconds",
+            "rationale",
+            "counterThesis",
+        ],
+        "additionalProperties": False,
+    }
+
+
+def extract_anthropic_tool_input(data: dict[str, Any], tool_name: str) -> dict[str, Any]:
+    for block in tool_blocks(data.get("content", [])):
+        if block.get("name") != tool_name:
+            continue
+        tool_input = block.get("input")
+        if isinstance(tool_input, dict):
+            return tool_input
+        raise ValueError("Anthropic tool input was not an object.")
+    text = "\n".join(block.get("text", "") for block in text_blocks(data.get("content", [])))
+    if text.strip():
+        return extract_json_object(text)
+    raise ValueError(f"Anthropic response did not include {tool_name} tool input.")
+
+
+def tool_blocks(content: Any) -> Iterable[dict[str, Any]]:
+    if not isinstance(content, list):
+        return []
+    return [block for block in content if isinstance(block, dict) and block.get("type") == "tool_use"]
+
+
+def text_blocks(content: Any) -> Iterable[dict[str, Any]]:
+    if not isinstance(content, list):
+        return []
+    return [block for block in content if isinstance(block, dict) and block.get("type") == "text"]
 
 
 class AnthropicProvider(BaseAIProvider):
@@ -18,10 +160,18 @@ class AnthropicProvider(BaseAIProvider):
     ) -> TradeReviewResult:
         body: Dict[str, Any] = {
             "model": self.model,
-            "max_tokens": 900,
+            "max_tokens": 1200,
             "temperature": 0.2,
-            "system": "Return only strict JSON.",
+            "system": "Use the required tool to submit the review. Do not answer in plain text.",
             "messages": [{"role": "user", "content": entry_approval_prompt(payload)}],
+            "tools": [
+                tool_definition(
+                    TRADE_REVIEW_TOOL_NAME,
+                    "Submit the second-stage paper-trade entry review. Use Korean text for human-readable rationale when the prompt locale is Korean. Do not include a user summary.",
+                    trade_review_schema(),
+                )
+            ],
+            "tool_choice": {"type": "tool", "name": TRADE_REVIEW_TOOL_NAME},
         }
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
@@ -34,18 +184,25 @@ class AnthropicProvider(BaseAIProvider):
             )
             response.raise_for_status()
             data = response.json()
-        text = data["content"][0]["text"]
-        return self.normalize_result(extract_json_object(text))
+        return self.normalize_result(extract_anthropic_tool_input(data, TRADE_REVIEW_TOOL_NAME))
 
     async def review_position_management(
         self, payload: PositionManagementPayload
     ) -> PositionManagementResult:
         body: Dict[str, Any] = {
             "model": self.model,
-            "max_tokens": 900,
+            "max_tokens": 1200,
             "temperature": 0.2,
-            "system": "Return only strict JSON.",
+            "system": "Use the required tool to submit the management review. Do not answer in plain text.",
             "messages": [{"role": "user", "content": position_management_review_prompt(payload)}],
+            "tools": [
+                tool_definition(
+                    MANAGEMENT_REVIEW_TOOL_NAME,
+                    "Submit a position-management review for an active paper order or paper position. Use Korean text for rationale and action reasons when the prompt locale is Korean.",
+                    management_review_schema(),
+                )
+            ],
+            "tool_choice": {"type": "tool", "name": MANAGEMENT_REVIEW_TOOL_NAME},
         }
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
@@ -58,5 +215,4 @@ class AnthropicProvider(BaseAIProvider):
             )
             response.raise_for_status()
             data = response.json()
-        text = data["content"][0]["text"]
-        return self.normalize_management_result(extract_json_object(text))
+        return self.normalize_management_result(extract_anthropic_tool_input(data, MANAGEMENT_REVIEW_TOOL_NAME))
