@@ -200,6 +200,23 @@ def test_anthropic_json_output_error_includes_stop_reason_and_content_types():
     assert "content_types=redacted_thinking,text" in message
 
 
+def test_anthropic_json_output_parse_error_includes_preview():
+    from app.ai.anthropic_provider import extract_anthropic_json_output
+
+    with pytest.raises(ValueError) as exc:
+        extract_anthropic_json_output(
+            {
+                "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": "I cannot return that as JSON."}],
+            }
+        )
+
+    message = str(exc.value)
+    assert "stop_reason=end_turn" in message
+    assert "content_types=text" in message
+    assert "I cannot return that as JSON." in message
+
+
 @pytest.mark.asyncio
 async def test_anthropic_entry_review_still_accepts_tool_input_compatibility(monkeypatch):
     from app.ai.anthropic_provider import AnthropicProvider

@@ -139,12 +139,25 @@ def extract_anthropic_tool_input(data: dict[str, Any], tool_name: str) -> dict[s
 def extract_anthropic_json_output(data: dict[str, Any]) -> dict[str, Any]:
     text = "\n".join(block.get("text", "") for block in text_blocks(data.get("content", []))).strip()
     if text:
-        return extract_json_object(text)
+        try:
+            return extract_json_object(text)
+        except ValueError as exc:
+            raise ValueError(anthropic_response_error(data, text)) from exc
 
     content_types = ",".join(content_block_types(data.get("content", []))) or "none"
     stop_reason = str(data.get("stop_reason") or "unknown")
     raise ValueError(
         f"Anthropic JSON output was empty; stop_reason={stop_reason}; content_types={content_types}"
+    )
+
+
+def anthropic_response_error(data: dict[str, Any], text: str) -> str:
+    content_types = ",".join(content_block_types(data.get("content", []))) or "none"
+    stop_reason = str(data.get("stop_reason") or "unknown")
+    preview = " ".join(text.split())[:280]
+    return (
+        "Anthropic JSON output could not be parsed; "
+        f"stop_reason={stop_reason}; content_types={content_types}; preview={preview}"
     )
 
 
