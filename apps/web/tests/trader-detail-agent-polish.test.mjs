@@ -119,7 +119,7 @@ test("pullback scale-entry cancellation copy is localized instead of raw templat
   assert.doesNotMatch(translated, /scale_entry_cancelled|staged_pullback|CANCEL_REMAINING_ORDERS/);
 });
 
-test("chart marks already-hit take-profit levels as completed and prefers latest AI management levels", () => {
+test("chart marks completed take-profit levels from backend state and prefers latest AI management levels", () => {
   assert.equal(
     overlayHelpers.isFutureTakeProfit({ side: "SHORT", targetPrice: 62524.3, latestPrice: 62393.3 }),
     false,
@@ -132,8 +132,29 @@ test("chart marks already-hit take-profit levels as completed and prefers latest
   );
   assert.match(chartSource, /managementReviews/, "chart should receive AI management reviews for latest stop\\/target overrides");
   assert.match(chartSource, /latestManagedStopLoss/, "position stop overlays should prefer the latest AI-managed stop");
-  assert.match(chartSource, /takeProfitState/, "take-profit overlays should derive active vs completed state against latest price and side");
-  assert.match(chartSource, /takeProfitDone/, "already-hit take-profit overlays should remain as completed markers");
+  assert.equal(
+    overlayHelpers.shouldMarkTakeProfitCompleted({
+      exposureKind: "position",
+      side: "SHORT",
+      targetPrice: 62524.3,
+      latestPrice: 62393.3
+    }),
+    false,
+    "live position TP should not become completed from latest-price inference alone"
+  );
+  assert.equal(
+    overlayHelpers.shouldMarkTakeProfitCompleted({
+      exposureKind: "position",
+      side: "SHORT",
+      targetPrice: 62524.3,
+      latestPrice: 62393.3,
+      completed: "filled"
+    }),
+    true,
+    "filled target status from backend should render a completed marker"
+  );
+  assert.match(chartSource, /takeProfitState/, "take-profit overlays should derive active vs completed state from backend status");
+  assert.match(chartSource, /takeProfitDone/, "backend-completed take-profit overlays should remain as completed markers");
   assert.match(chartSource, /detail\.takeProfitCompleted/, "completed take-profit marker labels should be localized");
 });
 

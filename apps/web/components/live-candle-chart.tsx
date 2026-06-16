@@ -366,6 +366,7 @@ export function LiveCandleChart({
     }
 
     for (const [index, position] of visibleOpenPaperPositions.entries()) {
+      const payload = recordValue(position.payload);
       const entryPrice = firstFiniteNumber(position.entryPrice, position.averageEntryPrice, position.avgEntryPrice, position.openPrice);
       if (entryPrice !== null) {
         const side = overlaySideLabel(position.side);
@@ -383,13 +384,25 @@ export function LiveCandleChart({
       }
       const takeProfit = firstFiniteNumber(position.takeProfit, position.takeProfitPrice, position.take_profit_price);
       if (takeProfit !== null) {
-        const target = takeProfitState({ side: position.side, targetPrice: takeProfit, latestPrice, t });
+        const target = takeProfitState({
+          side: position.side,
+          targetPrice: takeProfit,
+          latestPrice,
+          completed: position.takeProfitStatus ?? position.take_profit_status ?? payload?.takeProfitStatus ?? payload?.take_profit_status,
+          t
+        });
         lines.push({ value: takeProfit, label: target.label, tone: target.tone });
       }
       for (const [targetIndex, target] of asArray<Record<string, any>>(position.takeProfits ?? position.take_profits).entries()) {
         const price = firstFiniteNumber(target?.price, target?.targetPrice);
         if (price !== null) {
-          const targetState = takeProfitState({ side: position.side, targetPrice: price, latestPrice, t });
+          const targetState = takeProfitState({
+            side: position.side,
+            targetPrice: price,
+            latestPrice,
+            completed: target?.status ?? target?.state ?? target?.completed ?? target?.filled ?? target?.filledAt ?? target?.filled_at,
+            t
+          });
           lines.push({ value: price, label: `${t("chart.position")} ${targetState.label} ${targetIndex + 1}`, tone: targetState.tone });
         }
       }
@@ -1949,15 +1962,17 @@ function takeProfitState({
   side,
   targetPrice,
   latestPrice,
+  completed,
   t
 }: {
   exposureKind?: "plan" | "order" | "position" | "event";
   side?: unknown;
   targetPrice: unknown;
   latestPrice: unknown;
+  completed?: unknown;
   t: (key: string) => string;
 }): { label: string; tone: OverlayTone } {
-  if (shouldMarkTakeProfitCompleted({ exposureKind, side, targetPrice, latestPrice })) {
+  if (shouldMarkTakeProfitCompleted({ exposureKind, side, targetPrice, latestPrice, completed })) {
     return { label: t("detail.takeProfitCompleted"), tone: "takeProfitDone" };
   }
   return { label: t("chart.takeProfit"), tone: "takeProfit" };

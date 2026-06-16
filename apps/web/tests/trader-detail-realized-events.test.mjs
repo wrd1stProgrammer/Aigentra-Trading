@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import ts from "typescript";
 
-test("realized take-profit and stop-loss events are promoted into latest scenarios", () => {
+test("realized take-profit and stop-loss events can build completed event rows", () => {
   // Given: trade events include realized exits that are not AI review records.
   const realizedEvents = loadTsModule("../components/trader-profile-detail/realized-events.ts");
   const t = translator({
@@ -17,7 +17,7 @@ test("realized take-profit and stop-loss events are promoted into latest scenari
     "chart.stopLoss": "손절"
   });
 
-  // When: the timeline view model is built from events.
+  // When: the completed-event view model is built from events.
   const items = realizedEvents.buildRealizedEventTimelineItems({
     events: [
       {
@@ -48,7 +48,7 @@ test("realized take-profit and stop-loss events are promoted into latest scenari
     t
   });
 
-  // Then: take-profit and stop-loss exits are visible as first-class scenario rows, newest first.
+  // Then: take-profit and stop-loss exits can be rendered newest first outside the AI-only scenario feed.
   assert.equal(items.length, 2);
   assert.match(items[0].title, /손절완료/);
   assert.equal(items[0].movement, "손절");
@@ -59,6 +59,22 @@ test("realized take-profit and stop-loss events are promoted into latest scenari
   assert.equal(items[1].movementTone, "good");
   assert.match(items[1].body, /TP1 filled/);
   assert.match(items[1].priceLabel, /62,524/);
+});
+
+test("latest scenario feed is restricted to AI review scenarios", () => {
+  const source = readFileSync(new URL("../components/trader-profile-detail/data.ts", import.meta.url), "utf8");
+
+  assert.match(
+    source,
+    /dedupeScenarioTimelineScenarios\(\s*scenarios\.filter\(\(scenario\) => scenario\.source === "review"\)/s,
+    "latest scenarios should filter to AI review records before deduping"
+  );
+  assert.doesNotMatch(
+    source,
+    /buildRealizedEventTimelineItems\(\{/,
+    "realized trade events should not be injected into the AI review scenario feed"
+  );
+  assert.doesNotMatch(source, /planScenario/, "trade plans should stay out of the AI review scenario feed");
 });
 
 function translator(messages) {

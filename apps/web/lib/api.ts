@@ -365,6 +365,7 @@ export type TraderDetailBundle = {
   managementReviews: ManagementReview[];
   events: PaperTradeEvent[];
   dailyPnl: { date: string; pnl: number }[];
+  reviewCountsByDay?: { date: string; count: number }[];
   tradePlans: Record<string, any>[];
 };
 
@@ -891,4 +892,3 @@ export function getTraderAiReviews(traderId: string, symbol: string, limit = 40)
     `/api/ai/reviews?${params.toString()}`
   );
 }
-

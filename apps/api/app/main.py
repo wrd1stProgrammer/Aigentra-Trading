@@ -2407,16 +2407,16 @@ def build_trader_detail_payload(
     reviews_limit: int = 20,
     events_limit: int = 10,
 ) -> dict[str, Any]:
-    from sqlalchemy import Date, func
     from datetime import date
     if summaries is None:
         summaries = [trader_summary_for_profile(db, trader, clean_symbol)]
     trade_plans = list_filtered_records(db, TradePlanRecord, limit=30, symbol=clean_symbol, trader_id=trader_id, include_payload=True)
     
     # Aggregate daily realized PnL for monthly calendar (extremely lightweight)
+    pnl_date_key = func.date(TradeEventRecord.created_at)
     stmt = (
         select(
-            func.cast(TradeEventRecord.created_at, Date).label("date_key"),
+            pnl_date_key.label("date_key"),
             func.sum(TradeEventRecord.realized_pnl).label("pnl_sum")
         )
         .where(
@@ -2424,8 +2424,8 @@ def build_trader_detail_payload(
             TradeEventRecord.symbol == clean_symbol,
             TradeEventRecord.realized_pnl != 0
         )
-        .group_by(func.cast(TradeEventRecord.created_at, Date))
-        .order_by(func.cast(TradeEventRecord.created_at, Date))
+        .group_by(pnl_date_key)
+        .order_by(pnl_date_key)
     )
     daily_pnl_rows = db.execute(stmt).all()
     daily_pnl = [
@@ -2434,6 +2434,27 @@ def build_trader_detail_payload(
             "pnl": float(r.pnl_sum)
         }
         for r in daily_pnl_rows
+    ]
+    review_date_key = func.date(PositionManagementReviewRecord.created_at)
+    review_count_stmt = (
+        select(
+            review_date_key.label("date_key"),
+            func.count(PositionManagementReviewRecord.id).label("review_count"),
+        )
+        .where(
+            PositionManagementReviewRecord.trader_id == trader_id,
+            PositionManagementReviewRecord.symbol == clean_symbol,
+        )
+        .group_by(review_date_key)
+        .order_by(review_date_key)
+    )
+    review_count_rows = db.execute(review_count_stmt).all()
+    review_counts_by_day = [
+        {
+            "date": r.date_key.isoformat() if isinstance(r.date_key, date) else str(r.date_key),
+            "count": int(r.review_count or 0),
+        }
+        for r in review_count_rows
     ]
 
     return {
@@ -2446,6 +2467,7 @@ def build_trader_detail_payload(
         "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=reviews_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
         "events": list_filtered_records(db, TradeEventRecord, limit=events_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
         "dailyPnl": daily_pnl,
+        "reviewCountsByDay": review_counts_by_day,
         "tradePlans": trade_plans,
         "cacheHit": False,
         "stale": False,
@@ -3878,7 +3900,7 @@ async def league_trader_trade_history(
         TradeEventRecord.trader_id == trader_id,
         TradeEventRecord.symbol == clean_symbol
     )
-    stmt = stmt.where(TradeEventRecord.event_type.in_(event_types))
+    stmt = stmt.where(func.upper(TradeEventRecord.event_type).in_(event_types))
     events = db.execute(stmt.order_by(desc(TradeEventRecord.created_at)).limit(1000)).scalars().all()
     
     # 3. Group and aggregate records by hour/minute, side, exit price, and symbol

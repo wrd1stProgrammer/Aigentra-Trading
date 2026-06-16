@@ -48,14 +48,36 @@ test("live candle chart treats paper trading statuses as open exposure", () => {
   }
 });
 
-test("pending order take-profit targets are not marked completed before entry fills", () => {
+test("take-profit targets are completed only by explicit backend status", () => {
   // Given: a short pending order whose target is already below the latest price path.
   const args = { side: "SHORT", targetPrice: 62524.3, latestPrice: 62393.3 };
 
-  // When/Then: completion badges are only valid for filled positions, not pending orders.
+  // When/Then: price-path inference alone must not mark live exposures as done.
   assert.equal(overlayHelpers.shouldMarkTakeProfitCompleted({ ...args, exposureKind: "order" }), false);
   assert.equal(overlayHelpers.shouldMarkTakeProfitCompleted({ ...args, exposureKind: "plan" }), false);
-  assert.equal(overlayHelpers.shouldMarkTakeProfitCompleted({ ...args, exposureKind: "position" }), true);
+  assert.equal(overlayHelpers.shouldMarkTakeProfitCompleted({ ...args, exposureKind: "position" }), false);
+  assert.equal(overlayHelpers.shouldMarkTakeProfitCompleted({ ...args, exposureKind: "position", completed: "filled" }), true);
+  assert.equal(overlayHelpers.shouldMarkTakeProfitCompleted({ ...args, exposureKind: "event" }), true);
+});
+
+test("managed stop lookup does not mix position and order exposure ids", () => {
+  const records = [
+    {
+      symbol: "BTCUSDT",
+      createdAt: "2026-06-13T10:00:00Z",
+      exposure: { kind: "order", id: 7 },
+      payload: { metrics: { stopLoss: 72000 } }
+    },
+    {
+      symbol: "BTCUSDT",
+      createdAt: "2026-06-13T09:00:00Z",
+      exposure: { kind: "position", id: 7 },
+      payload: { metrics: { stopLoss: 69000 } }
+    }
+  ];
+
+  assert.equal(overlayHelpers.latestManagedStopLoss({ records, symbol: "BTCUSDT", positionId: 7 }), 69000);
+  assert.equal(overlayHelpers.latestManagedStopLoss({ records, symbol: "BTCUSDT", orderId: 7 }), 72000);
 });
 
 test("chart overlays do not mix saved open orders with latest plan preview lines", () => {

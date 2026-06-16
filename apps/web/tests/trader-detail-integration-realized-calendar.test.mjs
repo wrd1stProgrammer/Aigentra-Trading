@@ -7,8 +7,12 @@ const chartSource = readFileSync(new URL("../components/trader-profile-detail/ch
 const sidebarSource = readFileSync(new URL("../components/trader-profile-detail/detail-sidebar.tsx", import.meta.url), "utf8");
 
 test("trader detail wires realized events, completed chart markers, and pnl calendar panel", () => {
-  assert.match(pageSource, /buildScenarioTimelineItems\(\{\s*scenarios,\s*events,/s);
+  assert.match(pageSource, /buildScenarioTimelineItems\(\{\s*scenarios,\s*reviews,/s);
+  assert.doesNotMatch(pageSource, /buildScenarioTimelineItems\(\{\s*scenarios,\s*events,/s);
   assert.match(pageSource, /paperEvents=\{events\}/);
+  assert.match(pageSource, /reviewCountsByDay/);
+  assert.match(pageSource, /scenarioCountByDate/);
+  assert.match(pageSource, /historyItems\.slice\(0, eventsLimit\)/);
   assert.match(pageSource, /DetailSidebar/);
   assert.match(pageSource, /buildMonthlyPnlCalendar/);
   assert.match(chartSource, /paperEvents/);

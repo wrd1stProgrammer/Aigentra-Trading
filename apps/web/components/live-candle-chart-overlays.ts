@@ -35,6 +35,7 @@ export type FutureTakeProfitArgs = {
 
 export type TakeProfitCompletionArgs = FutureTakeProfitArgs & {
   readonly exposureKind: "plan" | "order" | "position" | "event";
+  readonly completed?: unknown;
 };
 
 export type ManagedLevelLookup = {
@@ -55,6 +56,7 @@ const OVERLAY_TONE_PRIORITY: Record<OverlayTone, number> = {
   order: 1
 };
 const CLOSED_EXPOSURE_STATUSES = new Set(["CLOSED", "CANCELED", "CANCELLED", "EXPIRED", "REJECTED", "FILLED"]);
+const COMPLETED_TARGET_STATUSES = new Set(["COMPLETED", "DONE", "FILLED", "HIT", "TRIGGERED", "TAKE_PROFIT", "TP_FILLED"]);
 
 export function compactOverlayLines(lines: readonly OverlayLine[]) {
   const ordered = lines.filter((line) => Number.isFinite(line.value)).sort((left, right) => left.value - right.value);
@@ -100,8 +102,9 @@ export function isFutureTakeProfit({ side, targetPrice, latestPrice }: FutureTak
 }
 
 export function shouldMarkTakeProfitCompleted(args: TakeProfitCompletionArgs) {
-  if (args.exposureKind !== "position" && args.exposureKind !== "event") return false;
-  return !isFutureTakeProfit(args);
+  if (args.exposureKind === "event") return true;
+  if (args.exposureKind !== "position") return false;
+  return isCompletedTargetStatus(args.completed);
 }
 
 export function latestManagedStopLoss({ records, symbol, positionId, orderId }: ManagedLevelLookup) {
@@ -183,11 +186,52 @@ function recordMatchesExposure(record: ManagedLevelRecord, symbol: string, posit
   const payload = recordValue(record.payload);
   const event = recordValue(record.event) ?? recordValue(payload?.event);
   const exposure = recordValue(record.exposure) ?? recordValue(payload?.exposure);
-  const recordPositionId = normalizedId(record.positionId ?? record.position_id ?? exposure?.positionId ?? exposure?.position_id ?? exposure?.id ?? event?.positionId);
-  const recordOrderId = normalizedId(record.orderId ?? record.order_id ?? exposure?.orderId ?? exposure?.order_id ?? exposure?.id ?? event?.orderId);
-  if (positionId && recordPositionId) return positionId === recordPositionId;
-  if (orderId && recordOrderId) return orderId === recordOrderId;
+  const kind = exposureKind(exposure);
+  const recordPositionId = normalizedId(
+    record.positionId ??
+      record.position_id ??
+      payload?.positionId ??
+      payload?.position_id ??
+      event?.positionId ??
+      event?.position_id ??
+      (kind === "position" ? exposure?.id : undefined)
+  );
+  const recordOrderId = normalizedId(
+    record.orderId ??
+      record.order_id ??
+      payload?.orderId ??
+      payload?.order_id ??
+      event?.orderId ??
+      event?.order_id ??
+      (kind === "order" ? exposure?.id : undefined)
+  );
+  if (positionId) return Boolean(recordPositionId && positionId === recordPositionId);
+  if (orderId) return Boolean(recordOrderId && orderId === recordOrderId);
   return true;
+}
+
+function exposureKind(exposure: Record<string, unknown> | null) {
+  const normalized = normalizeStatusText(exposure?.kind ?? exposure?.type ?? exposure?.source);
+  if (normalized.includes("ORDER")) return "order";
+  if (normalized.includes("POSITION")) return "position";
+  return null;
+}
+
+function isCompletedTargetStatus(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === "number") return value > 0;
+  const record = recordValue(value);
+  if (record) {
+    return (
+      isCompletedTargetStatus(record.status) ||
+      isCompletedTargetStatus(record.state) ||
+      isCompletedTargetStatus(record.completed) ||
+      isCompletedTargetStatus(record.filled) ||
+      Boolean(record.filledAt ?? record.filled_at ?? record.completedAt ?? record.completed_at)
+    );
+  }
+  const normalized = normalizeStatusText(value);
+  return COMPLETED_TARGET_STATUSES.has(normalized);
 }
 
 function firstFiniteNumber(...values: readonly unknown[]) {

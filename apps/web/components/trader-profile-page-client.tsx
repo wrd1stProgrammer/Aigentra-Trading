@@ -20,11 +20,17 @@ import { formatCurrency, formatDateTime, formatNumber } from "@/lib/format";
 import { useAppContext } from "@/components/app-provider";
 import { buildScenarios, buildStandings, type LeagueSymbol, type TraderScenario } from "@/lib/league";
 import { fallbackTraders } from "@/lib/traders";
-import { buildScenarioTimelineItems, buildTradeHistoryItems } from "@/components/trader-profile-detail/data";
+import { buildScenarioTimelineItems } from "@/components/trader-profile-detail/data";
 import { buildHoldingItems } from "@/components/trader-profile-detail/holdings";
 import { nextLiveDetailAlert, type LiveDetailAlert } from "@/components/trader-profile-detail/live-alerts";
 import { accountStartingEquity, buildMonthlyPnlCalendar, normalizeEquitySnapshots } from "@/components/trader-profile-detail/pnl-calendar";
 import { normalizePlan } from "@/components/trader-profile-detail/plan";
+import {
+  countByUtcDateWithFallback,
+  nextVisibleCount,
+  timelineCountByUtcDate,
+  timelineItemsForUtcDate
+} from "@/components/trader-profile-detail/scenario-window";
 import {
   DetailChart,
   DetailSidebar,
@@ -185,7 +191,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const [symbol, setSymbol] = useState<LeagueSymbol>("BTCUSDT");
   const [selectedScenario, setSelectedScenario] = useState<TraderScenario | null>(null);
   const [liveAlert, setLiveAlert] = useState<LiveDetailAlert | null>(null);
-  const [visibleScenarioCount, setVisibleScenarioCount] = useState(20);
+  const [visibleScenarioCountByDate, setVisibleScenarioCountByDate] = useState<Record<string, number>>({});
   const [reviewsLimit, setReviewsLimit] = useState(40);
   const [eventsLimit, setEventsLimit] = useState(30);
   const [historyItems, setHistoryItems] = useState<TradeHistoryItem[]>([]);
@@ -194,6 +200,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(() => toDateString(new Date()));
   const [weekStart, setWeekStart] = useState<Date>(() => getSunday(new Date()));
+  const [clientHydrated, setClientHydrated] = useState(false);
 
   const handlePrevWeek = useCallback(() => {
     setWeekStart((prev) => {
@@ -221,12 +228,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     });
   }, []);
 
-  const handleLoadMoreHistory = useCallback(() => {
-    setReviewsLimit((current) => current + 20);
-  }, []);
-
-  const loadHistory = useCallback(async (reset = false) => {
-    const nextOffset = reset ? 0 : historyOffset;
+  const loadHistoryPage = useCallback(async (nextOffset: number, reset: boolean) => {
     if (reset) {
       setHistoryHasMore(true);
     }
@@ -246,18 +248,22 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     } finally {
       setLoadingMoreHistory(false);
     }
-  }, [traderId, symbol, historyOffset, locale, t]);
+  }, [traderId, symbol, locale, t]);
+
+  const loadHistory = useCallback(async (reset = false) => {
+    await loadHistoryPage(reset ? 0 : historyOffset, reset);
+  }, [historyOffset, loadHistoryPage]);
 
   useEffect(() => {
-    void loadHistory(true);
-  }, [traderId, symbol]);
+    setClientHydrated(true);
+  }, []);
 
   const liveAlertKeyRef = useRef<string | null>(null);
   const liveAlertHydratedRef = useRef(false);
   const liveAlertContextRef = useRef<string | null>(null);
 
   const fallbackDetailBundle = useMemo<TraderDetailBundle | undefined>(() => {
-    const leaderboardBundle = queryClient.getQueryData<LeaderboardBundle>(leaderboardBundleQueryKey(symbol));
+    const leaderboardBundle = clientHydrated ? queryClient.getQueryData<LeaderboardBundle>(leaderboardBundleQueryKey(symbol)) : undefined;
     const traderFromLeaderboard = leaderboardBundle?.traders?.find((item) => item.id === traderId);
     const trader = traderFromLeaderboard ?? fallback;
     if (!trader) return undefined;
@@ -271,9 +277,10 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       managementReviews: (leaderboardBundle?.managementReviews ?? []).filter((item) => item.traderId === traderId),
       events: [],
       dailyPnl: [],
+      reviewCountsByDay: [],
       tradePlans: []
     };
-  }, [fallback, queryClient, symbol, traderId]);
+  }, [clientHydrated, fallback, queryClient, symbol, traderId]);
 
   const detailQuery = useQuery({
     ...traderDetailBundleQueryOptions(traderId, symbol, reviewsLimit, eventsLimit),
@@ -297,7 +304,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     staleTime: 60_000
   });
 
-  const { trader, summaries, positions, closedPositions, orders, reviews, events, dailyPnl, plans } = useMemo(() => {
+  const { trader, summaries, positions, orders, reviews, events, dailyPnl, reviewCountsByDay, plans } = useMemo(() => {
     const bundle = detailQuery.data;
     const rawPositions = bundle?.positions ?? [];
     const mergedPositions = mergePositions(rawPositions);
@@ -305,11 +312,11 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       trader: bundle?.trader ?? fallback,
       summaries: bundle?.summaries ?? [],
       positions: mergedPositions,
-      closedPositions: bundle?.closedPositions ?? [],
       orders: bundle?.orders ?? [],
       reviews: bundle?.managementReviews ?? [],
       events: bundle?.events ?? [],
       dailyPnl: bundle?.dailyPnl ?? [],
+      reviewCountsByDay: bundle?.reviewCountsByDay ?? [],
       plans: bundle?.tradePlans ?? []
     };
   }, [detailQuery.data, fallback]);
@@ -341,30 +348,22 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const latestPlan = useMemo(() => normalizedPlans[0] ?? normalizePlan(), [normalizedPlans]);
   const chartResult = useMemo(() => ({ tradePlan: latestPlan }), [latestPlan]);
   const scenarioTimelineItems = useMemo(
-    () => buildScenarioTimelineItems({ scenarios, events, plans: normalizedPlans, reviews, locale, t }),
-    [events, normalizedPlans, locale, reviews, scenarios, t]
+    () => buildScenarioTimelineItems({ scenarios, reviews, locale, t }),
+    [locale, reviews, scenarios, t]
   );
-  const visibleScenarioTimelineItems = useMemo(
-    () => scenarioTimelineItems.slice(0, visibleScenarioCount),
-    [scenarioTimelineItems, visibleScenarioCount]
+  const scenarioCountByDate = useMemo(
+    () => countByUtcDateWithFallback(reviewCountsByDay, scenarioTimelineItems),
+    [reviewCountsByDay, scenarioTimelineItems]
   );
+  const loadedScenarioCountByDate = useMemo(() => timelineCountByUtcDate(scenarioTimelineItems), [scenarioTimelineItems]);
+  const selectedScenarioTotal = scenarioCountByDate.get(selectedDate) ?? 0;
+  const selectedScenarioVisibleCount = visibleScenarioCountByDate[selectedDate] ?? 10;
   const filteredTimelineItems = useMemo(() => {
-    return scenarioTimelineItems.filter((item) => {
-      const itemDate = new Date(item.sortMs ?? 0);
-      return toDateString(itemDate) === selectedDate;
-    });
-  }, [scenarioTimelineItems, selectedDate]);
+    return timelineItemsForUtcDate(scenarioTimelineItems, selectedDate, selectedScenarioVisibleCount);
+  }, [scenarioTimelineItems, selectedDate, selectedScenarioVisibleCount]);
   const holdingItems = useMemo(
     () => buildHoldingItems({ standing, positions, orders, latestPlan, symbol, locale, t }),
     [latestPlan, locale, orders, positions, standing, symbol, t]
-  );
-  const tradeHistoryItems = useMemo(
-    () => buildTradeHistoryItems({ events, closedPositions, reviews, plans, symbol, locale, t, limit: 12 }),
-    [closedPositions, events, locale, plans, reviews, symbol, t]
-  );
-  const sidebarTradeHistoryItems = useMemo(
-    () => buildTradeHistoryItems({ events, closedPositions, reviews, plans, symbol, locale, t, limit: eventsLimit }),
-    [closedPositions, events, locale, plans, reviews, symbol, t, eventsLimit]
   );
   const pnlCalendar = useMemo(
     () => buildMonthlyPnlCalendar({
@@ -375,20 +374,27 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     }),
     [equitySnapshotsQuery.data, dailyPnl, locale, standing?.equity, standing?.totalPnl]
   );
-  const timelineRail = visibleScenarioTimelineItems.length > 0;
   const alertContextKey = `${traderId}:${symbol}`;
+  const historyRefreshKey = useMemo(() => {
+    const latestEvent = events[0] ? `${events[0].id ?? ""}:${events[0].eventType ?? events[0].type ?? ""}:${events[0].createdAt ?? events[0].timestamp ?? ""}` : "";
+    const pnlKey = dailyPnl.map((item) => `${item.date}:${item.pnl}`).join("|");
+    return `${traderId}:${symbol}:${latestEvent}:${pnlKey}`;
+  }, [dailyPnl, events, symbol, traderId]);
 
   const lastTraderIdRef = useRef<string | null>(null);
   const lastSymbolRef = useRef<string | null>(null);
+  const lastHistoryRefreshKeyRef = useRef<string | null>(null);
+  const lastScenarioHydrationKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     const keyChanged = lastTraderIdRef.current !== traderId || lastSymbolRef.current !== symbol;
     if (keyChanged) {
       lastTraderIdRef.current = traderId;
       lastSymbolRef.current = symbol;
-      setVisibleScenarioCount(20);
+      setVisibleScenarioCountByDate({});
       setReviewsLimit(40);
       setEventsLimit(30);
+      lastScenarioHydrationKeyRef.current = null;
       
       if (scenarioTimelineItems.length > 0) {
         const latestItem = scenarioTimelineItems[0];
@@ -410,19 +416,29 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, [symbol, traderId, scenarioTimelineItems]);
 
   useEffect(() => {
+    const latestItem = scenarioTimelineItems[0];
+    if (!latestItem) return;
+    const latestDate = new Date(latestItem.sortMs ?? 0);
+    if (Number.isNaN(latestDate.getTime()) || latestItem.sortMs === Number.NEGATIVE_INFINITY) return;
+    const latestDateKey = toDateString(latestDate);
+    const hydrationKey = `${traderId}:${symbol}:${latestItem.id}:${latestDateKey}`;
+    if (lastScenarioHydrationKeyRef.current === hydrationKey) return;
+    lastScenarioHydrationKeyRef.current = hydrationKey;
+    if ((scenarioCountByDate.get(selectedDate) ?? 0) > 0) return;
+    setSelectedDate(latestDateKey);
+    setWeekStart(getSunday(latestDate));
+  }, [scenarioCountByDate, scenarioTimelineItems, selectedDate, symbol, traderId]);
+
+  useEffect(() => {
     if (
       detailQuery.data?.managementReviews &&
       detailQuery.data.managementReviews.length === reviewsLimit &&
-      visibleScenarioTimelineItems.length < 8 &&
+      filteredTimelineItems.length < Math.min(10, selectedScenarioTotal) &&
       reviewsLimit < 200
     ) {
-      setReviewsLimit((current) => {
-        const next = current + 20;
-        setVisibleScenarioCount(next);
-        return next;
-      });
+      setReviewsLimit((current) => current + 20);
     }
-  }, [detailQuery.data?.managementReviews, reviewsLimit, visibleScenarioTimelineItems.length]);
+  }, [detailQuery.data?.managementReviews, filteredTimelineItems.length, reviewsLimit, selectedScenarioTotal]);
 
   useEffect(() => {
     if (!detailQuery.data?.managementReviews) return;
@@ -443,15 +459,10 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, [detailQuery.data?.managementReviews, weekStart, reviewsLimit]);
 
   useEffect(() => {
-    if (
-      detailQuery.data?.events &&
-      detailQuery.data.events.length === eventsLimit &&
-      sidebarTradeHistoryItems.length < 5 &&
-      eventsLimit < 150
-    ) {
-      setEventsLimit((current) => current + 15);
-    }
-  }, [detailQuery.data?.events, eventsLimit, sidebarTradeHistoryItems.length]);
+    if (!detailQuery.data || lastHistoryRefreshKeyRef.current === historyRefreshKey) return;
+    lastHistoryRefreshKeyRef.current = historyRefreshKey;
+    void loadHistoryPage(0, true);
+  }, [detailQuery.data, historyRefreshKey, loadHistoryPage]);
 
   useEffect(() => {
     const latestItem = scenarioTimelineItems[0];
@@ -480,19 +491,29 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     setLiveAlert(null);
   }, [liveAlert]);
 
+  const loadMoreSelectedScenarios = useCallback(() => {
+    const loadedForDate = loadedScenarioCountByDate.get(selectedDate) ?? 0;
+    if (selectedScenarioTotal > selectedScenarioVisibleCount) {
+      setVisibleScenarioCountByDate((current) => ({
+        ...current,
+        [selectedDate]: nextVisibleCount(selectedScenarioVisibleCount, selectedScenarioTotal)
+      }));
+    }
+    if (loadedForDate < selectedScenarioTotal) {
+      setReviewsLimit((current) => Math.min(300, current + 20));
+    }
+  }, [loadedScenarioCountByDate, selectedDate, selectedScenarioTotal, selectedScenarioVisibleCount]);
+
   const handleScenarioScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     const target = event.currentTarget;
     if (target.scrollTop + target.clientHeight < target.scrollHeight - 180) return;
-    setReviewsLimit((current) => {
-      const next = current + 10;
-      setVisibleScenarioCount(next);
-      return next;
-    });
-  }, []);
+    loadMoreSelectedScenarios();
+  }, [loadMoreSelectedScenarios]);
 
   const onLoadMoreEvents = useCallback(() => {
+    void loadHistory(false);
     setEventsLimit((current) => current + 10);
-  }, []);
+  }, [loadHistory]);
 
   if (!trader || !standing) {
     return <div className="rounded-xl border border-zinc-200 bg-white p-8 dark:border-zinc-800 dark:bg-zinc-950">{t("common.loading")}</div>;
@@ -586,11 +607,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                   cardDate.setUTCDate(weekStart.getUTCDate() + offset);
                   const dateKey = toDateString(cardDate);
                   
-                  // Count timeline items for this date
-                  const itemCount = scenarioTimelineItems.filter((item) => {
-                    const itemDate = new Date(item.sortMs ?? 0);
-                    return toDateString(itemDate) === dateKey;
-                  }).length;
+                  const itemCount = scenarioCountByDate.get(dateKey) ?? 0;
                   
                   const isSelected = selectedDate === dateKey;
                   
@@ -667,10 +684,10 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
               <button
                 type="button"
                 className="focus-ring flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-zinc-500 hover:text-zinc-800 transition dark:text-zinc-400 dark:hover:text-zinc-200"
-                onClick={handleLoadMoreHistory}
+                onClick={loadMoreSelectedScenarios}
               >
                 <Clock size={14} />
-                {locale === "ko" ? "이전 거래 이력 더 불러오기" : "Load Older Trade History"}
+                {locale === "ko" ? "선택 날짜 시나리오 더 불러오기" : "Load More Scenarios"}
               </button>
             </div>
           </section>
@@ -684,7 +701,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
           />
         </div>
 
-        <DetailSidebar holdingItems={holdingItems} tradeHistoryItems={sidebarTradeHistoryItems} pnlCalendar={pnlCalendar} standing={standing} latestReview={latestReview} latestPlan={latestPlan} locale={locale} t={t} onLoadMoreEvents={onLoadMoreEvents} />
+        <DetailSidebar holdingItems={holdingItems} tradeHistoryItems={historyItems.slice(0, eventsLimit)} pnlCalendar={pnlCalendar} standing={standing} latestReview={latestReview} latestPlan={latestPlan} locale={locale} t={t} onLoadMoreEvents={onLoadMoreEvents} />
       </section>
 
       {error ? <div className="mt-4 rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200">{error}</div> : null}
