@@ -18,7 +18,9 @@ export function DetailSidebar({
   latestPlan,
   locale,
   t,
-  onLoadMoreEvents
+  onLoadMoreEvents,
+  historyHasMore = false,
+  loadingMoreHistory = false
 }: {
   readonly holdingItems: HoldingItem[];
   readonly tradeHistoryItems: TradeHistoryItem[];
@@ -29,6 +31,8 @@ export function DetailSidebar({
   readonly locale: Locale;
   readonly t: Translator;
   readonly onLoadMoreEvents?: () => void;
+  readonly historyHasMore?: boolean;
+  readonly loadingMoreHistory?: boolean;
 }) {
   return (
     <aside className="min-w-0 space-y-5">
@@ -37,7 +41,13 @@ export function DetailSidebar({
         asOf={formatDateTime(standing.summary?.updatedAt ?? latestPlan.createdAt, locale)}
         t={t}
       />
-      <TradeHistoryPanel items={tradeHistoryItems} t={t} onLoadMore={onLoadMoreEvents} />
+      <TradeHistoryPanel
+        items={tradeHistoryItems}
+        t={t}
+        onLoadMore={onLoadMoreEvents}
+        hasMore={historyHasMore}
+        loadingMore={loadingMoreHistory}
+      />
       <PnlCalendarPanel calendar={pnlCalendar} locale={locale} t={t} />
       <AgentStatusPanel
         standing={standing}

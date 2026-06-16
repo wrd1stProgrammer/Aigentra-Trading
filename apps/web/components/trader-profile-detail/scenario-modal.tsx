@@ -64,12 +64,6 @@ export function ScenarioModal({
             <div className="rounded-xl bg-zinc-50 p-5 dark:bg-zinc-900">
               <p className="text-xs font-semibold text-zinc-400">{t("aiReview.rationale")}</p>
               <p className="mt-3 text-sm leading-7 text-zinc-700 dark:text-zinc-300">{scenarioDisplayText(scenario.rationale ?? t("detail.noAiRationale"), t)}</p>
-              {scenario.summary ? (
-                <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-                  <p className="text-xs font-semibold text-zinc-400">{t("aiReview.userSummary")}</p>
-                  <p className="mt-2 text-sm leading-7 text-zinc-700 dark:text-zinc-300">{scenarioDisplayText(scenario.summary, t)}</p>
-                </div>
-              ) : null}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <MetricBox label={t("common.side")} value={scenario.side ?? "-"} />

@@ -137,7 +137,7 @@ export function latestManagedStopLoss({ records, symbol, positionId, orderId }: 
       record.stopLossPrice,
       record.stop_loss_price,
       record.newStopLoss,
-      priceFromManagementText(review?.rationale, review?.reason, review?.managementReason, review?.userSummary, event?.reason, payload?.reason, record.rationale, record.reason, record.managementReason)
+      priceFromManagementText(review?.rationale, review?.reason, review?.managementReason, event?.reason, payload?.reason, record.rationale, record.reason, record.managementReason)
     );
     if (stop !== null) return stop;
   }

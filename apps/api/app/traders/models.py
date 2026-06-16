@@ -90,19 +90,31 @@ class TradeReviewPayload(BaseModel):
     recentManagementReviews: List[Dict[str, Any]] = Field(default_factory=list)
     activeExposure: Dict[str, Any] = Field(default_factory=dict)
     recentTradeEvents: List[Dict[str, Any]] = Field(default_factory=list)
+    lossDiscipline: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ReviewFact(BaseModel):
+    code: str
+    labelKey: str
+    severity: str = "info"
+    detail: Optional[str] = None
+    value: Optional[str] = None
 
 
 class TradeReviewResult(BaseModel):
     decision: Decision
     confidence: int
     riskLevel: RiskLevel
+    reviewCode: str = "ENTRY_REVIEW"
+    reviewFacts: List[ReviewFact] = Field(default_factory=list)
+    riskFlags: List[str] = Field(default_factory=list)
     adjustments: List[str] = Field(default_factory=list)
     leverageOverride: Optional[float] = None
     riskPercentOverride: Optional[float] = None
     earlyExitRecommendations: List[str] = Field(default_factory=list)
     approvalReason: str
     counterThesis: str
-    userSummary: str
+    userSummary: Optional[str] = None
     provider: str = "mock"
     model: str = "mock-reviewer"
     fallback: bool = False
@@ -158,12 +170,15 @@ class PositionManagementResult(BaseModel):
     decision: str
     confidence: int
     riskLevel: RiskLevel = "MEDIUM"
+    reviewCode: str = "POSITION_MANAGEMENT_REVIEW"
+    reviewFacts: List[ReviewFact] = Field(default_factory=list)
+    riskFlags: List[str] = Field(default_factory=list)
     actions: List[ManagementAction] = Field(default_factory=list)
     riskChange: str = "UNCHANGED"
     nextReviewInSeconds: int = 300
     rationale: str
     counterThesis: str
-    userSummary: str
+    userSummary: Optional[str] = None
     provider: str = "mock"
     model: str = "mock-position-manager"
     fallback: bool = False

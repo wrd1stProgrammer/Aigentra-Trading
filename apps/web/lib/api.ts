@@ -44,14 +44,25 @@ export type Candidate = {
   notes: string[];
 };
 
+export type ReviewFact = {
+  code: string;
+  labelKey?: string | null;
+  severity?: "info" | "warn" | "bad" | string | null;
+  detail?: string | null;
+  value?: string | null;
+};
+
 export type AIReview = {
   decision: string;
   confidence: number;
   riskLevel: string;
+  reviewCode?: string | null;
+  reviewFacts?: ReviewFact[] | null;
+  riskFlags?: string[] | null;
   adjustments: string[];
   approvalReason: string;
   counterThesis: string;
-  userSummary: string;
+  userSummary?: string | null;
   provider: string;
   model: string;
   fallback: boolean;
@@ -275,6 +286,9 @@ export type ManagementReview = {
   decision?: string | null;
   confidence?: number | string | null;
   riskLevel?: string | null;
+  reviewCode?: string | null;
+  reviewFacts?: ReviewFact[] | null;
+  riskFlags?: string[] | null;
   reason?: string | null;
   rationale?: string | null;
   managementReason?: string | null;
@@ -290,6 +304,9 @@ export type ManagementReview = {
   } | null;
   review?: {
     rationale?: string | null;
+    reviewCode?: string | null;
+    reviewFacts?: ReviewFact[] | null;
+    riskFlags?: string[] | null;
     userSummary?: string | null;
     appliedActions?: Array<string | Record<string, any>> | null;
     [key: string]: any;

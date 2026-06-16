@@ -524,7 +524,7 @@ function ManagementReviewRow({ review, t }: { review: ManagementReview; t: (key:
         `${t("aiReview.eventPhase")} ${details.eventPhase}`,
         `${t("aiReview.eventReason")} ${details.eventReason}`,
         `${t("aiReview.rationale")} ${details.rationale}`,
-        `${t("aiReview.userSummary")} ${details.userSummary}`,
+        `${t("aiReview.reviewFacts")} ${details.reviewFacts}`,
         `${t("aiReview.appliedActions")} ${details.appliedActions}`
       ]}
     />
@@ -539,9 +539,23 @@ function managementReviewDetails(review: Record<string, any>, t: (key: string) =
     eventPhase: statusLabel(firstValue(event.phase, review.phase, review.eventPhase), t),
     eventReason: formatLooseText(firstValue(event.reason, review.reason, review.managementReason)),
     rationale: formatLooseText(firstValue(nestedReview.rationale, review.rationale)),
-    userSummary: formatLooseText(firstValue(nestedReview.userSummary, review.userSummary, review.summary)),
+    reviewFacts: formatReviewFactList(firstValue(nestedReview.reviewFacts, review.reviewFacts), t),
     appliedActions: formatActionList(firstValue(payload.appliedActions, review.appliedActions, nestedReview.appliedActions, review.actionsApplied, nestedReview.actions, review.actions), t)
   };
+}
+
+function formatReviewFactList(value: unknown, t: (key: string) => string) {
+  if (!Array.isArray(value) || !value.length) return "-";
+  return value
+    .map((item) => {
+      if (typeof item === "string") return statusLabel(item, t);
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      const key = typeof record.labelKey === "string" ? record.labelKey : typeof record.code === "string" ? `reviewFact.${record.code}` : null;
+      return key ? t(key) : null;
+    })
+    .filter(Boolean)
+    .join(", ") || "-";
 }
 
 function unwrapList<T>(value: unknown, key: string): T[] {

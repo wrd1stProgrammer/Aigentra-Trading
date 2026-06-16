@@ -1,6 +1,6 @@
 "use client";
 
-import { Brain, CheckCircle, TrendUp, WarningCircle } from "@phosphor-icons/react";
+import { Brain, CheckCircle, WarningCircle } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import type { ManagementReview, PaperOrder, PaperPosition, RunCycleResult, TraderPaperState } from "@/lib/api";
 import { useAppContext } from "@/components/app-provider";
@@ -127,7 +127,7 @@ export function AIReviewPanel({
 
           <ReasonBlock icon={<CheckCircle size={17} />} title={t("aiReview.approvalReason")} text={review.approvalReason} />
           <ReasonBlock icon={<WarningCircle size={17} />} title={t("aiReview.counterThesis")} text={review.counterThesis} />
-          <ReasonBlock icon={<TrendUp size={17} />} title={t("aiReview.userSummary")} text={review.userSummary} />
+          <ReviewFacts facts={review.reviewFacts} />
 
           {review.adjustments.length ? (
             <div>
@@ -244,7 +244,7 @@ function CompactManagementReviews({ reviews }: { reviews: Array<Record<string, a
                 <ManagementDetail label={t("aiReview.eventPhase")} value={details.eventPhase} />
                 <ManagementDetail label={t("aiReview.eventReason")} value={details.eventReason} />
                 <ManagementDetail label={t("aiReview.rationale")} value={details.rationale} />
-                <ManagementDetail label={t("aiReview.userSummary")} value={details.userSummary} />
+                <ManagementDetail label={t("aiReview.reviewFacts")} value={details.reviewFacts} />
                 <ManagementDetail label={t("aiReview.appliedActions")} value={details.appliedActions} />
               </div>
               <div className="mt-2 flex flex-wrap gap-2 text-xs text-zinc-500 dark:text-zinc-400">
@@ -277,14 +277,60 @@ function managementDetails(review: Record<string, any>, t: (key: string) => stri
     eventPhase: statusLabel(firstValue(event.phase, review.phase, review.eventPhase), t),
     eventReason: formatText(firstValue(event.reason, review.reason, review.managementReason)),
     rationale: formatText(firstValue(nestedReview.rationale, review.rationale)),
-    userSummary: formatText(firstValue(nestedReview.userSummary, review.userSummary, review.summary)),
+    reviewFacts: formatReviewFacts(firstValue(nestedReview.reviewFacts, review.reviewFacts), t),
     appliedActions: formatActionList(firstValue(payload.appliedActions, review.appliedActions, nestedReview.appliedActions, review.actionsApplied, nestedReview.actions, review.actions), t)
   };
+}
+
+function ReviewFacts({ facts }: { facts?: Array<Record<string, any>> | null }) {
+  const { t } = useAppContext();
+  const labels = reviewFactLabels(facts, t);
+  if (!labels.length) return null;
+  return (
+    <div>
+      <div className="metric-label mb-2">{t("aiReview.reviewFacts")}</div>
+      <div className="flex flex-wrap gap-2">
+        {labels.map((label) => (
+          <span key={label} className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-xs font-semibold text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+            {label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function formatText(value: unknown) {
   if (value === undefined || value === null || value === "") return "-";
   return String(value);
+}
+
+function formatReviewFacts(value: unknown, t: (key: string) => string) {
+  const labels = reviewFactLabels(value, t);
+  return labels.length ? labels.join(", ") : "-";
+}
+
+function reviewFactLabels(value: unknown, t: (key: string) => string) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (typeof item === "string") return statusLabel(item, t);
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      const labelKey = typeof record.labelKey === "string" ? record.labelKey : null;
+      const code = typeof record.code === "string" ? record.code : null;
+      const key = labelKey ?? (code ? `reviewFact.${code}` : null);
+      if (!key) return null;
+      const translated = t(key);
+      return translated === key && code ? humanizeReviewCode(code) : translated;
+    })
+    .filter((label): label is string => Boolean(label));
+}
+
+function humanizeReviewCode(value: string) {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function formatActionList(value: unknown, t: (key: string) => string) {

@@ -1,12 +1,29 @@
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.db import init_db, reset_db_engine
 from app.main import app
 
 
 client = TestClient(app)
+OPS_TOKEN = "test-ops-token"
+
+
+def ops_headers() -> dict[str, str]:
+    return {"x-ops-api-token": OPS_TOKEN}
+
+
+@pytest.fixture()
+def temp_api_db(tmp_path):
+    db_path = tmp_path / "api-test.db"
+    reset_db_engine(f"sqlite:///{db_path}")
+    init_db()
+    yield db_path
+    reset_db_engine("sqlite:///:memory:")
+    init_db()
 
 
 def test_health():
@@ -61,6 +78,68 @@ def test_scanner_status_defaults_to_btc_only():
     assert "ticks" in data
     assert "skippedTicks" in data
     assert "scanInProgress" in data
+
+
+def test_trader_history_reset_endpoint_rejects_missing_ops_token(temp_api_db):
+    response = client.post("/api/ops/trader-history/reset", json={"dryRun": True})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "ops API token required"
+
+
+def test_trader_history_reset_endpoint_dry_run(temp_api_db, monkeypatch):
+    monkeypatch.setenv("OPS_API_TOKEN", OPS_TOKEN)
+
+    response = client.post("/api/ops/trader-history/reset", headers=ops_headers(), json={"dryRun": True})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dryRun"] is True
+    assert data["executed"] is False
+    assert "subscriber_preferences" in data["preservedTables"]
+    assert "database" in data
+    assert "://" in data["database"]["databaseUrl"]
+
+
+def test_trader_history_reset_endpoint_rejects_destructive_without_confirmation(temp_api_db, monkeypatch):
+    monkeypatch.setenv("OPS_API_TOKEN", OPS_TOKEN)
+
+    response = client.post("/api/ops/trader-history/reset", headers=ops_headers(), json={"dryRun": False})
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "RESET_CONFIRMATION_REQUIRED"
+    assert "requiredConfirmationText" not in response.json()["detail"]
+
+
+def test_trader_history_reset_endpoint_rejects_production_reset_without_server_flag(temp_api_db, monkeypatch):
+    monkeypatch.setenv("OPS_API_TOKEN", OPS_TOKEN)
+    monkeypatch.setattr(main.settings, "app_env", "production")
+    monkeypatch.setattr(main.settings, "ops_allow_production_reset", False)
+
+    response = client.post(
+        "/api/ops/trader-history/reset",
+        headers=ops_headers(),
+        json={"dryRun": False, "confirmationText": "RESET_TRADER_HISTORY", "allowProduction": True},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "RESET_PRODUCTION_DISABLED_BY_SERVER"
+
+
+def test_trader_history_reset_endpoint_rejects_remote_reset_without_server_flag(temp_api_db, monkeypatch):
+    monkeypatch.setenv("OPS_API_TOKEN", OPS_TOKEN)
+    monkeypatch.setattr(main.settings, "app_env", "local")
+    monkeypatch.setattr(main.settings, "ops_allow_remote_reset", False)
+    monkeypatch.setattr(main, "normalized_database_url", lambda: "postgresql+psycopg://operator@db.example/main")
+
+    response = client.post(
+        "/api/ops/trader-history/reset",
+        headers=ops_headers(),
+        json={"dryRun": False, "confirmationText": "RESET_TRADER_HISTORY", "allowRemote": True},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "RESET_REMOTE_DATABASE_DISABLED_BY_SERVER"
 
 
 def test_trader_current_state_prioritizes_active_exposure():

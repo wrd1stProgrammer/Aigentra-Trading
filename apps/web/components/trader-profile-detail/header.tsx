@@ -50,7 +50,7 @@ export function HeroHeader({
           </div>
           <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
             <span className="font-mono text-3xl font-semibold tracking-tight text-zinc-950 sm:text-4xl dark:text-zinc-50">{formatCurrency(standing.equity, locale)}</span>
-            <span className={`font-mono text-xl font-semibold sm:text-2xl ${standing.returnPct >= 0 ? "text-red-600 dark:text-red-400" : "text-blue-600 dark:text-blue-400"}`}>
+            <span className={`font-mono text-xl font-semibold sm:text-2xl ${standing.returnPct >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"}`}>
               {formatCurrency(standing.totalPnl, locale)} {formatPercent(standing.returnPct)}
             </span>
           </div>

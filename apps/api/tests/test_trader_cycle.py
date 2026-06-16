@@ -1,7 +1,13 @@
 import pytest
 
 from app.ai.mock_provider import MockAIProvider
-from app.ai.base import management_prompt, review_prompt
+from app.ai.base import (
+    entry_approval_prompt,
+    management_prompt,
+    position_management_review_prompt,
+    review_prompt,
+    trader_review_policy,
+)
 from app.market.snapshot import classify_market_regime, derivative_context
 from app.main import trade_plan_from_review
 from app.traders.models import ManagedExposure, ManagementEvent, PositionManagementPayload, TradeReviewPayload, TradeReviewResult
@@ -251,7 +257,41 @@ async def test_mock_ai_review_uses_requested_locale():
             locale="ko",
         )
     )
-    assert "2차 검증" in review.userSummary
+    assert "2차 검증" in review.approvalReason
+
+
+@pytest.mark.asyncio
+async def test_structured_review_fields_for_entry_review():
+    snapshot = sample_snapshot()
+    strategy = get_strategy("channel-rider")
+    candidate = strategy.evaluate(snapshot)
+
+    review = await MockAIProvider().review_trade_candidate(
+        TradeReviewPayload(
+            trader=strategy.profile,
+            symbol="BTCUSDT",
+            marketSnapshot=snapshot,
+            candidate=candidate,
+            locale="ko",
+            lossDiscipline={
+                "active": False,
+                "lastLoss": {
+                    "closeReason": "stop_loss",
+                    "realizedPnl": -37.2,
+                    "closedAt": "2026-06-17T00:00:00+00:00",
+                },
+            },
+        )
+    )
+
+    assert review.reviewCode == "ENTRY_REVIEW"
+    assert review.reviewFacts
+    assert {fact.code for fact in review.reviewFacts} >= {
+        "entry_geometry_checked",
+        "risk_plan_checked",
+    }
+    assert review.riskFlags
+    assert review.userSummary in {None, ""}
 
 
 @pytest.mark.asyncio
@@ -286,7 +326,85 @@ async def test_mock_position_management_review_uses_requested_locale():
     )
 
     assert review.decision == "CANCEL_PENDING_ORDER"
-    assert "관리 판단" in review.userSummary
+    assert "관리 판단" in review.rationale
+
+
+@pytest.mark.asyncio
+async def test_structured_review_fields_for_management_review():
+    snapshot = sample_snapshot()
+    strategy = get_strategy("channel-rider")
+
+    review = await MockAIProvider().review_position_management(
+        PositionManagementPayload(
+            trader=strategy.profile,
+            symbol="BTCUSDT",
+            marketSnapshot=snapshot,
+            event=ManagementEvent(
+                eventType="channel_entry_stale",
+                phase="PENDING_ORDER",
+                severity="HIGH",
+                reason="Price moved away from channel edge.",
+                suggestedAction="CANCEL_PENDING_ORDER",
+            ),
+            exposure=ManagedExposure(
+                kind="order",
+                id=1,
+                status="open",
+                side="LONG",
+                quantity=0.01,
+                limitPrice=67500,
+                stopLoss=66800,
+                takeProfit=70000,
+                leverage=2,
+            ),
+            locale="ko",
+        )
+    )
+
+    assert review.reviewCode == "POSITION_MANAGEMENT_REVIEW"
+    assert review.reviewFacts
+    assert {fact.code for fact in review.reviewFacts} >= {
+        "management_event_reviewed",
+        "hard_rules_priority",
+    }
+    assert review.riskFlags
+    assert review.userSummary in {None, ""}
+
+
+def test_review_policies_have_trader_specific_post_loss_discipline():
+    disciplines = []
+    for trader in list_traders():
+        policy = trader_review_policy(trader.id)
+        discipline = policy.get("postLossDiscipline")
+        assert isinstance(discipline, str) and discipline.strip(), trader.id
+        disciplines.append(discipline)
+
+    assert len(set(disciplines)) == len(disciplines)
+
+
+def test_btc_specialist_profiles_are_differentiated_with_local_score_overrides():
+    traders = list_traders()
+    btc_specialists = traders[10:]
+    assert [trader.id for trader in btc_specialists] == [
+        "donchian-breakout",
+        "ichimoku-cloud-pilot",
+        "vwap-reclaimer",
+        "wyckoff-spring",
+        "rsi-divergence-scout",
+        "session-raider",
+        "imbalance-hunter",
+        "momentum-ignition",
+        "bollinger-reversion",
+        "atr-trail-commander",
+    ]
+    signatures = {
+        (trader.concept, trader.currentPlan, tuple(trader.aiReviewChecklist))
+        for trader in btc_specialists
+    }
+    assert len(signatures) == len(btc_specialists)
+    for trader_id in ["session-raider", "momentum-ignition", "bollinger-reversion", "atr-trail-commander"]:
+        strategy = get_strategy(trader_id)
+        assert "_score" in type(strategy).__dict__, trader_id
 
 
 def test_ai_prompts_include_context_and_non_conservative_management_options():
@@ -342,6 +460,45 @@ def test_ai_prompts_include_context_and_non_conservative_management_options():
     assert "recentAiReviews" in candidate_prompt
     assert "recentManagementReviews" in candidate_prompt
     assert "activeExposure" in candidate_prompt
+    assert "lossDiscipline" in candidate_prompt
     assert "ADD_TO_POSITION" in management
     assert "PYRAMID_POSITION" in management
     assert "Never widen a stop, never increase leverage, never add to a position" not in management
+
+
+def test_prompt_contracts_are_split_and_do_not_request_user_summary():
+    snapshot = sample_snapshot()
+    strategy = get_strategy("channel-rider")
+    candidate = strategy.evaluate(snapshot)
+
+    entry = entry_approval_prompt(
+        TradeReviewPayload(
+            trader=strategy.profile,
+            symbol="BTCUSDT",
+            marketSnapshot=snapshot,
+            candidate=candidate,
+            locale="en",
+            lossDiscipline={"active": True, "remainingSeconds": 480, "closeReason": "stop_loss"},
+        )
+    )
+    management = position_management_review_prompt(
+        PositionManagementPayload(
+            trader=strategy.profile,
+            symbol="BTCUSDT",
+            marketSnapshot=snapshot,
+            event=ManagementEvent(eventType="heartbeat", phase="OPEN_POSITION", reason="Heartbeat"),
+            exposure=ManagedExposure(kind="position", id=7, status="open", side="LONG", entryPrice=68000),
+            locale="en",
+        )
+    )
+
+    assert "APPROVE, ADJUST_AND_APPROVE, DEFER, REJECT, NEEDS_MORE_DATA" in entry
+    assert "CLOSE_POSITION" not in entry.split("Payload:", 1)[0]
+    assert "CLOSE_POSITION" in management
+    assert "ADJUST_AND_APPROVE" not in management.split("Payload:", 1)[0]
+    assert "userSummary" not in entry.split("Payload:", 1)[0]
+    assert "userSummary" not in management.split("Payload:", 1)[0]
+    assert "reviewCode" in entry
+    assert "reviewFacts" in entry
+    assert "reviewCode" in management
+    assert "reviewFacts" in management

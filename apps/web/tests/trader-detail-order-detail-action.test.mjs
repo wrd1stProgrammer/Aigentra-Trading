@@ -125,7 +125,7 @@ test("order and position scenarios prefer AI rationale over entry labels", () =>
   const orderScenario = scenarios.find((scenario) => scenario.id === "order-101");
   const positionScenario = scenarios.find((scenario) => scenario.id === "position-102");
   assert.equal(orderScenario.rationale, "AI는 상단 채널 실패와 하위 시간대 약세 전환이 겹쳐 이 대기 주문을 승인했습니다.");
-  assert.equal(orderScenario.summary, "상단 채널 리젝트 대기 주문입니다.");
+  assert.equal(orderScenario.summary, null);
   assert.equal(positionScenario.rationale, "AI는 채널 상단 거부가 유지되는 동안 포지션을 보유하되 손절은 채널 밖에 유지하라고 판단했습니다.");
   assert.notEqual(orderScenario.rationale, "15분 확인 캔들");
 });
@@ -142,7 +142,8 @@ test("position panel exposes detail callbacks for positions and orders", () => {
 test("scenario modal does not show entry summary as management rationale", () => {
   assert.match(modalSource, /scenario\.rationale \?\? t\("detail\.noAiRationale"\)/);
   assert.doesNotMatch(modalSource, /scenario\.rationale \?\? scenario\.summary/);
-  assert.match(modalSource, /aiReview\.userSummary/);
+  assert.doesNotMatch(modalSource, /aiReview\.userSummary/);
+  assert.doesNotMatch(modalSource, /scenario\.summary/);
 });
 
 function loadTsModule(relativePath, requireStubs = {}) {

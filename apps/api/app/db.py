@@ -7,6 +7,7 @@ from typing import Generator, Optional
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.config import get_settings
 
@@ -67,6 +68,8 @@ def make_engine_options(url: str, settings) -> dict:
         raw_path = url.replace("sqlite:///", "", 1)
         if raw_path and raw_path != ":memory:":
             Path(raw_path).parent.mkdir(parents=True, exist_ok=True)
+        if raw_path == ":memory:":
+            return {"connect_args": {"check_same_thread": False}, "poolclass": StaticPool}
         return {"connect_args": {"check_same_thread": False, "timeout": 30}}
     return {
         "pool_pre_ping": True,

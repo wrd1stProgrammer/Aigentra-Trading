@@ -2,7 +2,7 @@ from typing import Any, Dict
 
 import httpx
 
-from app.ai.base import BaseAIProvider, extract_json_object, management_prompt, review_prompt
+from app.ai.base import BaseAIProvider, entry_approval_prompt, extract_json_object, position_management_review_prompt
 from app.traders.models import PositionManagementPayload, PositionManagementResult, TradeReviewPayload, TradeReviewResult
 
 
@@ -20,7 +20,7 @@ class GrokProvider(BaseAIProvider):
             "model": self.model,
             "messages": [
                 {"role": "system", "content": "Return only strict JSON."},
-                {"role": "user", "content": review_prompt(payload)},
+                {"role": "user", "content": entry_approval_prompt(payload)},
             ],
             "temperature": 0.2,
         }
@@ -41,7 +41,7 @@ class GrokProvider(BaseAIProvider):
             "model": self.model,
             "messages": [
                 {"role": "system", "content": "Return only strict JSON."},
-                {"role": "user", "content": management_prompt(payload)},
+                {"role": "user", "content": position_management_review_prompt(payload)},
             ],
             "temperature": 0.2,
         }

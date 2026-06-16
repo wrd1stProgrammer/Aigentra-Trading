@@ -2,7 +2,7 @@ from typing import Any, Dict
 
 import httpx
 
-from app.ai.base import BaseAIProvider, extract_json_object, management_prompt, review_prompt
+from app.ai.base import BaseAIProvider, entry_approval_prompt, extract_json_object, position_management_review_prompt
 from app.traders.models import PositionManagementPayload, PositionManagementResult, TradeReviewPayload, TradeReviewResult
 
 
@@ -22,7 +22,7 @@ class GeminiProvider(BaseAIProvider):
         )
         body: Dict[str, Any] = {
             "contents": [
-                {"role": "user", "parts": [{"text": review_prompt(payload)}]},
+                {"role": "user", "parts": [{"text": entry_approval_prompt(payload)}]},
             ],
             "generationConfig": {
                 "temperature": 0.2,
@@ -46,7 +46,7 @@ class GeminiProvider(BaseAIProvider):
         )
         body: Dict[str, Any] = {
             "contents": [
-                {"role": "user", "parts": [{"text": management_prompt(payload)}]},
+                {"role": "user", "parts": [{"text": position_management_review_prompt(payload)}]},
             ],
             "generationConfig": {
                 "temperature": 0.2,

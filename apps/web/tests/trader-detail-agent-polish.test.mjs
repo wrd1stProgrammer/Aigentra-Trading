@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import ts from "typescript";
 
 const dataSource = readFileSync(new URL("../components/trader-profile-detail/data.ts", import.meta.url), "utf8");
+const aiReviewPanelSource = readFileSync(new URL("../components/ai-review-panel.tsx", import.meta.url), "utf8");
 const timelineSource = readFileSync(new URL("../components/trader-profile-detail/timeline.tsx", import.meta.url), "utf8");
 const modalSource = readFileSync(new URL("../components/trader-profile-detail/scenario-modal.tsx", import.meta.url), "utf8");
 const headerSource = readFileSync(new URL("../components/trader-profile-detail/header.tsx", import.meta.url), "utf8");
@@ -13,6 +14,7 @@ const journalSource = readFileSync(new URL("../components/trader-profile-detail/
 const chartSource = readFileSync(new URL("../components/live-candle-chart.tsx", import.meta.url), "utf8");
 const detailChartSource = readFileSync(new URL("../components/trader-profile-detail/chart.tsx", import.meta.url), "utf8");
 const binancePanelSource = readFileSync(new URL("../components/trader-profile-detail/binance-position-panel.tsx", import.meta.url), "utf8");
+const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
 
 const overlayHelpers = loadTsModule("../components/live-candle-chart-overlays.ts");
@@ -102,6 +104,15 @@ test("latest scenario timeline preserves distinct management review records", ()
   );
 });
 
+test("review facts replace user summary in visible review UI", () => {
+  assert.match(aiReviewPanelSource, /reviewFacts/, "AI review panel should render structured review facts");
+  assert.match(apiSource, /reviewFacts/, "API types should expose structured review facts");
+  assert.match(i18nSource, /reviewFact\.entryGeometryChecked/, "review fact labels should be localized");
+  assert.doesNotMatch(aiReviewPanelSource, /aiReview\.userSummary|사용자 요약|User Summary/);
+  assert.doesNotMatch(modalSource, /aiReview\.userSummary|사용자 요약|User Summary/);
+  assert.doesNotMatch(i18nSource, /"aiReview\.userSummary"/);
+});
+
 test("pullback scale-entry cancellation copy is localized instead of raw template text", () => {
   const translated = scenarioCopy.scenarioDisplayText(
     "scale_entry_cancelled 이벤트를 감지했고 staged_pullback 보유 정책 안에서 CANCEL_REMAINING_ORDERS 조치를 검토했습니다.",
@@ -181,6 +192,31 @@ test("main journal is a scrollable trade-history table and sidebar history uses 
   assert.doesNotMatch(journalSource, /CaretRight/, "old inert carousel arrows should be removed");
   assert.match(sidePanelsSource, /detail\.executionLog/, "sidebar should use a distinct execution log label");
   assert.doesNotMatch(sidePanelsSource, /items\.slice\(0, 5\)/, "sidebar history should scroll all available rows instead of truncating to five");
+});
+
+test("trader detail uses one profit and loss color language across panels", () => {
+  assert.match(dataSource, /if \(tone === "good"\) return "text-emerald/, "good movement tone should use profit-green semantics");
+  assert.match(dataSource, /if \(tone === "bad"\) return "text-rose/, "bad movement tone should use loss-red semantics");
+  assert.match(sidePanelsSource, /item\.returnPct >= 0 \? "text-emerald/, "positive holding returns should use green text");
+  assert.match(sidePanelsSource, /: "text-rose/, "negative holding returns should use red text");
+  assert.match(sidePanelsSource, /if \(tone === "good"\) return "text-emerald/, "positive holding detail PnL should use green text");
+  assert.match(sidePanelsSource, /if \(tone === "bad"\) return "text-rose/, "negative holding detail PnL should use red text");
+  assert.match(headerSource, /standing\.returnPct >= 0 \? "text-emerald/, "positive header PnL should use green text");
+  assert.doesNotMatch(sidePanelsSource, /item\.returnPct >= 0 \? "text-red/, "positive holding returns must not render as red");
+  assert.doesNotMatch(headerSource, /standing\.returnPct >= 0 \? "text-red/, "positive header PnL must not render as red");
+  assert.doesNotMatch(dataSource, /if \(tone === "good"\) return "text-red/, "good movement tone must not render as red");
+});
+
+test("sidebar execution log uses the same load-more guards as the main trade journal", () => {
+  const pageSource = readFileSync(new URL("../components/trader-profile-page-client.tsx", import.meta.url), "utf8");
+  const sidebarSource = readFileSync(new URL("../components/trader-profile-detail/detail-sidebar.tsx", import.meta.url), "utf8");
+
+  assert.match(sidePanelsSource, /hasMore\s*=\s*false/, "execution log panel should accept a hasMore guard");
+  assert.match(sidePanelsSource, /loadingMore\s*=\s*false/, "execution log panel should accept a loading guard");
+  assert.match(sidePanelsSource, /if \(!onLoadMore \|\| loadingMore \|\| !hasMore\) return/, "execution log scroll should not fire while loading or exhausted");
+  assert.match(sidebarSource, /historyHasMore/, "sidebar should receive the shared history has-more state");
+  assert.match(sidebarSource, /loadingMoreHistory/, "sidebar should receive the shared loading state");
+  assert.match(pageSource, /if \(loadingMoreHistory \|\| !historyHasMore\) return/, "detail page should avoid extra history fetches when already loading or exhausted");
 });
 
 test("trade history uses closed positions and normalized user-facing result labels", () => {

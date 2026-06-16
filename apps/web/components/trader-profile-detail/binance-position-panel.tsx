@@ -277,7 +277,7 @@ function scenarioFromPosition(position: PaperPosition): TraderScenario {
     riskPercent: firstFiniteNumber(payload?.riskPercent),
     entryWeight: firstFiniteNumber(payload?.entryWeight, payload?.weight),
     rationale: scenarioRationaleFromPayload(payload, position.closeReason),
-    summary: scenarioSummaryFromPayload(payload, payload?.entryReason, payload?.candidateSetupType),
+    summary: scenarioSummaryFromPayload(payload),
     createdAt: firstString(position.updatedAt, position.openedAt, position.createdAt),
     source: "position"
   };
@@ -299,7 +299,7 @@ function scenarioFromOrder(order: DisplayPaperOrder): TraderScenario {
     riskPercent: firstFiniteNumber(payload?.riskPercent),
     entryWeight: firstFiniteNumber(payload?.entryWeight, payload?.weight, recordValue(payload?.entry)?.weight),
     rationale: scenarioRationaleFromPayload(payload),
-    summary: scenarioSummaryFromPayload(payload, payload?.entryReason, payload?.candidateSetupType),
+    summary: scenarioSummaryFromPayload(payload),
     createdAt: firstString(order.updatedAt, order.createdAt),
     source: "order"
   };

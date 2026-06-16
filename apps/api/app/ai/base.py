@@ -71,17 +71,27 @@ class BaseAIProvider:
         early_exit_recommendations = raw.get("earlyExitRecommendations", [])
         if not isinstance(early_exit_recommendations, list):
             early_exit_recommendations = [str(early_exit_recommendations)]
+        review_facts = self._normalize_review_facts(
+            raw.get("reviewFacts"),
+            [
+                {"code": "entry_geometry_checked", "labelKey": "reviewFact.entryGeometryChecked", "severity": "info"},
+                {"code": "risk_plan_checked", "labelKey": "reviewFact.riskPlanChecked", "severity": "info"},
+            ],
+        )
         return TradeReviewResult(
             decision=decision,
             confidence=confidence,
             riskLevel=risk_level,
+            reviewCode=str(raw.get("reviewCode") or "ENTRY_REVIEW").upper(),
+            reviewFacts=review_facts,
+            riskFlags=self._normalize_string_list(raw.get("riskFlags")) or [f"risk_level:{risk_level.lower()}"],
             adjustments=[str(item) for item in adjustments],
             leverageOverride=self._normalize_optional_float(raw.get("leverageOverride")),
             riskPercentOverride=self._normalize_optional_float(raw.get("riskPercentOverride")),
             earlyExitRecommendations=[str(item) for item in early_exit_recommendations],
             approvalReason=str(raw.get("approvalReason", "No provider reason supplied.")),
             counterThesis=str(raw.get("counterThesis", "Invalidation conditions require monitoring.")),
-            userSummary=str(raw.get("userSummary", "AI review completed.")),
+            userSummary=self._normalize_optional_text(raw.get("userSummary")),
             provider=self.name,
             model=self.model,
             fallback=self.fallback,
@@ -118,20 +128,63 @@ class BaseAIProvider:
         if not normalized_actions:
             normalized_actions = [ManagementAction(type=decision, reason="No explicit action supplied.")]
         next_review = int(self._normalize_optional_float(raw.get("nextReviewInSeconds")) or 300)
+        review_facts = self._normalize_review_facts(
+            raw.get("reviewFacts"),
+            [
+                {"code": "management_event_reviewed", "labelKey": "reviewFact.managementEventReviewed", "severity": "info"},
+                {"code": "hard_rules_priority", "labelKey": "reviewFact.hardRulesPriority", "severity": "warn"},
+            ],
+        )
         return PositionManagementResult(
             decision=decision,
             confidence=confidence,
             riskLevel=risk_level,
+            reviewCode=str(raw.get("reviewCode") or "POSITION_MANAGEMENT_REVIEW").upper(),
+            reviewFacts=review_facts,
+            riskFlags=self._normalize_string_list(raw.get("riskFlags")) or [f"risk_level:{risk_level.lower()}"],
             actions=normalized_actions,
             riskChange=str(raw.get("riskChange", "UNCHANGED")).upper(),
             nextReviewInSeconds=max(60, min(next_review, 3600)),
             rationale=str(raw.get("rationale", "Management review completed.")),
             counterThesis=str(raw.get("counterThesis", "If invalidation fires, hard risk rules take priority.")),
-            userSummary=str(raw.get("userSummary", "AI management review completed.")),
+            userSummary=self._normalize_optional_text(raw.get("userSummary")),
             provider=self.name,
             model=self.model,
             fallback=self.fallback,
         )
+
+    def _normalize_string_list(self, value: Any) -> list[str]:
+        if value is None or value == "":
+            return []
+        if not isinstance(value, list):
+            value = [value]
+        return [str(item) for item in value if str(item).strip()]
+
+    def _normalize_review_facts(self, value: Any, default: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        facts = value if isinstance(value, list) else []
+        normalized: list[dict[str, Any]] = []
+        for item in facts:
+            record = item if isinstance(item, dict) else {"code": str(item)}
+            code = str(record.get("code") or "").strip()
+            if not code:
+                continue
+            label_key = str(record.get("labelKey") or f"reviewFact.{code}")
+            normalized.append(
+                {
+                    "code": code,
+                    "labelKey": label_key,
+                    "severity": str(record.get("severity") or "info"),
+                    "detail": str(record["detail"]) if record.get("detail") not in {None, ""} else None,
+                    "value": str(record["value"]) if record.get("value") not in {None, ""} else None,
+                }
+            )
+        return normalized or default
+
+    def _normalize_optional_text(self, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     def _normalize_confidence(self, value: Any) -> int:
         if isinstance(value, (int, float)):
@@ -294,6 +347,30 @@ TRADER_REVIEW_POLICIES: Dict[str, Dict[str, Any]] = {
 }
 
 
+TRADER_POST_LOSS_DISCIPLINE: Dict[str, str] = {
+    "channel-rider": "After a channel stop, require a newly redrawn channel edge plus fresh 15m confirmation; do not reuse the failed boundary.",
+    "volume-breaker": "After a failed breakout, demand a new level flip with renewed volume/OI participation; late retests are rejected.",
+    "pullback-architect": "After a stopped pullback, cancel the prior scale map and require HTF trend plus EMA zone recovery before another staged entry.",
+    "leverage-hunter": "After a leverage stop, cap aggressiveness and require both crowding and structure trigger to refresh before considering approval.",
+    "liquidity-reaper": "After a failed sweep, require a different liquidity pool or a much cleaner reclaim/failure candle; repeated wick fades are blocked.",
+    "volatility-squeezer": "After a squeeze failure, wait for a fresh compression base and reject immediate re-entry into the same expansion candle.",
+    "trend-sentinel": "After a trend stop, require HTF trend repair and a new trailing-stop path; do not approve normal pullback language after structure broke.",
+    "range-maker": "After a range stop, require evidence that the breakout attempt failed and the range edge rebuilt before fading it again.",
+    "funding-contrarian": "After a funding fade loss, funding alone is disqualified; require price stall, structure trigger, and crowding deceleration together.",
+    "orderflow-sniper": "After a scalp stop, require a new 1m/5m impulse cluster with fee-positive RR; never retry the same flow burst.",
+    "donchian-breakout": "After a Donchian fakeout, require price to rebuild outside the range with participation, not just retouch the boundary.",
+    "ichimoku-cloud-pilot": "After a cloud continuation stop, require cloud proxy recovery and HTF alignment; flat-cloud rebounds are deferred.",
+    "vwap-reclaimer": "After a failed fair-value reclaim, require a clean recapture/rejection and fading counter-flow before any retry.",
+    "wyckoff-spring": "After a failed spring/upthrust, require a new trap at a different extreme or decisive reclaim; same-wick retries are rejected.",
+    "rsi-divergence-scout": "After a divergence loss, require structure confirmation in addition to momentum divergence; weak repeat divergence is deferred.",
+    "session-raider": "After a session-break stop, require the next valid liquidity transition window; stale same-session retries are blocked.",
+    "imbalance-hunter": "After an imbalance midpoint failure, require a fresh displacement leg and intact midpoint; sliced gaps cannot be reused.",
+    "momentum-ignition": "After ignition fails, require renewed OI/taker alignment and continuation room; do not approve average-down attempts.",
+    "bollinger-reversion": "After a band fade stop, require trend strength to cool and mean target distance to reopen; band-walk fades are rejected.",
+    "atr-trail-commander": "After an ATR trend stop, require a new trend leg with account-risk-compatible ATR; do not relabel exhaustion as continuation.",
+}
+
+
 TRADER_MANAGEMENT_POLICIES: Dict[str, Dict[str, Any]] = {
     "channel-rider": {
         "bias": "protect at channel midline; close if channel invalidates",
@@ -379,7 +456,10 @@ TRADER_MANAGEMENT_POLICIES: Dict[str, Dict[str, Any]] = {
 
 
 def trader_review_policy(trader_id: str) -> Dict[str, Any]:
-    return TRADER_REVIEW_POLICIES.get(trader_id, {})
+    policy = dict(TRADER_REVIEW_POLICIES.get(trader_id, {}))
+    if trader_id in TRADER_POST_LOSS_DISCIPLINE:
+        policy["postLossDiscipline"] = TRADER_POST_LOSS_DISCIPLINE[trader_id]
+    return policy
 
 
 def trader_management_policy(trader_id: str) -> Dict[str, Any]:
@@ -399,12 +479,12 @@ def extract_json_object(text: str) -> Dict[str, Any]:
     raise ValueError("Provider response did not contain valid JSON.")
 
 
-def review_prompt(payload: TradeReviewPayload) -> str:
+def entry_approval_prompt(payload: TradeReviewPayload) -> str:
     locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
     language_instruction = (
-        "Write approvalReason, counterThesis, userSummary, every adjustments item, and every earlyExitRecommendations item in Korean."
+        "Write approvalReason, counterThesis, every adjustments item, and every earlyExitRecommendations item in Korean. Keep reviewFacts as language-neutral codes and labelKey values."
         if locale == "ko"
-        else "Write approvalReason, counterThesis, userSummary, every adjustments item, and every earlyExitRecommendations item in English."
+        else "Write approvalReason, counterThesis, every adjustments item, and every earlyExitRecommendations item in English. Keep reviewFacts as language-neutral codes and labelKey values."
     )
     data = {
         "trader": payload.trader.model_dump(),
@@ -416,6 +496,7 @@ def review_prompt(payload: TradeReviewPayload) -> str:
         "recentManagementReviews": payload.recentManagementReviews,
         "activeExposure": payload.activeExposure,
         "recentTradeEvents": payload.recentTradeEvents,
+        "lossDiscipline": payload.lossDiscipline,
         "marketSnapshot": {
             "symbol": payload.marketSnapshot.get("symbol"),
             "price": payload.marketSnapshot.get("price"),
@@ -424,13 +505,14 @@ def review_prompt(payload: TradeReviewPayload) -> str:
         },
     }
     return (
-        "You are a futures paper-trading reviewer, not a generic risk blocker. Return only strict JSON with keys "
-        "decision, confidence, riskLevel, adjustments, leverageOverride, riskPercentOverride, "
-        "earlyExitRecommendations, approvalReason, counterThesis, userSummary. Valid decisions are "
+        "You are the ENTRY APPROVAL reviewer for a futures paper-trading candidate. Return only strict JSON with keys "
+        "decision, confidence, riskLevel, reviewCode, reviewFacts, riskFlags, adjustments, leverageOverride, riskPercentOverride, "
+        "earlyExitRecommendations, approvalReason, counterThesis. Valid decisions are "
         "APPROVE, ADJUST_AND_APPROVE, DEFER, REJECT, NEEDS_MORE_DATA. "
         "This is not financial advice and no real order will be placed. "
         "Use the strategyReviewerPolicy to calibrate your judgment: do not be blindly conservative, "
         "but do not approve inconsistent geometry, missing stops, unsupported leverage, or thesis conflicts. "
+        "When lossDiscipline.active is true or recentTradeEvents show stop-loss or thesis-failure loss, apply the trader's postLossDiscipline strictly. "
         "Prefer ADJUST_AND_APPROVE when the edge is real and the flaw is fixable by smaller size, lower leverage, "
         "entry cancellation, or a stricter early-exit rule. "
         "Before approving, run these second-pass checks: "
@@ -450,14 +532,18 @@ def review_prompt(payload: TradeReviewPayload) -> str:
     )
 
 
-def management_prompt(payload: PositionManagementPayload) -> str:
+def review_prompt(payload: TradeReviewPayload) -> str:
+    return entry_approval_prompt(payload)
+
+
+def position_management_review_prompt(payload: PositionManagementPayload) -> str:
     locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
     event_type = str(payload.event.eventType or "")
     is_price_shock = event_type == "common_price_shock"
     language_instruction = (
-        "Write rationale, counterThesis, userSummary, and every action reason in Korean."
+        "Write rationale, counterThesis, and every action reason in Korean. Keep reviewFacts as language-neutral codes and labelKey values."
         if locale == "ko"
-        else "Write rationale, counterThesis, userSummary, and every action reason in English."
+        else "Write rationale, counterThesis, and every action reason in English. Keep reviewFacts as language-neutral codes and labelKey values."
     )
     shock_instruction = (
         "FAST-MARKET EVENT MODE: the scanner detected an absolute BTC price move at or above the configured threshold. "
@@ -489,8 +575,8 @@ def management_prompt(payload: PositionManagementPayload) -> str:
         },
     }
     return (
-        "You are a futures paper-trading position management agent. Return only strict JSON with keys "
-        "decision, confidence, riskLevel, actions, riskChange, nextReviewInSeconds, rationale, counterThesis, userSummary. "
+        "You are the POSITION MANAGEMENT reviewer for a live paper order or position. Return only strict JSON with keys "
+        "decision, confidence, riskLevel, reviewCode, reviewFacts, riskFlags, actions, riskChange, nextReviewInSeconds, rationale, counterThesis. "
         "Valid decisions are HOLD, CANCEL_PENDING_ORDER, ADJUST_PENDING_ORDER, MOVE_STOP, MOVE_STOP_TO_BREAKEVEN, "
         "TRAIL_STOP, TAKE_PARTIAL_PROFIT, CLOSE_POSITION, REDUCE_RISK, ADD_TO_POSITION, PYRAMID_POSITION, "
         "LET_PROFIT_RUN, NEEDS_MORE_DATA. "
@@ -513,3 +599,7 @@ def management_prompt(payload: PositionManagementPayload) -> str:
         f"{language_instruction}\n\n"
         f"Payload:\n{json.dumps(data, ensure_ascii=False)}"
     )
+
+
+def management_prompt(payload: PositionManagementPayload) -> str:
+    return position_management_review_prompt(payload)

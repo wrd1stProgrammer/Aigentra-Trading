@@ -201,6 +201,8 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const [selectedDate, setSelectedDate] = useState<string>(() => toDateString(new Date()));
   const [weekStart, setWeekStart] = useState<Date>(() => getSunday(new Date()));
   const [clientHydrated, setClientHydrated] = useState(false);
+  const historyLoadingRef = useRef(false);
+  const historyContextKeyRef = useRef(`${traderId}:${symbol}`);
 
   const handlePrevWeek = useCallback(() => {
     setWeekStart((prev) => {
@@ -229,6 +231,11 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, []);
 
   const loadHistoryPage = useCallback(async (nextOffset: number, reset: boolean) => {
+    const requestContextKey = `${traderId}:${symbol}`;
+    if (!reset && !historyHasMore) return;
+    if (historyLoadingRef.current && historyContextKeyRef.current === requestContextKey) return;
+    historyLoadingRef.current = true;
+    historyContextKeyRef.current = requestContextKey;
     if (reset) {
       setHistoryHasMore(true);
     }
@@ -237,6 +244,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       const res = await getTraderTradeHistory(traderId, symbol, 10, nextOffset);
       const items = res.items || [];
       const mapped = items.map(item => mapMergedItemToHistoryItem(item, locale, t));
+      if (historyContextKeyRef.current !== requestContextKey) return;
       
       setHistoryItems(prev => reset ? mapped : [...prev, ...mapped]);
       setHistoryOffset(nextOffset + items.length);
@@ -246,9 +254,12 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     } catch (err) {
       console.error("Failed to load trade history:", err);
     } finally {
-      setLoadingMoreHistory(false);
+      if (historyContextKeyRef.current === requestContextKey) {
+        historyLoadingRef.current = false;
+        setLoadingMoreHistory(false);
+      }
     }
-  }, [traderId, symbol, locale, t]);
+  }, [historyHasMore, traderId, symbol, locale, t]);
 
   const loadHistory = useCallback(async (reset = false) => {
     await loadHistoryPage(reset ? 0 : historyOffset, reset);
@@ -511,9 +522,10 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, [loadMoreSelectedScenarios]);
 
   const onLoadMoreEvents = useCallback(() => {
+    if (loadingMoreHistory || !historyHasMore) return;
     void loadHistory(false);
     setEventsLimit((current) => current + 10);
-  }, [loadHistory]);
+  }, [historyHasMore, loadHistory, loadingMoreHistory]);
 
   if (!trader || !standing) {
     return <div className="rounded-xl border border-zinc-200 bg-white p-8 dark:border-zinc-800 dark:bg-zinc-950">{t("common.loading")}</div>;
@@ -701,7 +713,19 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
           />
         </div>
 
-        <DetailSidebar holdingItems={holdingItems} tradeHistoryItems={historyItems.slice(0, eventsLimit)} pnlCalendar={pnlCalendar} standing={standing} latestReview={latestReview} latestPlan={latestPlan} locale={locale} t={t} onLoadMoreEvents={onLoadMoreEvents} />
+        <DetailSidebar
+          holdingItems={holdingItems}
+          tradeHistoryItems={historyItems.slice(0, eventsLimit)}
+          pnlCalendar={pnlCalendar}
+          standing={standing}
+          latestReview={latestReview}
+          latestPlan={latestPlan}
+          locale={locale}
+          t={t}
+          onLoadMoreEvents={onLoadMoreEvents}
+          historyHasMore={historyHasMore}
+          loadingMoreHistory={loadingMoreHistory}
+        />
       </section>
 
       {error ? <div className="mt-4 rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200">{error}</div> : null}

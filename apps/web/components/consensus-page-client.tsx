@@ -317,7 +317,7 @@ export function ConsensusPageClient() {
       const activeOrder = traderOrders.find(o => isActiveOrder(o.status));
       const activePayload = activePosition?.payload || activeOrder?.payload || {};
 
-      let rationale = activeScenario?.rationale || activeScenario?.summary || activePayload?.aiApprovalReason || activePayload?.entryReason || activePayload?.aiUserSummary || activePayload?.managementRationale;
+      let rationale = activeScenario?.rationale || activeScenario?.summary || activePayload?.aiApprovalReason || activePayload?.entryReason || activePayload?.managementRationale;
       
       if (!rationale && (activeState.status === "inPosition" || activeState.status === "pendingEntry")) {
         rationale = locale === "ko" ? "진입 분석 데이터를 불러오는 중입니다..." : "Loading entry analysis...";
@@ -817,4 +817,3 @@ function ActiveTraderRow({ trader, locale, t }: { trader: any; locale: Locale; t
     </div>
   );
 }
-

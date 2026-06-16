@@ -57,7 +57,10 @@ export function buildScenarioTimelineItems({
 }
 
 function scenarioTimelineBody(scenario: TraderScenario, matchingReview: ManagementReview | undefined, t: Translator): string {
-  if (scenario.source === "review" && matchingReview?.userSummary) return matchingReview.userSummary;
+  if (scenario.source === "review" && matchingReview?.rationale) return matchingReview.rationale;
+  if (scenario.source === "review" && Array.isArray(matchingReview?.reviewFacts) && matchingReview.reviewFacts.length) {
+    return matchingReview.reviewFacts.map((fact) => t(fact.labelKey ?? `reviewFact.${fact.code}`)).join(", ");
+  }
   if (scenario.source === "review" && scenario.summary) return scenario.summary;
   if (scenario.rationale) return scenario.rationale;
   if (scenario.source === "order" || scenario.source === "position") return t("detail.noAiRationale");
@@ -486,8 +489,8 @@ export function managementReviewScenarioTitle(scenario: TraderScenario, t: Trans
 }
 
 export function movementToneClass(tone: "good" | "bad" | "warn" | "neutral") {
-  if (tone === "good") return "text-red-600 dark:text-red-400";
-  if (tone === "bad") return "text-blue-600 dark:text-blue-400";
+  if (tone === "good") return "text-emerald-600 dark:text-emerald-300";
+  if (tone === "bad") return "text-rose-600 dark:text-rose-300";
   if (tone === "warn") return "text-amber-700 dark:text-amber-300";
   return "text-zinc-500 dark:text-zinc-400";
 }

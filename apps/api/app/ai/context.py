@@ -11,6 +11,8 @@ from app.db import (
     TradeEventRecord,
     TraderStateRecord,
 )
+from app.core.config import get_settings
+from app.paper.loss_discipline import latest_loss_discipline_context
 from app.repositories import from_json
 
 
@@ -31,6 +33,9 @@ def _review_summary(record: AIReviewRecord) -> dict[str, Any]:
         "riskLevel": record.risk_level,
         "approvalReason": payload.get("approvalReason"),
         "counterThesis": payload.get("counterThesis"),
+        "reviewCode": payload.get("reviewCode"),
+        "reviewFacts": payload.get("reviewFacts") or [],
+        "riskFlags": payload.get("riskFlags") or [],
         "adjustments": payload.get("adjustments") or [],
     }
 
@@ -49,6 +54,9 @@ def _management_summary(record: PositionManagementReviewRecord) -> dict[str, Any
         "confidence": record.confidence,
         "rationale": review.get("rationale"),
         "counterThesis": review.get("counterThesis"),
+        "reviewCode": review.get("reviewCode"),
+        "reviewFacts": review.get("reviewFacts") or [],
+        "riskFlags": review.get("riskFlags") or [],
         "appliedActions": applied[:3],
     }
 
@@ -94,6 +102,7 @@ def _event_summary(record: TradeEventRecord) -> dict[str, Any]:
         "quantity": float(record.quantity) if record.quantity is not None else None,
         "realizedPnl": float(record.realized_pnl),
         "fee": float(record.fee),
+        "payload": _payload(record),
     }
 
 
@@ -155,11 +164,19 @@ def build_trade_review_context(db: Session, trader_id: str, symbol: str) -> dict
         .order_by(desc(PositionManagementReviewRecord.created_at), desc(PositionManagementReviewRecord.id))
         .limit(5)
     ).scalars().all()
+    settings = get_settings()
+    loss_discipline = latest_loss_discipline_context(
+        db,
+        trader_id,
+        symbol,
+        cooldown_seconds=max(0, int(settings.paper_reentry_cooldown_seconds or 0)),
+    )
     return {
         "recentAiReviews": [_review_summary(record) for record in ai_reviews],
         "recentManagementReviews": [_management_summary(record) for record in management_reviews],
         "activeExposure": active_exposure_context(db, trader_id, symbol),
         "recentTradeEvents": recent_trade_events_context(db, trader_id, symbol, limit=8),
+        "lossDiscipline": loss_discipline or {},
     }
 
 

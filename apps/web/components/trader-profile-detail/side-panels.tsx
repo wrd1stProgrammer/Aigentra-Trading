@@ -51,7 +51,7 @@ export function HoldingPanel({ items, asOf, t }: { items: HoldingItem[]; asOf: s
               </div>
               <div className="text-right">
                 <p className="font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50">{formatPercent(item.deploymentPercent).replace("+", "")}</p>
-                <p className={`mt-0.5 font-mono text-sm ${item.returnPct === null ? "text-zinc-400" : item.returnPct >= 0 ? "text-red-600 dark:text-red-400" : "text-blue-600 dark:text-blue-400"}`}>
+                <p className={`mt-0.5 font-mono text-sm ${item.returnPct === null ? "text-zinc-400" : item.returnPct >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"}`}>
                   {item.returnPct === null ? "-" : formatPercent(item.returnPct)}
                 </p>
               </div>
@@ -85,26 +85,31 @@ function HoldingBadge({ badge }: { badge: HoldingItem["badges"][number] }) {
 }
 
 function detailToneClass(tone: HoldingItem["details"][number]["tone"]) {
-  if (tone === "good") return "text-red-600 dark:text-red-400";
-  if (tone === "bad") return "text-blue-600 dark:text-blue-400";
+  if (tone === "good") return "text-emerald-600 dark:text-emerald-300";
+  if (tone === "bad") return "text-rose-600 dark:text-rose-300";
   return "text-zinc-950 dark:text-zinc-50";
 }
 
 export function TradeHistoryPanel({
   items,
   t,
-  onLoadMore
+  onLoadMore,
+  hasMore = false,
+  loadingMore = false
 }: {
   items: TradeHistoryItem[];
   t: Translator;
   onLoadMore?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
 }) {
   const [expandedTradeHistoryId, setExpandedTradeHistoryId] = useState<string | null>(null);
 
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
+    if (!onLoadMore || loadingMore || !hasMore) return;
     const target = event.currentTarget;
     if (target.scrollTop + target.clientHeight >= target.scrollHeight - 10) {
-      onLoadMore?.();
+      onLoadMore();
     }
   };
 
@@ -150,6 +155,7 @@ export function TradeHistoryPanel({
           </div>
         ))}
         {!items.length ? <div className="py-6 text-sm text-zinc-500 dark:text-zinc-400">{t("detail.noTradeHistory")}</div> : null}
+        {loadingMore ? <div className="py-3 text-center text-sm text-zinc-500 dark:text-zinc-400">{t("common.loading")}</div> : null}
       </div>
     </section>
   );

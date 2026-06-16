@@ -855,7 +855,7 @@ function reviewText(review: ManagementReview) {
   const payload = (review.payload ?? {}) as Record<string, any>;
   const nested = review.review ?? payload.review ?? {};
   const event = review.event ?? payload.event ?? {};
-  return String(review.rationale ?? nested.rationale ?? review.userSummary ?? nested.userSummary ?? event.reason ?? "-");
+  return String(review.rationale ?? nested.rationale ?? event.reason ?? "-");
 }
 
 function traderName(id: string | null | undefined, t: (key: string) => string, traderNameMap: Map<string, string>) {
@@ -962,6 +962,40 @@ function timeValue(value?: string | null) {
 // -------------------------------------------------------------
 // LEAGUE OVERVIEW COMPONENTS
 // -------------------------------------------------------------
+
+function getReviewImportance(decision: string, text: string): 'critical' | 'important' | 'watch' | 'routine' {
+  const upperDecision = decision.toUpperCase();
+  const upperText = text.toUpperCase();
+
+  const criticalWords = [
+    "LIQUIDATION", "STOP_LOSS", "CLOSE_POSITION", "FORCE_EXIT", 
+    "CANCEL_REMAINING_ORDERS", "CANCEL_REMAINING", "EXIT", 
+    "청산", "손절", "강제 종료", "종료"
+  ];
+  
+  const importantWords = [
+    "MOVE_STOP", "STOP_UPDATED", "REDUCE", "TAKE_PARTIAL", 
+    "PARTIAL_TAKE", "ADJUST", "TIGHTEN", "LEVERAGE",
+    "익절", "조절", "수정", "이동", "레버리지"
+  ];
+  
+  const watchWords = [
+    "PENDING", "OPEN", "HOLD", "REVIEW", "CONTINUATION", 
+    "CONFIRMATION", "SCAN", "MONITOR",
+    "유지", "대기", "관찰", "검토", "감시", "상태 유지"
+  ];
+
+  if (criticalWords.some(word => upperDecision.includes(word) || upperText.includes(word))) {
+    return 'critical';
+  }
+  if (importantWords.some(word => upperDecision.includes(word) || upperText.includes(word))) {
+    return 'important';
+  }
+  if (watchWords.some(word => upperDecision.includes(word) || upperText.includes(word))) {
+    return 'watch';
+  }
+  return 'routine';
+}
 
 function OptionActivityStream({
   locale,
@@ -1096,6 +1130,7 @@ function OptionActivityStream({
       trader: string;
       text: string;
       rawTime: number;
+      importance?: "critical" | "important" | "watch" | "routine";
     }> = [];
 
     // Pending Scanner Plans (Active setups)
@@ -1114,7 +1149,8 @@ function OptionActivityStream({
         text: locale === "ko" 
           ? `${plan.symbol} 진입 대기 시나리오 수립 (${side} @ $${priceVal.toLocaleString()})`
           : `Created pending scenario for ${plan.symbol} (${side} @ $${priceVal.toLocaleString()})`,
-        rawTime: rawTimeVal
+        rawTime: rawTimeVal,
+        importance: "routine"
       });
     });
 
@@ -1129,10 +1165,12 @@ function OptionActivityStream({
       const payload = (review.payload ?? {}) as Record<string, any>;
       const nested = review.review ?? payload.review ?? {};
       const event = review.event ?? payload.event ?? {};
-      const rawTxt = String(review.rationale ?? nested.rationale ?? review.userSummary ?? nested.userSummary ?? event.reason ?? "-");
+      const rawTxt = String(review.rationale ?? nested.rationale ?? event.reason ?? "-");
       if (rawTxt && rawTxt !== "-") {
         rText = rawTxt.substring(0, 150) + (rawTxt.length > 150 ? "..." : "");
       }
+
+      const importance = getReviewImportance(decision, rText);
 
       items.push({
         id: `review-${review.id ?? review.createdAt}-${traderId}`,
@@ -1143,7 +1181,8 @@ function OptionActivityStream({
         text: locale === "ko"
           ? `리스크 심사 완료: [${decision}] ${rText || "상태 유지"}`
           : `Risk audit completed: [${decision}] ${rText || "Maintain status"}`,
-        rawTime: rawTimeVal
+        rawTime: rawTimeVal,
+        importance
       });
     });
 
@@ -1157,7 +1196,8 @@ function OptionActivityStream({
         traderId: "channel-rider",
         trader: traderName("channel-rider", t, traderNameMap),
         text: locale === "ko" ? "BTCUSDT 15분 봉 EMA 풀백 셋업 감시 중" : "Scanning BTCUSDT 15m EMA Pullback setups",
-        rawTime: Date.now()
+        rawTime: Date.now(),
+        importance: "watch"
       });
       items.push({
         id: "fallback-2",
@@ -1166,7 +1206,8 @@ function OptionActivityStream({
         traderId: "funding-contrarian",
         trader: traderName("funding-contrarian", t, traderNameMap),
         text: locale === "ko" ? "리스크 조절: 레버리지 5배 설정" : "Risk adjusted: leverage set to 5x",
-        rawTime: Date.now() - 300
+        rawTime: Date.now() - 300,
+        importance: "important"
       });
       items.push({
         id: "fallback-3",
@@ -1175,7 +1216,8 @@ function OptionActivityStream({
         traderId: "pullback-architect",
         trader: traderName("pullback-architect", t, traderNameMap),
         text: locale === "ko" ? "BTCUSDT 대기 시나리오 수립 (LONG @ $66,950)" : "Created pending scenario for BTCUSDT (LONG @ $66,950)",
-        rawTime: Date.now() - 1000
+        rawTime: Date.now() - 1000,
+        importance: "routine"
       });
     }
 
@@ -1191,8 +1233,25 @@ function OptionActivityStream({
         >
           {logItems.map((log) => {
             let dotColor = "bg-emerald-400";
-            if (log.type === "PLAN") dotColor = "bg-orange-400";
-            if (log.type === "AUDIT") dotColor = "bg-amber-400";
+            if (log.type === "PLAN") {
+              dotColor = "bg-orange-400";
+            } else if (log.type === "AUDIT") {
+              if (log.importance === "critical") {
+                dotColor = "bg-rose-500";
+              } else if (log.importance === "important") {
+                dotColor = "bg-amber-500";
+              } else if (log.importance === "watch") {
+                dotColor = "bg-sky-500";
+              } else {
+                dotColor = "bg-emerald-400";
+              }
+            } else {
+              if (log.importance === "watch") {
+                dotColor = "bg-sky-500";
+              } else {
+                dotColor = "bg-emerald-400";
+              }
+            }
 
             return (
               <Link
@@ -1245,4 +1304,3 @@ function OptionActivityStream({
     </div>
   );
 }
-

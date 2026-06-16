@@ -72,25 +72,37 @@ class MockAIProvider(BaseAIProvider):
                 "후보의 방향, 진입가, 손절, 익절, 레버리지, 수수료 버퍼, 조기 종료 조건을 2차 검증했습니다."
             )
             counter_thesis = "가격이 무효화 레벨 너머에서 안착하거나 조기 종료 조건이 발생하면 이 셋업은 더 이상 유효하지 않습니다."
-            user_summary = "Mock 리뷰어가 paper-trading 기준의 구조화된 2차 검증을 완료했습니다."
             if structural_errors:
                 approval_reason = "구조 검증 실패: " + " ".join(structural_errors)
                 counter_thesis = "entry/SL/TP/leverage/fees/early-exit 중 하나라도 내부 모순이면 승인할 수 없습니다."
-                user_summary = "Mock 리뷰어가 2차 검증에서 후보를 거절했습니다."
         else:
             adjustment = "Reduce size by 20% until confirmation candle closes and keep the fee buffer."
             approval_reason = "The second-pass review checked direction, entries, stop, targets, leverage, fees, and early exits."
             counter_thesis = "If price accepts beyond invalidation or an early-exit rule fires, the setup is no longer valid."
-            user_summary = "Mock reviewer completed a structured paper-trading review."
             if structural_errors:
                 approval_reason = "Structural validation failed: " + " ".join(structural_errors)
                 counter_thesis = "The setup cannot be approved while entry/SL/TP/leverage/fees/early-exit fields conflict."
-                user_summary = "Mock reviewer rejected the candidate during second-pass validation."
+        facts = [
+            {"code": "entry_geometry_checked", "labelKey": "reviewFact.entryGeometryChecked", "severity": "info"},
+            {"code": "risk_plan_checked", "labelKey": "reviewFact.riskPlanChecked", "severity": "info"},
+            {"code": "fee_buffer_checked", "labelKey": "reviewFact.feeBufferChecked", "severity": "info"},
+        ]
+        if payload.lossDiscipline:
+            facts.append(
+                {
+                    "code": "loss_discipline_checked",
+                    "labelKey": "reviewFact.lossDisciplineChecked",
+                    "severity": "warn" if payload.lossDiscipline.get("active") else "info",
+                }
+            )
         return self.normalize_result(
             {
                 "decision": decision,
                 "confidence": confidence,
                 "riskLevel": normalized_risk,
+                "reviewCode": "ENTRY_REVIEW",
+                "reviewFacts": facts,
+                "riskFlags": structural_errors or [f"decision:{decision.lower()}"],
                 "adjustments": (
                     [adjustment] + structural_errors
                     if decision in {"ADJUST_AND_APPROVE", "REJECT"}
@@ -101,7 +113,7 @@ class MockAIProvider(BaseAIProvider):
                 "earlyExitRecommendations": candidate.earlyExitRules[:2],
                 "approvalReason": approval_reason,
                 "counterThesis": counter_thesis,
-                "userSummary": user_summary,
+                "userSummary": None,
             }
         )
 
@@ -171,26 +183,32 @@ class MockAIProvider(BaseAIProvider):
             if event.eventType == "common_price_shock":
                 rationale = "BTC 1분 가격 변동이 급변 기준을 넘어 fast-market 모드로 진입했고 120초 후 재검토하도록 판단했습니다."
             else:
-                rationale = f"{event.eventType} 이벤트를 감지했고 {holding_policy.name} 보유 정책 안에서 {suggested} 조치를 검토했습니다."
+                rationale = f"{event.eventType} 이벤트를 감지했고 {holding_policy.name} 보유 정책 안에서 {suggested} 관리 판단을 검토했습니다."
             counter = "가격이 손절/익절 hard rule에 먼저 닿으면 AI 판단보다 paper risk engine 처리가 우선합니다."
-            summary = f"{payload.trader.name}의 {payload.exposure.kind} 상태에 대해 {suggested} 관리 판단을 기록했습니다."
         else:
             if event.eventType == "common_price_shock":
                 rationale = "BTC one-minute price change crossed the fast-market threshold, so the agent set a 120-second follow-up review."
             else:
                 rationale = f"Detected {event.eventType} and reviewed {suggested} inside the {holding_policy.name} holding policy."
             counter = "If hard stop/take-profit fires first, the paper risk engine overrides this AI decision."
-            summary = f"Recorded a {suggested} management decision for {payload.trader.name}."
+        facts = [
+            {"code": "management_event_reviewed", "labelKey": "reviewFact.managementEventReviewed", "severity": "info"},
+            {"code": "holding_policy_checked", "labelKey": "reviewFact.holdingPolicyChecked", "severity": "info"},
+            {"code": "hard_rules_priority", "labelKey": "reviewFact.hardRulesPriority", "severity": "warn"},
+        ]
         return self.normalize_management_result(
             {
                 "decision": suggested if suggested in {"HOLD", "CANCEL_PENDING_ORDER", "ADJUST_PENDING_ORDER", "MOVE_STOP", "MOVE_STOP_TO_BREAKEVEN", "TRAIL_STOP", "TAKE_PARTIAL_PROFIT", "CLOSE_POSITION", "REDUCE_RISK", "ADD_TO_POSITION", "PYRAMID_POSITION", "LET_PROFIT_RUN", "NEEDS_MORE_DATA"} else "HOLD",
                 "confidence": confidence,
                 "riskLevel": "HIGH" if event.severity == "HIGH" else "MEDIUM",
+                "reviewCode": "POSITION_MANAGEMENT_REVIEW",
+                "reviewFacts": facts,
+                "riskFlags": [f"event:{event.eventType}", f"action:{suggested.lower()}"],
                 "actions": [action],
                 "riskChange": "REDUCE" if suggested not in {"HOLD", "LET_PROFIT_RUN"} else "UNCHANGED",
                 "nextReviewInSeconds": 120 if event.eventType == "common_price_shock" else 300,
                 "rationale": rationale,
                 "counterThesis": counter,
-                "userSummary": summary,
+                "userSummary": None,
             }
         )

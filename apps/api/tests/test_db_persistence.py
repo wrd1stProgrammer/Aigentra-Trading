@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -10,12 +11,18 @@ from app.core.config import Settings
 from app.db import (
     AIReviewRecord,
     CandidateTradeRecord,
+    EquitySnapshotRecord,
     MarketSnapshotRecord,
     PaperOrderRecord,
     PaperPositionRecord,
     PositionManagementReviewRecord,
+    RiskSettingsRecord,
+    SubscriberPreferenceRecord,
+    TelegramAlertDeliveryRecord,
+    TradeEventRecord,
     TradePlanRecord,
     TraderAgentStateRecord,
+    TraderLeaderboardSnapshotRecord,
     TraderStateRecord,
     TraderRunLogRecord,
     db_status,
@@ -23,15 +30,35 @@ from app.db import (
     reset_db_engine,
     session_scope,
 )
+from app.ops.trader_history_reset import RESET_CONFIRMATION_TEXT, reset_trader_history
 from app.paper.engine import process_candle, place_paper_order
+from app.paper.loss_discipline import latest_post_loss_cooldown
 from app.paper.management import order_management_events
 from app.paper.management_actions import create_position_add_order
 from app.paper.planner import create_paper_orders_from_plan
 from app.paper.plan_state import latest_active_trade_plan, list_active_trade_plans
 from app.main import run_scanner_once, run_trader_cycle, suppress_inactive_pending_plan_summary
 from app.repositories import list_records
-from app.repositories import to_json
-from app.traders.models import EntryPlan, ManagementAction, TakeProfitPlan, TradeCandidate, TradePlan, TradeReviewResult
+from app.repositories import (
+    create_ai_review,
+    create_candidate_trade,
+    create_market_snapshot,
+    create_position_management_review,
+    create_trade_plan,
+    create_trader_run_log,
+    to_json,
+    update_trader_run_log,
+    upsert_trader_agent_state,
+)
+from app.traders.models import (
+    EntryPlan,
+    ManagementAction,
+    ReviewFact,
+    TakeProfitPlan,
+    TradeCandidate,
+    TradePlan,
+    TradeReviewResult,
+)
 
 
 def sample_snapshot():
@@ -157,6 +184,331 @@ def test_db_status(temp_db):
     assert "equity_snapshots" in status["tables"]
     assert "position_management_reviews" in status["tables"]
     assert "trader_agent_states" in status["tables"]
+
+
+def seed_closed_position(
+    db,
+    *,
+    trader_id: str = "channel-rider",
+    symbol: str = "BTCUSDT",
+    close_reason: str = "stop_loss",
+    realized_pnl: Decimal = Decimal("-42.5"),
+    closed_at: datetime | None = None,
+) -> PaperPositionRecord:
+    position = PaperPositionRecord(
+        trader_id=trader_id,
+        symbol=symbol,
+        status="closed",
+        side="long",
+        quantity=Decimal("0.01"),
+        entry_price=Decimal("68000"),
+        leverage=Decimal("5"),
+        notional=Decimal("3400"),
+        margin=Decimal("680"),
+        exit_price=Decimal("67150"),
+        exit_fee=Decimal("1.2"),
+        realized_pnl=realized_pnl,
+        unrealized_pnl=Decimal("0"),
+        take_profit_price=Decimal("70000"),
+        stop_loss_price=Decimal("67200"),
+        close_reason=close_reason,
+        opened_at=(closed_at or datetime.now(timezone.utc)) - timedelta(minutes=30),
+        closed_at=closed_at or datetime.now(timezone.utc),
+        payload_json=to_json({"source": "test"}),
+    )
+    db.add(position)
+    db.flush()
+    return position
+
+
+def test_post_loss_reentry_cooldown_blocks_recent_stop_loss(temp_db):
+    with session_scope() as db:
+        position = seed_closed_position(db)
+        cooldown = latest_post_loss_cooldown(db, "channel-rider", "BTCUSDT", cooldown_seconds=900)
+
+    assert cooldown is not None
+    assert cooldown["positionId"] == position.id
+    assert cooldown["closeReason"] == "stop_loss"
+    assert cooldown["remainingSeconds"] > 0
+    assert cooldown["cooldownSeconds"] == 900
+
+
+def test_post_loss_reentry_cooldown_ignores_profitable_and_take_profit_exits(temp_db):
+    with session_scope() as db:
+        seed_closed_position(db, trader_id="channel-rider", close_reason="take_profit", realized_pnl=Decimal("70"))
+        seed_closed_position(db, trader_id="volume-breaker", close_reason="stop_loss", realized_pnl=Decimal("12"))
+
+        assert latest_post_loss_cooldown(db, "channel-rider", "BTCUSDT", cooldown_seconds=900) is None
+        assert latest_post_loss_cooldown(db, "volume-breaker", "BTCUSDT", cooldown_seconds=900) is None
+
+
+def seed_trader_history_for_reset(db) -> dict[str, int]:
+    subscriber = SubscriberPreferenceRecord(
+        trader_id=None,
+        symbol=None,
+        status="active",
+        user_id="google-reset",
+        email="reset@example.com",
+        subscription_status="active",
+        favorite_trader_ids_json=to_json(["channel-rider"]),
+        telegram_enabled=True,
+        telegram_chat_id="123456789",
+        telegram_event_types_json=to_json(["entry", "exit"]),
+        telegram_min_return_pct=0,
+        locale="ko",
+    )
+    db.add(subscriber)
+    db.flush()
+
+    market = create_market_snapshot(db, "BTCUSDT", sample_snapshot())
+    run = create_trader_run_log(db, "BTCUSDT", "channel-rider", "mock", payload={"source": "reset-test"})
+    seeded_candidate = TradeCandidate(
+        created=False,
+        reason="test",
+        setupScore=0,
+    )
+    candidate = create_candidate_trade(
+        db,
+        run.id,
+        "BTCUSDT",
+        "channel-rider",
+        seeded_candidate,
+    )
+    seeded_review = TradeReviewResult(
+        decision="REJECT",
+        confidence=32,
+        riskLevel="HIGH",
+        approvalReason="Rejected.",
+        counterThesis="No edge.",
+        userSummary="Legacy summary.",
+    )
+    review = create_ai_review(
+        db,
+        run.id,
+        "BTCUSDT",
+        "channel-rider",
+        seeded_review,
+    )
+    seeded_plan = TradePlan(status="REJECTED", symbol="BTCUSDT", notes=["test"])
+    plan = create_trade_plan(
+        db,
+        run.id,
+        "BTCUSDT",
+        "channel-rider",
+        seeded_plan,
+    )
+    update_trader_run_log(
+        db,
+        run,
+        status="completed",
+        payload={
+            "candidate": seeded_candidate.model_dump(),
+            "aiReview": seeded_review.model_dump(),
+            "tradePlan": seeded_plan.model_dump(),
+        },
+        market_snapshot_id=market.id,
+        candidate_trade_id=candidate.id,
+        ai_review_id=review.id,
+        trade_plan_id=plan.id,
+    )
+
+    order = PaperOrderRecord(
+        trader_id="channel-rider",
+        symbol="BTCUSDT",
+        status="open",
+        side="long",
+        order_type="limit",
+        fee_type="maker",
+        quantity=Decimal("0.01"),
+        leverage=Decimal("5"),
+        limit_price=Decimal("68000"),
+        take_profit_price=Decimal("70000"),
+        stop_loss_price=Decimal("67000"),
+        payload_json=to_json({"source": "reset-test"}),
+    )
+    db.add(order)
+    db.flush()
+    position = PaperPositionRecord(
+        trader_id="channel-rider",
+        symbol="BTCUSDT",
+        status="closed",
+        order_id=order.id,
+        side="long",
+        quantity=Decimal("0.01"),
+        entry_price=Decimal("68000"),
+        leverage=Decimal("5"),
+        notional=Decimal("3400"),
+        margin=Decimal("680"),
+        exit_price=Decimal("67200"),
+        exit_fee=Decimal("1"),
+        realized_pnl=Decimal("-41"),
+        unrealized_pnl=Decimal("0"),
+        take_profit_price=Decimal("70000"),
+        stop_loss_price=Decimal("67200"),
+        close_reason="stop_loss",
+        opened_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        closed_at=datetime.now(timezone.utc),
+        payload_json=to_json({"source": "reset-test"}),
+    )
+    db.add(position)
+    db.flush()
+    event = TradeEventRecord(
+        trader_id="channel-rider",
+        symbol="BTCUSDT",
+        status="recorded",
+        event_type="STOP_LOSS",
+        order_id=order.id,
+        position_id=position.id,
+        price=Decimal("67200"),
+        quantity=Decimal("0.01"),
+        fee=Decimal("1"),
+        realized_pnl=Decimal("-41"),
+        payload_json=to_json({"source": "reset-test"}),
+    )
+    db.add(event)
+    db.flush()
+    delivery = TelegramAlertDeliveryRecord(
+        subscriber_preference_id=subscriber.id,
+        trade_event_id=event.id,
+        trader_id="channel-rider",
+        symbol="BTCUSDT",
+        status="sent",
+        telegram_event_type="exit",
+        chat_id="123456789",
+        payload_json=to_json({"message": "test"}),
+    )
+    db.add(delivery)
+    mgmt = PositionManagementReviewRecord(
+        trader_id="channel-rider",
+        symbol="BTCUSDT",
+        status="ok",
+        order_id=order.id,
+        position_id=position.id,
+        event_type="heartbeat",
+        phase="OPEN_POSITION",
+        provider="mock",
+        model="mock-position-manager",
+        decision="HOLD",
+        confidence=72,
+        action_type="HOLD",
+        payload_json=to_json({"review": {"rationale": "test"}}),
+    )
+    db.add(mgmt)
+    db.flush()
+    upsert_trader_agent_state(
+        db,
+        symbol="BTCUSDT",
+        trader_id="channel-rider",
+        phase="OPEN_POSITION",
+        mode="WATCHING",
+        last_review_id=mgmt.id,
+    )
+    db.add(
+        TraderLeaderboardSnapshotRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="active",
+            trader_name="Channel Rider",
+        )
+    )
+    db.add(
+        TraderStateRecord(
+            trader_id="channel-rider",
+            status="active",
+            cash_balance=Decimal("9950"),
+            equity=Decimal("9950"),
+            margin_used=Decimal("0"),
+            realized_pnl=Decimal("-50"),
+            unrealized_pnl=Decimal("0"),
+            total_fees=Decimal("2"),
+        )
+    )
+    db.add(
+        RiskSettingsRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="active",
+            initial_equity=Decimal("10000"),
+            max_leverage=Decimal("10"),
+            maker_fee_rate=Decimal("0.0002"),
+            taker_fee_rate=Decimal("0.0005"),
+        )
+    )
+    db.add(
+        EquitySnapshotRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="recorded",
+            cash_balance=Decimal("9950"),
+            equity=Decimal("9950"),
+            margin_used=Decimal("0"),
+            realized_pnl=Decimal("-50"),
+            unrealized_pnl=Decimal("0"),
+            total_fees=Decimal("2"),
+            candle_time=datetime.now(timezone.utc),
+        )
+    )
+    db.flush()
+    return {"subscriberId": subscriber.id, "tradeEventId": event.id, "deliveryId": delivery.id}
+
+
+def trader_history_counts(db) -> dict[str, int]:
+    models = {
+        "market_snapshots": MarketSnapshotRecord,
+        "trader_run_logs": TraderRunLogRecord,
+        "candidate_trades": CandidateTradeRecord,
+        "ai_reviews": AIReviewRecord,
+        "trade_plans": TradePlanRecord,
+        "position_management_reviews": PositionManagementReviewRecord,
+        "trader_agent_states": TraderAgentStateRecord,
+        "trader_leaderboard_snapshots": TraderLeaderboardSnapshotRecord,
+        "trader_states": TraderStateRecord,
+        "risk_settings": RiskSettingsRecord,
+        "paper_orders": PaperOrderRecord,
+        "paper_positions": PaperPositionRecord,
+        "trade_events": TradeEventRecord,
+        "telegram_alert_deliveries": TelegramAlertDeliveryRecord,
+        "equity_snapshots": EquitySnapshotRecord,
+        "subscriber_preferences": SubscriberPreferenceRecord,
+    }
+    return {table: db.query(model).count() for table, model in models.items()}
+
+
+def test_trader_history_reset_dry_run_counts_without_mutation(temp_db):
+    with session_scope() as db:
+        seed_trader_history_for_reset(db)
+        before = trader_history_counts(db)
+        result = reset_trader_history(db, trader_ids=["channel-rider"], symbols=["BTCUSDT"], dry_run=True)
+        after = trader_history_counts(db)
+
+    assert result["dryRun"] is True
+    assert result["executed"] is False
+    assert result["resettableCounts"]["trade_events"] == 1
+    assert result["resettableCounts"]["telegram_alert_deliveries"] == 1
+    assert result["preservedTables"] == ["subscriber_preferences"]
+    assert after == before
+
+
+def test_trader_history_reset_preserves_subscriber_preferences(temp_db):
+    with session_scope() as db:
+        ids = seed_trader_history_for_reset(db)
+        result = reset_trader_history(
+            db,
+            trader_ids=["channel-rider"],
+            symbols=["BTCUSDT"],
+            dry_run=False,
+            confirmation_text=RESET_CONFIRMATION_TEXT,
+        )
+        after = trader_history_counts(db)
+        subscriber = db.get(SubscriberPreferenceRecord, ids["subscriberId"])
+
+    assert result["executed"] is True
+    assert after["subscriber_preferences"] == 1
+    assert subscriber is not None
+    assert subscriber.favorite_trader_ids_json == to_json(["channel-rider"])
+    for table, count in after.items():
+        if table != "subscriber_preferences":
+            assert count == 0, table
 
 
 def test_active_trade_plan_requires_open_exposure(temp_db):
@@ -330,7 +682,13 @@ def test_paper_order_payload_preserves_ai_review_rationale(temp_db):
             riskLevel="MEDIUM",
             approvalReason="AI는 상단 채널 실패와 하위 시간대 약세 전환이 겹쳐 이 대기 주문을 승인했습니다.",
             counterThesis="가격이 채널 위로 재진입하면 숏 논리는 무효화됩니다.",
-            userSummary="상단 채널 리젝트 대기 주문입니다.",
+            reviewFacts=[
+                ReviewFact(
+                    code="entry_geometry_checked",
+                    labelKey="reviewFact.entryGeometryChecked",
+                    value="상단 채널 실패 확인",
+                )
+            ],
             provider="gemini",
             model="gemini-test",
         )
@@ -351,7 +709,9 @@ def test_paper_order_payload_preserves_ai_review_rationale(temp_db):
         payload = result["created"][0]["payload"]
         assert payload["entryReason"] == "15분 확인 캔들"
         assert payload["aiApprovalReason"] == "AI는 상단 채널 실패와 하위 시간대 약세 전환이 겹쳐 이 대기 주문을 승인했습니다."
-        assert payload["aiUserSummary"] == "상단 채널 리젝트 대기 주문입니다."
+        assert payload["aiReviewCode"] == "ENTRY_REVIEW"
+        assert payload["aiReviewFacts"]
+        assert "aiUserSummary" not in payload
         assert payload["aiProvider"] == "gemini"
 
 
@@ -694,6 +1054,48 @@ async def test_ai_rejection_cooldown_skips_new_first_stage_scan(monkeypatch, tem
     with session_scope() as db:
         latest_run = list_records(db, TraderRunLogRecord, 10)[0]
         assert latest_run["status"] == "ai_review_cooldown"
+
+
+@pytest.mark.asyncio
+async def test_post_loss_cooldown_skips_run_cycle_candidate_generation(monkeypatch, temp_db):
+    async def fake_snapshot(client, symbol):
+        return sample_snapshot()
+
+    monkeypatch.setattr("app.main.build_market_snapshot", fake_snapshot)
+
+    with session_scope() as db:
+        seed_closed_position(db)
+
+    result = await run_trader_cycle("channel-rider", "BTCUSDT", provider_override="mock")
+
+    assert result.tradePlan.status == "POST_LOSS_COOLDOWN"
+    assert result.aiReview is None
+    assert result.candidate.created is False
+    assert "손절" in result.candidate.reason or "stop-loss" in result.candidate.reason
+
+    with session_scope() as db:
+        latest_run = list_records(db, TraderRunLogRecord, 10)[0]
+        assert latest_run["status"] == "post_loss_cooldown"
+
+
+@pytest.mark.asyncio
+async def test_post_loss_cooldown_skips_scanner_candidate_generation(monkeypatch, temp_db):
+    async def fake_snapshot(client, symbol):
+        return sample_snapshot()
+
+    monkeypatch.setattr("app.main.build_market_snapshot", fake_snapshot)
+
+    with session_scope() as db:
+        seed_closed_position(db)
+
+    result = await run_scanner_once(symbols=["BTCUSDT"], provider="mock", locale="ko", defer_leaderboard_refresh=False)
+    cooled = [item for item in result["results"] if item.get("traderId") == "channel-rider"]
+
+    assert cooled
+    assert cooled[0]["status"] == "POST_LOSS_COOLDOWN"
+    assert cooled[0]["candidateCreated"] is False
+    assert result["counts"]["cooldowns"] >= 1
+    assert result["symbolBreakdown"]["BTCUSDT"]["candidateJobs"] < result["counts"]["tradersChecked"]
 
 
 @pytest.mark.asyncio

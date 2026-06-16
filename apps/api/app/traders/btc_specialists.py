@@ -518,12 +518,71 @@ class MomentumIgnition(BtcSpecialistStrategy):
     def __init__(self) -> None:
         super().__init__(SPECIALIST_CONFIGS[7])
 
+    def _score(self, snapshot: Dict[str, Any]) -> int:
+        base = super()._score(snapshot)
+        one_hour = timeframe(snapshot, "1h")
+        fifteen = timeframe(snapshot, "15m")
+        candle = latest_candle(fifteen)
+        rsi = fvalue(one_hour.get("rsi14"), 50.0)
+        body = candle_body_ratio(candle)
+        oi_change = open_interest_change(snapshot)
+        taker_share = taker_buy_share(snapshot)
+        direction_bonus = 0
+        if rsi >= 56 and taker_share >= 0.54 and oi_change > 0:
+            direction_bonus += 8
+        if rsi <= 44 and taker_share <= 0.46 and oi_change > 0:
+            direction_bonus += 8
+        if body >= 0.55:
+            direction_bonus += 5
+        if 47 < rsi < 53 or abs(oi_change) < 0.15:
+            direction_bonus -= 8
+        return max(0, min(95, base + direction_bonus))
+
 
 class BollingerReversion(BtcSpecialistStrategy):
     def __init__(self) -> None:
         super().__init__(SPECIALIST_CONFIGS[8])
 
+    def _score(self, snapshot: Dict[str, Any]) -> int:
+        base = super()._score(snapshot)
+        one_hour = timeframe(snapshot, "1h")
+        channel = timeframe(snapshot, "4h").get("channel") or one_hour.get("channel") or {}
+        position = fvalue(channel.get("position"), 0.5)
+        rsi = fvalue(one_hour.get("rsi14"), 50.0)
+        regime = market_regime(snapshot)
+        adjustment = 0
+        if regime in {"range", "mixed"}:
+            adjustment += 8
+        if rsi <= 36 or rsi >= 64:
+            adjustment += 7
+        if position <= 0.15 or position >= 0.85:
+            adjustment += 5
+        if regime in {"trend", "squeeze"} and 42 <= rsi <= 58:
+            adjustment -= 12
+        return max(0, min(95, base + adjustment))
+
 
 class AtrTrailCommander(BtcSpecialistStrategy):
     def __init__(self) -> None:
         super().__init__(SPECIALIST_CONFIGS[9])
+
+    def _score(self, snapshot: Dict[str, Any]) -> int:
+        base = super()._score(snapshot)
+        price = float(snapshot["price"])
+        one_hour = timeframe(snapshot, "1h")
+        four_hour = timeframe(snapshot, "4h")
+        trend = trend_for(snapshot, "4h")
+        ema20 = fvalue(four_hour.get("ema20"), price)
+        ema50 = fvalue(four_hour.get("ema50"), price)
+        atr = fvalue(one_hour.get("atr14"), price * 0.008)
+        atr_percent = atr / price if price > 0 else 0
+        adjustment = 0
+        if trend == "bullish" and ema20 >= ema50:
+            adjustment += 7
+        if trend == "bearish" and ema20 <= ema50:
+            adjustment += 7
+        if 0.006 <= atr_percent <= 0.022:
+            adjustment += 6
+        if atr_percent > 0.035 or trend == "sideways":
+            adjustment -= 10
+        return max(0, min(95, base + adjustment))

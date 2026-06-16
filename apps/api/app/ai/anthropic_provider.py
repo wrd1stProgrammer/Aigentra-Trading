@@ -2,7 +2,7 @@ from typing import Any, Dict
 
 import httpx
 
-from app.ai.base import BaseAIProvider, extract_json_object, management_prompt, review_prompt
+from app.ai.base import BaseAIProvider, entry_approval_prompt, extract_json_object, position_management_review_prompt
 from app.traders.models import PositionManagementPayload, PositionManagementResult, TradeReviewPayload, TradeReviewResult
 
 
@@ -21,7 +21,7 @@ class AnthropicProvider(BaseAIProvider):
             "max_tokens": 900,
             "temperature": 0.2,
             "system": "Return only strict JSON.",
-            "messages": [{"role": "user", "content": review_prompt(payload)}],
+            "messages": [{"role": "user", "content": entry_approval_prompt(payload)}],
         }
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
@@ -45,7 +45,7 @@ class AnthropicProvider(BaseAIProvider):
             "max_tokens": 900,
             "temperature": 0.2,
             "system": "Return only strict JSON.",
-            "messages": [{"role": "user", "content": management_prompt(payload)}],
+            "messages": [{"role": "user", "content": position_management_review_prompt(payload)}],
         }
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(

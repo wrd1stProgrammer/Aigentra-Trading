@@ -269,7 +269,7 @@ export function buildScenarios(args: {
       riskPercent: firstNumber(payload.riskPercent),
       entryWeight: firstNumber(payload.entryWeight, payload.weight),
       rationale: scenarioRationaleFromPayload(payload, position.closeReason),
-      summary: scenarioSummaryFromPayload(payload, payload.entryReason, payload.candidateSetupType),
+      summary: scenarioSummaryFromPayload(payload),
       createdAt: position.updatedAt ?? position.openedAt ?? position.createdAt ?? null,
       source: "position"
     });
@@ -290,7 +290,7 @@ export function buildScenarios(args: {
       riskPercent: firstNumber(payload.riskPercent),
       entryWeight: firstNumber(payload.entryWeight, payload.weight, payload.entry?.weight),
       rationale: scenarioRationaleFromPayload(payload),
-      summary: scenarioSummaryFromPayload(payload, payload.entryReason, payload.candidateSetupType),
+      summary: scenarioSummaryFromPayload(payload),
       createdAt: order.updatedAt ?? order.createdAt,
       source: "order"
     });
@@ -331,7 +331,7 @@ export function buildScenarios(args: {
       confidence: review.confidence ?? nested.confidence ?? null,
       provider: review.provider ?? nested.provider ?? null,
       rationale: review.rationale ?? nested.rationale ?? action?.reason ?? event.reason ?? null,
-      summary: review.userSummary ?? nested.userSummary ?? null,
+      summary: null,
       action: review.actionType ?? action?.type ?? review.action ?? null,
       createdAt: review.createdAt,
       source: "review"
@@ -392,13 +392,7 @@ export function scenarioRationaleFromPayload(payload: Record<string, any> | null
 }
 
 export function scenarioSummaryFromPayload(payload: Record<string, any> | null | undefined, ...fallbacks: Array<unknown>): string | null {
-  const aiReview = recordValue(payload?.aiReview);
-  const review = recordValue(payload?.review);
   return firstString(
-    payload?.aiUserSummary,
-    aiReview?.userSummary,
-    payload?.userSummary,
-    review?.userSummary,
     payload?.summary,
     ...fallbacks
   );
