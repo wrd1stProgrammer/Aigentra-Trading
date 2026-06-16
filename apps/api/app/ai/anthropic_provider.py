@@ -38,8 +38,8 @@ def review_fact_schema() -> dict[str, Any]:
     }
 
 
-def tool_definition(name: str, description: str, schema: dict[str, Any]) -> dict[str, Any]:
-    return {"name": name, "description": description, "strict": True, "input_schema": schema}
+def json_output_config(schema: dict[str, Any]) -> dict[str, Any]:
+    return {"format": {"type": "json_schema", "schema": schema}}
 
 
 def trade_review_schema() -> dict[str, Any]:
@@ -136,6 +136,28 @@ def extract_anthropic_tool_input(data: dict[str, Any], tool_name: str) -> dict[s
     raise ValueError(f"Anthropic response did not include {tool_name} tool input.")
 
 
+def extract_anthropic_json_output(data: dict[str, Any]) -> dict[str, Any]:
+    text = "\n".join(block.get("text", "") for block in text_blocks(data.get("content", []))).strip()
+    if text:
+        return extract_json_object(text)
+
+    content_types = ",".join(content_block_types(data.get("content", []))) or "none"
+    stop_reason = str(data.get("stop_reason") or "unknown")
+    raise ValueError(
+        f"Anthropic JSON output was empty; stop_reason={stop_reason}; content_types={content_types}"
+    )
+
+
+def extract_anthropic_review_payload(data: dict[str, Any], tool_name: str) -> dict[str, Any]:
+    try:
+        return extract_anthropic_json_output(data)
+    except ValueError as json_error:
+        try:
+            return extract_anthropic_tool_input(data, tool_name)
+        except ValueError as tool_error:
+            raise ValueError(f"{json_error}; tool_error={tool_error}") from tool_error
+
+
 def tool_blocks(content: Any) -> Iterable[dict[str, Any]]:
     if not isinstance(content, list):
         return []
@@ -146,6 +168,12 @@ def text_blocks(content: Any) -> Iterable[dict[str, Any]]:
     if not isinstance(content, list):
         return []
     return [block for block in content if isinstance(block, dict) and block.get("type") == "text"]
+
+
+def content_block_types(content: Any) -> list[str]:
+    if not isinstance(content, list):
+        return []
+    return [str(block.get("type") or "unknown") for block in content if isinstance(block, dict)]
 
 
 class AnthropicProvider(BaseAIProvider):
@@ -160,18 +188,11 @@ class AnthropicProvider(BaseAIProvider):
     ) -> TradeReviewResult:
         body: Dict[str, Any] = {
             "model": self.model,
-            "max_tokens": 1200,
+            "max_tokens": 1600,
             "temperature": 0.2,
-            "system": "Use the required tool to submit the review. Do not answer in plain text.",
+            "system": "Return only the JSON object matching the response schema. Do not use markdown.",
             "messages": [{"role": "user", "content": entry_approval_prompt(payload)}],
-            "tools": [
-                tool_definition(
-                    TRADE_REVIEW_TOOL_NAME,
-                    "Submit the second-stage paper-trade entry review. Use Korean text for human-readable rationale when the prompt locale is Korean. Do not include a user summary.",
-                    trade_review_schema(),
-                )
-            ],
-            "tool_choice": {"type": "tool", "name": TRADE_REVIEW_TOOL_NAME},
+            "output_config": json_output_config(trade_review_schema()),
         }
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
@@ -184,25 +205,18 @@ class AnthropicProvider(BaseAIProvider):
             )
             response.raise_for_status()
             data = response.json()
-        return self.normalize_result(extract_anthropic_tool_input(data, TRADE_REVIEW_TOOL_NAME))
+        return self.normalize_result(extract_anthropic_review_payload(data, TRADE_REVIEW_TOOL_NAME))
 
     async def review_position_management(
         self, payload: PositionManagementPayload
     ) -> PositionManagementResult:
         body: Dict[str, Any] = {
             "model": self.model,
-            "max_tokens": 1200,
+            "max_tokens": 1600,
             "temperature": 0.2,
-            "system": "Use the required tool to submit the management review. Do not answer in plain text.",
+            "system": "Return only the JSON object matching the response schema. Do not use markdown.",
             "messages": [{"role": "user", "content": position_management_review_prompt(payload)}],
-            "tools": [
-                tool_definition(
-                    MANAGEMENT_REVIEW_TOOL_NAME,
-                    "Submit a position-management review for an active paper order or paper position. Use Korean text for rationale and action reasons when the prompt locale is Korean.",
-                    management_review_schema(),
-                )
-            ],
-            "tool_choice": {"type": "tool", "name": MANAGEMENT_REVIEW_TOOL_NAME},
+            "output_config": json_output_config(management_review_schema()),
         }
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
@@ -215,4 +229,4 @@ class AnthropicProvider(BaseAIProvider):
             )
             response.raise_for_status()
             data = response.json()
-        return self.normalize_management_result(extract_anthropic_tool_input(data, MANAGEMENT_REVIEW_TOOL_NAME))
+        return self.normalize_management_result(extract_anthropic_review_payload(data, MANAGEMENT_REVIEW_TOOL_NAME))

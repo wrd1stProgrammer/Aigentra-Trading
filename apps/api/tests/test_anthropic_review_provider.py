@@ -58,7 +58,150 @@ def sample_management_payload() -> PositionManagementPayload:
 
 
 @pytest.mark.asyncio
-async def test_anthropic_entry_review_uses_forced_tool_input(monkeypatch):
+async def test_anthropic_entry_review_uses_json_output_schema(monkeypatch):
+    from app.ai.anthropic_provider import AnthropicProvider
+
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "{"
+                            '"decision":"APPROVE",'
+                            '"confidence":84,'
+                            '"riskLevel":"MEDIUM",'
+                            '"reviewCode":"ENTRY_REVIEW",'
+                            '"reviewFacts":[{"code":"entry_geometry_checked","labelKey":"reviewFact.entryGeometryChecked","severity":"info"}],'
+                            '"riskFlags":["risk_level:medium"],'
+                            '"adjustments":[],'
+                            '"earlyExitRecommendations":["15m 종가가 진입 근거를 훼손하면 철회"],'
+                            '"approvalReason":"1차 조건과 리스크 구조가 일치합니다.",'
+                            '"counterThesis":"채널 하단이 깨지면 진입 근거가 사라집니다."'
+                            "}"
+                        ),
+                    }
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, *, headers, json):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["body"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr("app.ai.anthropic_provider.httpx.AsyncClient", FakeAsyncClient)
+
+    review = await AnthropicProvider("test-key", "claude-haiku-4-5").review_trade_candidate(sample_review_payload())
+
+    assert review.decision == "APPROVE"
+    assert review.provider == "anthropic"
+    assert review.reviewFacts[0].code == "entry_geometry_checked"
+    assert "tools" not in captured["body"]
+    assert "tool_choice" not in captured["body"]
+    schema = captured["body"]["output_config"]["format"]["schema"]
+    assert captured["body"]["output_config"]["format"]["type"] == "json_schema"
+    assert "decision" in schema["required"]
+    assert schema["additionalProperties"] is False
+
+
+@pytest.mark.asyncio
+async def test_anthropic_management_review_uses_json_output_schema(monkeypatch):
+    from app.ai.anthropic_provider import AnthropicProvider
+
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "{"
+                            '"decision":"HOLD",'
+                            '"confidence":73,'
+                            '"riskLevel":"MEDIUM",'
+                            '"reviewCode":"POSITION_MANAGEMENT_REVIEW",'
+                            '"reviewFacts":[{"code":"management_event_reviewed","labelKey":"reviewFact.managementEventReviewed","severity":"info"}],'
+                            '"riskFlags":["risk_level:medium"],'
+                            '"actions":[{"type":"HOLD","reason":"추세 훼손 전까지 유지"}],'
+                            '"riskChange":"UNCHANGED",'
+                            '"nextReviewInSeconds":300,'
+                            '"rationale":"가격이 아직 관리 범위 안에 있습니다.",'
+                            '"counterThesis":"65000 이탈 시 손절 기준이 우선입니다."'
+                            "}"
+                        ),
+                    }
+                ]
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, *, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, *, headers, json):
+            captured["body"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr("app.ai.anthropic_provider.httpx.AsyncClient", FakeAsyncClient)
+
+    review = await AnthropicProvider("test-key", "claude-haiku-4-5").review_position_management(sample_management_payload())
+
+    assert review.decision == "HOLD"
+    assert review.provider == "anthropic"
+    assert review.actions[0].type == "HOLD"
+    assert "tools" not in captured["body"]
+    assert "tool_choice" not in captured["body"]
+    schema = captured["body"]["output_config"]["format"]["schema"]
+    assert captured["body"]["output_config"]["format"]["type"] == "json_schema"
+    assert "decision" in schema["required"]
+    assert schema["additionalProperties"] is False
+
+
+def test_anthropic_json_output_error_includes_stop_reason_and_content_types():
+    from app.ai.anthropic_provider import extract_anthropic_json_output
+
+    with pytest.raises(ValueError) as exc:
+        extract_anthropic_json_output(
+            {
+                "stop_reason": "refusal",
+                "content": [{"type": "redacted_thinking"}, {"type": "text", "text": ""}],
+            }
+        )
+
+    message = str(exc.value)
+    assert "stop_reason=refusal" in message
+    assert "content_types=redacted_thinking,text" in message
+
+
+@pytest.mark.asyncio
+async def test_anthropic_entry_review_still_accepts_tool_input_compatibility(monkeypatch):
     from app.ai.anthropic_provider import AnthropicProvider
 
     captured = {}
@@ -118,72 +261,7 @@ async def test_anthropic_entry_review_uses_forced_tool_input(monkeypatch):
     assert review.decision == "APPROVE"
     assert review.provider == "anthropic"
     assert review.reviewFacts[0].code == "entry_geometry_checked"
-    assert captured["body"]["tool_choice"] == {"type": "tool", "name": "submit_trade_review"}
-    assert captured["body"]["tools"][0]["strict"] is True
-
-
-@pytest.mark.asyncio
-async def test_anthropic_management_review_uses_forced_tool_input(monkeypatch):
-    from app.ai.anthropic_provider import AnthropicProvider
-
-    captured = {}
-
-    class FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {
-                "content": [
-                    {
-                        "type": "tool_use",
-                        "name": "submit_position_management_review",
-                        "input": {
-                            "decision": "HOLD",
-                            "confidence": 73,
-                            "riskLevel": "MEDIUM",
-                            "reviewCode": "POSITION_MANAGEMENT_REVIEW",
-                            "reviewFacts": [
-                                {
-                                    "code": "management_event_reviewed",
-                                    "labelKey": "reviewFact.managementEventReviewed",
-                                    "severity": "info",
-                                }
-                            ],
-                            "riskFlags": ["risk_level:medium"],
-                            "actions": [{"type": "HOLD", "reason": "추세 훼손 전까지 유지"}],
-                            "riskChange": "UNCHANGED",
-                            "nextReviewInSeconds": 300,
-                            "rationale": "가격이 아직 관리 범위 안에 있습니다.",
-                            "counterThesis": "65000 이탈 시 손절 기준이 우선입니다.",
-                        },
-                    }
-                ]
-            }
-
-    class FakeAsyncClient:
-        def __init__(self, *, timeout):
-            self.timeout = timeout
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return None
-
-        async def post(self, url, *, headers, json):
-            captured["body"] = json
-            return FakeResponse()
-
-    monkeypatch.setattr("app.ai.anthropic_provider.httpx.AsyncClient", FakeAsyncClient)
-
-    review = await AnthropicProvider("test-key", "claude-haiku-4-5").review_position_management(sample_management_payload())
-
-    assert review.decision == "HOLD"
-    assert review.provider == "anthropic"
-    assert review.actions[0].type == "HOLD"
-    assert captured["body"]["tool_choice"] == {"type": "tool", "name": "submit_position_management_review"}
-    assert captured["body"]["tools"][0]["strict"] is True
+    assert captured["body"]["output_config"]["format"]["type"] == "json_schema"
 
 
 @pytest.mark.asyncio
