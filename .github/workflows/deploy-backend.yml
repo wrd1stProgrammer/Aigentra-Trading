@@ -99,22 +99,31 @@ jobs:
             mv "$tmp" .env
             chmod 600 .env
 
-            docker compose pull
+            export AIGENTRA_API_IMAGE="$IMAGE"
+            export AIGENTRA_BUILD_SHA="$BUILD_SHA"
+
+            docker compose config --services
+            docker compose config | grep -A2 -E '^[[:space:]]*(api|worker|migrate):$|^[[:space:]]*image:'
+            docker compose pull api worker migrate
             docker compose up -d redis
             docker compose run --rm migrate
-            docker compose up -d --force-recreate api --remove-orphans
+            docker compose stop api worker || true
+            docker compose rm -f api worker || true
+            docker compose up -d --force-recreate --remove-orphans api worker
             for i in $(seq 1 45); do
-              if curl -fsS http://127.0.0.1:8000/health; then
+              health="$(curl -fsS http://127.0.0.1:8000/health || true)"
+              echo "$health"
+              if printf '%s' "$health" | grep -F "\"buildSha\":\"$BUILD_SHA\"" >/dev/null; then
                 break
               fi
               if [ "$i" = "45" ]; then
                 docker compose ps -a
-                docker compose logs --tail=220 api migrate redis
+                docker compose logs --tail=220 api worker migrate redis
+                echo "Expected build SHA $BUILD_SHA but health returned: $health" >&2
                 exit 1
               fi
               sleep 2
             done
-            docker compose up -d --force-recreate worker --remove-orphans
             docker compose ps -a
             docker image prune -af || true
           REMOTE
@@ -124,13 +133,17 @@ jobs:
         run: |
           ssh -i ~/.ssh/ec2_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" '
             cd /opt/aigentra-trading
+            expected="$(grep "^AIGENTRA_BUILD_SHA=" .env | tail -1 | cut -d= -f2-)"
             for i in $(seq 1 30); do
-              if curl -fsS http://127.0.0.1:8000/health; then
+              health="$(curl -fsS http://127.0.0.1:8000/health || true)"
+              echo "$health"
+              if [ -n "$expected" ] && printf "%s" "$health" | grep -F "\"buildSha\":\"$expected\"" >/dev/null; then
                 exit 0
               fi
               sleep 2
             done
             docker compose ps -a
             docker compose logs --tail=220 api worker migrate redis
+            echo "Expected build SHA $expected but deployment did not expose it" >&2
             exit 1
           '
