@@ -3,6 +3,7 @@ import { formatCurrency, formatNumber, formatPercent } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
 import type { LeagueSymbol, TraderStanding } from "@/lib/league";
 import { isOpenChartExposure } from "@/components/live-candle-chart-overlays";
+import { isPendingEntryOrder } from "@/components/trader-profile-detail/position-panel-rows";
 import type { HoldingBadge, HoldingDetail, HoldingItem, PlanView, Translator } from "@/components/trader-profile-detail/types";
 import {
   firstFiniteNumber,
@@ -57,7 +58,7 @@ export function buildHoldingItems({
     });
   }
 
-  const activeOrders = orders.filter((order) => (!order.symbol || order.symbol === symbol) && isOpenChartExposure(order));
+  const activeOrders = orders.filter((order) => (!order.symbol || order.symbol === symbol) && isPendingEntryOrder(order));
   if (activeOrders.length) {
     const exposures = activeOrders.map((order) => orderExposureValue(order));
     const totalExposure = exposureTotal(exposures, firstFiniteNumber(standing?.summary?.openOrderNotional));

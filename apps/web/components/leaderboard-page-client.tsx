@@ -40,7 +40,25 @@ import { activePositionLeverage, appendLeverageSample, formatLeverageBadge, orde
 
 const SYMBOLS: LeagueSymbol[] = ["BTCUSDT"];
 const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_100px_90px_60px_80px_65px_24px] gap-3";
+const OVERVIEW_INITIAL_LIMIT = 20;
+const OVERVIEW_PAGE_LIMIT = 10;
+const OVERVIEW_CACHE_TTL_MS = 60_000;
 
+type OverviewReviewRecord = Record<string, unknown>;
+
+type OverviewActivityCache = {
+  reviews: OverviewReviewRecord[];
+  offset: number;
+  hasMore: boolean;
+  fetchedAt: number;
+};
+
+const overviewActivityCache: OverviewActivityCache = {
+  reviews: [],
+  offset: 0,
+  hasMore: true,
+  fetchedAt: 0
+};
 
 
 type TraderExposure = {
@@ -996,12 +1014,60 @@ function getReviewImportance(decision: string, text: string): 'critical' | 'impo
   return 'routine';
 }
 
-function isDisplayableOverviewReview(review: Record<string, any>) {
+function isDisplayableOverviewReview(review: OverviewReviewRecord) {
   const traderId = String(review.traderId ?? review.trader_id ?? "");
   const createdAt = String(review.createdAt ?? review.created_at ?? "");
   if (!traderId || !createdAt) return false;
   const source = String(review.source ?? review.type ?? review.eventType ?? review.event_type ?? "").toUpperCase();
   return !source.includes("SCAN") && !source.includes("PLAN");
+}
+
+function extractOverviewReviews(value: unknown): OverviewReviewRecord[] {
+  if (Array.isArray(value)) return value.filter(isOverviewReviewRecord);
+  const record = recordValue(value);
+  if (!record) return [];
+  const managementReviews = record.managementReviews;
+  if (Array.isArray(managementReviews)) return managementReviews.filter(isOverviewReviewRecord);
+  const reviews = record.reviews;
+  if (Array.isArray(reviews)) return reviews.filter(isOverviewReviewRecord);
+  return [];
+}
+
+function mergeOverviewReviews(existing: readonly OverviewReviewRecord[], incoming: readonly OverviewReviewRecord[]) {
+  const seen = new Set<string>();
+  const merged: OverviewReviewRecord[] = [];
+  for (const review of [...incoming, ...existing]) {
+    const key = overviewReviewKey(review);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(review);
+  }
+  return merged.sort((left, right) => overviewReviewTime(right) - overviewReviewTime(left));
+}
+
+function overviewReviewKey(review: OverviewReviewRecord) {
+  const id = review.id;
+  if (id !== null && id !== undefined && id !== "") return `id:${String(id)}`;
+  return [
+    review.traderId ?? review.trader_id,
+    review.createdAt ?? review.created_at,
+    review.decision ?? review.action,
+    review.rationale ?? recordValue(review.review)?.rationale ?? recordValue(review.event)?.reason
+  ].map((value) => String(value ?? "")).join("|");
+}
+
+function overviewReviewTime(review: OverviewReviewRecord) {
+  const createdAt = String(review.createdAt ?? review.created_at ?? "");
+  const time = createdAt ? Date.parse(createdAt) : 0;
+  return Number.isFinite(time) ? time : 0;
+}
+
+function isOverviewReviewRecord(value: unknown): value is OverviewReviewRecord {
+  return typeof value === "object" && value !== null;
+}
+
+function recordValue(value: unknown) {
+  return typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
 }
 
 function OptionActivityStream({
@@ -1012,89 +1078,84 @@ function OptionActivityStream({
   traderNameMap: Map<string, string>;
 }) {
   const { t } = useAppContext();
-  const [reviewsList, setReviewsList] = useState<any[]>([]);
-  const [offset, setOffset] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
+  const [reviewsList, setReviewsList] = useState<OverviewReviewRecord[]>(() => overviewActivityCache.reviews);
+  const [offset, setOffset] = useState(() => overviewActivityCache.offset);
+  const [hasMore, setHasMore] = useState(() => overviewActivityCache.hasMore);
   const [isLoading, setIsLoading] = useState(false);
 
   const isFetchingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const observerTarget = useRef<HTMLDivElement>(null);
 
-  // Initial load
   useEffect(() => {
     let active = true;
-    const initialFetch = async () => {
+    const refreshOverviewActivityCache = async () => {
       if (isFetchingRef.current) return;
+      const hasCachedReviews = overviewActivityCache.reviews.length > 0;
+      const cacheIsFresh = (hasCachedReviews || !overviewActivityCache.hasMore) && Date.now() - overviewActivityCache.fetchedAt < OVERVIEW_CACHE_TTL_MS;
+      if (cacheIsFresh) {
+        setReviewsList(overviewActivityCache.reviews);
+        setOffset(overviewActivityCache.offset);
+        setHasMore(overviewActivityCache.hasMore);
+        return;
+      }
       isFetchingRef.current = true;
-      setIsLoading(true);
+      setIsLoading(!hasCachedReviews);
       try {
-        const res = await getManagementReviews(20, 0);
-        let fetchedReviews: any[] = [];
-        if (res && typeof res === "object") {
-          if ("managementReviews" in res && Array.isArray(res.managementReviews)) {
-            fetchedReviews = res.managementReviews;
-          } else if ("reviews" in res && Array.isArray(res.reviews)) {
-            fetchedReviews = res.reviews;
-          } else if (Array.isArray(res)) {
-            fetchedReviews = res;
-          }
-        }
+        const fetchedReviews = extractOverviewReviews(await getManagementReviews(OVERVIEW_INITIAL_LIMIT, 0));
+        const mergedReviews = mergeOverviewReviews(overviewActivityCache.reviews, fetchedReviews);
+        overviewActivityCache.reviews = mergedReviews;
+        overviewActivityCache.offset = Math.max(hasCachedReviews ? overviewActivityCache.offset : 0, fetchedReviews.length);
+        overviewActivityCache.hasMore = fetchedReviews.length >= OVERVIEW_INITIAL_LIMIT;
+        overviewActivityCache.fetchedAt = Date.now();
         if (active) {
-          setReviewsList(fetchedReviews);
-          setOffset(0);
-          if (fetchedReviews.length < 20) {
-            setHasMore(false);
-          } else {
-            setHasMore(true);
-          }
+          setReviewsList(overviewActivityCache.reviews);
+          setOffset(overviewActivityCache.offset);
+          setHasMore(overviewActivityCache.hasMore);
         }
       } catch (err) {
         console.error("Failed to load initial reviews:", err);
+        overviewActivityCache.hasMore = false;
+        overviewActivityCache.fetchedAt = Date.now();
+        if (active) setHasMore(false);
       } finally {
         isFetchingRef.current = false;
         if (active) setIsLoading(false);
       }
     };
-    initialFetch();
+    refreshOverviewActivityCache();
     return () => {
       active = false;
     };
   }, []);
 
-  // Infinite scroll load more
   const loadMore = useCallback(async () => {
     if (isFetchingRef.current || !hasMore) return;
     isFetchingRef.current = true;
     setIsLoading(true);
     try {
-      const nextOffset = offset + 20;
-      const res = await getManagementReviews(10, nextOffset);
-      let fetchedReviews: any[] = [];
-      if (res && typeof res === "object") {
-        if ("managementReviews" in res && Array.isArray(res.managementReviews)) {
-          fetchedReviews = res.managementReviews;
-        } else if ("reviews" in res && Array.isArray(res.reviews)) {
-          fetchedReviews = res.reviews;
-        } else if (Array.isArray(res)) {
-          fetchedReviews = res;
-        }
-      }
-      
-      if (fetchedReviews.length > 0) {
-        setReviewsList((prev) => {
-          const existingIds = new Set(prev.map((r) => r.id));
-          const filtered = fetchedReviews.filter((r) => !existingIds.has(r.id));
-          return [...prev, ...filtered];
-        });
-        setOffset(nextOffset);
-      }
-      
-      if (fetchedReviews.length < 10) {
+      const nextOffset = offset;
+      const fetchedReviews = extractOverviewReviews(await getManagementReviews(OVERVIEW_PAGE_LIMIT, nextOffset));
+      const existingKeys = new Set(overviewActivityCache.reviews.map(overviewReviewKey));
+      const uniqueReviews = fetchedReviews.filter((review) => !existingKeys.has(overviewReviewKey(review)));
+
+      if (fetchedReviews.length === 0 || uniqueReviews.length === 0) {
+        overviewActivityCache.hasMore = false;
         setHasMore(false);
+        return;
       }
+
+      overviewActivityCache.reviews = mergeOverviewReviews(overviewActivityCache.reviews, uniqueReviews);
+      overviewActivityCache.offset = nextOffset + fetchedReviews.length;
+      overviewActivityCache.hasMore = fetchedReviews.length >= OVERVIEW_PAGE_LIMIT;
+      overviewActivityCache.fetchedAt = Date.now();
+      setReviewsList(overviewActivityCache.reviews);
+      setOffset(overviewActivityCache.offset);
+      setHasMore(overviewActivityCache.hasMore);
     } catch (err) {
       console.error("Failed to load more reviews:", err);
+      overviewActivityCache.hasMore = false;
+      setHasMore(false);
     } finally {
       isFetchingRef.current = false;
       setIsLoading(false);

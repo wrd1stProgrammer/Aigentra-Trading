@@ -1,5 +1,5 @@
 import type { ManagementReview, PaperPosition, PaperTradeEvent } from "@/lib/api";
-import { formatCurrency, formatDateTime, formatNumber, formatPercent } from "@/lib/format";
+import { formatCurrency, formatNumber, formatPercent, formatRelativeDateTime } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
 import type { LeagueSymbol, TraderScenario } from "@/lib/league";
 import { statusLabel } from "@/lib/status";
@@ -40,7 +40,7 @@ export function buildScenarioTimelineItems({
     const matchingReview = reviews.find((review) => `review-${review.id}` === scenario.id);
     items.push({
       id: scenario.id,
-      time: scenario.createdAt ? formatDateTime(scenario.createdAt, locale) : "-",
+      time: formatRelativeDateTime(scenario.createdAt, locale, t),
       title: scenarioTitle(scenario, t),
       body: scenarioDisplayText(scenarioTimelineBody(scenario, matchingReview, t), t),
       importance: scenarioImportance(scenario),
@@ -223,7 +223,7 @@ function buildClosedPositionHistoryItem({
   const leverage = firstFiniteNumber(position.leverage, payload?.leverage, eventPayload?.leverage, recordValue(payload?.leveragePlan)?.suggestedLeverage);
   return {
     id: `position-${position.id ?? event?.id ?? index}`,
-    time: formatDateTime(position.closedAt ?? position.closed_at ?? position.updatedAt ?? event?.createdAt ?? event?.timestamp, locale),
+    time: formatRelativeDateTime(position.closedAt ?? position.closed_at ?? position.updatedAt ?? event?.createdAt ?? event?.timestamp, locale, t),
     action: t("detail.closeTrade"),
     actionTone: result.tone,
     label: position.symbol ?? event?.symbol ?? symbol,
@@ -274,7 +274,7 @@ function buildClosedEventHistoryItem({
   const side = firstString(event.side, payload?.side, firstStringFromRecords(relatedRecords, ["side"]));
   return {
     id: `event-${event.id ?? index}`,
-    time: event.createdAt ? formatDateTime(event.createdAt, locale) : "-",
+    time: formatRelativeDateTime(event.createdAt, locale, t),
     action: getEventActionLabel(event.eventType, event.type, t),
     actionTone: result.tone,
     label: event.symbol ?? symbol,

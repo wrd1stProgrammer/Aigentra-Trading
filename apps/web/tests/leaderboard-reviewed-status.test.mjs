@@ -20,5 +20,13 @@ test("league overview stream is restricted to AI review records", () => {
   assert.doesNotMatch(leaderboardSource, /fallback-1/, "League Overview must not show synthetic scanner fallback rows");
   assert.doesNotMatch(leaderboardSource, /type: "PLAN"/, "League Overview should not emit plan log rows");
   assert.match(leaderboardSource, /review\.traderId \?\? review\.trader_id/, "overview review rows should handle backend snake_case trader ids");
-  assert.match(leaderboardSource, /getManagementReviews\(20, 0\)/, "overview should still load AI management reviews");
+  assert.match(leaderboardSource, /getManagementReviews\(OVERVIEW_INITIAL_LIMIT, 0\)/, "overview should still load AI management reviews");
+});
+
+test("league overview stream keeps a page cache and stops duplicate infinite loading", () => {
+  assert.match(leaderboardSource, /overviewActivityCache/, "overview should keep a module-level cache across route unmounts");
+  assert.match(leaderboardSource, /refreshOverviewActivityCache/, "overview should refresh the first page instead of blank reloading on remount");
+  assert.match(leaderboardSource, /mergeOverviewReviews/, "overview should merge newly fetched reviews into cached rows");
+  assert.match(leaderboardSource, /uniqueReviews\.length === 0/, "overview should stop auto-loading when a page contains only duplicates");
+  assert.match(leaderboardSource, /setHasMore\(false\)/, "overview should stop observer retries after exhausted or failed loads");
 });

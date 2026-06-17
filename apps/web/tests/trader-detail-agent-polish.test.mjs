@@ -191,7 +191,7 @@ test("closed stop-loss exposures are removed from active detail surfaces", () =>
   assert.equal(overlayHelpers.shouldRenderRealizedEventOverlays({ hasOpenPaperPosition: false, hasOpenPaperOrder: false }), false);
   assert.match(chartSource, /shouldRenderRealizedEventOverlays\(\{ hasOpenPaperPosition, hasOpenPaperOrder \}\)/);
   assert.match(holdingsSource, /isOpenChartExposure\(position\)/, "holdings should exclude closed positions");
-  assert.match(holdingsSource, /isOpenChartExposure\(order\)/, "holdings should exclude closed orders");
+  assert.match(holdingsSource, /isPendingEntryOrder\(order\)/, "holdings should exclude closed and protective orders");
   assert.match(binancePanelSource, /isOpenChartExposure\(position\)/, "position table should exclude closed positions");
   assert.match(positionPanelRowsSource, /isOpenChartExposure\(order\)/, "open-order table should exclude closed orders");
   assert.match(scenarioFeedSource, /hasSavedAiApproval\(scenario\)/, "latest scenarios should keep saved entry approvals separate from active exposure filtering");

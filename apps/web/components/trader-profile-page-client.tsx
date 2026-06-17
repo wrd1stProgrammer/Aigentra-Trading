@@ -16,7 +16,7 @@ import {
   getTraderTradeHistory,
   type MergedTradeHistoryItem
 } from "@/lib/api";
-import { formatCurrency, formatDateTime, formatNumber } from "@/lib/format";
+import { formatCurrency, formatNumber, formatRelativeDateTime } from "@/lib/format";
 import { useAppContext } from "@/components/app-provider";
 import { buildScenarios, buildStandings, type LeagueSymbol, type TraderScenario } from "@/lib/league";
 import { fallbackTraders } from "@/lib/traders";
@@ -179,7 +179,7 @@ function mapMergedItemToHistoryItem(
   
   return {
     id: `merged-${item.time}-${item.side}-${item.exitPrice}`,
-    time: formatDateTime(item.time, locale),
+    time: formatRelativeDateTime(item.time, locale, t),
     action: t("detail.closeTrade"),
     actionTone: resultTone,
     label: item.symbol,
