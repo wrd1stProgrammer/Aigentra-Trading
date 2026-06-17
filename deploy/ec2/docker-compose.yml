@@ -25,6 +25,7 @@ services:
       - .env
     environment:
       APP_ENV: production
+      AIGENTRA_BUILD_SHA: ${AIGENTRA_BUILD_SHA:-local}
       REDIS_URL: redis://redis:6379/0
       ENABLE_AUTO_SCANNER: "false"
     command: ["alembic", "-c", "alembic.ini", "upgrade", "head"]
@@ -41,6 +42,7 @@ services:
       - .env
     environment:
       APP_ENV: production
+      AIGENTRA_BUILD_SHA: ${AIGENTRA_BUILD_SHA:-local}
       REDIS_URL: redis://redis:6379/0
       REDIS_MARKET_CACHE_ENABLED: "true"
       ENABLE_AUTO_SCANNER: "false"
@@ -70,6 +72,7 @@ services:
       - .env
     environment:
       APP_ENV: production
+      AIGENTRA_BUILD_SHA: ${AIGENTRA_BUILD_SHA:-local}
       REDIS_URL: redis://redis:6379/0
       REDIS_MARKET_CACHE_ENABLED: "true"
       ENABLE_AUTO_SCANNER: ${ENABLE_AUTO_SCANNER:-true}

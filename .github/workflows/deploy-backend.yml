@@ -85,6 +85,7 @@ jobs:
         run: |
           IMAGE="${{ steps.dockerhub.outputs.image }}:${{ github.sha }}"
           ssh -i ~/.ssh/ec2_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "IMAGE='$IMAGE' BUILD_SHA='${{ github.sha }}' DEPLOY_DIR='${{ env.DEPLOY_DIR }}' bash -se" <<'REMOTE'
+            set -o pipefail
             cd "$DEPLOY_DIR"
             docker container prune -f || true
             docker image prune -af || true
@@ -101,15 +102,40 @@ jobs:
 
             export AIGENTRA_API_IMAGE="$IMAGE"
             export AIGENTRA_BUILD_SHA="$BUILD_SHA"
+            compose() {
+              AIGENTRA_API_IMAGE="$IMAGE" AIGENTRA_BUILD_SHA="$BUILD_SHA" docker compose "$@"
+            }
 
-            docker compose config --services
-            docker compose config | grep -A2 -E '^[[:space:]]*(api|worker|migrate):$|^[[:space:]]*image:'
-            docker compose pull api worker migrate
-            docker compose up -d redis
-            docker compose run --rm migrate
-            docker compose stop api worker || true
-            docker compose rm -f api worker || true
-            docker compose up -d --force-recreate --remove-orphans api worker
+            resolved_config="$(compose config)"
+            image_count="$(printf '%s\n' "$resolved_config" | grep -F "image: $IMAGE" | wc -l | tr -d ' ')"
+            if [ "$image_count" -lt 3 ]; then
+              printf '%s\n' "$resolved_config" | grep -A2 -E '^[[:space:]]*(api|worker|migrate):$|^[[:space:]]*image:'
+              echo "Compose did not resolve backend services to $IMAGE" >&2
+              exit 1
+            fi
+            compose config --services
+            printf '%s\n' "$resolved_config" | grep -A2 -E '^[[:space:]]*(api|worker|migrate):$|^[[:space:]]*image:'
+            compose pull api worker migrate
+            compose up -d redis
+            compose run --rm migrate
+            compose stop api worker || true
+            compose rm -f api worker || true
+            docker rm -f aigentra-api aigentra-worker || true
+            compose up -d --force-recreate --remove-orphans api worker
+            api_image="$(docker inspect aigentra-api --format '{{.Config.Image}}' 2>/dev/null || true)"
+            worker_image="$(docker inspect aigentra-worker --format '{{.Config.Image}}' 2>/dev/null || true)"
+            api_sha="$(docker inspect aigentra-api --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^AIGENTRA_BUILD_SHA=' | cut -d= -f2- || true)"
+            worker_sha="$(docker inspect aigentra-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^AIGENTRA_BUILD_SHA=' | cut -d= -f2- || true)"
+            if [ "$api_image" != "$IMAGE" ] || [ "$worker_image" != "$IMAGE" ]; then
+              compose ps -a
+              echo "Expected api/worker image $IMAGE but got api=$api_image worker=$worker_image" >&2
+              exit 1
+            fi
+            if [ "$api_sha" != "$BUILD_SHA" ] || [ "$worker_sha" != "$BUILD_SHA" ]; then
+              compose ps -a
+              echo "Expected api/worker build SHA $BUILD_SHA but got api=$api_sha worker=$worker_sha" >&2
+              exit 1
+            fi
             for i in $(seq 1 45); do
               health="$(curl -fsS http://127.0.0.1:8000/health || true)"
               echo "$health"
@@ -117,14 +143,14 @@ jobs:
                 break
               fi
               if [ "$i" = "45" ]; then
-                docker compose ps -a
-                docker compose logs --tail=220 api worker migrate redis
+                compose ps -a
+                compose logs --tail=220 api worker migrate redis
                 echo "Expected build SHA $BUILD_SHA but health returned: $health" >&2
                 exit 1
               fi
               sleep 2
             done
-            docker compose ps -a
+            compose ps -a
             docker image prune -af || true
           REMOTE
 
@@ -134,10 +160,21 @@ jobs:
           ssh -i ~/.ssh/ec2_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" '
             cd /opt/aigentra-trading
             expected="$(grep "^AIGENTRA_BUILD_SHA=" .env | tail -1 | cut -d= -f2-)"
+            expected_image="$(grep "^AIGENTRA_API_IMAGE=" .env | tail -1 | cut -d= -f2-)"
             for i in $(seq 1 30); do
               health="$(curl -fsS http://127.0.0.1:8000/health || true)"
+              api_image="$(docker inspect aigentra-api --format "{{.Config.Image}}" 2>/dev/null || true)"
+              worker_image="$(docker inspect aigentra-worker --format "{{.Config.Image}}" 2>/dev/null || true)"
+              api_sha="$(docker inspect aigentra-api --format "{{range .Config.Env}}{{println .}}{{end}}" 2>/dev/null | grep "^AIGENTRA_BUILD_SHA=" | cut -d= -f2- || true)"
+              worker_sha="$(docker inspect aigentra-worker --format "{{range .Config.Env}}{{println .}}{{end}}" 2>/dev/null | grep "^AIGENTRA_BUILD_SHA=" | cut -d= -f2- || true)"
               echo "$health"
-              if [ -n "$expected" ] && printf "%s" "$health" | grep -F "\"buildSha\":\"$expected\"" >/dev/null; then
+              echo "apiImage=$api_image workerImage=$worker_image expectedImage=$expected_image apiSha=$api_sha workerSha=$worker_sha expectedSha=$expected"
+              if [ -n "$expected" ] \
+                && printf "%s" "$health" | grep -F "\"buildSha\":\"$expected\"" >/dev/null \
+                && [ "$api_image" = "$expected_image" ] \
+                && [ "$worker_image" = "$expected_image" ] \
+                && [ "$api_sha" = "$expected" ] \
+                && [ "$worker_sha" = "$expected" ]; then
                 exit 0
               fi
               sleep 2
