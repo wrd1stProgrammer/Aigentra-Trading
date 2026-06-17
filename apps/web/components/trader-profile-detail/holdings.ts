@@ -2,6 +2,7 @@ import type { PaperOrder, PaperPosition } from "@/lib/api";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
 import type { LeagueSymbol, TraderStanding } from "@/lib/league";
+import { isOpenChartExposure } from "@/components/live-candle-chart-overlays";
 import type { HoldingBadge, HoldingDetail, HoldingItem, PlanView, Translator } from "@/components/trader-profile-detail/types";
 import {
   firstFiniteNumber,
@@ -34,7 +35,7 @@ export function buildHoldingItems({
   readonly t: Translator;
 }): HoldingItem[] {
   const accountEquity = standing?.equity ?? 10_000;
-  const activePositions = positions.filter((position) => !position.symbol || position.symbol === symbol);
+  const activePositions = positions.filter((position) => (!position.symbol || position.symbol === symbol) && isOpenChartExposure(position));
   if (activePositions.length) {
     const exposures = activePositions.map((position) => positionExposureValue(position));
     const totalExposure = exposureTotal(exposures, firstFiniteNumber(standing?.summary?.openNotional, standing?.summary?.openMargin));
@@ -56,10 +57,7 @@ export function buildHoldingItems({
     });
   }
 
-  const activeOrders = orders.filter((order) => {
-    const normalizedStatus = String(order.status ?? "").toLowerCase();
-    return (!order.symbol || order.symbol === symbol) && !["filled", "closed", "canceled", "cancelled"].includes(normalizedStatus);
-  });
+  const activeOrders = orders.filter((order) => (!order.symbol || order.symbol === symbol) && isOpenChartExposure(order));
   if (activeOrders.length) {
     const exposures = activeOrders.map((order) => orderExposureValue(order));
     const totalExposure = exposureTotal(exposures, firstFiniteNumber(standing?.summary?.openOrderNotional));

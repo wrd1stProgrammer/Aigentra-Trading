@@ -55,7 +55,24 @@ const OVERLAY_TONE_PRIORITY: Record<OverlayTone, number> = {
   entry: 2,
   order: 1
 };
-const CLOSED_EXPOSURE_STATUSES = new Set(["CLOSED", "CANCELED", "CANCELLED", "EXPIRED", "REJECTED", "FILLED"]);
+const CLOSED_EXPOSURE_STATUSES = new Set([
+  "CLOSED",
+  "CANCELED",
+  "CANCELLED",
+  "EXPIRED",
+  "REJECTED",
+  "FILLED",
+  "STOP_LOSS",
+  "TAKE_PROFIT",
+  "LIQUIDATION",
+  "POSITION_CLOSED",
+  "CLOSED_STOP_LOSS",
+  "CLOSED_TAKE_PROFIT",
+  "CLOSED_LIQUIDATION",
+  "POSITION_CLOSED_STOP_LOSS",
+  "POSITION_CLOSED_TAKE_PROFIT",
+  "STOPPED_OUT"
+]);
 const COMPLETED_TARGET_STATUSES = new Set(["COMPLETED", "DONE", "FILLED", "HIT", "TRIGGERED", "TAKE_PROFIT", "TP_FILLED"]);
 
 export function compactOverlayLines(lines: readonly OverlayLine[]) {
@@ -81,6 +98,16 @@ export function isOpenChartExposure(record: { readonly status?: unknown }) {
   const status = normalizeStatusText(record.status);
   if (!status) return true;
   return !CLOSED_EXPOSURE_STATUSES.has(status);
+}
+
+export function shouldRenderRealizedEventOverlays({
+  hasOpenPaperPosition,
+  hasOpenPaperOrder
+}: {
+  readonly hasOpenPaperPosition: boolean;
+  readonly hasOpenPaperOrder: boolean;
+}) {
+  return hasOpenPaperPosition || hasOpenPaperOrder;
 }
 
 export function overlaySideLabel(value: unknown) {

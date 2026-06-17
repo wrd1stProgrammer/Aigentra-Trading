@@ -48,7 +48,17 @@ import {
   socketFreshWindowMs,
   type ChartInterval
 } from "@/components/live-candle-chart-data";
-import { compactOverlayLines, isOpenChartExposure, latestManagedStopLoss, overlaySideLabel, priceLineTitle, shouldMarkTakeProfitCompleted, type OverlayLine, type OverlayTone } from "@/components/live-candle-chart-overlays";
+import {
+  compactOverlayLines,
+  isOpenChartExposure,
+  latestManagedStopLoss,
+  overlaySideLabel,
+  priceLineTitle,
+  shouldMarkTakeProfitCompleted,
+  shouldRenderRealizedEventOverlays,
+  type OverlayLine,
+  type OverlayTone
+} from "@/components/live-candle-chart-overlays";
 
 type TradePlanView = {
   status?: string;
@@ -425,7 +435,9 @@ export function LiveCandleChart({
         lines.push({ value: takeProfit, label: target.label, tone: target.tone });
       }
     }
-    lines.push(...buildRealizedEventOverlayLines({ events: paperEvents, symbol, t }));
+    if (shouldRenderRealizedEventOverlays({ hasOpenPaperPosition, hasOpenPaperOrder })) {
+      lines.push(...buildRealizedEventOverlayLines({ events: paperEvents, symbol, t }));
+    }
     return compactOverlayLines(lines);
   }, [hasOpenPaperOrder, hasOpenPaperPosition, isFreshRunCycleResult, latestPrice, managementReviews, paperEvents, result, symbol, t, visibleOpenPaperOrders, visibleOpenPaperPositions]);
   const hasCompletedMarkers = overlayLines.some((line) => line.tone === "takeProfitDone" || line.tone === "stopDone");

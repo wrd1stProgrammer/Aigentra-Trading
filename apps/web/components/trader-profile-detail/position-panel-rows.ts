@@ -1,5 +1,6 @@
 import type { PaperOrder } from "@/lib/api";
 import type { LeagueSymbol } from "@/lib/league";
+import { isOpenChartExposure } from "@/components/live-candle-chart-overlays";
 import type { PlanView } from "@/components/trader-profile-detail/types";
 
 export type DisplayPaperOrder = PaperOrder & {
@@ -18,16 +19,11 @@ export function buildDisplayOpenOrders({
   readonly latestPlan?: PlanView | null;
   readonly symbol: LeagueSymbol;
 }): DisplayPaperOrder[] {
-  return orders.filter((order) => matchesSymbol(order.symbol, symbol) && isOpen(order.status) && !isSyntheticOrder(order));
+  return orders.filter((order) => matchesSymbol(order.symbol, symbol) && isOpenChartExposure(order) && !isSyntheticOrder(order));
 }
 
 function matchesSymbol(value: unknown, symbol: LeagueSymbol) {
   return !value || String(value).toUpperCase() === symbol;
-}
-
-function isOpen(value: unknown) {
-  const normalized = String(value ?? "open").toLowerCase();
-  return !["closed", "filled", "canceled", "cancelled", "rejected", "expired"].includes(normalized);
 }
 
 function isSyntheticOrder(order: PaperOrder) {

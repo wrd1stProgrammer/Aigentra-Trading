@@ -143,6 +143,23 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
   return result;
 }
 
+function buildScenarioPositions(positions: readonly PaperPosition[], closedPositions: readonly PaperPosition[]): PaperPosition[] {
+  const result: PaperPosition[] = [];
+  const seen = new Set<string>();
+  for (const [index, position] of [...positions, ...closedPositions].entries()) {
+    const key = scenarioPositionKey(position, index);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(position);
+  }
+  return result;
+}
+
+function scenarioPositionKey(position: PaperPosition, index: number) {
+  if (position.id !== undefined && position.id !== null && position.id !== "") return `id:${String(position.id)}`;
+  return `row:${position.traderId ?? ""}:${position.symbol}:${position.side ?? ""}:${position.openedAt ?? position.updatedAt ?? index}`;
+}
+
 function mapMergedItemToHistoryItem(
   item: MergedTradeHistoryItem,
   locale: any,
@@ -315,7 +332,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     staleTime: 60_000
   });
 
-  const { trader, summaries, positions, orders, reviews, events, dailyPnl, reviewCountsByDay, plans } = useMemo(() => {
+  const { trader, summaries, positions, closedPositions, orders, reviews, events, dailyPnl, reviewCountsByDay, plans } = useMemo(() => {
     const bundle = detailQuery.data;
     const rawPositions = bundle?.positions ?? [];
     const mergedPositions = mergePositions(rawPositions);
@@ -323,6 +340,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       trader: bundle?.trader ?? fallback,
       summaries: bundle?.summaries ?? [],
       positions: mergedPositions,
+      closedPositions: bundle?.closedPositions ?? [],
       orders: bundle?.orders ?? [],
       reviews: bundle?.managementReviews ?? [],
       events: bundle?.events ?? [],
@@ -348,10 +366,11 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     return standings.find((item) => item.id === traderId) ?? standings[0];
   }, [summaries, trader, traderId]);
 
+  const scenarioPositions = useMemo(() => buildScenarioPositions(positions, closedPositions), [closedPositions, positions]);
   const scenarios = useMemo(() => {
     if (!trader) return [];
-    return buildScenarios({ trader, positions, orders, reviews, events });
-  }, [events, orders, positions, reviews, trader]);
+    return buildScenarios({ trader, positions: scenarioPositions, orders, reviews, events });
+  }, [events, orders, reviews, scenarioPositions, trader]);
 
   const latestReview = reviews[0];
   const visual = traderVisuals[traderId] ?? traderVisuals["channel-rider"];

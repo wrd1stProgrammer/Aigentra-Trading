@@ -3,7 +3,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import ts from "typescript";
 
-const panelRows = loadTsModule("../components/trader-profile-detail/position-panel-rows.ts");
+const exposureStub = {
+  isOpenChartExposure: (record) => !["closed", "filled", "canceled", "cancelled", "expired", "rejected", "stop_loss", "take_profit", "liquidation"].includes(String(record?.status ?? "open").toLowerCase())
+};
+
+const panelRows = loadTsModule("../components/trader-profile-detail/position-panel-rows.ts", {
+  "@/components/live-candle-chart-overlays": exposureStub
+});
 const league = loadTsModule("../lib/league.ts", {
   "@/lib/traders": { fallbackTraders: [] }
 });
@@ -14,6 +20,7 @@ const modalSource = readFileSync(new URL("../components/trader-profile-detail/sc
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
 const scenarioCopy = loadTsModule("../components/trader-profile-detail/scenario-copy.ts");
 const scenarioFeed = loadTsModule("../components/trader-profile-detail/scenario-feed.ts", {
+  "@/components/live-candle-chart-overlays": exposureStub,
   "@/components/trader-profile-detail/scenario-copy": {
     scenarioDetailRationaleText: () => "active position copy"
   },
@@ -185,19 +192,27 @@ test("open position detail shows the saved entry approval rationale instead of g
   assert.notEqual(text, "저장된 AI 판단 근거 없음");
 });
 
-test("latest scenario feed includes active AI-approved positions but excludes inactive exposure rows", () => {
+test("latest scenario feed includes AI-approved entry rationale and management reviews after a trade closes", () => {
   const scenarios = [
     { id: "review-1", source: "review", phase: "OPEN_POSITION", status: "HOLD" },
     { id: "position-1", source: "position", phase: "OPEN_POSITION", status: "open", rationale: "approved" },
-    { id: "position-2", source: "position", phase: "OPEN_POSITION", status: "closed", rationale: "approved" },
+    { id: "position-2", source: "position", phase: "OPEN_POSITION", status: "stop_loss", rationale: "approved" },
     { id: "position-3", source: "position", phase: "OPEN_POSITION", status: "open", rationale: null },
     { id: "order-1", source: "order", phase: "PENDING_ORDER", status: "open", rationale: "approved" }
   ];
 
   assert.deepEqual(
     scenarioFeed.latestScenarioFeedScenarios(scenarios).map((scenario) => scenario.id),
-    ["review-1", "position-1"]
+    ["review-1", "position-1", "position-2"]
   );
+});
+
+test("trader detail builds scenarios from closed positions without sending them to active chart positions", () => {
+  assert.match(pageSource, /closedPositions: bundle\?\.closedPositions \?\? \[\]/, "detail state should keep closed positions available");
+  assert.match(pageSource, /scenarioPositions/, "scenario generation should have a position list distinct from chart positions");
+  assert.match(pageSource, /buildScenarioPositions\(positions, closedPositions\)/, "closed positions should feed scenario generation only");
+  assert.match(pageSource, /buildScenarios\(\{ trader, positions: scenarioPositions, orders, reviews, events \}\)/);
+  assert.match(pageSource, /paperPositions=\{positions\}/, "chart should continue receiving active positions only");
 });
 
 function loadTsModule(relativePath, requireStubs = {}) {

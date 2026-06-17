@@ -14,6 +14,8 @@ const journalSource = readFileSync(new URL("../components/trader-profile-detail/
 const chartSource = readFileSync(new URL("../components/live-candle-chart.tsx", import.meta.url), "utf8");
 const detailChartSource = readFileSync(new URL("../components/trader-profile-detail/chart.tsx", import.meta.url), "utf8");
 const binancePanelSource = readFileSync(new URL("../components/trader-profile-detail/binance-position-panel.tsx", import.meta.url), "utf8");
+const positionPanelRowsSource = readFileSync(new URL("../components/trader-profile-detail/position-panel-rows.ts", import.meta.url), "utf8");
+const scenarioFeedSource = readFileSync(new URL("../components/trader-profile-detail/scenario-feed.ts", import.meta.url), "utf8");
 const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
 
@@ -182,6 +184,17 @@ test("holdings use thin account-deployment gauge instead of thick per-item share
   assert.match(holdingsSource, /accountDeploymentPercent/, "top gauge should compute account-level deployed margin");
   assert.match(sidePanelsSource, /h-2/, "holding gauge should be a thin fill bar");
   assert.doesNotMatch(sidePanelsSource, /h-9/, "old thick gauge should not remain");
+});
+
+test("closed stop-loss exposures are removed from active detail surfaces", () => {
+  assert.equal(overlayHelpers.isOpenChartExposure({ status: "stop_loss" }), false, "stop-loss close status must not stay active");
+  assert.equal(overlayHelpers.shouldRenderRealizedEventOverlays({ hasOpenPaperPosition: false, hasOpenPaperOrder: false }), false);
+  assert.match(chartSource, /shouldRenderRealizedEventOverlays\(\{ hasOpenPaperPosition, hasOpenPaperOrder \}\)/);
+  assert.match(holdingsSource, /isOpenChartExposure\(position\)/, "holdings should exclude closed positions");
+  assert.match(holdingsSource, /isOpenChartExposure\(order\)/, "holdings should exclude closed orders");
+  assert.match(binancePanelSource, /isOpenChartExposure\(position\)/, "position table should exclude closed positions");
+  assert.match(positionPanelRowsSource, /isOpenChartExposure\(order\)/, "open-order table should exclude closed orders");
+  assert.match(scenarioFeedSource, /hasSavedAiApproval\(scenario\)/, "latest scenarios should keep saved entry approvals separate from active exposure filtering");
 });
 
 test("main journal is a scrollable trade-history table and sidebar history uses a distinct execution-log name", () => {

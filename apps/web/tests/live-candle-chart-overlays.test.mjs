@@ -37,7 +37,18 @@ test("live candle chart merges nearby overlay labels by priority", () => {
 test("live candle chart treats paper trading statuses as open exposure", () => {
   // Given: API statuses use backend names, not only the literal string "open".
   const openStatuses = ["open", "OPEN_POSITION", "PENDING_ORDER", "paper trading pending", undefined];
-  const closedStatuses = ["CLOSED", "FILLED", "CANCELED", "cancelled", "EXPIRED", "REJECTED"];
+  const closedStatuses = [
+    "CLOSED",
+    "FILLED",
+    "CANCELED",
+    "cancelled",
+    "EXPIRED",
+    "REJECTED",
+    "stop_loss",
+    "take-profit",
+    "LIQUIDATION",
+    "position closed"
+  ];
 
   // When/Then: active statuses allow plan overlays, while closed statuses do not.
   for (const status of openStatuses) {
@@ -46,6 +57,17 @@ test("live candle chart treats paper trading statuses as open exposure", () => {
   for (const status of closedStatuses) {
     assert.equal(overlayHelpers.isOpenChartExposure({ status }), false, `${status} should be closed`);
   }
+});
+
+test("realized completion markers render only while chart still has active exposure", () => {
+  assert.equal(
+    overlayHelpers.shouldRenderRealizedEventOverlays({ hasOpenPaperPosition: false, hasOpenPaperOrder: false }),
+    false,
+    "fully closed traders should not keep stop-loss/take-profit completion price lines on the live chart"
+  );
+  assert.equal(overlayHelpers.shouldRenderRealizedEventOverlays({ hasOpenPaperPosition: true, hasOpenPaperOrder: false }), true);
+  assert.equal(overlayHelpers.shouldRenderRealizedEventOverlays({ hasOpenPaperPosition: false, hasOpenPaperOrder: true }), true);
+  assert.match(source, /shouldRenderRealizedEventOverlays/, "live chart should gate realized completion markers through the helper");
 });
 
 test("take-profit targets are completed only by explicit backend status", () => {

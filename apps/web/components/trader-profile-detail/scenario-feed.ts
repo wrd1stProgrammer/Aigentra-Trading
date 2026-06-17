@@ -4,8 +4,6 @@ import { dedupeScenarioTimelineScenarios } from "@/components/trader-profile-det
 import { scenarioDetailRationaleText } from "@/components/trader-profile-detail/scenario-copy";
 import type { Translator } from "@/components/trader-profile-detail/types";
 
-const INACTIVE_POSITION_STATUSES = ["closed", "filled", "canceled", "cancelled", "rejected", "expired"] as const;
-
 export function latestScenarioFeedScenarios(scenarios: readonly TraderScenario[]): TraderScenario[] {
   return dedupeScenarioTimelineScenarios(scenarios.filter(isLatestScenarioFeedScenario));
 }
@@ -15,7 +13,7 @@ export function isLatestScenarioFeedScenario(scenario: TraderScenario): boolean 
     case "review":
       return true;
     case "position":
-      return isActivePositionScenario(scenario) && hasSavedAiApproval(scenario);
+      return hasSavedAiApproval(scenario);
     case "order":
     case "event":
     case "strategy":
@@ -38,11 +36,6 @@ export function scenarioTimelineBody(scenario: TraderScenario, matchingReview: M
     case "strategy":
       return scenario.rationale ?? scenario.summary ?? "-";
   }
-}
-
-function isActivePositionScenario(scenario: TraderScenario): boolean {
-  const normalized = String(scenario.status ?? "open").trim().toLowerCase();
-  return !INACTIVE_POSITION_STATUSES.some((status) => status === normalized);
 }
 
 function hasSavedAiApproval(scenario: TraderScenario): boolean {

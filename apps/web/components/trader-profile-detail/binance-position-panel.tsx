@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import type { PaperOrder, PaperPosition } from "@/lib/api";
 import { formatClockTime, formatCurrency, formatNumber } from "@/lib/format";
 import { useAppContext } from "@/components/app-provider";
+import { isOpenChartExposure } from "@/components/live-candle-chart-overlays";
 import { scenarioRationaleFromPayload, scenarioSummaryFromPayload, type LeagueSymbol, type TraderScenario } from "@/lib/league";
 import { statusLabel } from "@/lib/status";
 import { buildDisplayOpenOrders, type DisplayPaperOrder } from "@/components/trader-profile-detail/position-panel-rows";
@@ -28,7 +29,7 @@ export function BinancePositionPanel({
   readonly onOpenScenario?: (scenario: TraderScenario) => void;
 }) {
   const { locale, t } = useAppContext();
-  const openPositions = useMemo(() => positions.filter((position) => matchesSymbol(position.symbol, symbol) && isOpen(position.status)), [positions, symbol]);
+  const openPositions = useMemo(() => positions.filter((position) => matchesSymbol(position.symbol, symbol) && isOpenChartExposure(position)), [positions, symbol]);
   const openOrders = useMemo(() => buildDisplayOpenOrders({ orders, latestPlan, symbol }), [latestPlan, orders, symbol]);
   const [activeTab, setActiveTab] = useState<PositionPanelTab>("positions");
   const openScenarioForPosition = useCallback((position: PaperPosition) => {
@@ -241,11 +242,6 @@ function EmptyPositionText({ children }: { readonly children: string }) {
 
 function matchesSymbol(value: unknown, symbol: LeagueSymbol) {
   return !value || String(value).toUpperCase() === symbol;
-}
-
-function isOpen(value: unknown) {
-  const normalized = String(value ?? "open").toLowerCase();
-  return !["closed", "filled", "canceled", "cancelled", "rejected", "expired"].includes(normalized);
 }
 
 function normalizedSide(value: unknown) {
