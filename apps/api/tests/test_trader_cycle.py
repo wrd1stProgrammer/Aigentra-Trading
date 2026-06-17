@@ -257,7 +257,10 @@ async def test_mock_ai_review_uses_requested_locale():
             locale="ko",
         )
     )
-    assert "2차 검증" in review.approvalReason
+    assert "2차 검증" not in review.approvalReason
+    assert "종이 거래" not in review.approvalReason
+    assert "진입" in review.approvalReason
+    assert "손절" in review.approvalReason
 
 
 @pytest.mark.asyncio
@@ -500,5 +503,10 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "userSummary" not in management.split("Payload:", 1)[0]
     assert "reviewCode" in entry
     assert "reviewFacts" in entry
+    entry_contract = entry.split("Payload:", 1)[0]
+    assert "approvalReason must be the user-visible entry approval rationale" in entry_contract
+    assert "3-5" in entry_contract
+    assert "Do not describe approval as paper-trading learning" in entry_contract
+    assert "Do not use setupScore as the main reason" in entry_contract
     assert "reviewCode" in management
     assert "reviewFacts" in management

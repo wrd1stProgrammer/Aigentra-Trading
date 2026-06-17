@@ -119,8 +119,11 @@ async def test_anthropic_entry_review_uses_json_output_schema(monkeypatch):
     assert captured["body"]["output_config"]["format"]["type"] == "json_schema"
     assert "decision" in schema["required"]
     assert schema["additionalProperties"] is False
+    approval_description = schema["properties"]["approvalReason"]["description"]
+    assert "user-visible entry approval rationale" in approval_description
+    assert "3-5" in approval_description
     assert captured["body"]["max_tokens"] == ANTHROPIC_REVIEW_MAX_TOKENS
-    assert "concise" in captured["body"]["system"]
+    assert "under 140 characters" not in captured["body"]["system"]
 
 
 @pytest.mark.asyncio

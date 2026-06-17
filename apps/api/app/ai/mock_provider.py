@@ -69,7 +69,9 @@ class MockAIProvider(BaseAIProvider):
         if locale == "ko":
             adjustment = "확인 캔들이 마감될 때까지 진입 규모를 20% 줄이고 수수료 버퍼를 유지하세요."
             approval_reason = (
-                "후보의 방향, 진입가, 손절, 익절, 레버리지, 수수료 버퍼, 조기 종료 조건을 2차 검증했습니다."
+                f"{payload.trader.name}의 {candidate.setupType or '셋업'} {candidate.side or ''} 진입은 현재 구조와 후보 가격대가 같은 방향으로 맞아 있습니다. "
+                "진입가, 손절, 익절이 손익비와 수수료 버퍼 검사를 통과했고 레버리지 계획도 허용 범위 안입니다. "
+                "조기 종료 조건과 무효화 규칙이 있어 승인하지만, 가격이 무효화 레벨에 안착하면 즉시 철회해야 합니다."
             )
             counter_thesis = "가격이 무효화 레벨 너머에서 안착하거나 조기 종료 조건이 발생하면 이 셋업은 더 이상 유효하지 않습니다."
             if structural_errors:
@@ -77,7 +79,11 @@ class MockAIProvider(BaseAIProvider):
                 counter_thesis = "entry/SL/TP/leverage/fees/early-exit 중 하나라도 내부 모순이면 승인할 수 없습니다."
         else:
             adjustment = "Reduce size by 20% until confirmation candle closes and keep the fee buffer."
-            approval_reason = "The second-pass review checked direction, entries, stop, targets, leverage, fees, and early exits."
+            approval_reason = (
+                f"{payload.trader.name}'s {candidate.setupType or 'setup'} {candidate.side or ''} entry aligns the current structure with the proposed price map. "
+                "Entries, stop, targets, fee-aware RR, and leverage are internally consistent. "
+                "Approval remains valid only while the early-exit and invalidation rules stay intact."
+            )
             counter_thesis = "If price accepts beyond invalidation or an early-exit rule fires, the setup is no longer valid."
             if structural_errors:
                 approval_reason = "Structural validation failed: " + " ".join(structural_errors)

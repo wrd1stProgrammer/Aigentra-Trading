@@ -20,7 +20,8 @@ MANAGEMENT_REVIEW_TOOL_NAME = "submit_position_management_review"
 ANTHROPIC_REVIEW_MAX_TOKENS = 4096
 ANTHROPIC_JSON_SYSTEM_PROMPT = (
     "Return only the JSON object matching the response schema. "
-    "Do not use markdown. Keep every string concise, preferably under 140 characters."
+    "Do not use markdown. Keep checklist/action array items concise, "
+    "but let approvalReason, rationale, and counterThesis use the detail required by their field descriptions."
 )
 
 
@@ -61,8 +62,19 @@ def trade_review_schema() -> dict[str, Any]:
             "leverageOverride": {"type": "number"},
             "riskPercentOverride": {"type": "number"},
             "earlyExitRecommendations": string_array_schema(),
-            "approvalReason": {"type": "string"},
-            "counterThesis": {"type": "string"},
+            "approvalReason": {
+                "type": "string",
+                "description": (
+                    "user-visible entry approval rationale. For APPROVE or ADJUST_AND_APPROVE, write 3-5 "
+                    "compact sentences explaining thesis, execution geometry, fee-aware RR, leverage/risk "
+                    "adjustments, early exits, and residual invalidation risk. Do not cite setupScore as the "
+                    "main reason or describe approval as paper-trading learning."
+                ),
+            },
+            "counterThesis": {
+                "type": "string",
+                "description": "Concrete opposing market story or kill-switch that would invalidate the entry approval.",
+            },
         },
         "required": [
             "decision",
