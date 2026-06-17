@@ -157,30 +157,63 @@ jobs:
       - name: Verify deployment
         shell: bash
         run: |
-          ssh -i ~/.ssh/ec2_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" '
-            cd /opt/aigentra-trading
+          ssh -i ~/.ssh/ec2_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "DEPLOY_DIR='${{ env.DEPLOY_DIR }}' bash -se" <<'REMOTE'
+            set -o pipefail
+            cd "$DEPLOY_DIR"
             expected="$(grep "^AIGENTRA_BUILD_SHA=" .env | tail -1 | cut -d= -f2-)"
             expected_image="$(grep "^AIGENTRA_API_IMAGE=" .env | tail -1 | cut -d= -f2-)"
-            for i in $(seq 1 30); do
+
+            compose() {
+              AIGENTRA_API_IMAGE="$expected_image" AIGENTRA_BUILD_SHA="$expected" docker compose "$@"
+            }
+
+            read_state() {
               health="$(curl -fsS http://127.0.0.1:8000/health || true)"
-              api_image="$(docker inspect aigentra-api --format "{{.Config.Image}}" 2>/dev/null || true)"
-              worker_image="$(docker inspect aigentra-worker --format "{{.Config.Image}}" 2>/dev/null || true)"
-              api_sha="$(docker inspect aigentra-api --format "{{range .Config.Env}}{{println .}}{{end}}" 2>/dev/null | grep "^AIGENTRA_BUILD_SHA=" | cut -d= -f2- || true)"
-              worker_sha="$(docker inspect aigentra-worker --format "{{range .Config.Env}}{{println .}}{{end}}" 2>/dev/null | grep "^AIGENTRA_BUILD_SHA=" | cut -d= -f2- || true)"
+              api_image="$(docker inspect aigentra-api --format '{{.Config.Image}}' 2>/dev/null || true)"
+              worker_image="$(docker inspect aigentra-worker --format '{{.Config.Image}}' 2>/dev/null || true)"
+              api_sha="$(docker inspect aigentra-api --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^AIGENTRA_BUILD_SHA=' | cut -d= -f2- || true)"
+              worker_sha="$(docker inspect aigentra-worker --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^AIGENTRA_BUILD_SHA=' | cut -d= -f2- || true)"
               echo "$health"
               echo "apiImage=$api_image workerImage=$worker_image expectedImage=$expected_image apiSha=$api_sha workerSha=$worker_sha expectedSha=$expected"
+            }
+
+            is_current() {
               if [ -n "$expected" ] \
                 && printf "%s" "$health" | grep -F "\"buildSha\":\"$expected\"" >/dev/null \
                 && [ "$api_image" = "$expected_image" ] \
                 && [ "$worker_image" = "$expected_image" ] \
                 && [ "$api_sha" = "$expected" ] \
                 && [ "$worker_sha" = "$expected" ]; then
+                return 0
+              fi
+              return 1
+            }
+
+            for i in $(seq 1 12); do
+              read_state
+              if is_current; then
                 exit 0
               fi
               sleep 2
             done
-            docker compose ps -a
-            docker compose logs --tail=220 api worker migrate redis
+
+            echo "Deployment drift detected; forcing expected backend image $expected_image" >&2
+            compose pull api worker
+            compose stop api worker || true
+            compose rm -f api worker || true
+            docker rm -f aigentra-api aigentra-worker || true
+            compose up -d --force-recreate --remove-orphans api worker
+
+            for i in $(seq 1 30); do
+              read_state
+              if is_current; then
+                exit 0
+              fi
+              sleep 2
+            done
+
+            compose ps -a
+            compose logs --tail=220 api worker migrate redis
             echo "Expected build SHA $expected but deployment did not expose it" >&2
             exit 1
-          '
+          REMOTE
