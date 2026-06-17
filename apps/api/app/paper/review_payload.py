@@ -4,6 +4,7 @@ from app.traders.models import TradeReviewResult
 
 
 ENTRY_REVIEW_PAYLOAD_KEYS: Final[tuple[str, ...]] = (
+    "aiReview",
     "aiReviewDecision",
     "aiReviewConfidence",
     "aiRiskLevel",
@@ -23,14 +24,31 @@ ENTRY_REVIEW_PAYLOAD_KEYS: Final[tuple[str, ...]] = (
 def review_payload_fields(review: Optional[TradeReviewResult]) -> dict[str, Any]:
     if review is None:
         return {}
+    structured_review = review.structuredReview.model_dump() if review.structuredReview else None
+    review_payload = {
+        "decision": review.decision,
+        "confidence": review.confidence,
+        "riskLevel": review.riskLevel,
+        "reviewCode": review.reviewCode,
+        "reviewFacts": [fact.model_dump() for fact in review.reviewFacts],
+        "riskFlags": review.riskFlags,
+        "structuredReview": structured_review,
+        "adjustments": review.adjustments,
+        "approvalReason": review.approvalReason,
+        "counterThesis": review.counterThesis,
+        "provider": review.provider,
+        "model": review.model,
+        "fallback": review.fallback,
+    }
     return {
+        "aiReview": review_payload,
         "aiReviewDecision": review.decision,
         "aiReviewConfidence": review.confidence,
         "aiRiskLevel": review.riskLevel,
         "aiReviewCode": review.reviewCode,
         "aiReviewFacts": [fact.model_dump() for fact in review.reviewFacts],
         "aiRiskFlags": review.riskFlags,
-        "aiStructuredReview": review.structuredReview.model_dump() if review.structuredReview else None,
+        "aiStructuredReview": structured_review,
         "aiAdjustments": review.adjustments,
         "aiApprovalReason": review.approvalReason,
         "aiCounterThesis": review.counterThesis,

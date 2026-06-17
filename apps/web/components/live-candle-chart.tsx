@@ -437,7 +437,13 @@ export function LiveCandleChart({
       }
     }
     if (shouldRenderRealizedEventOverlays({ hasOpenPaperPosition, hasOpenPaperOrder })) {
-      lines.push(...buildRealizedEventOverlayLines({ events: paperEvents, symbol, t }));
+      lines.push(...buildRealizedEventOverlayLines({
+        activeOrderIds: visibleOpenPaperOrders.map((order) => order.id),
+        activePositionIds: visibleOpenPaperPositions.map((position) => position.id),
+        events: paperEvents,
+        symbol,
+        t
+      }));
     }
     return compactOverlayLines(lines);
   }, [hasOpenPaperOrder, hasOpenPaperPosition, isFreshRunCycleResult, latestPrice, managementReviews, paperEvents, result, symbol, t, visibleOpenPaperOrders, visibleOpenPaperPositions]);

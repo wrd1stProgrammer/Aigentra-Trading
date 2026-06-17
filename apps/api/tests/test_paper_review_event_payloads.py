@@ -79,7 +79,9 @@ def test_pending_entry_event_carries_ai_review_payload(temp_db):
         payload = from_json(event.payload_json)
 
     assert payload["aiReviewDecision"] == "ADJUST_AND_APPROVE"
+    assert payload["aiReview"]["decision"] == "ADJUST_AND_APPROVE"
     assert payload["aiStructuredReview"]["headline"] == "BTC가 세션 범위 아래로 확인된 하락 돌파를 보이고 있습니다."
+    assert payload["aiReview"]["structuredReview"]["headline"] == "BTC가 세션 범위 아래로 확인된 하락 돌파를 보이고 있습니다."
     assert payload["aiApprovalReason"] == "승인 근거가 여기에 있습니다."
 
 
@@ -94,6 +96,15 @@ def test_order_filled_event_inherits_ai_review_payload_from_order(temp_db):
             leverage=7,
             payload={
                 "aiReviewDecision": "ADJUST_AND_APPROVE",
+                "aiReview": {
+                    "decision": "ADJUST_AND_APPROVE",
+                    "structuredReview": {
+                        "verdict": "조정 후 승인",
+                        "headline": "BTC가 세션 범위 아래로 확인된 하락 돌파를 보이고 있습니다.",
+                        "action": "주문이 채워지지 않으면 2개의 15분 캔들 후 자동 취소하세요.",
+                    },
+                    "approvalReason": "승인 근거가 여기에 있습니다.",
+                },
                 "aiStructuredReview": {
                     "verdict": "조정 후 승인",
                     "headline": "BTC가 세션 범위 아래로 확인된 하락 돌파를 보이고 있습니다.",
@@ -108,5 +119,7 @@ def test_order_filled_event_inherits_ai_review_payload_from_order(temp_db):
         payload = from_json(event.payload_json)
 
     assert payload["aiReviewDecision"] == "ADJUST_AND_APPROVE"
+    assert payload["aiReview"]["decision"] == "ADJUST_AND_APPROVE"
     assert payload["aiStructuredReview"]["headline"] == "BTC가 세션 범위 아래로 확인된 하락 돌파를 보이고 있습니다."
+    assert payload["aiReview"]["structuredReview"]["headline"] == "BTC가 세션 범위 아래로 확인된 하락 돌파를 보이고 있습니다."
     assert payload["aiApprovalReason"] == "승인 근거가 여기에 있습니다."

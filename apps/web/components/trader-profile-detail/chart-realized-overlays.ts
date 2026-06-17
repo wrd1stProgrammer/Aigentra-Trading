@@ -4,6 +4,10 @@ type Translator = (key: string) => string;
 
 type RealizedOverlayEvent = {
   readonly id?: string | number;
+  readonly orderId?: string | number | null;
+  readonly order_id?: string | number | null;
+  readonly positionId?: string | number | null;
+  readonly position_id?: string | number | null;
   readonly eventType?: string | null;
   readonly type?: string | null;
   readonly symbol?: string | null;
@@ -17,17 +21,30 @@ type RealizedOverlayEvent = {
 export function buildRealizedEventOverlayLines({
   events,
   symbol,
+  activePositionIds = [],
+  activeOrderIds = [],
   t
 }: {
   readonly events: readonly RealizedOverlayEvent[];
   readonly symbol: string;
+  readonly activePositionIds?: readonly unknown[];
+  readonly activeOrderIds?: readonly unknown[];
   readonly t: Translator;
 }): OverlayLine[] {
-  return events.flatMap((event) => realizedEventOverlayLine(event, symbol, t));
+  const activePositionKeys = toIdSet(activePositionIds);
+  const activeOrderKeys = toIdSet(activeOrderIds);
+  return events.flatMap((event) => realizedEventOverlayLine(event, symbol, activePositionKeys, activeOrderKeys, t));
 }
 
-function realizedEventOverlayLine(event: RealizedOverlayEvent, symbol: string, t: Translator) {
+function realizedEventOverlayLine(
+  event: RealizedOverlayEvent,
+  symbol: string,
+  activePositionKeys: ReadonlySet<string>,
+  activeOrderKeys: ReadonlySet<string>,
+  t: Translator
+) {
   if (event.symbol && event.symbol !== symbol) return [];
+  if (!matchesActiveExposure(event, activePositionKeys, activeOrderKeys)) return [];
   const kind = realizedKind(event);
   if (kind === null) return [];
   const payload = recordValue(event.payload);
@@ -63,6 +80,30 @@ function realizedKind(event: RealizedOverlayEvent) {
     }
   }
   return null;
+}
+
+function matchesActiveExposure(
+  event: RealizedOverlayEvent,
+  activePositionKeys: ReadonlySet<string>,
+  activeOrderKeys: ReadonlySet<string>
+) {
+  if (activePositionKeys.size === 0 && activeOrderKeys.size === 0) return false;
+  const payload = recordValue(event.payload);
+  const eventPositionKey = normalizedId(event.positionId ?? event.position_id ?? payload?.positionId ?? payload?.position_id);
+  const eventOrderKey = normalizedId(event.orderId ?? event.order_id ?? payload?.orderId ?? payload?.order_id);
+  return (
+    (eventPositionKey !== null && activePositionKeys.has(eventPositionKey)) ||
+    (eventOrderKey !== null && activeOrderKeys.has(eventOrderKey))
+  );
+}
+
+function toIdSet(values: readonly unknown[]) {
+  return new Set(values.map(normalizedId).filter((value): value is string => value !== null));
+}
+
+function normalizedId(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  return String(value);
 }
 
 function firstFiniteNumber(...values: readonly unknown[]) {

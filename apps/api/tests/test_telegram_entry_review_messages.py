@@ -54,3 +54,48 @@ def test_entry_alert_uses_ai_review_summary_when_available():
     assert "다음 확인 조건: 15분 종가가 64862.2 위로 돌파하면 종료하세요." in text
     assert "Event:" not in text
     assert "Reason: Confirmed BTC setup participation" not in text
+
+
+def test_entry_alert_uses_nested_ai_review_summary_when_available():
+    preferences = SubscriberPreferencesView(
+        user_id="google-1",
+        email="operator@example.com",
+        subscription_status="active",
+        favorite_trader_ids=["session-raider"],
+        telegram_settings=TelegramSettingsView(
+            enabled=True,
+            chat_id="123456789",
+            event_types=["position_entry"],
+            min_return_pct=0,
+        ),
+        locale="ko",
+    )
+    event = TradeEventRecord(
+        trader_id="session-raider",
+        symbol="BTCUSDT",
+        event_type="order_filled",
+        price=Decimal("65342.2"),
+        realized_pnl=Decimal("0"),
+        payload_json=to_json(
+            {
+                "reason": "Confirmed BTC setup participation",
+                "aiReview": {
+                    "decision": "ADJUST_AND_APPROVE",
+                    "structuredReview": {
+                        "verdict": "조정 후 승인",
+                        "headline": "1시간 약세 추세가 SHORT 방향을 지지합니다.",
+                        "action": "빠른 만료 규칙을 적용해 주문을 관리하세요.",
+                    },
+                    "approvalReason": "승인 근거가 여기에 있습니다.",
+                },
+            }
+        ),
+    )
+
+    text = compose_event_message(preferences, event, "position_entry")
+
+    assert "조정 후 승인" in text
+    assert "1시간 약세 추세가 SHORT 방향을 지지합니다." in text
+    assert "지금 할 일: 빠른 만료 규칙을 적용해 주문을 관리하세요." in text
+    assert "Event:" not in text
+    assert "Reason: Confirmed BTC setup participation" not in text

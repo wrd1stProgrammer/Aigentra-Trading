@@ -17,6 +17,7 @@ import {
 import {
   getEquitySnapshots,
   getCachedLeaderboardBundle,
+  getAiReviews,
   getRecentTradePlans,
   getManagementReviews,
   LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -44,7 +45,10 @@ const OVERVIEW_INITIAL_LIMIT = 20;
 const OVERVIEW_PAGE_LIMIT = 10;
 const OVERVIEW_CACHE_TTL_MS = 60_000;
 
-type OverviewReviewRecord = Record<string, unknown>;
+type OverviewReviewSource = "entry_review" | "management_review";
+type OverviewReviewRecord = Record<string, unknown> & {
+  overviewSource?: OverviewReviewSource;
+};
 
 type OverviewActivityCache = {
   reviews: OverviewReviewRecord[];
@@ -1022,15 +1026,36 @@ function isDisplayableOverviewReview(review: OverviewReviewRecord) {
   return !source.includes("SCAN") && !source.includes("PLAN");
 }
 
-function extractOverviewReviews(value: unknown): OverviewReviewRecord[] {
-  if (Array.isArray(value)) return value.filter(isOverviewReviewRecord);
+function extractOverviewReviews(value: unknown, overviewSource: OverviewReviewSource): OverviewReviewRecord[] {
+  if (Array.isArray(value)) return tagOverviewReviews(value.filter(isOverviewReviewRecord), overviewSource);
   const record = recordValue(value);
   if (!record) return [];
   const managementReviews = record.managementReviews;
-  if (Array.isArray(managementReviews)) return managementReviews.filter(isOverviewReviewRecord);
+  if (Array.isArray(managementReviews)) return tagOverviewReviews(managementReviews.filter(isOverviewReviewRecord), overviewSource);
+  const aiReviews = record.aiReviews;
+  if (Array.isArray(aiReviews)) return tagOverviewReviews(aiReviews.filter(isOverviewReviewRecord), overviewSource);
   const reviews = record.reviews;
-  if (Array.isArray(reviews)) return reviews.filter(isOverviewReviewRecord);
+  if (Array.isArray(reviews)) return tagOverviewReviews(reviews.filter(isOverviewReviewRecord), overviewSource);
   return [];
+}
+
+function tagOverviewReviews(reviews: readonly OverviewReviewRecord[], overviewSource: OverviewReviewSource) {
+  return reviews.map((review) => ({ ...review, overviewSource }));
+}
+
+async function loadOverviewReviewPage(limit: number, offset: number) {
+  const [managementResponse, entryResponse] = await Promise.all([
+    getManagementReviews(limit, offset),
+    getAiReviews(limit, offset)
+  ]);
+  const managementReviews = extractOverviewReviews(managementResponse, "management_review");
+  const entryReviews = extractOverviewReviews(entryResponse, "entry_review");
+  const reviews = mergeOverviewReviews([], [...entryReviews, ...managementReviews]);
+  return {
+    reviews,
+    fetchedCount: Math.max(managementReviews.length, entryReviews.length),
+    hasMore: managementReviews.length >= limit || entryReviews.length >= limit
+  };
 }
 
 function mergeOverviewReviews(existing: readonly OverviewReviewRecord[], incoming: readonly OverviewReviewRecord[]) {
@@ -1047,8 +1072,10 @@ function mergeOverviewReviews(existing: readonly OverviewReviewRecord[], incomin
 
 function overviewReviewKey(review: OverviewReviewRecord) {
   const id = review.id;
-  if (id !== null && id !== undefined && id !== "") return `id:${String(id)}`;
+  const source = review.overviewSource ?? "review";
+  if (id !== null && id !== undefined && id !== "") return `${source}:id:${String(id)}`;
   return [
+    source,
     review.traderId ?? review.trader_id,
     review.createdAt ?? review.created_at,
     review.decision ?? review.action,
@@ -1102,11 +1129,12 @@ function OptionActivityStream({
       isFetchingRef.current = true;
       setIsLoading(!hasCachedReviews);
       try {
-        const fetchedReviews = extractOverviewReviews(await getManagementReviews(OVERVIEW_INITIAL_LIMIT, 0));
+        const page = await loadOverviewReviewPage(OVERVIEW_INITIAL_LIMIT, 0);
+        const fetchedReviews = page.reviews;
         const mergedReviews = mergeOverviewReviews(overviewActivityCache.reviews, fetchedReviews);
         overviewActivityCache.reviews = mergedReviews;
-        overviewActivityCache.offset = Math.max(hasCachedReviews ? overviewActivityCache.offset : 0, fetchedReviews.length);
-        overviewActivityCache.hasMore = fetchedReviews.length >= OVERVIEW_INITIAL_LIMIT;
+        overviewActivityCache.offset = Math.max(hasCachedReviews ? overviewActivityCache.offset : 0, page.fetchedCount);
+        overviewActivityCache.hasMore = page.hasMore;
         overviewActivityCache.fetchedAt = Date.now();
         if (active) {
           setReviewsList(overviewActivityCache.reviews);
@@ -1135,7 +1163,8 @@ function OptionActivityStream({
     setIsLoading(true);
     try {
       const nextOffset = offset;
-      const fetchedReviews = extractOverviewReviews(await getManagementReviews(OVERVIEW_PAGE_LIMIT, nextOffset));
+      const page = await loadOverviewReviewPage(OVERVIEW_PAGE_LIMIT, nextOffset);
+      const fetchedReviews = page.reviews;
       const existingKeys = new Set(overviewActivityCache.reviews.map(overviewReviewKey));
       const uniqueReviews = fetchedReviews.filter((review) => !existingKeys.has(overviewReviewKey(review)));
 
@@ -1146,8 +1175,8 @@ function OptionActivityStream({
       }
 
       overviewActivityCache.reviews = mergeOverviewReviews(overviewActivityCache.reviews, uniqueReviews);
-      overviewActivityCache.offset = nextOffset + fetchedReviews.length;
-      overviewActivityCache.hasMore = fetchedReviews.length >= OVERVIEW_PAGE_LIMIT;
+      overviewActivityCache.offset = nextOffset + page.fetchedCount;
+      overviewActivityCache.hasMore = page.hasMore;
       overviewActivityCache.fetchedAt = Date.now();
       setReviewsList(overviewActivityCache.reviews);
       setOffset(overviewActivityCache.offset);
@@ -1211,22 +1240,38 @@ function OptionActivityStream({
       const payload = (review.payload ?? {}) as Record<string, any>;
       const nested = review.review ?? payload.review ?? {};
       const event = review.event ?? payload.event ?? {};
-      const rawTxt = String(review.rationale ?? nested.rationale ?? event.reason ?? "-");
+      const aiReview = recordValue(payload.aiReview) ?? ({} as Record<string, unknown>);
+      const structuredReview = recordValue(review.structuredReview)
+        ?? recordValue(payload.structuredReview)
+        ?? recordValue(payload.aiStructuredReview)
+        ?? recordValue(aiReview.structuredReview);
+      const rawTxt = String(
+        review.rationale
+        ?? nested.rationale
+        ?? structuredReview?.headline
+        ?? structuredReview?.action
+        ?? payload.approvalReason
+        ?? payload.aiApprovalReason
+        ?? aiReview.approvalReason
+        ?? event.reason
+        ?? "-"
+      );
       if (rawTxt && rawTxt !== "-") {
         rText = rawTxt.substring(0, 150) + (rawTxt.length > 150 ? "..." : "");
       }
 
       const importance = getReviewImportance(decision, rText);
+      const entryReview = review.overviewSource === "entry_review";
 
       items.push({
-        id: `review-${review.id ?? createdAt}-${traderId}`,
+        id: `${review.overviewSource ?? "review"}-${review.id ?? createdAt}-${traderId}`,
         time: timeStr,
         type: "AUDIT",
         traderId,
         trader: traderName(traderId, t, traderNameMap),
         text: locale === "ko"
-          ? `리스크 심사 완료: [${decision}] ${rText || "상태 유지"}`
-          : `Risk audit completed: [${decision}] ${rText || "Maintain status"}`,
+          ? `${entryReview ? "진입 심사 완료" : "리스크 심사 완료"}: [${decision}] ${rText || "상태 유지"}`
+          : `${entryReview ? "Entry review completed" : "Risk audit completed"}: [${decision}] ${rText || "Maintain status"}`,
         rawTime: rawTimeVal,
         importance
       });

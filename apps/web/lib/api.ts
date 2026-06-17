@@ -641,8 +641,15 @@ export function getRecentCandidateTrades(limit = 5) {
   return request<Record<string, any>>(`/api/candidate-trades?limit=${limit}`);
 }
 
+export function getAiReviews(limit = 20, offset = 0, symbol?: string, traderId?: string) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (symbol) params.set("symbol", symbol);
+  if (traderId) params.set("trader_id", traderId);
+  return request<Record<string, any>>(`/api/ai/reviews?${params.toString()}`);
+}
+
 export function getRecentAiReviews(limit = 5) {
-  return request<Record<string, any>>(`/api/ai/reviews?limit=${limit}`);
+  return getAiReviews(limit);
 }
 
 export function getRecentTradePlans(limit = 5, symbol?: string, traderId?: string, status?: string) {
@@ -916,7 +923,8 @@ export function getTraderAiReviews(traderId: string, symbol: string, limit = 40)
   const params = new URLSearchParams({
     trader_id: traderId,
     symbol,
-    limit: String(limit)
+    limit: String(limit),
+    offset: "0"
   });
   return request<{ aiReviews: any[] }>(
     `/api/ai/reviews?${params.toString()}`

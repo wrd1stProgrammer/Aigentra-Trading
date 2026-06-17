@@ -4307,12 +4307,24 @@ async def trade_plans(
 @app.get("/api/ai/reviews")
 async def ai_reviews(
     limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     symbol: Optional[str] = Query(None),
     trader_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
-    return {"aiReviews": list_filtered_records(db, AIReviewRecord, limit=limit, symbol=symbol, trader_id=trader_id, status=status)}
+    return {
+        "aiReviews": list_filtered_records(
+            db,
+            AIReviewRecord,
+            limit=limit,
+            offset=offset,
+            symbol=symbol,
+            trader_id=trader_id,
+            status=status,
+            include_payload=True,
+        )
+    }
 
 
 @app.get("/api/provider-calls")
