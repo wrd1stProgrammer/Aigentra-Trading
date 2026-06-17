@@ -17,6 +17,11 @@ from app.traders.models import PositionManagementPayload, PositionManagementResu
 
 TRADE_REVIEW_TOOL_NAME = "submit_trade_review"
 MANAGEMENT_REVIEW_TOOL_NAME = "submit_position_management_review"
+ANTHROPIC_REVIEW_MAX_TOKENS = 4096
+ANTHROPIC_JSON_SYSTEM_PROMPT = (
+    "Return only the JSON object matching the response schema. "
+    "Do not use markdown. Keep every string concise, preferably under 140 characters."
+)
 
 
 def string_array_schema() -> dict[str, Any]:
@@ -201,9 +206,9 @@ class AnthropicProvider(BaseAIProvider):
     ) -> TradeReviewResult:
         body: Dict[str, Any] = {
             "model": self.model,
-            "max_tokens": 1600,
+            "max_tokens": ANTHROPIC_REVIEW_MAX_TOKENS,
             "temperature": 0.2,
-            "system": "Return only the JSON object matching the response schema. Do not use markdown.",
+            "system": ANTHROPIC_JSON_SYSTEM_PROMPT,
             "messages": [{"role": "user", "content": entry_approval_prompt(payload)}],
             "output_config": json_output_config(trade_review_schema()),
         }
@@ -225,9 +230,9 @@ class AnthropicProvider(BaseAIProvider):
     ) -> PositionManagementResult:
         body: Dict[str, Any] = {
             "model": self.model,
-            "max_tokens": 1600,
+            "max_tokens": ANTHROPIC_REVIEW_MAX_TOKENS,
             "temperature": 0.2,
-            "system": "Return only the JSON object matching the response schema. Do not use markdown.",
+            "system": ANTHROPIC_JSON_SYSTEM_PROMPT,
             "messages": [{"role": "user", "content": position_management_review_prompt(payload)}],
             "output_config": json_output_config(management_review_schema()),
         }

@@ -59,7 +59,7 @@ def sample_management_payload() -> PositionManagementPayload:
 
 @pytest.mark.asyncio
 async def test_anthropic_entry_review_uses_json_output_schema(monkeypatch):
-    from app.ai.anthropic_provider import AnthropicProvider
+    from app.ai.anthropic_provider import ANTHROPIC_REVIEW_MAX_TOKENS, AnthropicProvider
 
     captured = {}
 
@@ -119,11 +119,13 @@ async def test_anthropic_entry_review_uses_json_output_schema(monkeypatch):
     assert captured["body"]["output_config"]["format"]["type"] == "json_schema"
     assert "decision" in schema["required"]
     assert schema["additionalProperties"] is False
+    assert captured["body"]["max_tokens"] == ANTHROPIC_REVIEW_MAX_TOKENS
+    assert "concise" in captured["body"]["system"]
 
 
 @pytest.mark.asyncio
 async def test_anthropic_management_review_uses_json_output_schema(monkeypatch):
-    from app.ai.anthropic_provider import AnthropicProvider
+    from app.ai.anthropic_provider import ANTHROPIC_REVIEW_MAX_TOKENS, AnthropicProvider
 
     captured = {}
 
@@ -182,6 +184,8 @@ async def test_anthropic_management_review_uses_json_output_schema(monkeypatch):
     assert captured["body"]["output_config"]["format"]["type"] == "json_schema"
     assert "decision" in schema["required"]
     assert schema["additionalProperties"] is False
+    assert captured["body"]["max_tokens"] == ANTHROPIC_REVIEW_MAX_TOKENS
+    assert "concise" in captured["body"]["system"]
 
 
 def test_anthropic_json_output_error_includes_stop_reason_and_content_types():
