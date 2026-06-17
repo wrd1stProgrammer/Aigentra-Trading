@@ -21,6 +21,7 @@ from app.paper.repositories import (
     normalize_trader_id,
     to_decimal,
 )
+from app.paper.review_payload import review_payload_subset
 from app.repositories import from_json, to_json
 
 
@@ -575,7 +576,12 @@ def _fill_order(
         quantity=order.quantity,
         fee=fee,
         equity=state.equity,
-        payload={"paperOnly": True, "feeType": order.fee_type, "leverage": order.leverage},
+        payload={
+            "paperOnly": True,
+            "feeType": order.fee_type,
+            "leverage": order.leverage,
+            **review_payload_subset(order_payload),
+        },
     )
     result.events.append(event)
     return True

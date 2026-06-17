@@ -16,30 +16,7 @@ from app.db import (
 from app.repositories import from_json, to_json
 from app.subscriber_alert_types import DEFAULT_TELEGRAM_EVENT_TYPES, normalize_event_types
 from app.telegram_client import send_telegram_message
-
-
-TRADER_NAMES = {
-    "channel-rider": "Channel Rider",
-    "volume-breaker": "Volume Breaker",
-    "pullback-architect": "Pullback Architect",
-    "leverage-hunter": "Leverage Hunter",
-    "liquidity-reaper": "Liquidity Reaper",
-    "volatility-squeezer": "Volatility Squeeze",
-    "trend-sentinel": "Trend Sentinel",
-    "range-maker": "Range Maker",
-    "funding-contrarian": "Funding Contrarian",
-    "orderflow-sniper": "Orderflow Sniper",
-    "donchian-breakout": "Donchian Breakout",
-    "ichimoku-cloud-pilot": "Ichimoku Cloud Pilot",
-    "vwap-reclaimer": "VWAP Reclaimer",
-    "wyckoff-spring": "Wyckoff Spring",
-    "rsi-divergence-scout": "RSI Divergence Scout",
-    "session-raider": "Session Raider",
-    "imbalance-hunter": "Imbalance Hunter",
-    "momentum-ignition": "Momentum Ignition",
-    "bollinger-reversion": "Bollinger Reversion",
-    "atr-trail-commander": "ATR Trail Commander",
-}
+from app.telegram_messages import compose_event_message, compose_management_message
 
 
 @dataclass(frozen=True)
@@ -277,74 +254,6 @@ def to_preferences_view(record: SubscriberPreferenceRecord) -> SubscriberPrefere
         ),
         locale=record.locale,
     )
-
-
-def compose_event_message(preferences: SubscriberPreferencesView, event: TradeEventRecord, telegram_event_type: str) -> str:
-    trader_name = TRADER_NAMES.get(event.trader_id or "", event.trader_id or "-")
-    label = telegram_event_label(telegram_event_type, preferences.locale)
-    price = f"{float(event.price):,.1f}" if event.price is not None else "-"
-    pnl = f"{float(event.realized_pnl):+,.2f}" if event.realized_pnl else "-"
-    payload = from_json(event.payload_json)
-    reason = payload.get("reason") if isinstance(payload, dict) else None
-    return "\n".join(
-        [
-            f"[AI Trader League] {label}",
-            f"{trader_name} · {event.symbol or '-'}",
-            f"Event: {event.event_type}",
-            f"Reason: {reason or '-'}",
-            f"Price: {price}",
-            f"PnL: {pnl}",
-        ]
-    )
-
-
-def compose_management_message(
-    preferences: SubscriberPreferencesView,
-    review: PositionManagementReviewRecord,
-    telegram_event_type: str,
-) -> str:
-    trader_name = TRADER_NAMES.get(review.trader_id or "", review.trader_id or "-")
-    label = telegram_event_label(telegram_event_type, preferences.locale)
-    payload = from_json(review.payload_json)
-    event_payload = payload.get("event", {}) if isinstance(payload, dict) else {}
-    review_payload = payload.get("review", {}) if isinstance(payload, dict) else {}
-    rationale = review_payload.get("rationale") or review.error_message or "-"
-    return "\n".join(
-        [
-            f"[AI Trader League] {label}",
-            f"{trader_name} · {review.symbol or '-'}",
-            f"Phase: {review.phase or event_payload.get('phase') or '-'}",
-            f"Decision: {review.decision or '-'} / Action: {review.action_type or '-'}",
-            f"Confidence: {review.confidence if review.confidence is not None else '-'}",
-            f"Reason: {rationale}",
-        ]
-    )
-
-
-def telegram_event_label(telegram_event_type: str, locale: str) -> str:
-    labels = {
-        "ko": {
-            "pending_entry": "진입대기",
-            "position_entry": "진입완료",
-            "take_profit": "익절완료",
-            "stop_loss": "손절완료",
-            "ai_review_low": "AI 중간 리뷰 낮음",
-            "ai_review_medium": "AI 중간 리뷰 중간",
-            "ai_review_high": "AI 중간 리뷰 높음",
-            "risk": "리스크",
-        },
-        "en": {
-            "pending_entry": "Entry Pending",
-            "position_entry": "Entry Filled",
-            "take_profit": "Take Profit",
-            "stop_loss": "Stop Loss",
-            "ai_review_low": "AI Review Low",
-            "ai_review_medium": "AI Review Medium",
-            "ai_review_high": "AI Review High",
-            "risk": "Risk",
-        },
-    }
-    return labels["en" if locale == "en" else "ko"].get(telegram_event_type, telegram_event_type)
 
 
 def telegram_event_type_for(event: TradeEventRecord) -> Optional[str]:

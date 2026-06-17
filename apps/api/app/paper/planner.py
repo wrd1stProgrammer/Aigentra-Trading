@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.db import PaperOrderRecord, PaperPositionRecord
 from app.paper.engine import place_paper_order
 from app.paper.repositories import create_trade_event, ensure_trader_state, upsert_risk_settings
+from app.paper.review_payload import review_payload_fields
 from app.repositories import serialize_record
 from app.traders.models import TradeCandidate, TradePlan, TradeReviewResult
 
@@ -275,6 +276,7 @@ def create_paper_orders_from_plan(
                 "limitPrice": limit_price,
                 "reason": entry.reason,
                 "source": "trade_plan",
+                **review_payload_fields(review),
             },
         )
         created.append(serialize_record(order))
@@ -294,24 +296,4 @@ def create_paper_orders_from_plan(
             "maker": float(risk_settings.maker_fee_rate),
             "taker": float(risk_settings.taker_fee_rate),
         },
-    }
-
-
-def review_payload_fields(review: Optional[TradeReviewResult]) -> dict[str, Any]:
-    if review is None:
-        return {}
-    return {
-        "aiReviewDecision": review.decision,
-        "aiReviewConfidence": review.confidence,
-        "aiRiskLevel": review.riskLevel,
-        "aiReviewCode": review.reviewCode,
-        "aiReviewFacts": [fact.model_dump() for fact in review.reviewFacts],
-        "aiRiskFlags": review.riskFlags,
-        "aiStructuredReview": review.structuredReview.model_dump() if review.structuredReview else None,
-        "aiAdjustments": review.adjustments,
-        "aiApprovalReason": review.approvalReason,
-        "aiCounterThesis": review.counterThesis,
-        "aiProvider": review.provider,
-        "aiModel": review.model,
-        "aiFallback": review.fallback,
     }
