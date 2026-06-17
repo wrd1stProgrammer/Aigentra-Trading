@@ -84,7 +84,7 @@ jobs:
         shell: bash
         run: |
           IMAGE="${{ steps.dockerhub.outputs.image }}:${{ github.sha }}"
-          ssh -i ~/.ssh/ec2_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "IMAGE='$IMAGE' DEPLOY_DIR='${{ env.DEPLOY_DIR }}' bash -se" <<'REMOTE'
+          ssh -i ~/.ssh/ec2_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" "IMAGE='$IMAGE' BUILD_SHA='${{ github.sha }}' DEPLOY_DIR='${{ env.DEPLOY_DIR }}' bash -se" <<'REMOTE'
             cd "$DEPLOY_DIR"
             docker container prune -f || true
             docker image prune -af || true
@@ -92,9 +92,10 @@ jobs:
 
             tmp="$(mktemp)"
             if [ -f .env ]; then
-              grep -v '^AIGENTRA_API_IMAGE=' .env > "$tmp"
+              grep -v -e '^AIGENTRA_API_IMAGE=' -e '^AIGENTRA_BUILD_SHA=' .env > "$tmp" || true
             fi
             printf '\nAIGENTRA_API_IMAGE=%s\n' "$IMAGE" >> "$tmp"
+            printf 'AIGENTRA_BUILD_SHA=%s\n' "$BUILD_SHA" >> "$tmp"
             mv "$tmp" .env
             chmod 600 .env
 

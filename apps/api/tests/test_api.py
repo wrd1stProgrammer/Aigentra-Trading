@@ -26,10 +26,14 @@ def temp_api_db(tmp_path):
     init_db()
 
 
-def test_health():
+def test_health(monkeypatch):
+    monkeypatch.setattr(main.settings, "build_sha", "test-build-sha")
+
     response = client.get("/health")
+
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+    assert response.json()["buildSha"] == "test-build-sha"
 
 
 def test_traders_list():
@@ -78,6 +82,17 @@ def test_scanner_status_defaults_to_btc_only():
     assert "ticks" in data
     assert "skippedTicks" in data
     assert "scanInProgress" in data
+
+
+def test_auto_scanner_provider_accepts_anthropic_typo(monkeypatch):
+    from app.core.config import Settings
+
+    monkeypatch.setenv("AUTO_SCANNER_PROVIDER", "anthriopic")
+
+    settings = Settings()
+
+    assert settings.auto_scanner_provider == "anthropic"
+    assert main.normalize_provider("anthriopic") == "anthropic"
 
 
 def test_trader_history_reset_endpoint_rejects_missing_ops_token(temp_api_db):

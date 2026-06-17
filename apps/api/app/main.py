@@ -20,7 +20,7 @@ from app.ai.context import build_management_review_context, build_trade_review_c
 from app.ai.review_logging import run_position_management_with_logging, run_review_with_logging
 from app.clients.binance_client import ALLOWED_INTERVALS, ALLOWED_SYMBOLS
 from app.clients.market_data_client import MarketDataClient
-from app.core.config import get_settings
+from app.core.config import VALID_AI_PROVIDERS, get_settings, normalize_ai_provider_name
 from app.db import (
     AIReviewRecord,
     APICallLogRecord,
@@ -378,8 +378,8 @@ def trade_plan_from_review(symbol: str, candidate, review) -> TradePlan:
 
 
 def normalize_provider(provider: Optional[str]) -> str:
-    requested = (provider or settings.ai_provider or "mock").lower()
-    if requested not in {"mock", "openai", "gemini", "anthropic", "grok"}:
+    requested = normalize_ai_provider_name(provider or settings.ai_provider or "mock")
+    if requested not in VALID_AI_PROVIDERS:
         raise HTTPException(status_code=400, detail="Unsupported AI provider.")
     return requested
 
@@ -3579,7 +3579,12 @@ async def run_trader_cycle(
 
 @app.get("/health")
 async def health() -> Dict[str, str]:
-    return {"status": "ok", "service": "ai-trader-league-api", "mode": settings.app_env}
+    return {
+        "status": "ok",
+        "service": "ai-trader-league-api",
+        "mode": settings.app_env,
+        "buildSha": settings.build_sha,
+    }
 
 
 @app.get("/api/db/status")

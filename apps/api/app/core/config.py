@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 
 API_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(API_ROOT / ".env")
+VALID_AI_PROVIDERS = {"mock", "openai", "gemini", "anthropic", "grok"}
+AI_PROVIDER_ALIASES = {"anthriopic": "anthropic"}
 
 
 def env_bool(name: str, default: str = "false") -> bool:
@@ -31,6 +33,11 @@ def env_symbol_list(name: str, default: str) -> List[str]:
     return [item.upper() for item in env_list(name, default)]
 
 
+def normalize_ai_provider_name(provider: str | None, default: str = "mock") -> str:
+    requested = (provider or default).strip().lower()
+    return AI_PROVIDER_ALIASES.get(requested, requested)
+
+
 def default_database_url() -> str:
     return os.getenv("DATABASE_URL", "") or os.getenv("NEON_DATABASE_URL", "") or "sqlite:///./data/dev.db"
 
@@ -38,6 +45,7 @@ def default_database_url() -> str:
 class Settings(BaseModel):
     env_file_loaded: bool = Field(default_factory=lambda: (API_ROOT / ".env").exists())
     app_env: str = Field(default_factory=lambda: os.getenv("APP_ENV", "local"))
+    build_sha: str = Field(default_factory=lambda: os.getenv("AIGENTRA_BUILD_SHA", "local"))
     cors_origins: List[str] = Field(default_factory=lambda: env_list("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"))
     binance_futures_base_url: str = Field(default_factory=lambda: os.getenv("BINANCE_FUTURES_BASE_URL", "https://fapi.binance.com"))
     neon_database_url: str = Field(default_factory=lambda: os.getenv("NEON_DATABASE_URL", ""))
@@ -64,7 +72,7 @@ class Settings(BaseModel):
     ops_api_token: str = Field(default_factory=lambda: os.getenv("OPS_API_TOKEN", ""))
     ops_allow_production_reset: bool = Field(default_factory=lambda: env_bool("OPS_ALLOW_PRODUCTION_RESET", "false"))
     ops_allow_remote_reset: bool = Field(default_factory=lambda: env_bool("OPS_ALLOW_REMOTE_RESET", "false"))
-    ai_provider: str = Field(default_factory=lambda: os.getenv("AI_PROVIDER", "mock").lower())
+    ai_provider: str = Field(default_factory=lambda: normalize_ai_provider_name(os.getenv("AI_PROVIDER"), "mock"))
     ai_missing_key_fallback_to_mock: bool = Field(default_factory=lambda: env_bool("AI_MISSING_KEY_FALLBACK_TO_MOCK", "true"))
     openai_api_key: str = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     openai_model: str = Field(default_factory=lambda: os.getenv("OPENAI_MODEL", "gpt-4.1-mini"))
@@ -85,14 +93,14 @@ class Settings(BaseModel):
     enable_auto_scanner: bool = Field(default_factory=lambda: env_bool("ENABLE_AUTO_SCANNER", "false"))
     auto_scanner_symbols: List[str] = Field(default_factory=lambda: env_symbol_list("AUTO_SCANNER_SYMBOLS", "BTCUSDT"))
     auto_scanner_interval_seconds: int = Field(default_factory=lambda: env_int("AUTO_SCANNER_INTERVAL_SECONDS", "60"))
-    auto_scanner_provider: str = Field(default_factory=lambda: os.getenv("AUTO_SCANNER_PROVIDER", "mock").lower())
+    auto_scanner_provider: str = Field(default_factory=lambda: normalize_ai_provider_name(os.getenv("AUTO_SCANNER_PROVIDER"), "mock"))
     auto_scanner_locale: str = Field(default_factory=lambda: os.getenv("AUTO_SCANNER_LOCALE", "ko").lower())
     auto_scanner_snapshot_concurrency: int = Field(default_factory=lambda: env_int("AUTO_SCANNER_SNAPSHOT_CONCURRENCY", "3"))
     auto_scanner_ai_concurrency: int = Field(default_factory=lambda: env_int("AUTO_SCANNER_AI_CONCURRENCY", "2"))
     ai_rejection_cooldown_seconds: int = Field(default_factory=lambda: env_int("AI_REJECTION_COOLDOWN_SECONDS", "300"))
     paper_reentry_cooldown_seconds: int = Field(default_factory=lambda: env_int("PAPER_REENTRY_COOLDOWN_SECONDS", "900"))
     enable_position_management_ai: bool = Field(default_factory=lambda: env_bool("ENABLE_POSITION_MANAGEMENT_AI", "true"))
-    position_management_provider: str = Field(default_factory=lambda: os.getenv("POSITION_MANAGEMENT_PROVIDER", "").lower())
+    position_management_provider: str = Field(default_factory=lambda: normalize_ai_provider_name(os.getenv("POSITION_MANAGEMENT_PROVIDER"), ""))
     position_management_cooldown_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_COOLDOWN_SECONDS", "300"))
     position_management_max_reviews_per_cycle: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_MAX_REVIEWS_PER_CYCLE", "2"))
     position_management_pending_heartbeat_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_PENDING_HEARTBEAT_SECONDS", "300"))
