@@ -14,6 +14,7 @@ from app.db import (
 )
 from app.paper.engine import place_paper_order, process_candle
 from app.paper.repositories import upsert_risk_settings
+from app.repositories import from_json
 
 
 def rounded(value):
@@ -197,16 +198,27 @@ def test_position_management_moves_stop_to_breakeven(temp_db):
         position = db.execute(select(PaperPositionRecord)).scalar_one()
 
         assert first.filled_orders
-        assert position.stop_loss_price == Decimal("100.0000000000")
+        assert position.stop_loss_price == Decimal("90.0000000000")
+        events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
+        assert [event.event_type for event in events] == ["order_filled"]
 
         second = process_candle(
             db,
             "paper-trader",
             "BTCUSDT",
-            {"open": 105, "high": 106, "low": 100, "close": 101},
+            {"open": 105, "high": 111, "low": 104, "close": 106},
         )
 
-        assert second.closed_positions == [position]
+        assert second.closed_positions == []
+        assert position.stop_loss_price == Decimal("100.0000000000")
+        third = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 106, "high": 106, "low": 100, "close": 101},
+        )
+
+        assert third.closed_positions == [position]
         assert position.close_reason == "stop_loss"
         events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
         assert [event.event_type for event in events] == [
@@ -267,9 +279,141 @@ def test_orderflow_sniper_can_move_stop_to_breakeven_before_one_r(temp_db):
         position = db.execute(select(PaperPositionRecord)).scalar_one()
 
         assert result.filled_orders
+        assert position.stop_loss_price == Decimal("90.0000000000")
+        events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
+        assert [event.event_type for event in events] == ["order_filled"]
+
+        second = process_candle(
+            db,
+            "orderflow-sniper",
+            "BTCUSDT",
+            {"open": 105, "high": 107, "low": 104, "close": 105},
+        )
+
+        assert second.closed_positions == []
         assert position.stop_loss_price == Decimal("100.0000000000")
         events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
         assert [event.event_type for event in events] == ["order_filled", "stop_moved_to_breakeven"]
+
+
+def test_newly_filled_position_waits_for_next_candle_before_breakeven_management(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "session-raider", "BTCUSDT", max_leverage=5)
+        place_paper_order(
+            db,
+            trader_id="session-raider",
+            symbol="BTCUSDT",
+            side="short",
+            quantity=1,
+            leverage=1,
+            take_profit_price=80,
+            stop_loss_price=110,
+        )
+
+        first = process_candle(
+            db,
+            "session-raider",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 92, "close": 98},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+
+        assert first.filled_orders
+        assert position.status == "open"
+        assert position.stop_loss_price == Decimal("110.0000000000")
+        events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
+        assert [event.event_type for event in events] == ["order_filled"]
+
+        second = process_candle(
+            db,
+            "session-raider",
+            "BTCUSDT",
+            {"open": 98, "high": 99, "low": 92, "close": 94},
+        )
+
+        assert second.filled_orders == []
+        assert position.status == "open"
+        assert position.stop_loss_price == Decimal("100.0000000000")
+        events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
+        assert [event.event_type for event in events] == ["order_filled", "stop_moved_to_breakeven"]
+
+
+def test_newly_filled_position_waits_for_next_candle_before_early_failure_exit(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "session-raider", "BTCUSDT", max_leverage=5)
+        place_paper_order(
+            db,
+            trader_id="session-raider",
+            symbol="BTCUSDT",
+            side="short",
+            quantity=1,
+            leverage=1,
+            take_profit_price=80,
+            stop_loss_price=110,
+        )
+
+        first = process_candle(
+            db,
+            "session-raider",
+            "BTCUSDT",
+            {"open": 100, "high": 106, "low": 99, "close": 105},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+
+        assert first.filled_orders
+        assert first.closed_positions == []
+        assert position.status == "open"
+        events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
+        assert [event.event_type for event in events] == ["order_filled"]
+
+        second = process_candle(
+            db,
+            "session-raider",
+            "BTCUSDT",
+            {"open": 105, "high": 106, "low": 103, "close": 105},
+        )
+
+        assert second.closed_positions == [position]
+        assert position.status == "closed"
+        assert position.close_reason == "early_thesis_failure"
+        events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
+        assert [event.event_type for event in events] == ["order_filled", "position_closed"]
+
+
+def test_market_fill_reanchors_stop_and_targets_to_actual_fill_price(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "session-raider", "BTCUSDT", max_leverage=5)
+        place_paper_order(
+            db,
+            trader_id="session-raider",
+            symbol="BTCUSDT",
+            side="short",
+            quantity=1,
+            leverage=1,
+            take_profit_price=90,
+            stop_loss_price=110,
+            payload={
+                "plannedEntryPrice": 100,
+                "target": {"price": 90, "weight": 1.0, "reason": "TP1"},
+                "takeProfits": [{"price": 90, "weight": 1.0, "reason": "TP1"}],
+            },
+        )
+
+        result = process_candle(
+            db,
+            "session-raider",
+            "BTCUSDT",
+            {"open": 105, "high": 106, "low": 104, "close": 105},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        payload = from_json(position.payload_json)
+
+        assert result.filled_orders
+        assert position.entry_price == Decimal("105.0000000000")
+        assert position.stop_loss_price == Decimal("115.0000000000")
+        assert position.take_profit_price == Decimal("95.0000000000")
+        assert payload["takeProfits"][0]["price"] == 95.0
+        assert payload["target"]["price"] == 95.0
 
 
 def test_partial_take_profit_reduces_position_size(temp_db):
@@ -398,6 +542,3 @@ def test_close_position_cancels_remaining_orders_for_same_plan(temp_db):
         db.refresh(order2)
         # Verify order2 has been automatically cancelled!
         assert order2.status == "canceled"
-
-
-

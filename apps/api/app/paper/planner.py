@@ -226,6 +226,8 @@ def create_paper_orders_from_plan(
             "entryIndex": index,
             "entryWeight": float(weight),
             "entryReason": entry.reason,
+            "plannedEntryPrice": float(entry_price),
+            "plannedStopLoss": float(stop_loss),
             "riskPercent": float(risk_percent),
             "marginDeploymentPercent": float(deployment_percent),
             "plannedMargin": float(planned_margin),

@@ -363,6 +363,11 @@ def process_candle(db: Session, trader_id: str, symbol: str, candle: Union[Candl
     clean_symbol = normalize_symbol(parsed_candle.symbol)
     state = ensure_trader_state(db, clean_trader_id)
     result = PaperEngineResult()
+    preexisting_position_ids = {
+        position.id
+        for position in list_open_positions(db, clean_trader_id, clean_symbol)
+        if position.id is not None
+    }
 
     for order in list_open_orders(db, clean_trader_id, clean_symbol):
         fill_price = _fill_price(order, parsed_candle)
@@ -374,6 +379,8 @@ def process_candle(db: Session, trader_id: str, symbol: str, candle: Union[Candl
             result.rejected_orders.append(order)
 
     for position in list_open_positions(db, clean_trader_id, clean_symbol):
+        if position.id not in preexisting_position_ids:
+            continue
         exit_price, reason = _exit_signal(position, parsed_candle)
         if exit_price is None:
             exit_price, reason = _management_exit_signal(position, parsed_candle)
@@ -422,6 +429,62 @@ def _fill_price(order: PaperOrderRecord, candle: Candle) -> Optional[Decimal]:
     return None
 
 
+def _payload_decimal(payload: dict[str, Any], key: str) -> Optional[Decimal]:
+    value = payload.get(key)
+    if value is None:
+        return None
+    try:
+        return to_decimal(value, key)
+    except ValueError:
+        return None
+
+
+def _reanchor_price(planned_entry: Decimal, planned_price: Decimal, fill_price: Decimal) -> Decimal:
+    return fill_price + (planned_price - planned_entry)
+
+
+def _reanchor_market_order_levels(
+    order: PaperOrderRecord,
+    order_payload: dict[str, Any],
+    fill_price: Decimal,
+) -> None:
+    if order.order_type != "market":
+        return
+    planned_entry = _payload_decimal(order_payload, "plannedEntryPrice")
+    if planned_entry is None or planned_entry == fill_price:
+        return
+
+    order_payload["plannedFillDrift"] = float(fill_price - planned_entry)
+    if order.stop_loss_price is not None:
+        order.stop_loss_price = _reanchor_price(planned_entry, order.stop_loss_price, fill_price)
+        order_payload["stopLossPrice"] = float(order.stop_loss_price)
+
+    take_profits = order_payload.get("takeProfits")
+    if isinstance(take_profits, list):
+        reanchored_take_profits: list[dict[str, Any]] = []
+        for take_profit in take_profits:
+            if not isinstance(take_profit, dict):
+                continue
+            planned_price = _payload_decimal(take_profit, "price")
+            if planned_price is None:
+                reanchored_take_profits.append(take_profit)
+                continue
+            updated_take_profit = dict(take_profit)
+            updated_take_profit["price"] = float(_reanchor_price(planned_entry, planned_price, fill_price))
+            reanchored_take_profits.append(updated_take_profit)
+        order_payload["takeProfits"] = reanchored_take_profits
+        if reanchored_take_profits:
+            order.take_profit_price = to_decimal(reanchored_take_profits[0]["price"], "take_profit_price")
+            target = order_payload.get("target")
+            if isinstance(target, dict):
+                order_payload["target"] = {**target, "price": reanchored_take_profits[0]["price"]}
+    elif order.take_profit_price is not None:
+        order.take_profit_price = _reanchor_price(planned_entry, order.take_profit_price, fill_price)
+        order_payload["takeProfitPrice"] = float(order.take_profit_price)
+
+    order.payload_json = to_json(order_payload)
+
+
 
 def _fill_order(
     db: Session,
@@ -432,6 +495,8 @@ def _fill_order(
     result: PaperEngineResult,
 ) -> bool:
     settings = ensure_risk_settings(db, order.trader_id or "", order.symbol)
+    order_payload = from_json(order.payload_json) or {}
+    _reanchor_market_order_levels(order, order_payload, fill_price)
     notional = order.quantity * fill_price
     if settings.max_notional is not None and notional > settings.max_notional:
         order.status = "rejected"
@@ -495,7 +560,6 @@ def _fill_order(
         
         # Merge payload properties
         pos_payload = from_json(existing_position.payload_json) or {}
-        order_payload = from_json(order.payload_json) or {}
         pos_payload["initialQuantity"] = float(new_qty)
         if "takeProfits" in order_payload:
             pos_payload["takeProfits"] = order_payload["takeProfits"]
@@ -519,7 +583,6 @@ def _fill_order(
         position = existing_position
     else:
         # Parse payload for new position
-        order_payload = from_json(order.payload_json) or {}
         pos_payload = dict(order_payload)
         pos_payload["initialQuantity"] = float(order.quantity)
         if "takeProfits" in order_payload:
