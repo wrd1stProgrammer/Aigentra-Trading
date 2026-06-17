@@ -25,8 +25,26 @@ type SendTelegramMessageInput = {
 };
 
 const EVENT_LABELS: Record<Locale, Record<TelegramEventType, string>> = {
-  ko: { entry: "진입", exit: "청산", management: "관리", risk: "리스크" },
-  en: { entry: "Entry", exit: "Exit", management: "Management", risk: "Risk" }
+  ko: {
+    pending_entry: "진입대기",
+    position_entry: "진입완료",
+    take_profit: "익절",
+    stop_loss: "손절",
+    ai_review_low: "AI 리뷰 낮음",
+    ai_review_medium: "AI 리뷰 중간",
+    ai_review_high: "AI 리뷰 높음",
+    risk: "리스크",
+  },
+  en: {
+    pending_entry: "Entry Pending",
+    position_entry: "Entry Filled",
+    take_profit: "Take Profit",
+    stop_loss: "Stop Loss",
+    ai_review_low: "AI Review Low",
+    ai_review_medium: "AI Review Medium",
+    ai_review_high: "AI Review High",
+    risk: "Risk",
+  }
 };
 
 export function parseTelegramAlertTestPayload(input: unknown): TelegramAlertTestPayload | null {

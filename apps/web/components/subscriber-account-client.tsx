@@ -1,18 +1,19 @@
 "use client";
 
-import { BellRinging, BellSlash, CheckCircle, PaperPlaneTilt, Star, UserCircle, WarningCircle } from "@phosphor-icons/react";
+import { Check, CheckCircle, Info, Star, WarningCircle } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { useAppContext } from "@/components/app-provider";
 import { SUBSCRIBER_ACCOUNT_COPY } from "@/components/subscriber-account-copy";
+import { TelegramConnectPanel } from "@/components/telegram-connect-panel";
 import { TelegramTestButton } from "@/components/telegram-test-button";
 import { useSubscriberPreferenceSync } from "@/components/use-subscriber-preference-sync";
 import {
+  mergeStoredSubscriberPreferences,
   telegramDeliveryReadiness,
   telegramEventTypes,
   toggleFavoriteTrader,
   updateTelegramSettings,
   type SubscriberPreferences,
-  type TelegramDeliveryReadiness,
   type TelegramEventType
 } from "@/lib/subscriber-preferences";
 import { translate, type Locale } from "@/lib/i18n";
@@ -31,11 +32,6 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
   const [preferences, setPreferences] = useState<SubscriberPreferences>(initialPreferences);
   const readiness = telegramDeliveryReadiness(preferences.telegramSettings, { botTokenConfigured });
   const { savedAt, saveState } = useSubscriberPreferenceSync(preferences, resolvedLocale);
-
-  const favoriteCountLabel = useMemo(() => {
-    const count = preferences.favoriteTraderIds.length;
-    return count ? `${count} ${copy.favorites}` : copy.noFavorites;
-  }, [copy.favorites, copy.noFavorites, preferences.favoriteTraderIds.length]);
 
   const traderRows = useMemo(
     () =>
@@ -57,158 +53,336 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
     });
   };
 
-  return (
-    <div className="grid gap-4 pb-8">
-      <section 
-        className="relative overflow-hidden border border-white/10 bg-[#070908] text-white rounded-[22px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] animate-fade-in-up"
-        style={{
-          backgroundImage: "linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px), radial-gradient(circle at 50% 25%, rgba(16,185,129,0.12), transparent 40%)",
-          backgroundSize: "96px 96px, 96px 96px, auto"
-        }}
-      >
-        {/* Corner Markers / Notches */}
-        <div className="absolute top-0 left-0 h-3.5 w-[3px] bg-emerald-500 animate-pulse" />
-        <div className="absolute top-0 right-0 h-3.5 w-[3px] bg-emerald-500 animate-pulse" />
-        <div className="absolute bottom-0 left-0 h-3.5 w-[3px] bg-emerald-500 animate-pulse" />
-        <div className="absolute bottom-0 right-0 h-3.5 w-[3px] bg-emerald-500 animate-pulse" />
+  const refreshPreferences = async () => {
+    const response = await fetch("/api/subscriber/preferences", { cache: "no-store" });
+    if (!response.ok) return;
+    const storedPreferences: unknown = await response.json();
+    setPreferences((current) => mergeStoredSubscriberPreferences(current, storedPreferences));
+  };
 
-        <div className="flex flex-col gap-4 border-b border-white/10 px-6 py-6 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">[ SUBSCRIBER CABINET ]</p>
-            <h1 className="mt-2 text-2xl font-bold tracking-tight text-white md:text-3xl break-keep animate-fade-in-up">{copy.title}</h1>
-            <p className="text-zinc-400 mt-2 max-w-3xl text-sm leading-6 break-keep animate-fade-in-up animation-delay-100">{copy.subtitle}</p>
-          </div>
-          <div className="animate-fade-in-up animation-delay-200">
-            <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3.5 py-1.5 text-xs font-bold text-emerald-400">
-              <UserCircle size={15} weight="bold" />
+  return (
+    <div className="mx-auto max-w-6xl space-y-8 pb-12 animate-fade-in-up">
+      {/* Top Header Card */}
+      <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b border-zinc-200/80 dark:border-white/[0.08] pb-6">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white sm:text-3xl break-keep">
+              {copy.title}
+            </h1>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
               {copy.active}
             </span>
           </div>
+          <p className="text-zinc-500 dark:text-zinc-400 mt-2 text-sm max-w-2xl break-keep leading-relaxed">
+            {copy.subtitle}
+          </p>
         </div>
-        <div className="grid gap-px bg-white/5 md:grid-cols-3 rounded-b-[22px] overflow-hidden">
-          <AccountStat label="Email" value={preferences.email} />
-          <AccountStat label={copy.favorites} value={favoriteCountLabel} />
-          <AccountStat label={saveState === "failed" ? copy.saveFailed : saveState === "saving" ? copy.saving : copy.saved} value={savedAt ? savedAt.toLocaleTimeString(resolvedLocale === "ko" ? "ko-KR" : "en-US", { hour: "2-digit", minute: "2-digit" }) : "-"} />
-        </div>
-      </section>
 
-      <section data-testid="subscriber-favorites" className="data-card rounded-[22px] border-zinc-200/80 dark:border-white/[0.08] shadow-sm overflow-hidden">
-        <SectionHeader title={copy.favorites} body={copy.favoritesHint} icon={<Star size={18} />} />
-        <div className="grid gap-px bg-zinc-200/60 dark:bg-white/5 sm:grid-cols-2 xl:grid-cols-3">
-          {traderRows.map((trader) => {
-            const selected = preferences.favoriteTraderIds.includes(trader.id);
-            return (
+        {/* Sync/Status Badge panel */}
+        <div className="flex items-center gap-4 rounded-xl border border-zinc-200/80 dark:border-white/[0.08] bg-zinc-50/50 dark:bg-[#0c0f0d] p-3 text-xs">
+          <div className="min-w-0">
+            <span className="block text-[9px] font-mono uppercase tracking-wider text-zinc-400">
+              Cabinet ID
+            </span>
+            <span className="block truncate font-mono font-semibold text-zinc-800 dark:text-zinc-200 mt-0.5 max-w-[150px]">
+              {preferences.email}
+            </span>
+          </div>
+          <div className="h-6 w-px bg-zinc-200 dark:bg-white/10" />
+          <div className="flex items-center gap-2">
+            {saveState === "saving" ? (
+              <>
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                </span>
+                <span className="font-mono font-medium text-zinc-500 dark:text-zinc-400">{copy.saving}</span>
+              </>
+            ) : saveState === "failed" ? (
+              <>
+                <WarningCircle size={14} className="text-rose-500" />
+                <span className="font-mono font-medium text-rose-500">{copy.saveFailed}</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle size={14} className="text-emerald-500" />
+                <span className="font-mono font-medium text-zinc-500 dark:text-zinc-400">
+                  {savedAt
+                    ? `${copy.saved} (${savedAt.toLocaleTimeString(
+                        resolvedLocale === "ko" ? "ko-KR" : "en-US",
+                        { hour: "2-digit", minute: "2-digit", second: "2-digit" }
+                      )})`
+                    : copy.saved}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Main Grid Layout */}
+      <div className="grid gap-8 lg:grid-cols-12">
+        {/* Left Column: Monitored AI Traders */}
+        <div className="lg:col-span-7 space-y-6">
+          <div data-testid="subscriber-favorites" className="panel p-6 border-zinc-200/80 dark:border-white/[0.08] dark:bg-[#0c0f0d]">
+            <div className="mb-6">
+              <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-white">
+                {copy.favorites}
+              </h2>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 break-keep leading-relaxed">
+                {copy.favoritesHint}
+              </p>
+            </div>
+
+            {/* Scope Status Banner */}
+            <div className={`mb-6 rounded-xl border p-4 text-xs flex items-start gap-2.5 transition duration-300 ${
+              preferences.favoriteTraderIds.length === 0
+                ? "bg-zinc-50/50 dark:bg-zinc-900/10 border-zinc-200 dark:border-white/5 text-zinc-500 dark:text-zinc-400"
+                : "bg-emerald-50/30 dark:bg-emerald-950/5 border-emerald-500/15 text-emerald-800 dark:text-emerald-400"
+            }`}>
+              <Info size={16} className="shrink-0 mt-0.5 text-zinc-400 dark:text-zinc-500" />
+              <div className="space-y-1">
+                <span className="font-bold block">
+                  {preferences.favoriteTraderIds.length === 0
+                    ? copy.noFavorites
+                    : `${preferences.favoriteTraderIds.length} ${copy.selectedCount}`}
+                </span>
+                <span className="block text-[11px] leading-relaxed break-keep">
+                  {preferences.favoriteTraderIds.length === 0 ? copy.allTradersActive : copy.activeTradersActive}
+                </span>
+              </div>
+            </div>
+
+            {/* Trader Cards Grid */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              {traderRows.map((trader) => {
+                const selected = preferences.favoriteTraderIds.includes(trader.id);
+                return (
+                  <button
+                    key={trader.id}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() =>
+                      setPreferences((current) => toggleFavoriteTrader(current, trader.id))
+                    }
+                    className={`focus-ring relative overflow-hidden rounded-xl border text-left p-4 transition-all duration-300 ${
+                      selected
+                        ? "bg-emerald-500/[0.02] border-emerald-500 dark:border-emerald-500/40 text-zinc-950 dark:text-white shadow-[0_0_12px_rgba(16,185,129,0.04)]"
+                        : "bg-white dark:bg-[#070908] border-zinc-200 dark:border-white/[0.06] hover:border-zinc-300 dark:hover:border-white/20 text-zinc-800 dark:text-zinc-300 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/20"
+                    }`}
+                  >
+                    {/* Glowing active indicator */}
+                    {selected && (
+                      <span className="absolute top-4 right-4 flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                    )}
+
+                    <div className="flex flex-col justify-between h-full space-y-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Star className={selected ? "text-emerald-500" : "text-zinc-400"} size={14} weight={selected ? "fill" : "regular"} />
+                          <span className="block text-sm font-bold tracking-tight">{trader.name}</span>
+                        </div>
+                        <span className="block text-xs text-zinc-500 dark:text-zinc-400 mt-2.5 leading-relaxed break-keep">
+                          {trader.summary}
+                        </span>
+                      </div>
+
+                      {/* Active / Muted Switch look */}
+                      <div className="flex items-center justify-between pt-3.5 border-t border-zinc-100 dark:border-white/[0.04]">
+                        <span className={`text-[10px] font-bold uppercase tracking-wider font-mono ${
+                          selected ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-400"
+                        }`}>
+                          {selected ? copy.alertsOn : copy.alertsOff}
+                        </span>
+                        <div className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${
+                          selected ? "bg-emerald-500" : "bg-zinc-200 dark:bg-white/10"
+                        }`}>
+                          <div className={`absolute top-0.5 left-0.5 size-3 rounded-full bg-white transition-transform duration-200 ${
+                            selected ? "translate-x-4" : "translate-x-0"
+                          }`} />
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column: Telegram Webhook Configuration */}
+        <div className="lg:col-span-5 space-y-6">
+          <div data-testid="telegram-alert-settings" className="panel p-6 border-zinc-200/80 dark:border-white/[0.08] dark:bg-[#0c0f0d] space-y-6">
+            <div>
+              <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-white">
+                {copy.alerts}
+              </h2>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 break-keep leading-relaxed">
+                {copy.alertsHint}
+              </p>
+            </div>
+
+            {/* Connection Status Banner */}
+            <div className={`rounded-xl border p-4 text-xs flex items-start gap-2.5 transition duration-300 ${
+              readiness.canSend
+                ? "bg-emerald-50/30 dark:bg-emerald-950/5 border-emerald-500/15 text-emerald-800 dark:text-emerald-400"
+                : "bg-amber-50/30 dark:bg-amber-950/5 border-amber-500/15 text-amber-800 dark:text-amber-400"
+            }`}>
+              {readiness.canSend ? (
+                <CheckCircle size={16} className="shrink-0 mt-0.5 text-emerald-500" />
+              ) : (
+                <WarningCircle size={16} className="shrink-0 mt-0.5 text-amber-500" />
+              )}
+              <div className="space-y-1">
+                <span className="font-bold block">
+                  {readiness.canSend ? copy.statusConnected : copy.statusDisconnected}
+                </span>
+                <span className="block text-[11px] leading-relaxed break-keep">
+                  {copy.readiness[readiness.status]}
+                </span>
+              </div>
+            </div>
+
+            {/* Master Toggle */}
+            <TelegramConnectPanel preferences={preferences} onRefreshPreferences={refreshPreferences} />
+
+            <div className="flex items-center justify-between rounded-xl border border-zinc-200/80 dark:border-white/[0.06] bg-white dark:bg-[#070908] p-4">
+              <div>
+                <span className="block text-sm font-bold text-zinc-900 dark:text-white">
+                  {copy.telegramSettingsLabel}
+                </span>
+                <span className="text-zinc-500 text-xs mt-0.5 block">
+                  {preferences.telegramSettings.enabled ? copy.enabled : copy.disabled}
+                </span>
+              </div>
               <button
-                key={trader.id}
                 type="button"
-                aria-pressed={selected}
-                onClick={() => setPreferences((current) => toggleFavoriteTrader(current, trader.id))}
-                className={`focus-ring min-h-[132px] p-5 text-left transition duration-300 border border-zinc-200/40 dark:border-white/[0.04] ${
-                  selected
-                    ? "bg-emerald-50/70 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-300 ring-1 ring-inset ring-emerald-500/30"
-                    : "bg-white dark:bg-[#0c0f0d] hover:bg-zinc-50 dark:hover:bg-[#141816] text-zinc-900 dark:text-zinc-200"
+                role="switch"
+                aria-checked={preferences.telegramSettings.enabled}
+                onClick={() =>
+                  setPreferences((current) =>
+                    updateTelegramSettings(current, {
+                      ...current.telegramSettings,
+                      enabled: !current.telegramSettings.enabled,
+                    })
+                  )
+                }
+                className={`focus-ring relative w-11 h-6 rounded-full transition-colors duration-200 ${
+                  preferences.telegramSettings.enabled ? "bg-emerald-500" : "bg-zinc-200 dark:bg-white/10"
                 }`}
               >
-                <span className="flex items-start justify-between gap-3">
-                  <span className="min-w-0">
-                    <span className="block text-sm font-bold tracking-tight break-keep">{trader.name}</span>
-                    <span className="text-zinc-500 dark:text-zinc-400 mt-2 block text-xs leading-relaxed break-keep">{trader.summary}</span>
-                  </span>
-                  <Star className="shrink-0 text-emerald-500" size={18} weight={selected ? "fill" : "regular"} />
-                </span>
+                <span className={`absolute top-1 left-1 size-4 rounded-full bg-white transition-transform duration-200 ${
+                  preferences.telegramSettings.enabled ? "translate-x-5" : "translate-x-0"
+                }`} />
               </button>
-            );
-          })}
-        </div>
-      </section>
-
-      <section data-testid="telegram-alert-settings" className="data-card rounded-[22px] border-zinc-200/80 dark:border-white/[0.08] shadow-sm overflow-hidden">
-        <SectionHeader title={copy.alerts} body={copy.alertsHint} icon={preferences.telegramSettings.enabled ? <BellRinging size={18} /> : <BellSlash size={18} />} />
-        <div className="grid gap-px bg-zinc-200/60 dark:bg-white/5 lg:grid-cols-[minmax(0,0.78fr)_minmax(360px,1fr)]">
-          <div className="grid gap-4 bg-white dark:bg-[#0c0f0d] p-5 md:p-6">
-            <button
-              type="button"
-              aria-pressed={preferences.telegramSettings.enabled}
-              onClick={() => setPreferences((current) => updateTelegramSettings(current, { ...current.telegramSettings, enabled: !current.telegramSettings.enabled }))}
-              className="focus-ring flex items-center justify-between gap-4 rounded-xl border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0c0f0d] px-5 py-4 text-left transition hover:bg-zinc-50 dark:hover:bg-[#141816]"
-            >
-              <span>
-                <span className="block text-sm font-bold tracking-tight text-zinc-900 dark:text-white">{preferences.telegramSettings.enabled ? copy.enabled : copy.disabled}</span>
-                <span className="text-zinc-500 dark:text-zinc-400 mt-1 block text-xs">{copy.readiness[readiness.status]}</span>
-              </span>
-              <StatusIcon readiness={readiness} />
-            </button>
-            <label className="grid gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-              {copy.chatId}
-              <input
-                value={preferences.telegramSettings.chatId}
-                onChange={(event) => setPreferences((current) => updateTelegramSettings(current, { ...current.telegramSettings, chatId: event.currentTarget.value }))}
-                className="focus-ring rounded-xl border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#070908] px-4 py-2.5 text-sm font-medium text-zinc-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/20 transition duration-200"
-                placeholder="123456789"
-              />
-            </label>
-            <label className="grid gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-              {copy.minReturnPct}
-              <input
-                type="number"
-                step="0.1"
-                value={String(preferences.telegramSettings.minReturnPct)}
-                onChange={(event) => setPreferences((current) => updateTelegramSettings(current, { ...current.telegramSettings, minReturnPct: event.currentTarget.value }))}
-                className="focus-ring rounded-xl border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#070908] px-4 py-2.5 text-sm font-medium text-zinc-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/20 transition duration-200"
-              />
-            </label>
-          </div>
-          <div className="grid content-start gap-4 bg-white dark:bg-[#0c0f0d] p-5 md:p-6 border-t lg:border-t-0 lg:border-l border-zinc-200/80 dark:border-white/[0.08]">
-            <div className="flex">
-              <StatusBadge label={readiness.canSend ? copy.signaled : copy.readiness[readiness.status]} icon={<PaperPlaneTilt size={14} weight="bold" />} tone={readiness.canSend ? "good" : "warn"} />
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {telegramEventTypes.map((eventType) => (
-                <label key={eventType} className="focus-within:ring-2 focus-within:ring-emerald-500/30 rounded-xl border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#0c0f0d] px-4 py-3.5 text-sm font-semibold cursor-pointer hover:bg-zinc-50 dark:hover:bg-[#141816] transition duration-200">
-                  <span className="flex items-center gap-3">
-                    <input type="checkbox" checked={preferences.telegramSettings.eventTypes.includes(eventType)} onChange={() => updateAlertType(eventType)} className="size-4 rounded accent-emerald-500 text-emerald-600 border-zinc-300" />
-                    <span className="text-zinc-800 dark:text-zinc-200 break-keep">{copy.eventLabels[eventType]}</span>
+
+            {/* Inputs Block (Disabled if alerts are off) */}
+            <div className={`space-y-6 transition-opacity duration-200 ${
+              preferences.telegramSettings.enabled ? "opacity-100 animate-fade-in" : "opacity-40 pointer-events-none"
+            }`}>
+              {/* Min Return Filter */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 flex items-center justify-between">
+                  <span>{copy.minReturnPct}</span>
+                  <span className="font-mono text-emerald-500 font-semibold text-xs bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                    {preferences.telegramSettings.minReturnPct}%
                   </span>
                 </label>
-              ))}
-            </div>
-            <div className="pt-2">
-              <TelegramTestButton preferences={preferences} readiness={readiness} />
+                <div className="flex gap-4 items-center">
+                  <input
+                    type="range"
+                    min="0"
+                    max="10"
+                    step="0.1"
+                    disabled={!preferences.telegramSettings.enabled}
+                    value={preferences.telegramSettings.minReturnPct}
+                    onChange={(event) =>
+                      setPreferences((current) =>
+                        updateTelegramSettings(current, {
+                          ...current.telegramSettings,
+                          minReturnPct: Number(event.currentTarget.value),
+                        })
+                      )
+                    }
+                    className="w-full accent-emerald-500 h-1 bg-zinc-200 dark:bg-white/10 rounded-lg cursor-pointer appearance-none"
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    disabled={!preferences.telegramSettings.enabled}
+                    value={preferences.telegramSettings.minReturnPct}
+                    onChange={(event) =>
+                      setPreferences((current) =>
+                        updateTelegramSettings(current, {
+                          ...current.telegramSettings,
+                          minReturnPct: Number(event.currentTarget.value),
+                        })
+                      )
+                    }
+                    className="focus-ring w-20 rounded-lg border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[#070908] px-2 py-1 text-xs font-mono text-center text-zinc-900 dark:text-white"
+                  />
+                </div>
+                <p className="text-[10px] text-zinc-400 dark:text-zinc-500 leading-relaxed break-keep">
+                  {copy.minReturnPctHelp}
+                </p>
+              </div>
+
+              {/* Event Type Toggles */}
+              <div className="space-y-2.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 block">
+                  {copy.eventGroupLabel}
+                </span>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {telegramEventTypes.map((eventType) => {
+                    const isChecked = preferences.telegramSettings.eventTypes.includes(eventType);
+                    return (
+                      <button
+                        key={eventType}
+                        type="button"
+                        disabled={!preferences.telegramSettings.enabled}
+                        onClick={() => updateAlertType(eventType)}
+                        className={`focus-ring flex flex-col justify-between items-start text-left p-3.5 rounded-lg border transition duration-200 ${
+                          isChecked
+                            ? "bg-zinc-50/50 dark:bg-[#111413] border-zinc-300 dark:border-emerald-500/25"
+                            : "bg-white dark:bg-[#070908] border-zinc-200 dark:border-white/[0.04] opacity-70"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center justify-center size-4 rounded border ${
+                            isChecked
+                              ? "bg-emerald-500 border-emerald-500 text-white"
+                              : "border-zinc-300 dark:border-white/10"
+                          }`}>
+                            {isChecked && <Check size={10} weight="bold" />}
+                          </span>
+                          <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                            {copy.eventLabels[eventType]}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-2 leading-relaxed break-keep">
+                          {copy.eventDescriptions[eventType]}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Test Button Integration */}
+              <div className="pt-2">
+                <TelegramTestButton preferences={preferences} readiness={readiness} />
+              </div>
             </div>
           </div>
         </div>
-      </section>
-    </div>
-  );
-}
-
-function SectionHeader({ title, body, icon }: { readonly title: string; readonly body: string; readonly icon: React.ReactNode }) {
-  return (
-    <div className="flex items-start gap-4 border-b border-zinc-200/80 dark:border-white/[0.08] px-6 py-5 bg-zinc-50/50 dark:bg-[#111413]">
-      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">{icon}</span>
-      <div>
-        <h2 className="text-base font-bold tracking-tight text-zinc-900 dark:text-white break-keep">{title}</h2>
-        <p className="text-zinc-500 dark:text-zinc-400 mt-1 text-xs sm:text-sm leading-relaxed break-keep">{body}</p>
       </div>
     </div>
   );
-}
-
-function AccountStat({ label, value }: { readonly label: string; readonly value: string }) {
-  return (
-    <div className="min-w-0 bg-[#0a0c0b] px-6 py-5 hover:bg-[#101311] transition duration-300">
-      <p className="font-mono text-[10px] uppercase tracking-wider text-zinc-500 font-bold">{label}</p>
-      <p className="mt-2 truncate font-mono text-sm font-semibold text-white">{value}</p>
-    </div>
-  );
-}
-
-function StatusBadge({ label, icon, tone }: { readonly label: string; readonly icon: React.ReactNode; readonly tone: "good" | "warn" }) {
-  const toneClass = tone === "good" ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20" : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20";
-  return <span className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-bold border ${toneClass}`}>{icon}{label}</span>;
-}
-
-function StatusIcon({ readiness }: { readonly readiness: TelegramDeliveryReadiness }) {
-  if (readiness.canSend) return <CheckCircle className="shrink-0 text-[var(--good)]" size={20} />;
-  return <WarningCircle className="shrink-0 text-[var(--warn)]" size={20} />;
 }

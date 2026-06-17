@@ -368,6 +368,9 @@ def create_position_management_review(
     )
     db.add(record)
     db.flush()
+    from app.subscribers import notify_subscribers_for_management_review
+
+    notify_subscribers_for_management_review(db, record)
     return record
 
 
@@ -572,4 +575,3 @@ def prune_trader_database(db: Session, trader_id: str, symbol: str) -> None:
     prune_simple_table(TradePlanRecord, limit=30, status_filter=(TradePlanRecord.status != "ACTIVE_PAPER_EXPOSURE"))
     
     db.flush()
-

@@ -1,4 +1,15 @@
-export const telegramEventTypes = ["entry", "exit", "management", "risk"] as const;
+export const telegramEventTypes = [
+  "pending_entry",
+  "position_entry",
+  "take_profit",
+  "stop_loss",
+  "ai_review_low",
+  "ai_review_medium",
+  "ai_review_high",
+  "risk",
+] as const;
+
+export const defaultTelegramEventTypes = ["pending_entry", "position_entry", "take_profit", "stop_loss"] as const;
 
 export type TelegramEventType = (typeof telegramEventTypes)[number];
 
@@ -117,12 +128,13 @@ export function mergeStoredSubscriberPreferences(
 }
 
 function normalizeEventTypes(input: unknown): readonly TelegramEventType[] {
-  if (!Array.isArray(input)) return [];
+  if (input === undefined) return [...defaultTelegramEventTypes];
+  if (!Array.isArray(input)) return [...defaultTelegramEventTypes];
 
   const eventTypeSet = new Set<TelegramEventType>();
   for (const item of input) {
-    if (isTelegramEventType(item)) {
-      eventTypeSet.add(item);
+    for (const eventType of expandTelegramEventType(item)) {
+      eventTypeSet.add(eventType);
     }
   }
 
@@ -144,7 +156,7 @@ function normalizeFavoriteTraderIds(input: unknown): readonly string[] {
 
 function normalizeMinReturnPct(input: unknown): number {
   const value = typeof input === "number" ? input : typeof input === "string" ? Number(input.trim()) : 0;
-  return Number.isFinite(value) ? value : 0;
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
 function readTelegramSettings(input: unknown): TelegramSettingsInput {
@@ -158,15 +170,25 @@ function readTelegramSettings(input: unknown): TelegramSettingsInput {
   };
 }
 
-function isTelegramEventType(input: unknown): input is TelegramEventType {
+function expandTelegramEventType(input: unknown): readonly TelegramEventType[] {
   switch (input) {
     case "entry":
+      return ["pending_entry", "position_entry"];
     case "exit":
+      return ["take_profit", "stop_loss"];
     case "management":
+      return ["ai_review_low", "ai_review_medium", "ai_review_high"];
+    case "pending_entry":
+    case "position_entry":
+    case "take_profit":
+    case "stop_loss":
+    case "ai_review_low":
+    case "ai_review_medium":
+    case "ai_review_high":
     case "risk":
-      return true;
+      return [input];
     default:
-      return false;
+      return [];
   }
 }
 

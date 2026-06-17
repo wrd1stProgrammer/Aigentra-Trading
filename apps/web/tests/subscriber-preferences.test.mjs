@@ -26,12 +26,12 @@ test("telegram alert settings normalize unsupported inputs and report delivery r
   const normalized = preferences.normalizeTelegramSettings({
     enabled: true,
     chatId: " 123456789 ",
-    eventTypes: ["entry", "exit", "invalid-kind"],
+    eventTypes: ["entry", "take_profit", "ai_review_high", "invalid-kind"],
     minReturnPct: "2.75"
   });
 
   assert.equal(normalized.chatId, "123456789");
-  assert.deepEqual(normalized.eventTypes, ["entry", "exit"]);
+  assert.deepEqual(normalized.eventTypes, ["pending_entry", "position_entry", "take_profit", "ai_review_high"]);
   assert.equal(normalized.minReturnPct, 2.75);
   assert.deepEqual(preferences.telegramDeliveryReadiness(normalized, { botTokenConfigured: false }), {
     status: "missing_server_token",
@@ -42,7 +42,17 @@ test("telegram alert settings normalize unsupported inputs and report delivery r
 test("account UI exposes favorites and Telegram alert customization", () => {
   assert.match(accountSource, /data-testid="subscriber-favorites"/, "account page should expose favorite traders");
   assert.match(accountSource, /data-testid="telegram-alert-settings"/, "account page should expose Telegram alert settings");
-  assert.match(preferencesSource, /"entry", "exit", "management", "risk"/, "alert types should cover the trading workflow");
+  assert.match(preferencesSource, /"pending_entry"/, "alert types should cover pending entries");
+  assert.match(preferencesSource, /"ai_review_high"/, "alert types should expose AI review importance");
+});
+
+test("telegram alert settings default to core trade lifecycle alerts", () => {
+  const initial = preferences.createSubscriberPreferences({
+    userId: "user_google_1",
+    email: "operator@example.com"
+  });
+
+  assert.deepEqual(initial.telegramSettings.eventTypes, ["pending_entry", "position_entry", "take_profit", "stop_loss"]);
 });
 
 test("subscriber preferences are account-backed instead of browser-only localStorage", () => {

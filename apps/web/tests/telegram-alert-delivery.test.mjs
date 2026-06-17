@@ -29,3 +29,16 @@ test("subscriber account exposes a Telegram test-send control", () => {
   assert.match(buttonSource, /\/api\/telegram\/test/, "test-send control should post to the local Telegram API route");
   assert.match(buttonSource, /readiness\.canSend/, "test-send control should respect delivery readiness before sending");
 });
+
+test("subscriber account connects Telegram through a user-bound start link", () => {
+  const accountSource = readSource("apps/web/components/subscriber-account-client.tsx");
+  const connectPanelSource = readSource("apps/web/components/telegram-connect-panel.tsx");
+  const linkRouteSource = readSource("apps/web/app/api/telegram/link/route.ts");
+  const apiClientSource = readSource("apps/web/lib/subscriber-preference-api.ts");
+
+  assert.match(accountSource, /TelegramConnectPanel/, "account page should render the connection panel instead of a raw chat-id workflow");
+  assert.match(connectPanelSource, /\/api\/telegram\/link/, "connection panel should request a signed Telegram start link");
+  assert.match(connectPanelSource, /window\.open/, "connection panel should open Telegram for the user");
+  assert.match(linkRouteSource, /createTelegramStartLink/, "local route should proxy link creation through the backend service");
+  assert.match(apiClientSource, /\/api\/subscribers\/telegram\/link/, "backend client should call the subscriber Telegram link endpoint");
+});

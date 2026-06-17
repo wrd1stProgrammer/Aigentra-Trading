@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db import PaperOrderRecord, PaperPositionRecord
 from app.paper.engine import place_paper_order
-from app.paper.repositories import ensure_trader_state, upsert_risk_settings
+from app.paper.repositories import create_trade_event, ensure_trader_state, upsert_risk_settings
 from app.repositories import serialize_record
 from app.traders.models import TradeCandidate, TradePlan, TradeReviewResult
 
@@ -255,6 +255,27 @@ def create_paper_orders_from_plan(
             stop_loss_price=stop_loss,
             fee_type="taker" if use_market else "maker",
             payload=payload,
+        )
+        create_trade_event(
+            db,
+            trader_id=trader_id,
+            symbol=symbol,
+            event_type="paper_order_created",
+            order_id=order.id,
+            price=entry_price,
+            quantity=quantity,
+            payload={
+                "paperOnly": True,
+                "runId": run_id,
+                "tradePlanId": trade_plan_id,
+                "entryIndex": index,
+                "orderType": order_type,
+                "side": side,
+                "leverage": leverage,
+                "limitPrice": limit_price,
+                "reason": entry.reason,
+                "source": "trade_plan",
+            },
         )
         created.append(serialize_record(order))
 

@@ -345,6 +345,8 @@ class SubscriberPreferenceRecord(CommonMixin, Base):
     favorite_trader_ids_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     telegram_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     telegram_chat_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    telegram_link_token_hash: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, unique=True, index=True)
+    telegram_link_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     telegram_event_types_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     telegram_min_return_pct: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     locale: Mapped[str] = mapped_column(String(8), default="ko", nullable=False)
@@ -352,11 +354,15 @@ class SubscriberPreferenceRecord(CommonMixin, Base):
 
 class TelegramAlertDeliveryRecord(CommonMixin, Base):
     __tablename__ = "telegram_alert_deliveries"
-    __table_args__ = (UniqueConstraint("subscriber_preference_id", "trade_event_id", name="uq_telegram_alert_delivery_subscriber_event"),)
+    __table_args__ = (
+        UniqueConstraint("subscriber_preference_id", "trade_event_id", name="uq_telegram_alert_delivery_subscriber_event"),
+        UniqueConstraint("subscriber_preference_id", "position_management_review_id", name="uq_telegram_alert_delivery_subscriber_review"),
+    )
 
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)
     subscriber_preference_id: Mapped[int] = mapped_column(ForeignKey("subscriber_preferences.id"), nullable=False, index=True)
-    trade_event_id: Mapped[int] = mapped_column(ForeignKey("trade_events.id"), nullable=False, index=True)
+    trade_event_id: Mapped[Optional[int]] = mapped_column(ForeignKey("trade_events.id"), nullable=True, index=True)
+    position_management_review_id: Mapped[Optional[int]] = mapped_column(ForeignKey("position_management_reviews.id"), nullable=True, index=True)
     telegram_event_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     chat_id: Mapped[str] = mapped_column(String(120), nullable=False)
     response_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
