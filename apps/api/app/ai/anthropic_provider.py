@@ -54,19 +54,16 @@ def structured_review_schema() -> dict[str, Any]:
             "keyReasons": {
                 "type": "array",
                 "items": {"type": "string"},
-                "maxItems": 3,
                 "description": "Up to three short reasons, written for a beginner.",
             },
             "risks": {
                 "type": "array",
                 "items": {"type": "string"},
-                "maxItems": 2,
                 "description": "Up to two remaining risks or counter-thesis points.",
             },
             "watchConditions": {
                 "type": "array",
                 "items": {"type": "string"},
-                "maxItems": 3,
                 "description": "Up to three exact triggers to watch next.",
             },
             "managerNote": {"type": "string", "description": "One concise desk note tying the decision together."},
