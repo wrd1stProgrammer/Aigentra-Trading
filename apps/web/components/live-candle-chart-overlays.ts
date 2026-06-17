@@ -101,13 +101,12 @@ export function isOpenChartExposure(record: { readonly status?: unknown }) {
 }
 
 export function shouldRenderRealizedEventOverlays({
-  hasOpenPaperPosition,
-  hasOpenPaperOrder
+  hasOpenPaperPosition
 }: {
   readonly hasOpenPaperPosition: boolean;
   readonly hasOpenPaperOrder: boolean;
 }) {
-  return hasOpenPaperPosition || hasOpenPaperOrder;
+  return hasOpenPaperPosition;
 }
 
 export function overlaySideLabel(value: unknown) {

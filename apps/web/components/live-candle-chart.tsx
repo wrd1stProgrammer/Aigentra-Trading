@@ -59,6 +59,7 @@ import {
   type OverlayLine,
   type OverlayTone
 } from "@/components/live-candle-chart-overlays";
+import { isPendingEntryOrder } from "@/components/trader-profile-detail/position-panel-rows";
 
 type TradePlanView = {
   status?: string;
@@ -350,7 +351,7 @@ export function LiveCandleChart({
     [paperPositions, symbol]
   );
   const visibleOpenPaperOrders = useMemo(
-    () => paperOrders.filter((order) => matchesChartSymbol(order.symbol, symbol) && isOpenChartExposure(order) && !isSyntheticPaperOrder(order)),
+    () => paperOrders.filter((order) => matchesChartSymbol(order.symbol, symbol) && isPendingEntryOrder(order)),
     [paperOrders, symbol]
   );
   const hasOpenPaperPosition = visibleOpenPaperPositions.length > 0;
@@ -1931,11 +1932,6 @@ function firstFiniteNumber(...values: unknown[]) {
     if (Number.isFinite(numberValue)) return numberValue;
   }
   return null;
-}
-
-function isSyntheticPaperOrder(order: Record<string, any>) {
-  const id = order.id === null || order.id === undefined ? "" : String(order.id);
-  return id.startsWith("plan-") || recordValue(order.payload)?.syntheticPlanOrder === true;
 }
 
 function matchesChartSymbol(value: unknown, symbol: string) {

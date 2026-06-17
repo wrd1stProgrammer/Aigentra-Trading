@@ -59,14 +59,18 @@ test("live candle chart treats paper trading statuses as open exposure", () => {
   }
 });
 
-test("realized completion markers render only while chart still has active exposure", () => {
+test("realized completion markers render only while chart still has an active position", () => {
   assert.equal(
     overlayHelpers.shouldRenderRealizedEventOverlays({ hasOpenPaperPosition: false, hasOpenPaperOrder: false }),
     false,
     "fully closed traders should not keep stop-loss/take-profit completion price lines on the live chart"
   );
   assert.equal(overlayHelpers.shouldRenderRealizedEventOverlays({ hasOpenPaperPosition: true, hasOpenPaperOrder: false }), true);
-  assert.equal(overlayHelpers.shouldRenderRealizedEventOverlays({ hasOpenPaperPosition: false, hasOpenPaperOrder: true }), true);
+  assert.equal(
+    overlayHelpers.shouldRenderRealizedEventOverlays({ hasOpenPaperPosition: false, hasOpenPaperOrder: true }),
+    false,
+    "pending-entry traders should not inherit completed stop/take-profit markers from old trades"
+  );
   assert.match(source, /shouldRenderRealizedEventOverlays/, "live chart should gate realized completion markers through the helper");
 });
 
@@ -106,7 +110,7 @@ test("chart overlays do not mix saved open orders with latest plan preview lines
   // Given: the detail chart has both a fresh/latest plan prop and persisted paper order props.
   // When/Then: once real open orders exist, plan preview lines must not render extra synthetic entries.
   assert.match(source, /visibleOpenPaperOrders = useMemo/);
-  assert.match(source, /!isSyntheticPaperOrder\(order\)/);
+  assert.match(source, /isPendingEntryOrder\(order\)/);
   assert.match(source, /if \(hasOpenPaperOrder\) return false;/);
   assert.match(source, /return isFreshRunCycleResult;/);
   assert.doesNotMatch(source, /return hasOpenPaperOrder \|\| isFreshRunCycleResult;/);

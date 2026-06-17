@@ -97,6 +97,24 @@ test("open order panel only displays persisted non-synthetic open orders", () =>
   assert.equal(rows.some((row) => String(row.id).startsWith("plan-")), false);
 });
 
+test("open order panel hides protective exit orders and keeps pending long short entries", () => {
+  // Given: the backend returns active entry orders together with protective stop/take-profit orders.
+  const orders = [
+    { id: 201, symbol: "BTCUSDT", status: "open", side: "long", orderType: "limit", limitPrice: 66000, quantity: 0.02 },
+    { id: 202, symbol: "BTCUSDT", status: "open", side: "short", orderType: "limit", limitPrice: 67000, quantity: 0.02 },
+    { id: 203, symbol: "BTCUSDT", status: "open", side: "sell", orderType: "stop_loss", stopPrice: 65000, quantity: 0.02 },
+    { id: 204, symbol: "BTCUSDT", status: "open", side: "sell", orderType: "take_profit", price: 69000, quantity: 0.02 },
+    { id: 205, symbol: "BTCUSDT", status: "open", side: "sell", payload: { purpose: "STOP_LOSS" }, stopPrice: 65000, quantity: 0.02 },
+    { id: 206, symbol: "ETHUSDT", status: "open", side: "long", orderType: "limit", limitPrice: 2500, quantity: 1 }
+  ];
+
+  // When: the panel builds display rows.
+  const rows = panelRows.buildDisplayOpenOrders({ orders, latestPlan: null, symbol: "BTCUSDT" });
+
+  // Then: only pending LONG/SHORT entry orders remain.
+  assert.deepEqual(rows.map((row) => row.id), [201, 202]);
+});
+
 test("order and position scenarios prefer AI rationale over entry labels", () => {
   // Given: paper exposure payloads contain both mechanical entry labels and AI review commentary.
   const trader = { id: "channel-rider", currentPlan: "watch", baseRiskPercent: 0.7, description: "strategy", concept: "concept" };

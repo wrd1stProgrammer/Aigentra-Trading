@@ -226,7 +226,6 @@ export function LeaderboardPageClient() {
 
         <OptionActivityStream
           locale={locale}
-          pendingPlans={pendingPlans}
           traderNameMap={traderNameMap}
         />
       </section>
@@ -997,13 +996,19 @@ function getReviewImportance(decision: string, text: string): 'critical' | 'impo
   return 'routine';
 }
 
+function isDisplayableOverviewReview(review: Record<string, any>) {
+  const traderId = String(review.traderId ?? review.trader_id ?? "");
+  const createdAt = String(review.createdAt ?? review.created_at ?? "");
+  if (!traderId || !createdAt) return false;
+  const source = String(review.source ?? review.type ?? review.eventType ?? review.event_type ?? "").toUpperCase();
+  return !source.includes("SCAN") && !source.includes("PLAN");
+}
+
 function OptionActivityStream({
   locale,
-  pendingPlans,
   traderNameMap
 }: {
   locale: "ko" | "en";
-  pendingPlans: Array<Record<string, any>>;
   traderNameMap: Map<string, string>;
 }) {
   const { t } = useAppContext();
@@ -1125,7 +1130,7 @@ function OptionActivityStream({
     const items: Array<{
       id: string;
       time: string;
-      type: "PLAN" | "AUDIT" | "SCAN";
+      type: "AUDIT";
       traderId: string;
       trader: string;
       text: string;
@@ -1133,33 +1138,13 @@ function OptionActivityStream({
       importance?: "critical" | "important" | "watch" | "routine";
     }> = [];
 
-    // Pending Scanner Plans (Active setups)
-    pendingPlans.forEach((plan) => {
-      const traderId = String(plan.traderId ?? "");
-      const side = String(plan.side ?? "LONG").toUpperCase();
-      const priceVal = plan.entryPrice ?? plan.price ?? 65000;
-      const timeStr = plan.createdAt ? new Date(plan.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : "17:42:01";
-      const rawTimeVal = plan.createdAt ? Date.parse(plan.createdAt) : Date.now() - 1000 * 60;
-      items.push({
-        id: `plan-${plan.id ?? plan.createdAt}-${traderId}`,
-        time: timeStr,
-        type: "PLAN",
-        traderId,
-        trader: traderName(traderId, t, traderNameMap),
-        text: locale === "ko" 
-          ? `${plan.symbol} 진입 대기 시나리오 수립 (${side} @ $${priceVal.toLocaleString()})`
-          : `Created pending scenario for ${plan.symbol} (${side} @ $${priceVal.toLocaleString()})`,
-        rawTime: rawTimeVal,
-        importance: "routine"
-      });
-    });
-
-    // AI Auditing Reviews
-    reviewsList.forEach((review) => {
-      const traderId = String(review.traderId ?? "");
+    const aiReviewLogsOnly = reviewsList.filter(isDisplayableOverviewReview);
+    aiReviewLogsOnly.forEach((review) => {
+      const traderId = String(review.traderId ?? review.trader_id ?? "");
+      const createdAt = String(review.createdAt ?? review.created_at ?? "");
       const decision = String(review.decision ?? review.action ?? "HOLD").toUpperCase();
-      const timeStr = review.createdAt ? new Date(review.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : "16:21:40";
-      const rawTimeVal = review.createdAt ? Date.parse(review.createdAt) : Date.now() - 1000 * 120;
+      const timeStr = createdAt ? new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : "16:21:40";
+      const rawTimeVal = createdAt ? Date.parse(createdAt) : Date.now() - 1000 * 120;
       
       let rText = "";
       const payload = (review.payload ?? {}) as Record<string, any>;
@@ -1173,7 +1158,7 @@ function OptionActivityStream({
       const importance = getReviewImportance(decision, rText);
 
       items.push({
-        id: `review-${review.id ?? review.createdAt}-${traderId}`,
+        id: `review-${review.id ?? createdAt}-${traderId}`,
         time: timeStr,
         type: "AUDIT",
         traderId,
@@ -1188,41 +1173,8 @@ function OptionActivityStream({
 
     items.sort((a, b) => b.rawTime - a.rawTime);
 
-    if (items.length === 0) {
-      items.push({
-        id: "fallback-1",
-        time: "18:02:11",
-        type: "SCAN",
-        traderId: "channel-rider",
-        trader: traderName("channel-rider", t, traderNameMap),
-        text: locale === "ko" ? "BTCUSDT 15분 봉 EMA 풀백 셋업 감시 중" : "Scanning BTCUSDT 15m EMA Pullback setups",
-        rawTime: Date.now(),
-        importance: "watch"
-      });
-      items.push({
-        id: "fallback-2",
-        time: "17:55:04",
-        type: "AUDIT",
-        traderId: "funding-contrarian",
-        trader: traderName("funding-contrarian", t, traderNameMap),
-        text: locale === "ko" ? "리스크 조절: 레버리지 5배 설정" : "Risk adjusted: leverage set to 5x",
-        rawTime: Date.now() - 300,
-        importance: "important"
-      });
-      items.push({
-        id: "fallback-3",
-        time: "17:42:15",
-        type: "PLAN",
-        traderId: "pullback-architect",
-        trader: traderName("pullback-architect", t, traderNameMap),
-        text: locale === "ko" ? "BTCUSDT 대기 시나리오 수립 (LONG @ $66,950)" : "Created pending scenario for BTCUSDT (LONG @ $66,950)",
-        rawTime: Date.now() - 1000,
-        importance: "routine"
-      });
-    }
-
     return items;
-  }, [pendingPlans, reviewsList, traderNameMap, locale, t]);
+  }, [reviewsList, traderNameMap, locale, t]);
 
   return (
     <div className="p-6 rounded-b-[22px] overflow-hidden text-left">
@@ -1233,24 +1185,14 @@ function OptionActivityStream({
         >
           {logItems.map((log) => {
             let dotColor = "bg-emerald-400";
-            if (log.type === "PLAN") {
-              dotColor = "bg-orange-400";
-            } else if (log.type === "AUDIT") {
-              if (log.importance === "critical") {
-                dotColor = "bg-rose-500";
-              } else if (log.importance === "important") {
-                dotColor = "bg-amber-500";
-              } else if (log.importance === "watch") {
-                dotColor = "bg-sky-500";
-              } else {
-                dotColor = "bg-emerald-400";
-              }
+            if (log.importance === "critical") {
+              dotColor = "bg-rose-500";
+            } else if (log.importance === "important") {
+              dotColor = "bg-amber-500";
+            } else if (log.importance === "watch") {
+              dotColor = "bg-sky-500";
             } else {
-              if (log.importance === "watch") {
-                dotColor = "bg-sky-500";
-              } else {
-                dotColor = "bg-emerald-400";
-              }
+              dotColor = "bg-emerald-400";
             }
 
             return (

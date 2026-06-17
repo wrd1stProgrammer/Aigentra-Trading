@@ -13,3 +13,12 @@ test("leaderboard reviewed status uses a compact localized review time", () => {
   assert.match(leaderboardSource, /getElapsedTimeString\(summary\?\.updatedAt\)/, "leaderboard should use elapsed time for reviewed rows");
   assert.doesNotMatch(leaderboardSource, /detail: formatDateTime\(summary\?\.updatedAt, locale\)/, "reviewed rows should not show full date/time");
 });
+
+test("league overview stream is restricted to AI review records", () => {
+  assert.match(leaderboardSource, /const aiReviewLogsOnly = reviewsList/, "overview should derive log rows only from loaded AI review records");
+  assert.doesNotMatch(leaderboardSource, /pendingPlans\.forEach/, "pending trade plans must not appear in League Overview");
+  assert.doesNotMatch(leaderboardSource, /fallback-1/, "League Overview must not show synthetic scanner fallback rows");
+  assert.doesNotMatch(leaderboardSource, /type: "PLAN"/, "League Overview should not emit plan log rows");
+  assert.match(leaderboardSource, /review\.traderId \?\? review\.trader_id/, "overview review rows should handle backend snake_case trader ids");
+  assert.match(leaderboardSource, /getManagementReviews\(20, 0\)/, "overview should still load AI management reviews");
+});
