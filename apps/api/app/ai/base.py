@@ -85,6 +85,7 @@ class BaseAIProvider:
             reviewCode=str(raw.get("reviewCode") or "ENTRY_REVIEW").upper(),
             reviewFacts=review_facts,
             riskFlags=self._normalize_string_list(raw.get("riskFlags")) or [f"risk_level:{risk_level.lower()}"],
+            structuredReview=self._normalize_structured_review(raw.get("structuredReview")),
             adjustments=[str(item) for item in adjustments],
             leverageOverride=self._normalize_optional_float(raw.get("leverageOverride")),
             riskPercentOverride=self._normalize_optional_float(raw.get("riskPercentOverride")),
@@ -142,6 +143,7 @@ class BaseAIProvider:
             reviewCode=str(raw.get("reviewCode") or "POSITION_MANAGEMENT_REVIEW").upper(),
             reviewFacts=review_facts,
             riskFlags=self._normalize_string_list(raw.get("riskFlags")) or [f"risk_level:{risk_level.lower()}"],
+            structuredReview=self._normalize_structured_review(raw.get("structuredReview")),
             actions=normalized_actions,
             riskChange=str(raw.get("riskChange", "UNCHANGED")).upper(),
             nextReviewInSeconds=max(60, min(next_review, 3600)),
@@ -179,6 +181,27 @@ class BaseAIProvider:
                 }
             )
         return normalized or default
+
+    def _normalize_structured_review(self, value: Any) -> Optional[dict[str, Any]]:
+        if not isinstance(value, dict):
+            return None
+        structured = {
+            "verdict": self._normalize_optional_text(value.get("verdict")),
+            "headline": self._normalize_optional_text(value.get("headline")),
+            "action": self._normalize_optional_text(value.get("action")),
+            "keyReasons": self._normalize_limited_string_list(value.get("keyReasons"), 3),
+            "risks": self._normalize_limited_string_list(value.get("risks"), 2),
+            "watchConditions": self._normalize_limited_string_list(value.get("watchConditions"), 3),
+            "managerNote": self._normalize_optional_text(value.get("managerNote")),
+        }
+        has_content = any(
+            structured[key]
+            for key in ("verdict", "headline", "action", "keyReasons", "risks", "watchConditions", "managerNote")
+        )
+        return structured if has_content else None
+
+    def _normalize_limited_string_list(self, value: Any, limit: int) -> list[str]:
+        return self._normalize_string_list(value)[:limit]
 
     def _normalize_optional_text(self, value: Any) -> Optional[str]:
         if value is None:
@@ -482,9 +505,9 @@ def extract_json_object(text: str) -> Dict[str, Any]:
 def entry_approval_prompt(payload: TradeReviewPayload) -> str:
     locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
     language_instruction = (
-        "Write approvalReason, counterThesis, every adjustments item, and every earlyExitRecommendations item in Korean. Keep reviewFacts as language-neutral codes and labelKey values."
+        "Write structuredReview, approvalReason, counterThesis, every adjustments item, and every earlyExitRecommendations item in Korean. Keep reviewFacts as language-neutral codes and labelKey values."
         if locale == "ko"
-        else "Write approvalReason, counterThesis, every adjustments item, and every earlyExitRecommendations item in English. Keep reviewFacts as language-neutral codes and labelKey values."
+        else "Write structuredReview, approvalReason, counterThesis, every adjustments item, and every earlyExitRecommendations item in English. Keep reviewFacts as language-neutral codes and labelKey values."
     )
     data = {
         "trader": payload.trader.model_dump(),
@@ -506,7 +529,7 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
     }
     return (
         "You are the ENTRY APPROVAL reviewer for a futures paper-trading candidate. Return only strict JSON with keys "
-        "decision, confidence, riskLevel, reviewCode, reviewFacts, riskFlags, adjustments, leverageOverride, riskPercentOverride, "
+        "decision, confidence, riskLevel, reviewCode, reviewFacts, riskFlags, structuredReview, adjustments, leverageOverride, riskPercentOverride, "
         "earlyExitRecommendations, approvalReason, counterThesis. Valid decisions are "
         "APPROVE, ADJUST_AND_APPROVE, DEFER, REJECT, NEEDS_MORE_DATA. "
         "This is not financial advice and no real order will be placed. "
@@ -527,9 +550,12 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "6) orderIntent must be compatible with pending paper entries and must not imply a real order, "
         "7) fees/slippage buffer must be included in the risk review, "
         "8) earlyExitRules and invalidation must be specific enough to stop the trade before the full stop when thesis fails. "
-        "approvalReason must be the user-visible entry approval rationale. For APPROVE or ADJUST_AND_APPROVE, write 3-5 compact sentences that connect "
-        "the trader thesis and current timeframe/derivatives context, entry/stop/target geometry plus fee-aware RR, "
-        "leverage or risk-sizing adjustments, early-exit management, and the main residual risk that could invalidate approval. "
+        "structuredReview is the primary user-facing explanation. It must be an object with verdict, headline, action, keyReasons, risks, watchConditions, managerNote. "
+        "Write it for a beginner who understands LONG/SHORT but not every indicator: headline is one plain-language decision, action is one concrete next step, "
+        "keyReasons has up to 3 short bullets, risks has up to 2 bullets, watchConditions has up to 3 exact price/time/indicator triggers, and managerNote is one concise desk note. "
+        "Do not dump raw metrics without saying what they mean. Do not hide the actual trade reason behind generic learning or paper-trading language. "
+        "approvalReason is a legacy compatibility field. For APPROVE or ADJUST_AND_APPROVE, write 1-2 compact sentences that mirror structuredReview and connect "
+        "the trader thesis, entry/stop/target geometry, fee-aware RR, risk adjustment, and the main residual risk. "
         "For REJECT, DEFER, or NEEDS_MORE_DATA, approvalReason must explain the blocker and what evidence would change the decision. "
         "Do not describe approval as paper-trading learning, training suitability, or because no real order will be placed. "
         "Do not use setupScore as the main reason; mention setupScore only after concrete market and geometry evidence. "
@@ -549,9 +575,9 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
     event_type = str(payload.event.eventType or "")
     is_price_shock = event_type == "common_price_shock"
     language_instruction = (
-        "Write rationale, counterThesis, and every action reason in Korean. Keep reviewFacts as language-neutral codes and labelKey values."
+        "Write structuredReview, rationale, counterThesis, and every action reason in Korean. Keep reviewFacts as language-neutral codes and labelKey values."
         if locale == "ko"
-        else "Write rationale, counterThesis, and every action reason in English. Keep reviewFacts as language-neutral codes and labelKey values."
+        else "Write structuredReview, rationale, counterThesis, and every action reason in English. Keep reviewFacts as language-neutral codes and labelKey values."
     )
     shock_instruction = (
         "FAST-MARKET EVENT MODE: the scanner detected an absolute BTC price move at or above the configured threshold. "
@@ -584,7 +610,7 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
     }
     return (
         "You are the POSITION MANAGEMENT reviewer for a live paper order or position. Return only strict JSON with keys "
-        "decision, confidence, riskLevel, reviewCode, reviewFacts, riskFlags, actions, riskChange, nextReviewInSeconds, rationale, counterThesis. "
+        "decision, confidence, riskLevel, reviewCode, reviewFacts, riskFlags, structuredReview, actions, riskChange, nextReviewInSeconds, rationale, counterThesis. "
         "Valid decisions are HOLD, CANCEL_PENDING_ORDER, ADJUST_PENDING_ORDER, MOVE_STOP, MOVE_STOP_TO_BREAKEVEN, "
         "TRAIL_STOP, TAKE_PARTIAL_PROFIT, CLOSE_POSITION, REDUCE_RISK, ADD_TO_POSITION, PYRAMID_POSITION, "
         "LET_PROFIT_RUN, NEEDS_MORE_DATA. "
@@ -602,6 +628,10 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "The nested holdingPolicy is mandatory: do not move stops to breakeven, take partial profit, or trail earlier than that policy "
         "unless the event is a hard invalidation or fast-market risk event. Slow trend/channel/pullback traders should be allowed to hold "
         "through normal pullbacks; scalp/orderflow traders can protect faster. "
+        "structuredReview is the primary user-facing explanation. It must be an object with verdict, headline, action, keyReasons, risks, watchConditions, managerNote. "
+        "Write it for a beginner who needs to know what changed, what to do now, why, what can go wrong, and exactly what to watch next. "
+        "Use short bullets instead of one dense paragraph. Translate indicators into plain meaning, and include raw numbers only when they support a clear action. "
+        "rationale is a legacy compatibility field; keep it to 1-2 compact sentences that mirror structuredReview. "
         "If evidence is weak, choose HOLD or NEEDS_MORE_DATA, but include the exact next condition that would trigger action. "
         f"{shock_instruction}"
         f"{language_instruction}\n\n"

@@ -1,10 +1,12 @@
 "use client";
 
-import { Brain, CheckCircle, WarningCircle } from "@phosphor-icons/react";
+import { Brain, CheckCircle, ListChecks, Target, WarningCircle } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import type { ManagementReview, PaperOrder, PaperPosition, RunCycleResult, TraderPaperState } from "@/lib/api";
 import { useAppContext } from "@/components/app-provider";
 import { StatusBadge } from "@/components/status-badge";
+import type { ReviewBrief } from "@/lib/review-brief";
+import { reviewBriefFromRecord, structuredReviewValue } from "@/lib/review-brief";
 import { statusLabel } from "@/lib/status";
 
 type TradePlanView = {
@@ -32,6 +34,7 @@ export function AIReviewPanel({
 }) {
   const { t } = useAppContext();
   const review = result?.aiReview ?? null;
+  const entryBrief = structuredReviewValue(review?.structuredReview);
   const candidate = result?.candidate ?? null;
   const plan = (result?.tradePlan ?? null) as TradePlanView | null;
   const runPaperPosition = result?.paperPosition ? [result.paperPosition] : [];
@@ -125,8 +128,14 @@ export function AIReviewPanel({
             {review.fallback ? <StatusBadge tone="warn">{t("aiReview.fallback")}</StatusBadge> : null}
           </div>
 
-          <ReasonBlock icon={<CheckCircle size={17} />} title={t("aiReview.approvalReason")} text={review.approvalReason} />
-          <ReasonBlock icon={<WarningCircle size={17} />} title={t("aiReview.counterThesis")} text={review.counterThesis} />
+          {entryBrief ? (
+            <StructuredReviewBlock brief={entryBrief} title={t("aiReview.approvalReason")} />
+          ) : (
+            <ReasonBlock icon={<CheckCircle size={17} />} title={t("aiReview.approvalReason")} text={review.approvalReason} />
+          )}
+          {!entryBrief || !entryBrief.risks.length ? (
+            <ReasonBlock icon={<WarningCircle size={17} />} title={t("aiReview.counterThesis")} text={review.counterThesis} />
+          ) : null}
           <ReviewFacts facts={review.reviewFacts} />
 
           {review.adjustments.length ? (
@@ -243,7 +252,11 @@ function CompactManagementReviews({ reviews }: { reviews: Array<Record<string, a
               <div className="mt-3 grid gap-2">
                 <ManagementDetail label={t("aiReview.eventPhase")} value={details.eventPhase} />
                 <ManagementDetail label={t("aiReview.eventReason")} value={details.eventReason} />
-                <ManagementDetail label={t("aiReview.rationale")} value={details.rationale} />
+                {details.brief ? (
+                  <StructuredReviewBlock brief={details.brief} title={t("aiReview.rationale")} compact />
+                ) : (
+                  <ManagementDetail label={t("aiReview.rationale")} value={details.rationale} />
+                )}
                 <ManagementDetail label={t("aiReview.reviewFacts")} value={details.reviewFacts} />
                 <ManagementDetail label={t("aiReview.appliedActions")} value={details.appliedActions} />
               </div>
@@ -269,6 +282,58 @@ function ManagementDetail({ label, value }: { label: string; value: string }) {
   );
 }
 
+function StructuredReviewBlock({ brief, title, compact = false }: { brief: ReviewBrief; title: string; compact?: boolean }) {
+  const { t } = useAppContext();
+  const headline = brief.headline ?? brief.action ?? brief.managerNote ?? "-";
+  return (
+    <div className={`border-l-2 border-emerald-500/70 pl-3 ${compact ? "py-1" : "py-2"}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="metric-label">{title}</div>
+        {brief.verdict ? <StatusBadge tone="neutral">{brief.verdict}</StatusBadge> : null}
+      </div>
+      <p className={`${compact ? "mt-1 text-xs leading-5" : "mt-2 text-sm leading-6"} text-zinc-800 dark:text-zinc-100`}>
+        {headline}
+      </p>
+      {brief.action && brief.action !== headline ? (
+        <div className="mt-2 flex gap-2 text-xs leading-5 text-zinc-600 dark:text-zinc-300">
+          <CheckCircle className="mt-0.5 shrink-0 text-emerald-500" size={15} />
+          <span><span className="font-semibold">{t("aiReview.nextAction")}:</span> {brief.action}</span>
+        </div>
+      ) : null}
+      <div className={`mt-3 grid gap-3 ${compact ? "" : "sm:grid-cols-3"}`}>
+        <BriefList icon={<ListChecks size={15} />} label={t("aiReview.keyReasons")} items={brief.keyReasons} />
+        <BriefList icon={<WarningCircle size={15} />} label={t("aiReview.risks")} items={brief.risks} />
+        <BriefList icon={<Target size={15} />} label={t("aiReview.watchConditions")} items={brief.watchConditions} />
+      </div>
+      {brief.managerNote ? (
+        <p className="mt-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+          <span className="font-semibold">{t("aiReview.managerNote")}:</span> {brief.managerNote}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function BriefList({ icon, label, items }: { icon: ReactNode; label: string; items: string[] }) {
+  if (!items.length) return null;
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase text-zinc-500 dark:text-zinc-400">
+        {icon}
+        {label}
+      </div>
+      <ul className="space-y-1 text-xs leading-5 text-zinc-600 dark:text-zinc-300">
+        {items.map((item) => (
+          <li key={item} className="flex gap-1.5">
+            <span className="mt-2 size-1 shrink-0 rounded-full bg-zinc-400 dark:bg-zinc-500" />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function managementDetails(review: Record<string, any>, t: (key: string) => string) {
   const payload = review.payload ?? {};
   const event = review.event ?? payload.event ?? {};
@@ -276,6 +341,7 @@ function managementDetails(review: Record<string, any>, t: (key: string) => stri
   return {
     eventPhase: statusLabel(firstValue(event.phase, review.phase, review.eventPhase), t),
     eventReason: formatText(firstValue(event.reason, review.reason, review.managementReason)),
+    brief: reviewBriefFromRecord(review),
     rationale: formatText(firstValue(nestedReview.rationale, review.rationale)),
     reviewFacts: formatReviewFacts(firstValue(nestedReview.reviewFacts, review.reviewFacts), t),
     appliedActions: formatActionList(firstValue(payload.appliedActions, review.appliedActions, nestedReview.appliedActions, review.actionsApplied, nestedReview.actions, review.actions), t)

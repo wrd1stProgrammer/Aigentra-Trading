@@ -286,6 +286,7 @@ def review_payload_fields(review: Optional[TradeReviewResult]) -> dict[str, Any]
         "aiReviewCode": review.reviewCode,
         "aiReviewFacts": [fact.model_dump() for fact in review.reviewFacts],
         "aiRiskFlags": review.riskFlags,
+        "aiStructuredReview": review.structuredReview.model_dump() if review.structuredReview else None,
         "aiAdjustments": review.adjustments,
         "aiApprovalReason": review.approvalReason,
         "aiCounterThesis": review.counterThesis,

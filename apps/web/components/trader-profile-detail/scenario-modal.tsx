@@ -1,9 +1,11 @@
 "use client";
 
-import { ArrowRight, X } from "@phosphor-icons/react";
+import { ArrowRight, ListChecks, Target, WarningCircle, X } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
 import type { ManagementReview, PaperOrder, PaperPosition, PaperTradeEvent } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import type { LeagueSymbol, TraderScenario } from "@/lib/league";
+import type { ReviewBrief } from "@/lib/review-brief";
 import { scenarioTitle } from "@/components/trader-profile-detail/data";
 import { importanceBadge, scenarioDetailRationaleText, scenarioDisplayText, scenarioImportance } from "@/components/trader-profile-detail/scenario-copy";
 import { DetailChart } from "@/components/trader-profile-detail/chart";
@@ -64,7 +66,11 @@ export function ScenarioModal({
           <div className="space-y-4">
             <div className="rounded-xl bg-zinc-50 p-5 dark:bg-zinc-900">
               <p className="text-xs font-semibold text-zinc-400">{rationaleLabel}</p>
-              <p className="mt-3 text-sm leading-7 text-zinc-700 dark:text-zinc-300">{scenarioDisplayText(scenarioDetailRationaleText(scenario, t), t)}</p>
+              {scenario.reviewBrief ? (
+                <ScenarioReviewBrief brief={scenario.reviewBrief} t={t} />
+              ) : (
+                <p className="mt-3 text-sm leading-7 text-zinc-700 dark:text-zinc-300">{scenarioDisplayText(scenarioDetailRationaleText(scenario, t), t)}</p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <MetricBox label={t("common.side")} value={scenario.side ?? "-"} />
@@ -81,6 +87,54 @@ export function ScenarioModal({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ScenarioReviewBrief({ brief, t }: { brief: ReviewBrief; t: Translator }) {
+  return (
+    <div className="mt-3 space-y-4">
+      <div>
+        {brief.verdict ? <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{brief.verdict}</p> : null}
+        <p className="mt-1 text-sm leading-7 text-zinc-800 dark:text-zinc-100">
+          {brief.headline ?? brief.action ?? brief.managerNote ?? "-"}
+        </p>
+        {brief.action && brief.action !== brief.headline ? (
+          <p className="mt-2 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
+            <span className="font-semibold">{t("aiReview.nextAction")}:</span> {brief.action}
+          </p>
+        ) : null}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <ScenarioBriefList icon={<ListChecks size={15} />} label={t("aiReview.keyReasons")} items={brief.keyReasons} />
+        <ScenarioBriefList icon={<WarningCircle size={15} />} label={t("aiReview.risks")} items={brief.risks} />
+        <ScenarioBriefList icon={<Target size={15} />} label={t("aiReview.watchConditions")} items={brief.watchConditions} />
+      </div>
+      {brief.managerNote ? (
+        <p className="text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+          <span className="font-semibold">{t("aiReview.managerNote")}:</span> {brief.managerNote}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ScenarioBriefList({ icon, label, items }: { icon: ReactNode; label: string; items: string[] }) {
+  if (!items.length) return null;
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase text-zinc-500 dark:text-zinc-400">
+        {icon}
+        {label}
+      </div>
+      <ul className="space-y-1 text-xs leading-5 text-zinc-600 dark:text-zinc-300">
+        {items.map((item) => (
+          <li key={item} className="flex gap-1.5">
+            <span className="mt-2 size-1 shrink-0 rounded-full bg-zinc-400 dark:bg-zinc-500" />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

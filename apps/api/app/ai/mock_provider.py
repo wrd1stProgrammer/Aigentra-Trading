@@ -109,6 +109,13 @@ class MockAIProvider(BaseAIProvider):
                 "reviewCode": "ENTRY_REVIEW",
                 "reviewFacts": facts,
                 "riskFlags": structural_errors or [f"decision:{decision.lower()}"],
+                "structuredReview": self._entry_structured_review(
+                    payload=payload,
+                    locale=locale,
+                    decision=decision,
+                    counter_thesis=counter_thesis,
+                    structural_errors=structural_errors,
+                ),
                 "adjustments": (
                     [adjustment] + structural_errors
                     if decision in {"ADJUST_AND_APPROVE", "REJECT"}
@@ -202,6 +209,7 @@ class MockAIProvider(BaseAIProvider):
             {"code": "holding_policy_checked", "labelKey": "reviewFact.holdingPolicyChecked", "severity": "info"},
             {"code": "hard_rules_priority", "labelKey": "reviewFact.hardRulesPriority", "severity": "warn"},
         ]
+        next_review_seconds = 120 if event.eventType == "common_price_shock" else 300
         return self.normalize_management_result(
             {
                 "decision": suggested if suggested in {"HOLD", "CANCEL_PENDING_ORDER", "ADJUST_PENDING_ORDER", "MOVE_STOP", "MOVE_STOP_TO_BREAKEVEN", "TRAIL_STOP", "TAKE_PARTIAL_PROFIT", "CLOSE_POSITION", "REDUCE_RISK", "ADD_TO_POSITION", "PYRAMID_POSITION", "LET_PROFIT_RUN", "NEEDS_MORE_DATA"} else "HOLD",
@@ -210,11 +218,149 @@ class MockAIProvider(BaseAIProvider):
                 "reviewCode": "POSITION_MANAGEMENT_REVIEW",
                 "reviewFacts": facts,
                 "riskFlags": [f"event:{event.eventType}", f"action:{suggested.lower()}"],
+                "structuredReview": self._management_structured_review(
+                    payload=payload,
+                    locale=locale,
+                    suggested=suggested,
+                    rationale=rationale,
+                    counter_thesis=counter,
+                    next_review_seconds=next_review_seconds,
+                ),
                 "actions": [action],
                 "riskChange": "REDUCE" if suggested not in {"HOLD", "LET_PROFIT_RUN"} else "UNCHANGED",
-                "nextReviewInSeconds": 120 if event.eventType == "common_price_shock" else 300,
+                "nextReviewInSeconds": next_review_seconds,
                 "rationale": rationale,
                 "counterThesis": counter,
                 "userSummary": None,
             }
         )
+
+    def _entry_structured_review(
+        self,
+        *,
+        payload: TradeReviewPayload,
+        locale: str,
+        decision: str,
+        counter_thesis: str,
+        structural_errors: list[str],
+    ) -> dict:
+        candidate = payload.candidate
+        if locale == "ko":
+            verdicts = {
+                "APPROVE": "진입 승인",
+                "ADJUST_AND_APPROVE": "조정 후 승인",
+                "DEFER": "보류",
+                "REJECT": "진입 거절",
+                "NEEDS_MORE_DATA": "추가 확인 필요",
+            }
+            setup = candidate.setupType or "셋업"
+            headline = f"{payload.trader.name}의 {setup}은 {verdicts.get(decision, '검토 완료')}입니다."
+            action = "진입 계획을 유지하되 손절과 조기 종료 조건을 먼저 확인하세요."
+            if decision == "ADJUST_AND_APPROVE":
+                action = "규모나 레버리지를 낮춘 뒤 진입 계획을 진행하세요."
+            elif decision in {"REJECT", "DEFER", "NEEDS_MORE_DATA"}:
+                action = "지금은 진입하지 말고 부족한 확인 조건이 채워질 때까지 기다리세요."
+            key_reasons = structural_errors[:3] or [
+                "진입가, 손절, 익절 위치가 같은 매매 방향으로 정렬돼 있습니다.",
+                "손익비와 수수료 버퍼가 최소 조건을 통과했습니다.",
+                "무효화와 조기 종료 규칙이 있어 손실 확대 전에 끊을 기준이 있습니다.",
+            ]
+            risks = structural_errors[:2] or [counter_thesis]
+            watch = candidate.earlyExitRules[:2] or ([candidate.invalidation] if candidate.invalidation else [])
+            return {
+                "verdict": verdicts.get(decision, "검토 완료"),
+                "headline": headline,
+                "action": action,
+                "keyReasons": key_reasons,
+                "risks": risks,
+                "watchConditions": watch or ["가격이 무효화 기준에 안착하는지 확인하세요."],
+                "managerNote": "숫자가 좋아도 무효화 기준이 먼저 깨지면 진입 논리는 취소됩니다.",
+            }
+
+        verdicts = {
+            "APPROVE": "Entry approved",
+            "ADJUST_AND_APPROVE": "Approve with adjustment",
+            "DEFER": "Defer",
+            "REJECT": "Reject",
+            "NEEDS_MORE_DATA": "Needs more data",
+        }
+        setup = candidate.setupType or "setup"
+        action = "Keep the entry plan, but confirm the stop and early-exit rules first."
+        if decision == "ADJUST_AND_APPROVE":
+            action = "Proceed only after reducing size or leverage."
+        elif decision in {"REJECT", "DEFER", "NEEDS_MORE_DATA"}:
+            action = "Do not enter until the missing confirmation appears."
+        return {
+            "verdict": verdicts.get(decision, "Reviewed"),
+            "headline": f"{payload.trader.name}'s {setup} is {verdicts.get(decision, 'reviewed').lower()}.",
+            "action": action,
+            "keyReasons": structural_errors[:3] or [
+                "Entry, stop, and targets point in the same trade direction.",
+                "Risk/reward and fee buffer meet the minimum checks.",
+                "Invalidation and early-exit rules define when the thesis is wrong.",
+            ],
+            "risks": structural_errors[:2] or [counter_thesis],
+            "watchConditions": candidate.earlyExitRules[:2] or ([candidate.invalidation] if candidate.invalidation else ["Watch for price acceptance beyond invalidation."]),
+            "managerNote": "Even with good geometry, the setup is cancelled if invalidation breaks first.",
+        }
+
+    def _management_structured_review(
+        self,
+        *,
+        payload: PositionManagementPayload,
+        locale: str,
+        suggested: str,
+        rationale: str,
+        counter_thesis: str,
+        next_review_seconds: int,
+    ) -> dict:
+        if locale == "ko":
+            action_labels = {
+                "HOLD": "유지",
+                "CANCEL_PENDING_ORDER": "대기 주문 취소",
+                "ADJUST_PENDING_ORDER": "대기 주문 조정",
+                "MOVE_STOP": "손절선 조정",
+                "MOVE_STOP_TO_BREAKEVEN": "손절선 본절 이동",
+                "TRAIL_STOP": "추적 손절",
+                "TAKE_PARTIAL_PROFIT": "부분 익절",
+                "CLOSE_POSITION": "포지션 종료",
+                "REDUCE_RISK": "리스크 축소",
+                "ADD_TO_POSITION": "계획 내 추가 진입",
+                "PYRAMID_POSITION": "수익 중 추가 진입",
+                "LET_PROFIT_RUN": "수익 추세 유지",
+            }
+            label = action_labels.get(suggested, "관리 보류")
+            return {
+                "verdict": label,
+                "headline": f"현재 판단은 {label}입니다.",
+                "action": f"{label} 기준으로 관리하고 {next_review_seconds}초 뒤 다시 확인하세요.",
+                "keyReasons": [
+                    payload.event.reason,
+                    "트레이더별 보유 정책과 현재 노출 상태를 함께 확인했습니다.",
+                    "손절/익절 하드룰은 AI 판단보다 먼저 적용됩니다.",
+                ],
+                "risks": [counter_thesis],
+                "watchConditions": [
+                    "가격이 손절 또는 익절 기준에 먼저 닿는지 확인하세요.",
+                    f"{next_review_seconds}초 뒤 같은 논리가 유지되는지 재검토하세요.",
+                ],
+                "managerNote": rationale,
+            }
+
+        label = suggested.replace("_", " ").title()
+        return {
+            "verdict": label,
+            "headline": f"The current management call is {label}.",
+            "action": f"Manage under {label} and review again in {next_review_seconds} seconds.",
+            "keyReasons": [
+                payload.event.reason,
+                "The trader holding policy was checked against the current exposure.",
+                "Hard stop/take-profit rules still override the AI decision.",
+            ],
+            "risks": [counter_thesis],
+            "watchConditions": [
+                "Watch whether price reaches stop or take-profit first.",
+                f"Review whether the same thesis still holds in {next_review_seconds} seconds.",
+            ],
+            "managerNote": rationale,
+        }

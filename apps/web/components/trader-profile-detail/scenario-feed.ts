@@ -1,5 +1,6 @@
 import type { ManagementReview } from "@/lib/api";
 import type { TraderScenario } from "@/lib/league";
+import { reviewBriefFromRecord, reviewBriefText } from "@/lib/review-brief";
 import { dedupeScenarioTimelineScenarios } from "@/components/trader-profile-detail/scenario-dedupe";
 import { scenarioDetailRationaleText } from "@/components/trader-profile-detail/scenario-copy";
 import type { Translator } from "@/components/trader-profile-detail/types";
@@ -24,6 +25,10 @@ export function isLatestScenarioFeedScenario(scenario: TraderScenario): boolean 
 export function scenarioTimelineBody(scenario: TraderScenario, matchingReview: ManagementReview | undefined, t: Translator): string {
   switch (scenario.source) {
     case "review":
+      {
+        const briefText = reviewBriefText(scenario.reviewBrief ?? reviewBriefFromRecord(matchingReview));
+        if (briefText) return briefText;
+      }
       if (matchingReview?.rationale) return matchingReview.rationale;
       if (Array.isArray(matchingReview?.reviewFacts) && matchingReview.reviewFacts.length) {
         return matchingReview.reviewFacts.map((fact) => t(fact.labelKey ?? `reviewFact.${fact.code}`)).join(", ");
@@ -31,6 +36,10 @@ export function scenarioTimelineBody(scenario: TraderScenario, matchingReview: M
       return scenario.summary ?? scenario.rationale ?? "-";
     case "position":
     case "order":
+      {
+        const briefText = reviewBriefText(scenario.reviewBrief ?? null);
+        if (briefText) return briefText;
+      }
       return scenarioDetailRationaleText(scenario, t);
     case "event":
     case "strategy":

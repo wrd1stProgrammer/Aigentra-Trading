@@ -52,6 +52,16 @@ export type ReviewFact = {
   value?: string | null;
 };
 
+export type StructuredReview = {
+  verdict?: string | null;
+  headline?: string | null;
+  action?: string | null;
+  keyReasons?: string[] | null;
+  risks?: string[] | null;
+  watchConditions?: string[] | null;
+  managerNote?: string | null;
+};
+
 export type AIReview = {
   decision: string;
   confidence: number;
@@ -59,6 +69,7 @@ export type AIReview = {
   reviewCode?: string | null;
   reviewFacts?: ReviewFact[] | null;
   riskFlags?: string[] | null;
+  structuredReview?: StructuredReview | null;
   adjustments: string[];
   approvalReason: string;
   counterThesis: string;
@@ -289,6 +300,7 @@ export type ManagementReview = {
   reviewCode?: string | null;
   reviewFacts?: ReviewFact[] | null;
   riskFlags?: string[] | null;
+  structuredReview?: StructuredReview | null;
   reason?: string | null;
   rationale?: string | null;
   managementReason?: string | null;
@@ -307,6 +319,7 @@ export type ManagementReview = {
     reviewCode?: string | null;
     reviewFacts?: ReviewFact[] | null;
     riskFlags?: string[] | null;
+    structuredReview?: StructuredReview | null;
     userSummary?: string | null;
     appliedActions?: Array<string | Record<string, any>> | null;
     [key: string]: any;

@@ -20,8 +20,8 @@ MANAGEMENT_REVIEW_TOOL_NAME = "submit_position_management_review"
 ANTHROPIC_REVIEW_MAX_TOKENS = 4096
 ANTHROPIC_JSON_SYSTEM_PROMPT = (
     "Return only the JSON object matching the response schema. "
-    "Do not use markdown. Keep checklist/action array items concise, "
-    "but let approvalReason, rationale, and counterThesis use the detail required by their field descriptions."
+    "Do not use markdown. Keep array items concise and structuredReview beginner-readable; "
+    "approvalReason, rationale, and counterThesis are legacy compatibility fields, not long essays."
 )
 
 
@@ -44,6 +44,38 @@ def review_fact_schema() -> dict[str, Any]:
     }
 
 
+def structured_review_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "verdict": {"type": "string", "description": "Short decision label in the requested language."},
+            "headline": {"type": "string", "description": "One plain-language sentence explaining the current judgment."},
+            "action": {"type": "string", "description": "One concrete next action for the paper trade."},
+            "keyReasons": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": 3,
+                "description": "Up to three short reasons, written for a beginner.",
+            },
+            "risks": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": 2,
+                "description": "Up to two remaining risks or counter-thesis points.",
+            },
+            "watchConditions": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": 3,
+                "description": "Up to three exact triggers to watch next.",
+            },
+            "managerNote": {"type": "string", "description": "One concise desk note tying the decision together."},
+        },
+        "required": ["verdict", "headline", "action", "keyReasons", "risks", "watchConditions", "managerNote"],
+        "additionalProperties": False,
+    }
+
+
 def json_output_config(schema: dict[str, Any]) -> dict[str, Any]:
     return {"format": {"type": "json_schema", "schema": schema}}
 
@@ -58,6 +90,7 @@ def trade_review_schema() -> dict[str, Any]:
             "reviewCode": {"type": "string"},
             "reviewFacts": {"type": "array", "items": review_fact_schema()},
             "riskFlags": string_array_schema(),
+            "structuredReview": structured_review_schema(),
             "adjustments": string_array_schema(),
             "leverageOverride": {"type": "number"},
             "riskPercentOverride": {"type": "number"},
@@ -65,10 +98,8 @@ def trade_review_schema() -> dict[str, Any]:
             "approvalReason": {
                 "type": "string",
                 "description": (
-                    "user-visible entry approval rationale. For APPROVE or ADJUST_AND_APPROVE, write 3-5 "
-                    "compact sentences explaining thesis, execution geometry, fee-aware RR, leverage/risk "
-                    "adjustments, early exits, and residual invalidation risk. Do not cite setupScore as the "
-                    "main reason or describe approval as paper-trading learning."
+                    "Legacy entry approval rationale. Write 1-2 compact sentences mirroring structuredReview. "
+                    "Do not cite setupScore as the main reason or describe approval as paper-trading learning."
                 ),
             },
             "counterThesis": {
@@ -83,6 +114,7 @@ def trade_review_schema() -> dict[str, Any]:
             "reviewCode",
             "reviewFacts",
             "riskFlags",
+            "structuredReview",
             "adjustments",
             "earlyExitRecommendations",
             "approvalReason",
@@ -116,10 +148,11 @@ def management_review_schema() -> dict[str, Any]:
             "reviewCode": {"type": "string"},
             "reviewFacts": {"type": "array", "items": review_fact_schema()},
             "riskFlags": string_array_schema(),
+            "structuredReview": structured_review_schema(),
             "actions": {"type": "array", "items": management_action_schema()},
             "riskChange": {"type": "string"},
             "nextReviewInSeconds": {"type": "integer", "description": "Seconds until the next review, from 60 to 3600."},
-            "rationale": {"type": "string"},
+            "rationale": {"type": "string", "description": "Legacy management rationale. Write 1-2 compact sentences mirroring structuredReview."},
             "counterThesis": {"type": "string"},
         },
         "required": [
@@ -129,6 +162,7 @@ def management_review_schema() -> dict[str, Any]:
             "reviewCode",
             "reviewFacts",
             "riskFlags",
+            "structuredReview",
             "actions",
             "riskChange",
             "nextReviewInSeconds",

@@ -295,6 +295,10 @@ async def test_structured_review_fields_for_entry_review():
     }
     assert review.riskFlags
     assert review.userSummary in {None, ""}
+    assert review.structuredReview is not None
+    assert review.structuredReview.headline
+    assert review.structuredReview.action
+    assert review.structuredReview.keyReasons
 
 
 @pytest.mark.asyncio
@@ -372,6 +376,10 @@ async def test_structured_review_fields_for_management_review():
     }
     assert review.riskFlags
     assert review.userSummary in {None, ""}
+    assert review.structuredReview is not None
+    assert review.structuredReview.headline
+    assert review.structuredReview.action
+    assert review.structuredReview.watchConditions
 
 
 def test_review_policies_have_trader_specific_post_loss_discipline():
@@ -503,10 +511,13 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "userSummary" not in management.split("Payload:", 1)[0]
     assert "reviewCode" in entry
     assert "reviewFacts" in entry
+    assert "structuredReview" in entry
     entry_contract = entry.split("Payload:", 1)[0]
-    assert "approvalReason must be the user-visible entry approval rationale" in entry_contract
-    assert "3-5" in entry_contract
+    assert "structuredReview is the primary user-facing explanation" in entry_contract
+    assert "approvalReason is a legacy compatibility field" in entry_contract
     assert "Do not describe approval as paper-trading learning" in entry_contract
     assert "Do not use setupScore as the main reason" in entry_contract
     assert "reviewCode" in management
     assert "reviewFacts" in management
+    assert "structuredReview" in management
+    assert "rationale is a legacy compatibility field" in management

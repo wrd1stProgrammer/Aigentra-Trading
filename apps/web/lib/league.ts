@@ -6,6 +6,8 @@ import type {
   TraderPaperSummary,
   TraderProfile
 } from "@/lib/api";
+import type { ReviewBrief } from "@/lib/review-brief";
+import { reviewBriefFromRecord, reviewBriefText } from "@/lib/review-brief";
 import { fallbackTraders } from "@/lib/traders";
 
 export type LeagueSymbol = "BTCUSDT" | "ETHUSDT";
@@ -236,6 +238,7 @@ export type TraderScenario = {
   entryWeight?: number | null;
   confidence?: number | string | null;
   provider?: string | null;
+  reviewBrief?: ReviewBrief | null;
   rationale?: string | null;
   summary?: string | null;
   action?: string | null;
@@ -253,8 +256,10 @@ export function buildScenarios(args: {
   const scenarios: TraderScenario[] = [];
   const positionMap = new Map(args.positions.map((position) => [String(position.id), position]));
   const orderMap = new Map(args.orders.map((order) => [String(order.id), order]));
+
   for (const position of args.positions) {
     const payload = (position.payload ?? {}) as Record<string, any>;
+    const reviewBrief = reviewBriefFromRecord({ payload });
     scenarios.push({
       id: `position-${position.id}`,
       title: "Active simulated position",
@@ -268,14 +273,17 @@ export function buildScenarios(args: {
       leverage: firstNumber(position.leverage, payload.leveragePlan?.suggestedLeverage),
       riskPercent: firstNumber(payload.riskPercent),
       entryWeight: firstNumber(payload.entryWeight, payload.weight),
+      reviewBrief,
       rationale: scenarioRationaleFromPayload(payload, position.closeReason),
       summary: scenarioSummaryFromPayload(payload),
       createdAt: position.updatedAt ?? position.openedAt ?? position.createdAt ?? null,
       source: "position"
     });
   }
+
   for (const order of args.orders) {
     const payload = (order.payload ?? {}) as Record<string, any>;
+    const reviewBrief = reviewBriefFromRecord({ payload });
     scenarios.push({
       id: `order-${order.id}`,
       title: payload.entryReason ?? "Pending entry order",
@@ -289,12 +297,14 @@ export function buildScenarios(args: {
       leverage: firstNumber(order.leverage, payload.leveragePlan?.suggestedLeverage),
       riskPercent: firstNumber(payload.riskPercent),
       entryWeight: firstNumber(payload.entryWeight, payload.weight, payload.entry?.weight),
+      reviewBrief,
       rationale: scenarioRationaleFromPayload(payload),
       summary: scenarioSummaryFromPayload(payload),
       createdAt: order.updatedAt ?? order.createdAt,
       source: "order"
     });
   }
+
   for (const review of args.reviews) {
     const payload = (review.payload ?? {}) as Record<string, any>;
     const event = review.event ?? payload.event ?? {};
@@ -306,6 +316,7 @@ export function buildScenarios(args: {
     const exposureInnerPayload = ((exposurePayload.payload ?? linkedPayload) as Record<string, any>);
     const metrics = (event.metrics ?? {}) as Record<string, any>;
     const action = Array.isArray(nested.actions) ? nested.actions[0] : null;
+    const reviewBrief = reviewBriefFromRecord(review);
     scenarios.push({
       id: `review-${review.id}`,
       title: String(event.eventType ?? review.eventType ?? "AI management review"),
@@ -330,7 +341,8 @@ export function buildScenarios(args: {
       entryWeight: firstNumber(exposureInnerPayload.entryWeight, exposurePayload.entryWeight, linkedPayload.entryWeight, linkedPayload.entry?.weight),
       confidence: review.confidence ?? nested.confidence ?? null,
       provider: review.provider ?? nested.provider ?? null,
-      rationale: review.rationale ?? nested.rationale ?? action?.reason ?? event.reason ?? null,
+      reviewBrief,
+      rationale: reviewBriefText(reviewBrief) ?? review.rationale ?? nested.rationale ?? action?.reason ?? event.reason ?? null,
       summary: null,
       action: review.actionType ?? action?.type ?? review.action ?? null,
       createdAt: review.createdAt,

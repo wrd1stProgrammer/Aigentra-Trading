@@ -80,6 +80,7 @@ async def test_anthropic_entry_review_uses_json_output_schema(monkeypatch):
                             '"reviewCode":"ENTRY_REVIEW",'
                             '"reviewFacts":[{"code":"entry_geometry_checked","labelKey":"reviewFact.entryGeometryChecked","severity":"info"}],'
                             '"riskFlags":["risk_level:medium"],'
+                            '"structuredReview":{"verdict":"진입 승인","headline":"채널 근거가 유지돼 진입을 승인합니다.","action":"손절 기준을 먼저 확인하고 계획대로 대기 주문을 유지하세요.","keyReasons":["진입 구조가 맞습니다."],"risks":["채널 하단이 깨지면 취소입니다."],"watchConditions":["15m 종가가 채널을 이탈하는지 확인"],"managerNote":"무효화가 먼저 깨지면 진입하지 않습니다."},'
                             '"adjustments":[],'
                             '"earlyExitRecommendations":["15m 종가가 진입 근거를 훼손하면 철회"],'
                             '"approvalReason":"1차 조건과 리스크 구조가 일치합니다.",'
@@ -118,12 +119,15 @@ async def test_anthropic_entry_review_uses_json_output_schema(monkeypatch):
     schema = captured["body"]["output_config"]["format"]["schema"]
     assert captured["body"]["output_config"]["format"]["type"] == "json_schema"
     assert "decision" in schema["required"]
+    assert "structuredReview" in schema["required"]
     assert schema["additionalProperties"] is False
     approval_description = schema["properties"]["approvalReason"]["description"]
-    assert "user-visible entry approval rationale" in approval_description
-    assert "3-5" in approval_description
+    assert "Legacy entry approval rationale" in approval_description
+    assert "1-2" in approval_description
     assert captured["body"]["max_tokens"] == ANTHROPIC_REVIEW_MAX_TOKENS
     assert "under 140 characters" not in captured["body"]["system"]
+    assert review.structuredReview is not None
+    assert review.structuredReview.headline == "채널 근거가 유지돼 진입을 승인합니다."
 
 
 @pytest.mark.asyncio
@@ -149,6 +153,7 @@ async def test_anthropic_management_review_uses_json_output_schema(monkeypatch):
                             '"reviewCode":"POSITION_MANAGEMENT_REVIEW",'
                             '"reviewFacts":[{"code":"management_event_reviewed","labelKey":"reviewFact.managementEventReviewed","severity":"info"}],'
                             '"riskFlags":["risk_level:medium"],'
+                            '"structuredReview":{"verdict":"유지","headline":"가격이 아직 관리 범위 안에 있습니다.","action":"현재 포지션을 유지하고 다음 리뷰까지 손절 접근 여부를 확인하세요.","keyReasons":["관리 이벤트를 확인했습니다."],"risks":["65000 이탈 시 손절 기준이 우선입니다."],"watchConditions":["65000 이탈 여부"],"managerNote":"하드룰은 AI 판단보다 우선합니다."},'
                             '"actions":[{"type":"HOLD","reason":"추세 훼손 전까지 유지"}],'
                             '"riskChange":"UNCHANGED",'
                             '"nextReviewInSeconds":300,'
@@ -186,9 +191,12 @@ async def test_anthropic_management_review_uses_json_output_schema(monkeypatch):
     schema = captured["body"]["output_config"]["format"]["schema"]
     assert captured["body"]["output_config"]["format"]["type"] == "json_schema"
     assert "decision" in schema["required"]
+    assert "structuredReview" in schema["required"]
     assert schema["additionalProperties"] is False
     assert captured["body"]["max_tokens"] == ANTHROPIC_REVIEW_MAX_TOKENS
-    assert "concise" in captured["body"]["system"]
+    assert "beginner-readable" in captured["body"]["system"]
+    assert review.structuredReview is not None
+    assert review.structuredReview.action.startswith("현재 포지션")
 
 
 def test_anthropic_json_output_error_includes_stop_reason_and_content_types():

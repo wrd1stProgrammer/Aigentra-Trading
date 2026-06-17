@@ -10,7 +10,9 @@ const exposureStub = {
 const panelRows = loadTsModule("../components/trader-profile-detail/position-panel-rows.ts", {
   "@/components/live-candle-chart-overlays": exposureStub
 });
+const reviewBrief = loadTsModule("../lib/review-brief.ts");
 const league = loadTsModule("../lib/league.ts", {
+  "@/lib/review-brief": reviewBrief,
   "@/lib/traders": { fallbackTraders: [] }
 });
 const pageSource = readFileSync(new URL("../components/trader-profile-page-client.tsx", import.meta.url), "utf8");
@@ -21,6 +23,7 @@ const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf
 const scenarioCopy = loadTsModule("../components/trader-profile-detail/scenario-copy.ts");
 const scenarioFeed = loadTsModule("../components/trader-profile-detail/scenario-feed.ts", {
   "@/components/live-candle-chart-overlays": exposureStub,
+  "@/lib/review-brief": reviewBrief,
   "@/components/trader-profile-detail/scenario-copy": {
     scenarioDetailRationaleText: () => "active position copy"
   },
@@ -222,6 +225,35 @@ test("latest scenario feed includes AI-approved entry rationale and management r
   assert.deepEqual(
     scenarioFeed.latestScenarioFeedScenarios(scenarios).map((scenario) => scenario.id),
     ["review-1", "position-1", "position-2"]
+  );
+});
+
+test("latest scenario feed prefers structured readable review text when available", () => {
+  const structured = {
+    verdict: "유지",
+    headline: "현재 포지션은 아직 유지가 맞습니다.",
+    action: "손절 접근 여부만 확인하세요.",
+    keyReasons: ["진입 근거가 깨지지 않았습니다."],
+    risks: ["손절선 이탈 시 종료입니다."],
+    watchConditions: ["15분 종가 확인"],
+    managerNote: "과한 추가 진입은 피합니다."
+  };
+
+  assert.equal(
+    scenarioFeed.scenarioTimelineBody(
+      { id: "review-1", source: "review", phase: "OPEN_POSITION", status: "HOLD", reviewBrief: structured },
+      undefined,
+      (key) => key
+    ),
+    "현재 포지션은 아직 유지가 맞습니다. 손절 접근 여부만 확인하세요. 진입 근거가 깨지지 않았습니다. 15분 종가 확인"
+  );
+  assert.equal(
+    scenarioFeed.scenarioTimelineBody(
+      { id: "position-1", source: "position", phase: "OPEN_POSITION", status: "open", reviewBrief: structured, rationale: "old long paragraph" },
+      undefined,
+      (key) => key
+    ),
+    "현재 포지션은 아직 유지가 맞습니다. 손절 접근 여부만 확인하세요. 진입 근거가 깨지지 않았습니다. 15분 종가 확인"
   );
 });
 

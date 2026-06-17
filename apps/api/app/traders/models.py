@@ -101,6 +101,16 @@ class ReviewFact(BaseModel):
     value: Optional[str] = None
 
 
+class StructuredReview(BaseModel):
+    verdict: Optional[str] = None
+    headline: Optional[str] = None
+    action: Optional[str] = None
+    keyReasons: List[str] = Field(default_factory=list)
+    risks: List[str] = Field(default_factory=list)
+    watchConditions: List[str] = Field(default_factory=list)
+    managerNote: Optional[str] = None
+
+
 class TradeReviewResult(BaseModel):
     decision: Decision
     confidence: int
@@ -108,6 +118,7 @@ class TradeReviewResult(BaseModel):
     reviewCode: str = "ENTRY_REVIEW"
     reviewFacts: List[ReviewFact] = Field(default_factory=list)
     riskFlags: List[str] = Field(default_factory=list)
+    structuredReview: Optional[StructuredReview] = None
     adjustments: List[str] = Field(default_factory=list)
     leverageOverride: Optional[float] = None
     riskPercentOverride: Optional[float] = None
@@ -173,6 +184,7 @@ class PositionManagementResult(BaseModel):
     reviewCode: str = "POSITION_MANAGEMENT_REVIEW"
     reviewFacts: List[ReviewFact] = Field(default_factory=list)
     riskFlags: List[str] = Field(default_factory=list)
+    structuredReview: Optional[StructuredReview] = None
     actions: List[ManagementAction] = Field(default_factory=list)
     riskChange: str = "UNCHANGED"
     nextReviewInSeconds: int = 300

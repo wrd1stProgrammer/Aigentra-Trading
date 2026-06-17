@@ -36,6 +36,7 @@ def _review_summary(record: AIReviewRecord) -> dict[str, Any]:
         "reviewCode": payload.get("reviewCode"),
         "reviewFacts": payload.get("reviewFacts") or [],
         "riskFlags": payload.get("riskFlags") or [],
+        "structuredReview": payload.get("structuredReview"),
         "adjustments": payload.get("adjustments") or [],
     }
 
@@ -57,6 +58,7 @@ def _management_summary(record: PositionManagementReviewRecord) -> dict[str, Any
         "reviewCode": review.get("reviewCode"),
         "reviewFacts": review.get("reviewFacts") or [],
         "riskFlags": review.get("riskFlags") or [],
+        "structuredReview": review.get("structuredReview"),
         "appliedActions": applied[:3],
     }
 
