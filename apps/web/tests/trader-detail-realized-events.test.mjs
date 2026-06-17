@@ -61,18 +61,15 @@ test("realized take-profit and stop-loss events can build completed event rows",
   assert.match(items[1].priceLabel, /62,524/);
 });
 
-test("latest scenario feed is restricted to AI review scenarios", () => {
+test("latest scenario feed includes AI reviews and active AI-approved positions", () => {
   const source = readFileSync(new URL("../components/trader-profile-detail/data.ts", import.meta.url), "utf8");
 
-  assert.match(
-    source,
-    /dedupeScenarioTimelineScenarios\(\s*scenarios\.filter\(\(scenario\) => scenario\.source === "review"\)/s,
-    "latest scenarios should filter to AI review records before deduping"
-  );
+  assert.match(source, /latestScenarioFeedScenarios\(scenarios\)/, "latest scenarios should use the shared feed filter");
+  assert.match(source, /scenarioTimelineBody\(/, "latest scenarios should use source-aware body copy");
   assert.doesNotMatch(
     source,
     /buildRealizedEventTimelineItems\(\{/,
-    "realized trade events should not be injected into the AI review scenario feed"
+    "realized trade events should not be injected into the latest scenario feed"
   );
   assert.doesNotMatch(source, /planScenario/, "trade plans should stay out of the AI review scenario feed");
 });

@@ -11,6 +11,16 @@ const pageSource = readFileSync(new URL("../components/trader-profile-page-clien
 const chartSource = readFileSync(new URL("../components/trader-profile-detail/chart.tsx", import.meta.url), "utf8");
 const panelSource = readFileSync(new URL("../components/trader-profile-detail/binance-position-panel.tsx", import.meta.url), "utf8");
 const modalSource = readFileSync(new URL("../components/trader-profile-detail/scenario-modal.tsx", import.meta.url), "utf8");
+const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
+const scenarioCopy = loadTsModule("../components/trader-profile-detail/scenario-copy.ts");
+const scenarioFeed = loadTsModule("../components/trader-profile-detail/scenario-feed.ts", {
+  "@/components/trader-profile-detail/scenario-copy": {
+    scenarioDetailRationaleText: () => "active position copy"
+  },
+  "@/components/trader-profile-detail/scenario-dedupe": {
+    dedupeScenarioTimelineScenarios: (scenarios) => Array.from(scenarios)
+  }
+});
 
 test("open order panel only displays persisted non-synthetic open orders", () => {
   // Given: the API returns two real open orders, one closed order, and one legacy synthetic plan row.
@@ -121,7 +131,7 @@ test("order and position scenarios prefer AI rationale over entry labels", () =>
   // When: scenarios are built for the detail timeline and row detail modal.
   const scenarios = league.buildScenarios({ trader, positions, orders, reviews: [], events: [] });
 
-  // Then: AI rationale is the visible management rationale, not the mechanical entry label.
+  // Then: AI rationale is the visible entry approval rationale, not the mechanical entry label.
   const orderScenario = scenarios.find((scenario) => scenario.id === "order-101");
   const positionScenario = scenarios.find((scenario) => scenario.id === "position-102");
   assert.equal(orderScenario.rationale, "AI는 상단 채널 실패와 하위 시간대 약세 전환이 겹쳐 이 대기 주문을 승인했습니다.");
@@ -140,10 +150,54 @@ test("position panel exposes detail callbacks for positions and orders", () => {
 });
 
 test("scenario modal does not show entry summary as management rationale", () => {
-  assert.match(modalSource, /scenario\.rationale \?\? t\("detail\.noAiRationale"\)/);
+  assert.match(modalSource, /scenarioDetailRationaleText\(scenario, t\)/);
   assert.doesNotMatch(modalSource, /scenario\.rationale \?\? scenario\.summary/);
   assert.doesNotMatch(modalSource, /aiReview\.userSummary/);
   assert.doesNotMatch(modalSource, /scenario\.summary/);
+});
+
+test("scenario modal labels entry approvals separately from management reviews", () => {
+  assert.match(modalSource, /function scenarioRationaleLabel/);
+  assert.match(modalSource, /case "position":\s*case "order":\s*return t\("aiReview\.entryRationale"\);/s);
+  assert.match(modalSource, /case "review":\s*return t\("aiReview\.rationale"\);/s);
+  assert.match(i18nSource, /"aiReview\.entryRationale": "진입 승인 근거"/);
+  assert.match(i18nSource, /"aiReview\.entryRationale": "Entry Approval Rationale"/);
+});
+
+test("open position detail shows the saved entry approval rationale instead of generic active status copy", () => {
+  const approvalRationale =
+    "Donchian 경계 돌파가 명확하고 15m 거래량 z-스코어 1.49로 참여 신호 있음. 위험-수익 비율 2.6은 최소 요구치 1.15를 초과.";
+  const text = scenarioCopy.scenarioDetailRationaleText(
+    {
+      id: "position-102",
+      source: "position",
+      phase: "OPEN_POSITION",
+      status: "open",
+      rationale: approvalRationale
+    },
+    (key) =>
+      ({
+        "detail.noAiRationale": "저장된 AI 판단 근거 없음"
+      })[key] ?? key
+  );
+
+  assert.equal(text, approvalRationale);
+  assert.notEqual(text, "저장된 AI 판단 근거 없음");
+});
+
+test("latest scenario feed includes active AI-approved positions but excludes inactive exposure rows", () => {
+  const scenarios = [
+    { id: "review-1", source: "review", phase: "OPEN_POSITION", status: "HOLD" },
+    { id: "position-1", source: "position", phase: "OPEN_POSITION", status: "open", rationale: "approved" },
+    { id: "position-2", source: "position", phase: "OPEN_POSITION", status: "closed", rationale: "approved" },
+    { id: "position-3", source: "position", phase: "OPEN_POSITION", status: "open", rationale: null },
+    { id: "order-1", source: "order", phase: "PENDING_ORDER", status: "open", rationale: "approved" }
+  ];
+
+  assert.deepEqual(
+    scenarioFeed.latestScenarioFeedScenarios(scenarios).map((scenario) => scenario.id),
+    ["review-1", "position-1"]
+  );
 });
 
 function loadTsModule(relativePath, requireStubs = {}) {

@@ -46,6 +46,18 @@ export function scenarioDisplayText(value: unknown, t: Translator) {
   return INLINE_TEXT_KEYS.reduce((text, [pattern, key]) => text.replace(pattern, t(key)), trimmed);
 }
 
+export function scenarioDetailRationaleText(scenario: TraderScenario, t: Translator): string {
+  switch (scenario.source) {
+    case "position":
+    case "order":
+      return scenario.rationale ?? t("detail.noAiRationale");
+    case "review":
+    case "event":
+    case "strategy":
+      return scenario.rationale ?? t("detail.noAiRationale");
+  }
+}
+
 export function scenarioImportance(scenario: TraderScenario): ScenarioImportance {
   const haystack = normalizeText([
     scenario.eventType,

@@ -5,7 +5,7 @@ import type { ManagementReview, PaperOrder, PaperPosition, PaperTradeEvent } fro
 import { formatNumber } from "@/lib/format";
 import type { LeagueSymbol, TraderScenario } from "@/lib/league";
 import { scenarioTitle } from "@/components/trader-profile-detail/data";
-import { importanceBadge, scenarioDisplayText, scenarioImportance } from "@/components/trader-profile-detail/scenario-copy";
+import { importanceBadge, scenarioDetailRationaleText, scenarioDisplayText, scenarioImportance } from "@/components/trader-profile-detail/scenario-copy";
 import { DetailChart } from "@/components/trader-profile-detail/chart";
 import { MetricBox } from "@/components/trader-profile-detail/side-panels";
 import type { ChartPlanResult, Translator } from "@/components/trader-profile-detail/types";
@@ -32,6 +32,7 @@ export function ScenarioModal({
   t: Translator;
 }) {
   const importance = importanceBadge(scenarioImportance(scenario), t);
+  const rationaleLabel = scenarioRationaleLabel(scenario, t);
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-zinc-950/55 p-4 backdrop-blur-sm">
       <div className="max-h-[92dvh] w-full max-w-6xl overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800">
@@ -62,8 +63,8 @@ export function ScenarioModal({
           />
           <div className="space-y-4">
             <div className="rounded-xl bg-zinc-50 p-5 dark:bg-zinc-900">
-              <p className="text-xs font-semibold text-zinc-400">{t("aiReview.rationale")}</p>
-              <p className="mt-3 text-sm leading-7 text-zinc-700 dark:text-zinc-300">{scenarioDisplayText(scenario.rationale ?? t("detail.noAiRationale"), t)}</p>
+              <p className="text-xs font-semibold text-zinc-400">{rationaleLabel}</p>
+              <p className="mt-3 text-sm leading-7 text-zinc-700 dark:text-zinc-300">{scenarioDisplayText(scenarioDetailRationaleText(scenario, t), t)}</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <MetricBox label={t("common.side")} value={scenario.side ?? "-"} />
@@ -82,4 +83,18 @@ export function ScenarioModal({
       </div>
     </div>
   );
+}
+
+export function scenarioRationaleLabel(scenario: TraderScenario, t: Translator): string {
+  switch (scenario.source) {
+    case "position":
+    case "order":
+      return t("aiReview.entryRationale");
+    case "review":
+      return t("aiReview.rationale");
+    case "event":
+      return t("detail.eventRationale");
+    case "strategy":
+      return t("detail.strategyRationale");
+  }
 }

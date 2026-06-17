@@ -3,8 +3,8 @@ import { formatCurrency, formatDateTime, formatNumber, formatPercent } from "@/l
 import type { Locale } from "@/lib/i18n";
 import type { LeagueSymbol, TraderScenario } from "@/lib/league";
 import { statusLabel } from "@/lib/status";
-import { dedupeScenarioTimelineScenarios } from "@/components/trader-profile-detail/scenario-dedupe";
 import { scenarioDisplayText, scenarioImportance } from "@/components/trader-profile-detail/scenario-copy";
+import { latestScenarioFeedScenarios, scenarioTimelineBody } from "@/components/trader-profile-detail/scenario-feed";
 import { sortTimelineItemsByRecency, timelineTimeValue } from "@/components/trader-profile-detail/timeline-sort";
 import type { PlanRecord, TimelineItem, TradeHistoryItem, Translator } from "@/components/trader-profile-detail/types";
 
@@ -34,7 +34,7 @@ export function buildScenarioTimelineItems({
 }): TimelineItem[] {
   const items: TimelineItem[] = [];
 
-  for (const scenario of dedupeScenarioTimelineScenarios(scenarios.filter((scenario) => scenario.source === "review"))) {
+  for (const scenario of latestScenarioFeedScenarios(scenarios)) {
     const movement = scenario.side ? scenario.side.toUpperCase() : statusLabel(scenario.action ?? scenario.status, t);
     const price = scenario.price ?? scenario.target ?? scenario.stop ?? null;
     const matchingReview = reviews.find((review) => `review-${review.id}` === scenario.id);
@@ -54,17 +54,6 @@ export function buildScenarioTimelineItems({
   }
 
   return sortTimelineItemsByRecency(items);
-}
-
-function scenarioTimelineBody(scenario: TraderScenario, matchingReview: ManagementReview | undefined, t: Translator): string {
-  if (scenario.source === "review" && matchingReview?.rationale) return matchingReview.rationale;
-  if (scenario.source === "review" && Array.isArray(matchingReview?.reviewFacts) && matchingReview.reviewFacts.length) {
-    return matchingReview.reviewFacts.map((fact) => t(fact.labelKey ?? `reviewFact.${fact.code}`)).join(", ");
-  }
-  if (scenario.source === "review" && scenario.summary) return scenario.summary;
-  if (scenario.rationale) return scenario.rationale;
-  if (scenario.source === "order" || scenario.source === "position") return t("detail.noAiRationale");
-  return scenario.summary ?? "-";
 }
 
 export function buildTradeHistoryItems({
