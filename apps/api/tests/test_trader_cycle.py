@@ -517,6 +517,11 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "approvalReason is a legacy compatibility field" in entry_contract
     assert "Do not describe approval as paper-trading learning" in entry_contract
     assert "Do not use setupScore as the main reason" in entry_contract
+    assert "Treat 5x as the service execution floor" in entry_contract
+    assert "Do not require arbitrary setupScore 70+ or 75+" in entry_contract
+    assert "higher leverage should require progressively stronger confirmation" in entry_contract
+    assert "Use recentAiReviews as context, not as an independent veto" in entry_contract
+    assert "For reversal, mean-reversion, divergence, or fade strategies" in entry_contract
     assert "reviewCode" in management
     assert "reviewFacts" in management
     assert "structuredReview" in management
