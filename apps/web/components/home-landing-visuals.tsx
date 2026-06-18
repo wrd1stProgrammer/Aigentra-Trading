@@ -20,10 +20,10 @@ export function VideoFrame({ title, subtitle, compact = false }: { readonly titl
   return (
     <div
       className={`relative overflow-hidden rounded-2xl border border-white/15 bg-[#111413] p-3 shadow-[0_22px_90px_rgba(0,0,0,0.48)] ${
-        compact ? "min-h-[360px]" : "min-h-[430px]"
+        compact ? "min-h-[320px] sm:min-h-[360px]" : "min-h-[360px] sm:min-h-[430px]"
       }`}
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_8%,rgba(96,165,250,0.22),transparent_26%),radial-gradient(circle_at_92%_95%,rgba(249,115,22,0.25),transparent_24%),linear-gradient(90deg,rgba(16,185,129,0.08),transparent)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(96,165,250,0.14),transparent_32%),linear-gradient(315deg,rgba(249,115,22,0.14),transparent_30%),linear-gradient(90deg,rgba(16,185,129,0.08),transparent)]" />
       <div className="relative h-full rounded-xl border border-white/12 bg-[#090b0a] p-5 text-white md:p-7">
         <div className="flex items-center justify-between border-b border-white/10 pb-4">
           <div className="flex items-center gap-3">
@@ -41,9 +41,9 @@ export function VideoFrame({ title, subtitle, compact = false }: { readonly titl
         </div>
         <div className="grid gap-4 pt-5 lg:grid-cols-[0.7fr_1.3fr]">
           <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
-            <button className="mb-5 w-full rounded-lg bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-[0_0_28px_rgba(16,185,129,0.45)]">
+            <div className="mb-5 w-full rounded-lg bg-emerald-500 px-4 py-3 text-center text-sm font-semibold text-white shadow-[0_0_28px_rgba(16,185,129,0.45)]">
               + New analysis
-            </button>
+            </div>
             <p className="mb-3 font-mono text-xs text-zinc-500">History</p>
             {traderRows.map((row, index) => (
               <div key={row.name} className="flex items-center gap-3 border-b border-white/10 py-3 last:border-b-0">
@@ -81,7 +81,9 @@ export function VideoFrame({ title, subtitle, compact = false }: { readonly titl
       </div>
     </div>
   );
-}export function PipelinePreview() {
+}
+
+export function PipelinePreview() {
   return (
     <div className="w-full text-left font-sans">
       <div className="flex items-center justify-between border-b border-white/5 pb-2.5 mb-4">
@@ -354,16 +356,16 @@ export function PricingCard({
     }
   }
 
-  const badgeText = plan.name === "Observer" 
-    ? "FREE" 
-    : plan.name === "Tactician" 
-      ? "RECOMMENDED" 
+  const badgeText = plan.name === "Observer"
+    ? "FREE"
+    : plan.name === "Tactician"
+      ? "RECOMMENDED"
       : "POPULAR";
 
   return (
-    <article className={`relative rounded-2xl border p-6 md:p-8 hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between h-full ${
-      featured 
-        ? "border-emerald-500/45 bg-gradient-to-b from-[#0a2016] via-[#05160f] to-[#020605] shadow-[0_12px_40px_rgba(16,185,129,0.15),inset_0_1px_1px_rgba(255,255,255,0.06)] hover:border-emerald-500/60 md:scale-105 z-10" 
+    <article className={`relative rounded-2xl border p-5 transition-all duration-300 hover:-translate-y-1 sm:p-6 md:p-8 flex flex-col justify-between h-full ${
+      featured
+        ? "border-emerald-500/45 bg-gradient-to-b from-[#0a2016] via-[#05160f] to-[#020605] shadow-[0_12px_40px_rgba(16,185,129,0.15),inset_0_1px_1px_rgba(255,255,255,0.06)] hover:border-emerald-500/60 lg:scale-105 z-10"
         : "border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] hover:border-emerald-500/20"
     }`}>
       {featured && (
@@ -385,8 +387,8 @@ export function PricingCard({
         </div>
 
         <div className="mt-8 min-h-[72px] flex flex-col justify-end">
-          <div className="flex items-end gap-1.5">
-            <span className="text-4xl font-bold tracking-tight text-white font-mono">{displayPrice}</span>
+          <div className="flex flex-wrap items-end gap-1.5">
+            <span className="text-3xl font-bold tracking-tight text-white font-mono sm:text-4xl">{displayPrice}</span>
             <span className="pb-1 text-zinc-500 text-xs font-semibold">{displayCadence}</span>
             {billingCycle === "annual" && !isFree && (
               <span className="ml-2 bg-emerald-500/10 text-emerald-400 text-[9px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/20">

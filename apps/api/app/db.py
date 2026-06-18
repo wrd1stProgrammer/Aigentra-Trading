@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Generator, Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, create_engine, text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text, TypeDecorator, UniqueConstraint, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -99,6 +99,28 @@ class Base(DeclarativeBase):
     pass
 
 
+class UTCDateTime(TypeDecorator):
+    impl = DateTime
+    cache_ok = True
+
+    def __init__(self) -> None:
+        super().__init__(timezone=True)
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+
 class CommonMixin:
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
@@ -179,6 +201,42 @@ class PositionManagementReviewRecord(CommonMixin, Base):
     confidence: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     action_type: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
     fallback: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class LeagueSentimentOpinionRecord(CommonMixin, Base):
+    __tablename__ = "league_sentiment_opinions"
+    __table_args__ = (
+        UniqueConstraint("symbol", "locale", "interval_start", name="uq_league_sentiment_opinions_symbol_locale_hour"),
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)
+    locale: Mapped[str] = mapped_column(String(8), default="ko", nullable=False, index=True)
+    interval_start: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
+    interval_end: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
+    provider: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)
+    model: Mapped[Optional[str]] = mapped_column(String(140), nullable=True)
+    bias: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)
+    confidence: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    risk_level: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)
+    fallback: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    input_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class AITranslationCacheRecord(CommonMixin, Base):
+    __tablename__ = "ai_translation_cache"
+    __table_args__ = (
+        UniqueConstraint("source_type", "source_id", "source_hash", "locale", name="uq_ai_translation_cache_source_hash_locale"),
+        Index("ix_ai_translation_cache_source_lookup", "source_type", "source_id", "source_hash", "locale"),
+        Index("ix_ai_translation_cache_hash_reuse", "source_type", "source_hash", "locale", "status"),
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)
+    source_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    source_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    source_hash: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    locale: Mapped[str] = mapped_column(String(8), nullable=False, index=True)
+    provider: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)
+    model: Mapped[Optional[str]] = mapped_column(String(140), nullable=True)
 
 
 class TraderAgentStateRecord(CommonMixin, Base):

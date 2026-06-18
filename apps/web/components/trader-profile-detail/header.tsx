@@ -6,7 +6,7 @@ import type { TraderProfile } from "@/lib/api";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
 import type { TraderStanding } from "@/lib/league";
-import { traderAliasKey, traderNameKey, traderShortKey } from "@/lib/traders";
+import { traderAliasKey, traderDetailKey, traderNameKey } from "@/lib/traders";
 import { movementToneClass } from "@/components/trader-profile-detail/data";
 import type { Translator, VisualProfile } from "@/components/trader-profile-detail/types";
 
@@ -27,7 +27,7 @@ export function HeroHeader({
 }) {
   const localizedName = translatedOrFallback(t, traderNameKey(trader.id), trader.name);
   const localizedAlias = translatedOrFallback(t, traderAliasKey(trader.id), visual.alias);
-  const localizedDescription = translatedOrFallback(t, traderShortKey(trader.id), trader.concept ?? trader.description);
+  const localizedDescription = translatedOrFallback(t, traderDetailKey(trader.id), trader.concept ?? trader.description);
   return (
     <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
       <div className="flex min-w-0 items-start gap-4">

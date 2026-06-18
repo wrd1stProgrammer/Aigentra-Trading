@@ -6,6 +6,8 @@ from typing import List
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
+from app.locales import normalize_locale, normalize_translation_locales
+
 
 API_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(API_ROOT / ".env")
@@ -76,6 +78,13 @@ class Settings(BaseModel):
     ai_missing_key_fallback_to_mock: bool = Field(default_factory=lambda: env_bool("AI_MISSING_KEY_FALLBACK_TO_MOCK", "true"))
     openai_api_key: str = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     openai_model: str = Field(default_factory=lambda: os.getenv("OPENAI_MODEL", "gpt-4.1-mini"))
+    ai_translation_enabled: bool = Field(default_factory=lambda: env_bool("AI_TRANSLATION_ENABLED", "true"))
+    openai_translation_model: str = Field(default_factory=lambda: os.getenv("OPENAI_TRANSLATION_MODEL", "gpt-4.1-nano"))
+    ai_translation_timeout_seconds: float = Field(default_factory=lambda: env_float("AI_TRANSLATION_TIMEOUT_SECONDS", "30"))
+    ai_translation_concurrency: int = Field(default_factory=lambda: env_int("AI_TRANSLATION_CONCURRENCY", "4"))
+    ai_translation_target_locales: List[str] = Field(
+        default_factory=lambda: list(normalize_translation_locales(os.getenv("AI_TRANSLATION_TARGET_LOCALES", "")))
+    )
     gemini_api_key: str = Field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
     gemini_model: str = Field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-1.5-flash"))
     anthropic_api_key: str = Field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
@@ -94,7 +103,7 @@ class Settings(BaseModel):
     auto_scanner_symbols: List[str] = Field(default_factory=lambda: env_symbol_list("AUTO_SCANNER_SYMBOLS", "BTCUSDT"))
     auto_scanner_interval_seconds: int = Field(default_factory=lambda: env_int("AUTO_SCANNER_INTERVAL_SECONDS", "60"))
     auto_scanner_provider: str = Field(default_factory=lambda: normalize_ai_provider_name(os.getenv("AUTO_SCANNER_PROVIDER"), "mock"))
-    auto_scanner_locale: str = Field(default_factory=lambda: os.getenv("AUTO_SCANNER_LOCALE", "ko").lower())
+    auto_scanner_locale: str = Field(default_factory=lambda: normalize_locale(os.getenv("AUTO_SCANNER_LOCALE", "en")))
     auto_scanner_snapshot_concurrency: int = Field(default_factory=lambda: env_int("AUTO_SCANNER_SNAPSHOT_CONCURRENCY", "3"))
     auto_scanner_ai_concurrency: int = Field(default_factory=lambda: env_int("AUTO_SCANNER_AI_CONCURRENCY", "2"))
     ai_rejection_cooldown_seconds: int = Field(default_factory=lambda: env_int("AI_REJECTION_COOLDOWN_SECONDS", "300"))
@@ -106,6 +115,13 @@ class Settings(BaseModel):
     position_management_pending_heartbeat_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_PENDING_HEARTBEAT_SECONDS", "300"))
     position_management_open_heartbeat_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_OPEN_HEARTBEAT_SECONDS", "300"))
     position_management_urgent_cooldown_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_URGENT_COOLDOWN_SECONDS", "60"))
+    league_sentiment_provider: str = Field(
+        default_factory=lambda: normalize_ai_provider_name(
+            os.getenv("LEAGUE_SENTIMENT_PROVIDER"),
+            os.getenv("POSITION_MANAGEMENT_PROVIDER") or os.getenv("AI_PROVIDER") or "mock",
+        )
+    )
+    league_sentiment_recent_hours: int = Field(default_factory=lambda: env_int("LEAGUE_SENTIMENT_RECENT_HOURS", "24"))
     price_shock_threshold_percent: float = Field(default_factory=lambda: env_float("PRICE_SHOCK_THRESHOLD_PERCENT", "0.7"))
     price_shock_review_seconds: int = Field(default_factory=lambda: env_int("PRICE_SHOCK_REVIEW_SECONDS", "120"))
     price_shock_review_cycles: int = Field(default_factory=lambda: env_int("PRICE_SHOCK_REVIEW_CYCLES", "5"))

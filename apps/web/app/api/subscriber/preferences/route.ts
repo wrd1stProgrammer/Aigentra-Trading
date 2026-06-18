@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth, authSetupComplete } from "@/auth";
 import { createSubscriberPreferences, mergeStoredSubscriberPreferences } from "@/lib/subscriber-preferences";
 import { loadSubscriberPreferences, saveSubscriberPreferences } from "@/lib/subscriber-preference-api";
+import { isSupportedLocale, type Locale } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,8 @@ async function readJson(request: Request): Promise<unknown> {
   }
 }
 
-function readLocale(input: unknown): "ko" | "en" {
-  if (typeof input !== "object" || input === null || !("locale" in input)) return "ko";
-  return input.locale === "en" ? "en" : "ko";
+function readLocale(input: unknown): Locale {
+  if (typeof input !== "object" || input === null || !("locale" in input)) return "en";
+  const locale = input.locale;
+  return typeof locale === "string" && isSupportedLocale(locale) ? locale : "en";
 }

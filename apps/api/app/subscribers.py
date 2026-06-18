@@ -13,6 +13,7 @@ from app.db import (
     TradeEventRecord,
     utc_now,
 )
+from app.locales import normalize_locale as normalize_supported_locale
 from app.repositories import from_json, to_json
 from app.subscriber_alert_types import DEFAULT_TELEGRAM_EVENT_TYPES, DEFAULT_TELEGRAM_REVIEW_SECTIONS, normalize_event_types, normalize_review_sections
 from app.telegram_client import send_telegram_message
@@ -381,4 +382,4 @@ def normalize_float(value: Any) -> float:
 
 
 def normalize_locale(value: str) -> str:
-    return "en" if value == "en" else "ko"
+    return normalize_supported_locale(value)

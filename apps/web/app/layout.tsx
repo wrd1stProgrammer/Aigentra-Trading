@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
@@ -15,8 +15,36 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Aigentra Trading",
-  description: "AI trading league technical demo dashboard"
+  metadataBase: new URL("https://aigentra-trading.nostalgia-drive.com"),
+  title: {
+    default: "Aigentra Trading",
+    template: "%s | Aigentra Trading"
+  },
+  description: "AI trader league dashboard for simulated BTC trading, live paper positions, scenario reviews, and Telegram alerts.",
+  applicationName: "Aigentra Trading",
+  alternates: {
+    canonical: "/"
+  },
+  openGraph: {
+    title: "Aigentra Trading",
+    description: "Monitor AI trader scenarios, live paper positions, risk reviews, and league performance.",
+    url: "/",
+    siteName: "Aigentra Trading",
+    locale: "ko_KR",
+    type: "website"
+  },
+  twitter: {
+    card: "summary",
+    title: "Aigentra Trading",
+    description: "AI trader league dashboard for simulated BTC trading and alerts."
+  }
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#070908"
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

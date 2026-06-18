@@ -13,11 +13,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, load_only
+from sqlalchemy.orm import Session, load_only, object_session
 
 from app.ai.factory import provider_status
 from app.ai.context import build_management_review_context, build_trade_review_context
 from app.ai.review_logging import run_position_management_with_logging, run_review_with_logging
+from app.ai.translation_cache import fanout_ai_translations, localized_payload_for_source
 from app.clients.binance_client import ALLOWED_INTERVALS, ALLOWED_SYMBOLS
 from app.clients.market_data_client import MarketDataClient
 from app.core.config import VALID_AI_PROVIDERS, get_settings, normalize_ai_provider_name
@@ -45,6 +46,13 @@ from app.db import (
     normalized_database_url,
     REMOTE_DATABASE_PREFIXES,
     session_scope,
+)
+from app.league_sentiment import get_or_create_league_sentiment_opinion
+from app.locales import (
+    AI_TRANSLATION_SOURCE_AI_REVIEW,
+    AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
+    CANONICAL_AI_LOCALE,
+    normalize_locale as normalize_supported_locale,
 )
 from app.market.data_cache import KLINE_CACHE as MARKET_KLINE_CACHE
 from app.market.data_cache import cached_klines, cached_klines_before, market_cache_runtime, warm_market_cache
@@ -122,7 +130,7 @@ POSITION_MANAGEMENT_HEARTBEAT_LOOKAHEAD_SECONDS = 30
 
 class PaperEngineRunRequest(BaseModel):
     symbol: str = "BTCUSDT"
-    locale: str = "ko"
+    locale: str = "en"
     traderId: Optional[str] = None
     trader_id: Optional[str] = None
     mode: str = "paper"
@@ -131,7 +139,7 @@ class PaperEngineRunRequest(BaseModel):
 class ScannerRunRequest(BaseModel):
     symbol: str = "BTCUSDT"
     provider: Optional[str] = None
-    locale: str = "ko"
+    locale: str = "en"
 
 
 class TraderHistoryResetRequest(BaseModel):
@@ -200,10 +208,10 @@ AUTO_MANAGEMENT_TASK: Optional[asyncio.Task] = None
 PRICE_SHOCK_STATE: dict[str, dict[str, Any]] = {}
 LEAGUE_BUNDLE_CACHE_TTL_SECONDS = 300
 LEAGUE_BUNDLE_CACHE: dict[tuple[str, bool, bool], tuple[float, dict[str, Any]]] = {}
-TRADER_DETAIL_CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
+TRADER_DETAIL_CACHE: dict[tuple[str, str, int, int, str], tuple[float, dict[str, Any]]] = {}
 LEADERBOARD_REFRESHING: set[tuple[str, str]] = set()
 LEAGUE_BUNDLE_REFRESHING: set[tuple[str, bool, bool]] = set()
-TRADER_DETAIL_REFRESHING: set[tuple[str, str]] = set()
+TRADER_DETAIL_REFRESHING: set[tuple[str, str, str]] = set()
 
 
 def invalidate_league_cache(symbol: Optional[str] = None, trader_id: Optional[str] = None) -> None:
@@ -425,13 +433,34 @@ def serialize_record_slim(record) -> dict:
     return data
 
 
-def serialize_record_for_ui(record, *, include_payload: bool = False) -> dict:
+def serialize_record_for_ui(record, *, include_payload: bool = False, locale: str = CANONICAL_AI_LOCALE) -> dict:
     data = serialize_record_slim(record)
     if not include_payload:
         return data
     payload = from_json(getattr(record, "payload_json", None)) or {}
+    translation_meta = None
+    record_session = object_session(record)
+    if isinstance(payload, dict):
+        if isinstance(record, AIReviewRecord) and record_session is not None:
+            payload, translation_meta = localized_payload_for_source(
+                db=record_session,
+                source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+                source_id=record.id,
+                payload=payload,
+                locale=locale,
+            )
+        elif isinstance(record, PositionManagementReviewRecord) and record_session is not None:
+            payload, translation_meta = localized_payload_for_source(
+                db=record_session,
+                source_type=AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
+                source_id=record.id,
+                payload=payload,
+                locale=locale,
+            )
     if payload:
         data["payload"] = payload
+    if translation_meta is not None:
+        data["translation"] = translation_meta
     if isinstance(record, PositionManagementReviewRecord):
         data["event"] = payload.get("event") or {}
         data["exposure"] = payload.get("exposure") or {}
@@ -447,7 +476,7 @@ def serialize_record_for_ui(record, *, include_payload: bool = False) -> dict:
 
 
 def normalize_locale(locale: Optional[str]) -> str:
-    return "en" if (locale or "").lower().startswith("en") else "ko"
+    return normalize_supported_locale(locale)
 
 
 def snapshot_to_engine_candle(snapshot: dict) -> dict:
@@ -1191,7 +1220,7 @@ async def run_management_reviews(
             marketSnapshot=snapshot,
             event=event,
             exposure=exposure,
-            locale=locale,
+            locale=CANONICAL_AI_LOCALE,
             **management_context,
         )
         try:
@@ -1216,6 +1245,7 @@ async def run_management_reviews(
                 exposure=exposure,
                 review=review,
                 applied_actions=applied_actions,
+                notify=False,
             )
         except Exception as exc:
             review = PositionManagementResult(
@@ -1249,7 +1279,21 @@ async def run_management_reviews(
                 status="error",
                 error_message=sanitize_error_message(str(exc)),
                 applied_actions=[],
+                notify=False,
             )
+        if record.status == "ok":
+            await fanout_ai_translations(
+                db,
+                settings=settings,
+                source_type=AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
+                source_id=record.id,
+                payload=from_json(record.payload_json) or {},
+                symbol=symbol,
+                trader_id=trader_id,
+            )
+        from app.subscribers import notify_subscribers_for_management_review
+
+        notify_subscribers_for_management_review(db, record)
         mode = agent_mode_for_event(event, exposure)
         action_type = primary_action_type(review)
         is_price_shock_event = event.eventType == PRICE_SHOCK_EVENT_TYPE
@@ -1453,6 +1497,7 @@ def list_filtered_records(
     trader_id: Optional[str] = None,
     status: Optional[str] = None,
     include_payload: bool = False,
+    locale: str = CANONICAL_AI_LOCALE,
 ) -> list[dict]:
     safe_limit = max(1, min(limit, 1000))
     safe_offset = max(0, offset)
@@ -1469,7 +1514,7 @@ def list_filtered_records(
         stmt = stmt.offset(safe_offset)
 
     records = db.execute(stmt.limit(safe_limit)).scalars().all()
-    return [serialize_record_for_ui(record, include_payload=include_payload) for record in records]
+    return [serialize_record_for_ui(record, include_payload=include_payload, locale=locale) for record in records]
 
 
 def list_records_slim(db: Session, model, limit: int = 20) -> list:
@@ -2324,6 +2369,7 @@ def build_trader_detail_payload(
     summaries: Optional[list[dict[str, Any]]] = None,
     reviews_limit: int = 20,
     events_limit: int = 10,
+    locale: str = CANONICAL_AI_LOCALE,
 ) -> dict[str, Any]:
     from datetime import date
     if summaries is None:
@@ -2382,7 +2428,15 @@ def build_trader_detail_payload(
         "positions": list_filtered_records(db, PaperPositionRecord, limit=12, symbol=clean_symbol, trader_id=trader_id, status="open", include_payload=True),
         "closedPositions": list_filtered_records(db, PaperPositionRecord, limit=20, symbol=clean_symbol, trader_id=trader_id, status="closed", include_payload=True),
         "orders": list_filtered_records(db, PaperOrderRecord, limit=12, symbol=clean_symbol, trader_id=trader_id, status="open", include_payload=True),
-        "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=reviews_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
+        "managementReviews": list_filtered_records(
+            db,
+            PositionManagementReviewRecord,
+            limit=reviews_limit,
+            symbol=clean_symbol,
+            trader_id=trader_id,
+            include_payload=True,
+            locale=locale,
+        ),
         "events": list_filtered_records(db, TradeEventRecord, limit=events_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
         "dailyPnl": daily_pnl,
         "reviewCountsByDay": review_counts_by_day,
@@ -2428,7 +2482,8 @@ def refresh_league_bundle_cache_background(symbol: str, include_empty: bool = Tr
 
 def refresh_trader_detail_cache_background(trader_id: str, symbol: str) -> None:
     clean_symbol = normalize_symbol(symbol)
-    refresh_key = (trader_id, clean_symbol)
+    clean_locale = CANONICAL_AI_LOCALE
+    refresh_key = (trader_id, clean_symbol, clean_locale)
     if refresh_key in TRADER_DETAIL_REFRESHING:
         return
     TRADER_DETAIL_REFRESHING.add(refresh_key)
@@ -2453,8 +2508,12 @@ def refresh_trader_detail_cache_background(trader_id: str, symbol: str) -> None:
                 summaries=[snapshot_summary] if snapshot_summary else None,
                 reviews_limit=20,
                 events_limit=10,
+                locale=clean_locale,
             )
-            TRADER_DETAIL_CACHE[(trader_id, clean_symbol, 20, 10)] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
+            TRADER_DETAIL_CACHE[(trader_id, clean_symbol, 20, 10, clean_locale)] = (
+                time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS,
+                payload,
+            )
     finally:
         TRADER_DETAIL_REFRESHING.discard(refresh_key)
 
@@ -3178,7 +3237,7 @@ async def run_trader_cycle(
     trader_id: str,
     symbol: str,
     provider_override: Optional[str] = None,
-    locale: str = "ko",
+    locale: str = "en",
     snapshot_override: Optional[dict[str, Any]] = None,
     refresh_leaderboard: bool = True,
 ) -> RunCycleResponse:
@@ -3500,11 +3559,20 @@ async def run_trader_cycle(
                         symbol=clean_symbol,
                         marketSnapshot=snapshot,
                         candidate=candidate,
-                        locale=clean_locale,
+                        locale=CANONICAL_AI_LOCALE,
                         **build_trade_review_context(db, strategy.profile.id, clean_symbol),
                     )
                     review = await run_review_with_logging(db, review_payload, requested_provider, settings=settings)
                     review_record = create_ai_review(db, record_ids["runId"], clean_symbol, strategy.profile.id, review)
+                    await fanout_ai_translations(
+                        db,
+                        settings=settings,
+                        source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+                        source_id=review_record.id,
+                        payload=from_json(review_record.payload_json) or {},
+                        symbol=clean_symbol,
+                        trader_id=strategy.profile.id,
+                    )
                     plan = trade_plan_from_review(clean_symbol, candidate, review)
                     if review.decision in {"APPROVE", "ADJUST_AND_APPROVE"}:
                         plan_record = create_trade_plan(db, record_ids["runId"], clean_symbol, strategy.profile.id, plan)
@@ -3518,6 +3586,7 @@ async def run_trader_cycle(
                             plan=plan,
                             settings=settings,
                             review=review,
+                            ai_review_id=review_record.id,
                         )
                         created_paper_orders = paper_order_result.get("created", [])
                         paper_result = {
@@ -3891,6 +3960,25 @@ async def league_leaderboard_fast(
     return payload
 
 
+@app.get("/api/league/sentiment/opinion")
+async def league_sentiment_opinion(
+    symbol: str = Query("BTCUSDT"),
+    locale: str = Query("ko"),
+    refresh: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    clean_symbol = normalize_symbol(symbol)
+    clean_locale = normalize_locale(locale)
+    init_db()
+    return await get_or_create_league_sentiment_opinion(
+        db,
+        symbol=clean_symbol,
+        locale=clean_locale,
+        settings=settings,
+        force=refresh,
+    )
+
+
 @app.post("/api/league/leaderboard-snapshots/refresh")
 async def refresh_leaderboard_snapshots_api(
     symbol: str = Query("BTCUSDT"),
@@ -3922,6 +4010,7 @@ async def refresh_leaderboard_snapshots_api(
 async def league_trader_detail(
     trader_id: str,
     symbol: str = Query("BTCUSDT"),
+    locale: str = Query(CANONICAL_AI_LOCALE),
     refresh: bool = Query(False),
     reviews_limit: int = Query(20, alias="reviewsLimit"),
     events_limit: int = Query(10, alias="eventsLimit"),
@@ -3932,7 +4021,8 @@ async def league_trader_detail(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Trader not found.") from exc
     clean_symbol = normalize_symbol(symbol)
-    cache_key = (trader_id, clean_symbol, reviews_limit, events_limit)
+    clean_locale = normalize_locale(locale)
+    cache_key = (trader_id, clean_symbol, reviews_limit, events_limit, clean_locale)
     cached = TRADER_DETAIL_CACHE.get(cache_key)
     now = time.monotonic()
     cache_was_stale = bool(cached and cached[0] <= now)
@@ -3953,6 +4043,7 @@ async def league_trader_detail(
         summaries=[snapshot_summary] if snapshot_summary else None,
         reviews_limit=reviews_limit,
         events_limit=events_limit,
+        locale=clean_locale,
     )
     if not any(summary.get("traderId") == trader_id for summary in payload["summaries"]):
         schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol)
@@ -4232,11 +4323,20 @@ async def ai_review_demo(request: RunCycleRequest, provider: Optional[str] = Que
             symbol=clean_symbol,
             marketSnapshot=snapshot,
             candidate=candidate,
-            locale=normalize_locale(request.locale),
+            locale=CANONICAL_AI_LOCALE,
             **build_trade_review_context(db, strategy.profile.id, clean_symbol),
         )
         review = await run_review_with_logging(db, review_payload, requested_provider, settings=settings)
         review_record = create_ai_review(db, run_id, clean_symbol, strategy.profile.id, review)
+        await fanout_ai_translations(
+            db,
+            settings=settings,
+            source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+            source_id=review_record.id,
+            payload=from_json(review_record.payload_json) or {},
+            symbol=clean_symbol,
+            trader_id=strategy.profile.id,
+        )
         plan = trade_plan_from_review(clean_symbol, candidate, review)
         plan_record = None
         if review.decision in {"APPROVE", "ADJUST_AND_APPROVE"}:
@@ -4321,6 +4421,7 @@ async def ai_reviews(
     symbol: Optional[str] = Query(None),
     trader_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    locale: str = Query(CANONICAL_AI_LOCALE),
     db: Session = Depends(get_db),
 ):
     return {
@@ -4333,6 +4434,7 @@ async def ai_reviews(
             trader_id=trader_id,
             status=status,
             include_payload=True,
+            locale=normalize_locale(locale),
         )
     }
 
@@ -4455,6 +4557,7 @@ async def position_management_reviews(
     symbol: Optional[str] = Query(None),
     trader_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    locale: str = Query(CANONICAL_AI_LOCALE),
     db: Session = Depends(get_db),
 ):
     return {
@@ -4467,6 +4570,7 @@ async def position_management_reviews(
             trader_id=trader_id,
             status=status,
             include_payload=True,
+            locale=normalize_locale(locale),
         )
     }
 

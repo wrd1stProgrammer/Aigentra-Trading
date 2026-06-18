@@ -34,6 +34,7 @@ import {
 import { fallbackTraders, traderNameKey, traderShortKey } from "@/lib/traders";
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { useAppContext } from "@/components/app-provider";
+import type { Locale } from "@/lib/i18n";
 import { AIReviewPanel } from "@/components/ai-review-panel";
 import { LiveCandleChart } from "@/components/live-candle-chart";
 import { ResultBlock } from "@/components/result-block";
@@ -375,7 +376,7 @@ function TraderCard({
   trader: TraderProfile;
   summary?: TraderPaperSummary;
   paperState?: TraderPaperState;
-  locale: "ko" | "en";
+  locale: Locale;
   t: (key: string) => string;
   activeRun: string | null;
   onRun: (id: string) => void;

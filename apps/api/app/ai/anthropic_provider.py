@@ -5,18 +5,22 @@ import httpx
 from app.ai.base import (
     BaseAIProvider,
     VALID_DECISIONS,
+    VALID_LEAGUE_BIASES,
     VALID_MANAGEMENT_ACTIONS,
     VALID_MANAGEMENT_DECISIONS,
     VALID_RISK_LEVELS,
     entry_approval_prompt,
     extract_json_object,
+    league_sentiment_prompt,
     position_management_review_prompt,
 )
+from app.ai.league_sentiment_models import LeagueSentimentOpinionResult, LeagueSentimentPayload
 from app.traders.models import PositionManagementPayload, PositionManagementResult, TradeReviewPayload, TradeReviewResult
 
 
 TRADE_REVIEW_TOOL_NAME = "submit_trade_review"
 MANAGEMENT_REVIEW_TOOL_NAME = "submit_position_management_review"
+LEAGUE_SENTIMENT_TOOL_NAME = "submit_league_sentiment_opinion"
 ANTHROPIC_REVIEW_MAX_TOKENS = 4096
 ANTHROPIC_JSON_SYSTEM_PROMPT = (
     "Return only the JSON object matching the response schema. "
@@ -170,6 +174,41 @@ def management_review_schema() -> dict[str, Any]:
     }
 
 
+def league_sentiment_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "bias": {"type": "string", "enum": sorted(VALID_LEAGUE_BIASES)},
+            "confidence": {"type": "integer", "description": "Integer confidence from 0 to 100."},
+            "riskLevel": {"type": "string", "enum": sorted(VALID_RISK_LEVELS)},
+            "headline": {"type": "string"},
+            "summary": {"type": "string"},
+            "keyDrivers": {"type": "array", "items": {"type": "string"}},
+            "risks": {"type": "array", "items": {"type": "string"}},
+            "watchConditions": {"type": "array", "items": {"type": "string"}},
+            "action": {"type": "string"},
+            "longShortContext": {"type": "string"},
+            "dataQuality": {"type": "array", "items": {"type": "string"}},
+            "sourceCounts": {"type": "object", "additionalProperties": {"type": "integer"}},
+        },
+        "required": [
+            "bias",
+            "confidence",
+            "riskLevel",
+            "headline",
+            "summary",
+            "keyDrivers",
+            "risks",
+            "watchConditions",
+            "action",
+            "longShortContext",
+            "dataQuality",
+            "sourceCounts",
+        ],
+        "additionalProperties": False,
+    }
+
+
 def extract_anthropic_tool_input(data: dict[str, Any], tool_name: str) -> dict[str, Any]:
     for block in tool_blocks(data.get("content", [])):
         if block.get("name") != tool_name:
@@ -291,3 +330,27 @@ class AnthropicProvider(BaseAIProvider):
             response.raise_for_status()
             data = response.json()
         return self.normalize_management_result(extract_anthropic_review_payload(data, MANAGEMENT_REVIEW_TOOL_NAME))
+
+    async def review_league_sentiment(
+        self, payload: LeagueSentimentPayload
+    ) -> LeagueSentimentOpinionResult:
+        body: Dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": ANTHROPIC_REVIEW_MAX_TOKENS,
+            "temperature": 0.2,
+            "system": ANTHROPIC_JSON_SYSTEM_PROMPT,
+            "messages": [{"role": "user", "content": league_sentiment_prompt(payload)}],
+            "output_config": json_output_config(league_sentiment_schema()),
+        }
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": self.api_key,
+                    "anthropic-version": "2023-06-01",
+                },
+                json=body,
+            )
+            response.raise_for_status()
+            data = response.json()
+        return self.normalize_league_sentiment_result(extract_anthropic_review_payload(data, LEAGUE_SENTIMENT_TOOL_NAME))

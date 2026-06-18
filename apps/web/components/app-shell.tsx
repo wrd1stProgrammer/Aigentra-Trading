@@ -9,6 +9,7 @@ import {
   X, User, Users, FileText, InstagramLogo, ThreadsLogo, ChatCircleText, SignOut
 } from "@phosphor-icons/react";
 import { useAppContext } from "@/components/app-provider";
+import { Locale, LOCALE_OPTIONS } from "@/lib/i18n";
 
 const links = [
   { href: "/", key: "nav.home", icon: ChartLineUp },
@@ -44,26 +45,15 @@ function CandleNotch({
     </div>
   );
 }
-const fallbackLabels = {
-  ko: {
-    "nav.account": "내 알림",
-    "nav.login": "로그인",
-    "nav.consensus": "AI 센티멘트"
-  },
-  en: {
-    "nav.account": "Alerts",
-    "nav.login": "Login",
-    "nav.consensus": "AI Consensus"
-  }
-} as const;
-
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { locale, setLocale, t } = useAppContext();
   const { data: session } = useSession();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
 
-  const userName = session?.user?.name || "사용자";
+  const currentLanguage = LOCALE_OPTIONS.find((option) => option.locale === locale) ?? LOCALE_OPTIONS[0];
+  const userName = session?.user?.name || t("shell.user");
   const avatarText = userName.length > 2 ? userName.slice(-2) : userName;
 
   const isLandingPage = pathname === "/";
@@ -82,7 +72,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             className="sticky top-0 z-20 border-b border-white/10 bg-[#070908]/90 backdrop-blur-xl text-white relative overflow-hidden"
             style={{
               backgroundImage:
-                "linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px), radial-gradient(circle at 50% 50%, rgba(16,185,129,0.08), transparent 70%)",
+                "linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(180deg, rgba(16,185,129,0.08), transparent 72%)",
               backgroundSize: "64px 64px, 64px 64px, auto"
             }}
           >
@@ -130,24 +120,48 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   })}
               </nav>
               <div className="flex items-center gap-2 z-10">
-                <button
-                  type="button"
-                  onClick={() => setLocale(locale === "ko" ? "en" : "ko")}
-                  className="focus-ring inline-flex min-h-9 items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-3 py-1.5 font-mono text-xs text-zinc-200 transition hover:bg-white/[0.08] sm:px-4"
-                  aria-label={t("common.language")}
-                >
-                  <Translate size={14} />
-                  <span className="hidden sm:inline">{locale.toUpperCase()}</span>
-                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsLanguageMenuOpen((open) => !open)}
+                    className="focus-ring inline-flex min-h-9 items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-3 py-1.5 font-mono text-xs text-zinc-200 transition hover:bg-white/[0.08] sm:px-4"
+                    aria-label={t("common.language")}
+                    aria-expanded={isLanguageMenuOpen}
+                  >
+                    <Translate size={14} />
+                    <span>{currentLanguage.shortLabel}</span>
+                  </button>
+                  {isLanguageMenuOpen ? (
+                    <div className="absolute right-0 top-11 z-30 w-52 overflow-hidden rounded-lg border border-white/10 bg-[#101312] p-1.5 shadow-2xl">
+                      {LOCALE_OPTIONS.map((option) => (
+                        <button
+                          key={option.locale}
+                          type="button"
+                          onClick={() => {
+                            setLocale(option.locale);
+                            setIsLanguageMenuOpen(false);
+                          }}
+                          className={`focus-ring flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs font-semibold transition ${
+                            option.locale === locale ? "bg-emerald-400/12 text-emerald-200" : "text-zinc-300 hover:bg-white/[0.06] hover:text-white"
+                          }`}
+                        >
+                          <span>{option.label}</span>
+                          <span className="font-mono text-[10px] text-zinc-500">{option.shortLabel}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
 
                 {session?.user ? (
                   <button
                     type="button"
                     onClick={() => setIsDrawerOpen(true)}
                     className="focus-ring shrink-0 size-9 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 border border-white/10 flex items-center justify-center text-xs font-bold text-white hover:scale-105 transition active:scale-[0.96] overflow-hidden"
+                    aria-label={t("shell.accountMenu")}
                   >
                     {session.user.image ? (
-                      <img src={session.user.image} alt={avatarText} className="size-full object-cover" />
+                      <img src={session.user.image} alt={avatarText} width={36} height={36} referrerPolicy="no-referrer" className="size-full object-cover" />
                     ) : (
                       avatarText
                     )}
@@ -156,7 +170,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <Link
                     href="/login"
                     className="focus-ring inline-flex size-9 items-center justify-center rounded-full border border-white/12 bg-white/[0.04] text-zinc-200 hover:bg-white/[0.08] transition hover:text-white"
-                    aria-label="Login"
+                    aria-label={t("nav.login")}
                   >
                     <SignIn size={14} />
                   </Link>
@@ -178,7 +192,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Profile Drawer Panel */}
       <div 
-        className={`fixed top-0 right-0 z-50 h-full w-full sm:w-[350px] bg-[#0c0d0d] border-l border-white/[0.06] shadow-2xl transition-transform duration-300 ease-in-out will-change-transform p-6 flex flex-col justify-between ${
+        className={`fixed top-0 right-0 z-50 h-full w-full max-w-[390px] bg-[#0c0d0d] border-l border-white/[0.06] shadow-2xl transition-transform duration-300 ease-in-out will-change-transform p-5 sm:p-6 flex flex-col justify-between ${
           isDrawerOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
@@ -189,13 +203,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="flex items-center gap-3.5">
                 <div className="shrink-0 size-12 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 border border-white/10 flex items-center justify-center text-xs font-bold text-white shadow-lg overflow-hidden">
                   {session?.user?.image ? (
-                    <img src={session.user.image} alt={avatarText} className="size-full object-cover" />
+                    <img src={session.user.image} alt={avatarText} width={48} height={48} referrerPolicy="no-referrer" className="size-full object-cover" />
                   ) : (
                     avatarText
                   )}
                 </div>
                 <div>
-                  <h3 className="text-white text-sm font-bold tracking-tight">{session?.user?.name || "사용자"}</h3>
+                  <h3 className="text-white text-sm font-bold tracking-tight">{session?.user?.name || t("shell.user")}</h3>
                   <p className="text-zinc-400 text-[10px] mt-0.5 font-mono break-all leading-none">{session?.user?.email || ""}</p>
                   <div className="flex items-center gap-2 mt-2">
                     <span className="inline-block text-zinc-500 text-[9px] font-mono border border-white/10 rounded px-1.5 py-0.5 bg-white/[0.02] tracking-wider leading-none">
@@ -210,7 +224,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       className="focus-ring text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/40 bg-rose-500/5 hover:bg-rose-500/10 px-1.5 py-0.5 rounded text-[9px] font-bold flex items-center gap-0.5 transition cursor-pointer leading-none"
                     >
                       <SignOut size={10} weight="bold" />
-                      <span>{locale === "ko" ? "로그아웃" : "Sign out"}</span>
+                      <span>{t("shell.signOut")}</span>
                     </button>
                   </div>
                 </div>
@@ -221,7 +235,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 type="button" 
                 onClick={() => setIsDrawerOpen(false)}
                 className="text-zinc-400 hover:text-white transition duration-200 focus-ring rounded p-1"
-                aria-label="Close menu"
+                aria-label={t("shell.closeMenu")}
               >
                 <X size={16} />
               </button>
@@ -235,7 +249,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className="flex items-center gap-4 text-zinc-300 hover:text-white text-sm font-semibold transition py-1 focus-ring rounded"
               >
                 <User size={18} className="text-zinc-400" />
-                <span>{locale === "ko" ? "마이페이지" : "My Page"}</span>
+                <span>{t("shell.myPage")}</span>
               </Link>
               <Link 
                 href="/traders"
@@ -243,7 +257,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className="flex items-center gap-4 text-zinc-300 hover:text-white text-sm font-semibold transition py-1 focus-ring rounded"
               >
                 <Users size={18} className="text-zinc-400" />
-                <span>{locale === "ko" ? "팀 소개" : "Team"}</span>
+                <span>{t("shell.team")}</span>
               </Link>
               <Link 
                 href="/tests"
@@ -251,7 +265,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className="flex items-center gap-4 text-zinc-300 hover:text-white text-sm font-semibold transition py-1 focus-ring rounded"
               >
                 <FileText size={18} className="text-zinc-400" />
-                <span>{locale === "ko" ? "Aigentra Trading 사용법 (Docs)" : "Aigentra Trading Guide (Docs)"}</span>
+                <span>{t("shell.guide")}</span>
               </Link>
             </div>
           </div>
@@ -259,7 +273,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {/* Social Links Panel at bottom */}
           <div className="border-t border-white/[0.05] pt-6">
             <h4 className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mb-3.5">
-              {locale === "ko" ? "Aigentra Trading SNS" : "Aigentra Trading SNS"}
+              {t("shell.social")}
             </h4>
             <div className="flex flex-col gap-2">
               <a 
@@ -269,7 +283,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className="flex items-center gap-3 text-zinc-400 hover:text-white text-xs font-semibold transition py-0.5 focus-ring rounded"
               >
                 <InstagramLogo size={16} className="text-zinc-500" />
-                <span>{locale === "ko" ? "공식 인스타" : "Official Instagram"}</span>
+                <span>{t("shell.instagram")}</span>
               </a>
               <a 
                 href="https://threads.net" 
@@ -278,7 +292,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className="flex items-center gap-3 text-zinc-400 hover:text-white text-xs font-semibold transition py-0.5 focus-ring rounded"
               >
                 <ThreadsLogo size={16} className="text-zinc-500" />
-                <span>{locale === "ko" ? "공식 스레드" : "Official Threads"}</span>
+                <span>{t("shell.threads")}</span>
               </a>
               <a 
                 href="https://kakao.com" 
@@ -287,7 +301,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className="flex items-center gap-3 text-zinc-400 hover:text-white text-xs font-semibold transition py-0.5 focus-ring rounded"
               >
                 <ChatCircleText size={16} className="text-zinc-500" />
-                <span>{locale === "ko" ? "유저 커뮤니티" : "User Community"}</span>
+                <span>{t("shell.community")}</span>
               </a>
             </div>
           </div>
@@ -297,8 +311,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function navLabel(locale: "ko" | "en", key: string, t: (key: string) => string) {
+function navLabel(_locale: Locale, key: string, t: (key: string) => string) {
   const translated = t(key);
   if (translated !== key) return translated;
-  return fallbackLabels[locale][key as keyof (typeof fallbackLabels)["ko"]] ?? key;
+  return key;
 }

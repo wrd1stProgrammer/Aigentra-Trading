@@ -9,12 +9,10 @@ import { landingCopy } from "@/lib/marketing-copy";
 
 export default function LegalNoticesPage() {
   const { locale } = useAppContext();
-  const [activeLang, setActiveLang] = useState<"ko" | "en">("ko");
+  const [activeLang, setActiveLang] = useState<"ko" | "en">("en");
 
   useEffect(() => {
-    if (locale === "en" || locale === "ko") {
-      setActiveLang(locale);
-    }
+    setActiveLang(locale === "ko" ? "ko" : "en");
   }, [locale]);
 
   const landingCopyData = landingCopy(activeLang);

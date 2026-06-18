@@ -32,9 +32,10 @@ import {
   type TraderProfile,
 } from "@/lib/api";
 import { useAppContext } from "@/components/app-provider";
+import type { Locale } from "@/lib/i18n";
 import { buildStandings, traderVisuals, type LeagueSymbol, type TraderStanding } from "@/lib/league";
 import { EquityAreaChart } from "@/components/leaderboard-sidebar-equity-chart";
-import { fallbackTraders, traderShortKey } from "@/lib/traders";
+import { fallbackTraders, traderDetailKey, traderShortKey } from "@/lib/traders";
 import { formatClockTime, formatCurrency, formatDateTime, formatNumber, formatRelativeDateTime } from "@/lib/format";
 import { statusLabel, statusTone } from "@/lib/status";
 import { activePositionLeverage, appendLeverageSample, formatLeverageBadge, orderLeverage, planLeverage, positionLeverage } from "@/components/leaderboard-leverage";
@@ -52,6 +53,7 @@ const OVERVIEW_PAGE_LIMIT = 10;
 const OVERVIEW_CACHE_TTL_MS = 60_000;
 
 type OverviewActivityCache = {
+  locale: Locale;
   reviews: OverviewReviewRecord[];
   offset: number;
   hasMore: boolean;
@@ -59,6 +61,7 @@ type OverviewActivityCache = {
 };
 
 const overviewActivityCache: OverviewActivityCache = {
+  locale: "en",
   reviews: [],
   offset: 0,
   hasMore: true,
@@ -121,6 +124,10 @@ const periodLabels = {
     "90D": "3 Months"
   }
 } as const;
+
+function periodLabel(locale: Locale, period: keyof typeof periodLabels.en) {
+  return (locale === "ko" ? periodLabels.ko : periodLabels.en)[period];
+}
 
 export function LeaderboardPageClient() {
   const { locale, t } = useAppContext();
@@ -224,8 +231,8 @@ export function LeaderboardPageClient() {
   }, [activeSnapshotsQuery.data, selectedPeriod]);
 
   const prefetchTrader = useCallback((traderId: string) => {
-    void prefetchTraderDetailBundle(queryClient, traderId, "BTCUSDT");
-  }, [queryClient]);
+    void prefetchTraderDetailBundle(queryClient, traderId, "BTCUSDT", locale);
+  }, [locale, queryClient]);
 
   const activateTrader = useCallback((traderId: string) => {
     setActiveTraderId(traderId);
@@ -302,7 +309,7 @@ export function LeaderboardPageClient() {
                     className="focus-ring inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs font-semibold hover:bg-white/[0.06] transition"
                   >
                     <Calendar size={14} className="text-emerald-400" />
-                    <span>{periodLabels[locale][selectedPeriod]}</span>
+                    <span>{periodLabel(locale, selectedPeriod)}</span>
                     <CaretDown size={14} className="text-zinc-500" />
                   </button>
                   {isPeriodOpen && (
@@ -323,7 +330,7 @@ export function LeaderboardPageClient() {
                                 : "text-zinc-400 hover:bg-white/[0.04] hover:text-white"
                             }`}
                           >
-                            {periodLabels[locale][p]}
+                            {periodLabel(locale, p)}
                           </button>
                         ))}
                       </div>
@@ -357,11 +364,11 @@ function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, 
   exposureByTrader: Map<string, TraderExposure>;
   activeTraderId: string | null;
   t: (key: string) => string;
-  locale: "ko" | "en";
+  locale: Locale;
   onActivate: (traderId: string) => void;
 }) {
   return (
-    <div className="hidden overflow-x-auto md:block w-full">
+    <div className="hidden overflow-x-auto lg:block w-full">
       <div className="min-w-[920px]">
         <div className={`grid ${RANKING_GRID_CLASS} border-b px-5 py-3.5 text-xs font-bold uppercase tracking-wider text-zinc-400 md:px-6`} style={{ borderColor: "var(--border)" }}>
           <div className="whitespace-nowrap">{t("leaderboard.rank")}</div>
@@ -417,11 +424,11 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, onPrefetch 
   standings: TraderStanding[];
   exposureByTrader: Map<string, TraderExposure>;
   t: (key: string) => string;
-  locale: "ko" | "en";
+  locale: Locale;
   onPrefetch: (traderId: string) => void;
 }) {
   return (
-    <div className="divide-y md:hidden" style={{ borderColor: "var(--border)" }}>
+    <div className="divide-y lg:hidden" style={{ borderColor: "var(--border)" }}>
       {standings.map((trader) => (
         (() => {
           const progress = traderProgress(trader, exposureByTrader.get(trader.id), t, locale);
@@ -471,7 +478,7 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, onPrefetch 
                   <p className="text-zinc-500 mt-1 font-mono text-xs">{formatCurrency(trader.equity, locale)}</p>
                 </div>
               </div>
-              <div className="mt-3 grid grid-cols-4 gap-2">
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <MiniCell label={t("leaderboard.progressStatus")} value={progress.detail || progress.label} />
                 <MiniCell label={t("common.return7d")} value={formatSignedPercent(trader.monthlyReturn)} />
                 <MiniCell label={t("leaderboard.mdd")} value={formatDrawdown(trader.maxDrawdown)} />
@@ -488,7 +495,7 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, onPrefetch 
 function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, latestReview, onPrefetchTrader }: {
   trader: TraderStanding | null;
   t: (key: string) => string;
-  locale: "ko" | "en";
+  locale: Locale;
   snapshots: EquitySnapshot[];
   snapshotsLoading: boolean;
   exposure?: TraderExposure;
@@ -520,7 +527,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
                 {trader.name}
                 <span className="text-lg shrink-0">{traderFlags[trader.id] || "🇰🇷"}</span>
               </h3>
-              <p className="text-zinc-400 mt-2 text-xs leading-relaxed font-sans break-keep">{t(traderShortKey(trader.id))}</p>
+              <p className="text-zinc-400 mt-2 text-xs leading-relaxed font-sans break-keep">{t(traderDetailKey(trader.id))}</p>
             </div>
             <RankBadge rank={trader.rank} />
           </div>
@@ -788,7 +795,7 @@ function getElapsedTimeString(updatedAt: string | null | undefined): string {
   return `${diffDays}D`;
 }
 
-function traderProgress(trader: TraderStanding, exposure: TraderExposure | undefined, t: (key: string) => string, locale: "ko" | "en"): TraderProgress {
+function traderProgress(trader: TraderStanding, exposure: TraderExposure | undefined, t: (key: string) => string, locale: Locale): TraderProgress {
   const summary = trader.summary;
   const position = exposure?.position;
   const order = exposure?.order;
@@ -1044,10 +1051,10 @@ function tagOverviewReviews(reviews: readonly OverviewReviewRecord[], overviewSo
   return reviews.map((review) => ({ ...review, overviewSource }));
 }
 
-async function loadOverviewReviewPage(limit: number, offset: number) {
+async function loadOverviewReviewPage(limit: number, offset: number, locale: Locale) {
   const [managementResponse, entryResponse] = await Promise.all([
-    getManagementReviews(limit, offset),
-    getAiReviews(limit, offset)
+    getManagementReviews(limit, offset, undefined, undefined, locale),
+    getAiReviews(limit, offset, undefined, undefined, locale)
   ]);
   const managementReviews = extractOverviewReviews(managementResponse, "management_review");
   const entryReviews = extractOverviewReviews(entryResponse, "entry_review");
@@ -1102,7 +1109,7 @@ function OptionActivityStream({
   locale,
   traderNameMap
 }: {
-  locale: "ko" | "en";
+  locale: Locale;
   traderNameMap: Map<string, string>;
 }) {
   const { t } = useAppContext();
@@ -1119,6 +1126,13 @@ function OptionActivityStream({
     let active = true;
     const refreshOverviewActivityCache = async () => {
       if (isFetchingRef.current) return;
+      if (overviewActivityCache.locale !== locale) {
+        overviewActivityCache.locale = locale;
+        overviewActivityCache.reviews = [];
+        overviewActivityCache.offset = 0;
+        overviewActivityCache.hasMore = true;
+        overviewActivityCache.fetchedAt = 0;
+      }
       const hasCachedReviews = overviewActivityCache.reviews.length > 0;
       const cacheIsFresh = (hasCachedReviews || !overviewActivityCache.hasMore) && Date.now() - overviewActivityCache.fetchedAt < OVERVIEW_CACHE_TTL_MS;
       if (cacheIsFresh) {
@@ -1130,7 +1144,7 @@ function OptionActivityStream({
       isFetchingRef.current = true;
       setIsLoading(!hasCachedReviews);
       try {
-        const page = await loadOverviewReviewPage(OVERVIEW_INITIAL_LIMIT, 0);
+        const page = await loadOverviewReviewPage(OVERVIEW_INITIAL_LIMIT, 0, locale);
         const fetchedReviews = page.reviews;
         const mergedReviews = mergeOverviewReviews(overviewActivityCache.reviews, fetchedReviews);
         overviewActivityCache.reviews = mergedReviews;
@@ -1156,7 +1170,7 @@ function OptionActivityStream({
     return () => {
       active = false;
     };
-  }, []);
+  }, [locale]);
 
   const loadMore = useCallback(async () => {
     if (isFetchingRef.current || !hasMore) return;
@@ -1164,7 +1178,7 @@ function OptionActivityStream({
     setIsLoading(true);
     try {
       const nextOffset = offset;
-      const page = await loadOverviewReviewPage(OVERVIEW_PAGE_LIMIT, nextOffset);
+      const page = await loadOverviewReviewPage(OVERVIEW_PAGE_LIMIT, nextOffset, locale);
       const fetchedReviews = page.reviews;
       const existingKeys = new Set(overviewActivityCache.reviews.map(overviewReviewKey));
       const uniqueReviews = fetchedReviews.filter((review) => !existingKeys.has(overviewReviewKey(review)));
@@ -1190,7 +1204,7 @@ function OptionActivityStream({
       isFetchingRef.current = false;
       setIsLoading(false);
     }
-  }, [offset, hasMore]);
+  }, [locale, offset, hasMore]);
 
   // Set up IntersectionObserver
   useEffect(() => {
@@ -1270,9 +1284,7 @@ function OptionActivityStream({
         type: "AUDIT",
         traderId,
         trader: traderName(traderId, t, traderNameMap),
-        text: locale === "ko"
-          ? `${entryReview ? "진입 심사 완료" : "리스크 심사 완료"}: [${decision}] ${rText || "상태 유지"}`
-          : `${entryReview ? "Entry review completed" : "Risk audit completed"}: [${decision}] ${rText || "Maintain status"}`,
+        text: `${entryReview ? t("leaderboard.entryReviewCompleted") : t("leaderboard.riskAuditCompleted")}: [${decision}] ${rText || t("leaderboard.maintainStatus")}`,
         rawTime: rawTimeVal,
         importance
       });
@@ -1321,7 +1333,7 @@ function OptionActivityStream({
                 </span>
                 <span className="line-clamp-2 flex-1 break-keep font-sans text-zinc-300 transition-colors group-hover:text-white sm:truncate">{log.text}</span>
                 <span className="hidden shrink-0 self-center font-mono text-[10px] text-zinc-500 opacity-0 transition-opacity group-hover:opacity-100 sm:inline">
-                  {locale === "ko" ? "상세보기 →" : "View →"}
+                  {t("leaderboard.viewArrow")} →
                 </span>
               </Link>
             );
@@ -1333,13 +1345,13 @@ function OptionActivityStream({
           {isLoading && (
             <div className="flex items-center justify-center py-2 text-zinc-500 font-mono text-[10px] gap-1.5 animate-pulse">
               <CircleNotch className="animate-spin animate-duration-1000 text-emerald-400" size={12} />
-              <span>{locale === "ko" ? "로그 불러오는 중..." : "Loading older logs..."}</span>
+              <span>{t("leaderboard.loadingOlderLogs")}</span>
             </div>
           )}
           
           {!hasMore && (
             <div className="text-center py-2 text-zinc-600 font-mono text-[9px] uppercase tracking-wider select-none">
-              — {locale === "ko" ? "모든 로그가 로드되었습니다" : "End of activity stream"} —
+              — {t("leaderboard.endOfActivity")} —
             </div>
           )}
         </div>
@@ -1350,9 +1362,7 @@ function OptionActivityStream({
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </span>
           <span>
-            {locale === "ko"
-              ? "시스템 상태: 연결됨 · 실시간 AI 로그 스캔 중..."
-              : "SYS_STATUS: CONNECTED · SCANNING ACTIVE STREAM..."}
+            {t("leaderboard.systemStatusConnected")}
           </span>
         </div>
       </div>

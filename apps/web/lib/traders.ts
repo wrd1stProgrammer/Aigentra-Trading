@@ -444,6 +444,10 @@ export function traderShortKey(id: string): string {
   return `traders.${id}.short`;
 }
 
+export function traderDetailKey(id: string): string {
+  return `traders.${id}.detail`;
+}
+
 export function traderAliasKey(id: string): string {
   return `traders.${id}.alias`;
 }

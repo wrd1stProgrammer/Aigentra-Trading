@@ -161,6 +161,7 @@ def create_paper_orders_from_plan(
     plan: TradePlan,
     settings: Any,
     review: Optional[TradeReviewResult] = None,
+    ai_review_id: Optional[int] = None,
 ) -> dict:
     if plan.status != "PAPER_TRADING_PENDING" or not plan.side or not plan.entries or plan.stopLoss is None:
         return {"created": [], "skipped": ["Trade plan is not orderable."]}
@@ -246,6 +247,7 @@ def create_paper_orders_from_plan(
             "leveragePlan": candidate.leveragePlan.model_dump() if candidate.leveragePlan else None,
             "target": target.model_dump() if target else None,
             "takeProfits": [tp.model_dump() for tp in plan.takeProfits] if plan.takeProfits else None,
+            "aiReviewId": ai_review_id,
             **review_payload_fields(review),
         }
         order = place_paper_order(
@@ -281,6 +283,7 @@ def create_paper_orders_from_plan(
                 "limitPrice": limit_price,
                 "reason": entry.reason,
                 "source": "trade_plan",
+                "aiReviewId": ai_review_id,
                 **review_payload_fields(review),
             },
         )

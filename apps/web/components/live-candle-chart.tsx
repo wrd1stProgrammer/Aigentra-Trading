@@ -14,7 +14,6 @@ import {
   PencilSimple,
   Ruler,
   Minus,
-  Gear,
   Eye,
   EyeSlash
 } from "@phosphor-icons/react";
@@ -35,6 +34,7 @@ import {
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { getCachedKlines, getKlines, updateKlineCache, type KlineCandle, type ManagementReview, type PaperOrder, type PaperPosition, type PaperTradeEvent, type RunCycleResult } from "@/lib/api";
 import { useAppContext } from "@/components/app-provider";
+import { intlLocale } from "@/lib/format";
 import { buildRealizedEventOverlayLines } from "@/components/trader-profile-detail/chart-realized-overlays";
 import { StatusBadge } from "@/components/status-badge";
 import {
@@ -240,7 +240,7 @@ export function LiveCandleChart({
   height?: number;
   compact?: boolean;
 }) {
-  const { t, theme } = useAppContext();
+  const { locale, t, theme } = useAppContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -259,19 +259,9 @@ export function LiveCandleChart({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [latestPrice, setLatestPrice] = useState<number | null>(null);
-
-  // --- Upgrade: Configurable Height ---
-  const [chartHeight, setChartHeight] = useState(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("chart-workspace-height");
-      if (saved) return Number(saved);
-    }
-    return height || 380;
-  });
-
-  useEffect(() => {
-    localStorage.setItem("chart-workspace-height", String(chartHeight));
-  }, [chartHeight]);
+  const [dailyReferencePrice, setDailyReferencePrice] = useState<number | null>(null);
+  const [showDrawingTools, setShowDrawingTools] = useState(false);
+  const chartHeight = height || 380;
 
   // --- Upgrade: Indicators Toggles ---
   const [showEma20, setShowEma20] = useState(() => typeof window !== "undefined" && localStorage.getItem("chart-show-ema20") === "true");
@@ -298,7 +288,7 @@ export function LiveCandleChart({
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem(`trader-drawings-${symbol}`);
       if (saved) {
-        try { return JSON.parse(saved); } catch (e) {}
+        try { return JSON.parse(saved); } catch {}
       }
     }
     return { trendLines: [], horizontalLines: [], brushStrokes: [] };
@@ -339,12 +329,44 @@ export function LiveCandleChart({
 
   const formatter = useMemo(
     () =>
-      new Intl.NumberFormat("en-US", {
+      new Intl.NumberFormat(intlLocale(locale), {
         maximumFractionDigits: symbol.startsWith("ETH") ? 2 : 1,
         minimumFractionDigits: symbol.startsWith("ETH") ? 2 : 1
       }),
-    [symbol]
+    [locale, symbol]
   );
+  const percentFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(intlLocale(locale), {
+        maximumFractionDigits: 2,
+        minimumFractionDigits: 2
+      }),
+    [locale]
+  );
+  const marketPrice = latestPrice ?? indicatorCandles.at(-1)?.close ?? null;
+  const dayChangePct =
+    marketPrice !== null && dailyReferencePrice !== null && dailyReferencePrice > 0
+      ? ((marketPrice - dailyReferencePrice) / dailyReferencePrice) * 100
+      : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    setDailyReferencePrice(null);
+    getKlines(symbol, "1d", 2, { staleMs: 60_000 })
+      .then((response) => {
+        if (cancelled) return;
+        const candles = [...response.candles].sort((left, right) => left.openTime - right.openTime);
+        const latestDaily = candles.at(-1);
+        const previousDaily = candles.at(-2);
+        setDailyReferencePrice(previousDaily?.close ?? latestDaily?.open ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setDailyReferencePrice(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol]);
 
   const visibleOpenPaperPositions = useMemo(
     () => paperPositions.filter((position) => matchesChartSymbol(position.symbol, symbol) && isOpenChartExposure(position)),
@@ -447,8 +469,6 @@ export function LiveCandleChart({
     }
     return compactOverlayLines(lines);
   }, [hasOpenPaperOrder, hasOpenPaperPosition, isFreshRunCycleResult, latestPrice, managementReviews, paperEvents, result, symbol, t, visibleOpenPaperOrders, visibleOpenPaperPositions]);
-  const hasCompletedMarkers = overlayLines.some((line) => line.tone === "takeProfitDone" || line.tone === "stopDone");
-
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const ema20SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const ema50SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -1554,6 +1574,15 @@ export function LiveCandleChart({
     chart.timeScale().scrollToRealTime();
   }
 
+  function setDrawingToolsVisible(nextVisible: boolean) {
+    if (!nextVisible) {
+      setActiveTool("cursor");
+      setActiveRuler(null);
+      setActiveDrawing(null);
+    }
+    setShowDrawingTools(nextVisible);
+  }
+
   return (
     <section className={`panel overflow-hidden ${compact ? "p-4" : "p-5"}`}>
       {/* Top Header Section */}
@@ -1567,20 +1596,37 @@ export function LiveCandleChart({
             {symbol} · {interval} · {t("chart.liveSource")}
           </p>
         </div>
-        <div className="flex flex-wrap justify-start gap-2 xl:justify-end">
+        <div data-testid="chart-market-status" className="flex flex-wrap justify-start gap-2 xl:justify-end">
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/70">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{t("chart.marketPrice")}</p>
+            <div className="mt-0.5 flex items-baseline gap-2">
+              <span className="font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+                {marketPrice !== null ? formatter.format(marketPrice) : "-"}
+              </span>
+              <span
+                className={`font-mono text-xs font-semibold ${
+                  dayChangePct === null
+                    ? "text-zinc-400"
+                    : dayChangePct >= 0
+                      ? "text-emerald-500"
+                      : "text-rose-500"
+                }`}
+              >
+                {dayChangePct === null
+                  ? t("chart.dayChangeUnavailable")
+                  : `${dayChangePct >= 0 ? "+" : ""}${percentFormatter.format(dayChangePct)}%`}
+              </span>
+            </div>
+          </div>
           <StatusBadge tone={connected ? "good" : "neutral"}>
             {connected ? <WifiHigh size={14} /> : <WifiSlash size={14} />}
             {connected ? t("chart.connected") : t("chart.disconnected")}
           </StatusBadge>
           {loading || loadingOlder ? <StatusBadge tone="neutral">{loadingOlder ? t("chart.loadingHistory") : t("common.loading")}</StatusBadge> : null}
-          {latestPrice ? <StatusBadge tone="neutral">{`${t("chart.lastPrice")} ${formatter.format(latestPrice)}`}</StatusBadge> : null}
-          {overlayLines.length ? <StatusBadge tone="warn">{t("chart.planMarkers")}</StatusBadge> : null}
-          {hasCompletedMarkers ? <StatusBadge tone="good">{t("chart.completedMarkers")}</StatusBadge> : null}
-          {paperPositions.length || paperOrders.length ? <StatusBadge tone="warn">{t("chart.paperMarkers")}</StatusBadge> : null}
         </div>
       </div>
 
-      {/* Top Chart Toolbar (Indicators, Timeframe, Height) */}
+      {/* Top Chart Toolbar (Indicators, Tools, Navigation) */}
       <div className="mb-3 flex flex-col gap-2 border-b border-zinc-200/50 pb-3 dark:border-zinc-800/50 lg:flex-row lg:items-center lg:justify-between">
         
         {/* Timeframe & Indicators */}
@@ -1616,35 +1662,23 @@ export function LiveCandleChart({
           </div>
         </div>
 
-        {/* View adjustments & Height (Stretching) */}
+        {/* Tools and navigation */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Height Adjuster (Aspect Ratio) */}
-          <div className="flex rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 dark:border-zinc-800 dark:bg-zinc-950/60">
-            <button
-              onClick={() => setChartHeight(280)}
-              className={`rounded px-2 py-1 text-[10px] font-bold transition ${chartHeight === 280 ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"}`}
-              title="Wide Aspect Ratio (Stretched)"
-              type="button"
-            >
-              Wide
-            </button>
-            <button
-              onClick={() => setChartHeight(380)}
-              className={`rounded px-2 py-1 text-[10px] font-bold transition ${chartHeight === 380 ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"}`}
-              title="Balanced Aspect Ratio"
-              type="button"
-            >
-              Normal
-            </button>
-            <button
-              onClick={() => setChartHeight(480)}
-              className={`rounded px-2 py-1 text-[10px] font-bold transition ${chartHeight === 480 ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"}`}
-              title="Tall Aspect Ratio"
-              type="button"
-            >
-              Tall
-            </button>
-          </div>
+          <button
+            type="button"
+            data-testid="chart-tool-toggle"
+            aria-controls="chart-drawing-toolbar"
+            aria-expanded={showDrawingTools}
+            onClick={() => setDrawingToolsVisible(!showDrawingTools)}
+            className={`focus-ring inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[11px] font-bold transition ${
+              showDrawingTools
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
+                : "border-zinc-200 bg-zinc-50 text-zinc-500 hover:bg-white hover:text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950/60 dark:text-zinc-400 dark:hover:bg-zinc-900/70 dark:hover:text-zinc-200"
+            }`}
+          >
+            {showDrawingTools ? <EyeSlash size={14} /> : <Eye size={14} />}
+            {showDrawingTools ? t("chart.hideTools") : t("chart.showTools")}
+          </button>
 
           <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 mx-1" />
 
@@ -1669,46 +1703,51 @@ export function LiveCandleChart({
         </div>
       </div>
 
-      {/* Main Workspace: Sidebar Tools + Canvas / Chart sync boxes */}
+      {/* Main Workspace: Optional tools + Canvas / Chart sync boxes */}
       <div className="flex gap-3 min-w-0">
         
-        {/* Left Vertical Drawing Sidebar */}
-        <div className="flex flex-col gap-1 rounded-xl border border-zinc-200 bg-zinc-50/50 p-1.5 dark:border-zinc-800/80 dark:bg-zinc-950/60 self-start shadow-sm shrink-0">
+        {showDrawingTools ? (
+        <div
+          id="chart-drawing-toolbar"
+          data-testid="chart-drawing-toolbar"
+          aria-label={t("chart.drawingTools")}
+          className="flex flex-col gap-1 rounded-xl border border-zinc-200 bg-zinc-50/50 p-1.5 dark:border-zinc-800/80 dark:bg-zinc-950/60 self-start shadow-sm shrink-0"
+        >
           <SidebarButton
             active={activeTool === "cursor"}
             onClick={() => {
               setActiveTool("cursor");
               setActiveRuler(null);
             }}
-            title="Cursor / Navigate (Pan)"
+            title={t("chart.cursorTool")}
           >
             <Cursor size={16} weight={activeTool === "cursor" ? "fill" : "regular"} />
           </SidebarButton>
           <SidebarButton
             active={activeTool === "trend"}
             onClick={() => setActiveTool("trend")}
-            title="Trend Line Segment"
+            title={t("chart.trendTool")}
           >
             <span className="font-bold text-sm select-none leading-none inline-block -rotate-12 h-4 w-4 text-center">╱</span>
           </SidebarButton>
           <SidebarButton
             active={activeTool === "horizontal"}
             onClick={() => setActiveTool("horizontal")}
-            title="Horizontal Line"
+            title={t("chart.horizontalTool")}
           >
             <Minus size={16} weight="bold" />
           </SidebarButton>
           <SidebarButton
             active={activeTool === "brush"}
             onClick={() => setActiveTool("brush")}
-            title="Pencil Brush (Freehand)"
+            title={t("chart.brushTool")}
           >
             <PencilSimple size={16} weight={activeTool === "brush" ? "fill" : "regular"} />
           </SidebarButton>
           <SidebarButton
             active={activeTool === "ruler"}
             onClick={() => setActiveTool("ruler")}
-            title="Ruler (Measure Price/Time)"
+            title={t("chart.rulerTool")}
           >
             <Ruler size={16} weight={activeTool === "ruler" ? "fill" : "regular"} />
           </SidebarButton>
@@ -1718,12 +1757,13 @@ export function LiveCandleChart({
           <SidebarButton
             active={false}
             onClick={clearAllDrawings}
-            title="Clear All Drawings"
+            title={t("chart.clearDrawings")}
             className="text-rose-500 dark:text-rose-400 hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-300"
           >
             <Trash size={16} />
           </SidebarButton>
         </div>
+        ) : null}
 
         {/* Sync Chart stack */}
         <div className="flex-1 flex flex-col gap-2 min-w-0">
@@ -1734,14 +1774,17 @@ export function LiveCandleChart({
             {/* Transparent overlay drawing canvas */}
             <canvas
               ref={canvasRef}
-              className="absolute top-0 left-0 w-full h-full"
+              className="absolute top-0 left-0 z-20 h-full w-full"
+              aria-hidden={!showDrawingTools || activeTool === "cursor"}
               style={{
-                pointerEvents: activeTool === "cursor" ? "none" : "auto",
-                cursor: activeTool === "cursor" ? "default" : "crosshair"
+                pointerEvents: showDrawingTools && activeTool !== "cursor" ? "auto" : "none",
+                cursor: showDrawingTools && activeTool !== "cursor" ? "crosshair" : "default",
+                touchAction: showDrawingTools && activeTool !== "cursor" ? "none" : "auto"
               }}
               onMouseDown={handleCanvasMouseDown}
               onMouseMove={handleCanvasMouseMove}
               onMouseUp={handleCanvasMouseUp}
+              onMouseLeave={handleCanvasMouseUp}
             />
           </div>
 
@@ -1773,7 +1816,7 @@ export function LiveCandleChart({
         <Legend color="bg-teal-500" label={t("chart.completedMarkers")} />
         {activeTool !== "cursor" ? (
           <span className="text-emerald-500 font-semibold animate-pulse">
-            Active Tool: {activeTool.toUpperCase()}. Draw on chart.
+            {t("chart.activeTool")}: {activeToolLabel(activeTool, t)}
           </span>
         ) : (
           <span>{t("chart.interactionHint")}</span>
@@ -1786,6 +1829,22 @@ export function LiveCandleChart({
 }
 
 // --- Helper UI Components ---
+
+function activeToolLabel(tool: "cursor" | "trend" | "horizontal" | "brush" | "ruler", t: (key: string) => string) {
+  switch (tool) {
+    case "trend":
+      return t("chart.trendTool");
+    case "horizontal":
+      return t("chart.horizontalTool");
+    case "brush":
+      return t("chart.brushTool");
+    case "ruler":
+      return t("chart.rulerTool");
+    case "cursor":
+    default:
+      return t("chart.cursorTool");
+  }
+}
 
 function IndicatorToggle({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return (

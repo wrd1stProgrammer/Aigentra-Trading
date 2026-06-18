@@ -16,7 +16,7 @@ import {
   getTraderTradeHistory,
   type MergedTradeHistoryItem
 } from "@/lib/api";
-import { formatCurrency, formatNumber, formatRelativeDateTime } from "@/lib/format";
+import { formatCurrency, formatNumber, formatRelativeDateTime, intlLocale } from "@/lib/format";
 import { useAppContext } from "@/components/app-provider";
 import { buildScenarios, buildStandings, type LeagueSymbol, type TraderScenario } from "@/lib/league";
 import { fallbackTraders } from "@/lib/traders";
@@ -362,7 +362,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, [clientHydrated, fallback, queryClient, symbol, traderId]);
 
   const detailQuery = useQuery({
-    ...traderDetailBundleQueryOptions(traderId, symbol, reviewsLimit, eventsLimit),
+    ...traderDetailBundleQueryOptions(traderId, symbol, reviewsLimit, eventsLimit, locale),
     placeholderData: (previousData, previousQuery) => {
       const queryKey = previousQuery?.queryKey;
       if (
@@ -373,7 +373,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       ) {
         return previousData;
       }
-      return clientHydrated ? getCachedTraderDetailBundle(traderId, symbol, reviewsLimit, eventsLimit) ?? fallbackDetailBundle : fallbackDetailBundle;
+      return clientHydrated ? getCachedTraderDetailBundle(traderId, symbol, reviewsLimit, eventsLimit, locale) ?? fallbackDetailBundle : fallbackDetailBundle;
     }
   });
   const equitySnapshotsQuery = useQuery({
@@ -405,8 +405,8 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const error = detailQuery.error ? (detailQuery.error instanceof Error ? detailQuery.error.message : String(detailQuery.error)) : null;
 
   const prefetchSymbol = useCallback((nextSymbol: LeagueSymbol) => {
-    void prefetchTraderDetailBundle(queryClient, traderId, nextSymbol);
-  }, [queryClient, traderId]);
+    void prefetchTraderDetailBundle(queryClient, traderId, nextSymbol, locale);
+  }, [locale, queryClient, traderId]);
 
   const prefetchLeaderboard = useCallback(() => {
     void prefetchLeaderboardBundle(queryClient, symbol);
@@ -666,7 +666,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                   type="button"
                   onClick={handlePrevWeek}
                   className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-500 dark:text-zinc-400 transition"
-                  title={locale === "ko" ? "이전 주" : "Previous Week"}
+                  title={t("detail.previousWeek")}
                 >
                   <CaretLeft size={20} />
                 </button>
@@ -674,7 +674,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                   type="button"
                   onClick={handleNextWeek}
                   className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-500 dark:text-zinc-400 transition"
-                  title={locale === "ko" ? "다음 주" : "Next Week"}
+                  title={t("detail.nextWeek")}
                 >
                   <CaretRight size={20} />
                 </button>
@@ -693,20 +693,20 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                   
                   const isSelected = selectedDate === dateKey;
                   
-                  const dayName = new Intl.DateTimeFormat(locale === "ko" ? "ko-KR" : "en-US", {
+                  const dayName = new Intl.DateTimeFormat(intlLocale(locale), {
                     weekday: "short",
                     timeZone: "UTC"
                   }).format(cardDate);
                   
-                  const dateLabel = new Intl.DateTimeFormat(locale === "ko" ? "ko-KR" : "en-US", {
+                  const dateLabel = new Intl.DateTimeFormat(intlLocale(locale), {
                     month: "short",
                     day: "numeric",
                     timeZone: "UTC"
                   }).format(cardDate);
                   
-                  const subtext = itemCount > 0 
-                    ? (locale === "ko" ? `${itemCount}건` : `${itemCount} items`)
-                    : (locale === "ko" ? "거래 없음" : "No trades");
+                  const subtext = itemCount > 0
+                    ? `${formatNumber(itemCount, 0, locale)} ${t("detail.itemCountSuffix")}`
+                    : t("detail.noTrades");
                   
                   return (
                     <div
@@ -756,7 +756,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                 ))}
                 {!filteredTimelineItems.length ? (
                   <div className="rounded-xl border border-dashed border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-                    {locale === "ko" ? "선택한 날짜에 등록된 시나리오가 없습니다." : "No scenarios on the selected date."}
+                    {t("detail.noScenariosOnDate")}
                   </div>
                 ) : null}
               </div>
@@ -769,7 +769,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                 onClick={loadMoreSelectedScenarios}
               >
                 <Clock size={14} />
-                {locale === "ko" ? "선택 날짜 시나리오 더 불러오기" : "Load More Scenarios"}
+                {t("detail.loadMoreSelectedScenarios")}
               </button>
             </div>
           </section>

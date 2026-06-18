@@ -11,6 +11,13 @@ type TelegramTestButtonProps = {
 };
 
 const COPY = {
+  en: {
+    send: "Send test alert",
+    sending: "Sending",
+    sent: "Test alert sent.",
+    failed: "Delivery failed. Check the token and chat ID.",
+    waiting: "You can send a test alert after the settings are ready."
+  },
   ko: {
     send: "테스트 알림 전송",
     sending: "전송 중",
@@ -18,12 +25,26 @@ const COPY = {
     failed: "전송에 실패했습니다. 토큰과 chat ID를 확인하세요.",
     waiting: "설정이 준비되면 테스트 알림을 보낼 수 있습니다."
   },
-  en: {
-    send: "Send test alert",
-    sending: "Sending",
-    sent: "Test alert sent.",
-    failed: "Delivery failed. Check the token and chat ID.",
-    waiting: "You can send a test alert after the settings are ready."
+  ru: {
+    send: "Отправить тест",
+    sending: "Отправка",
+    sent: "Тестовое уведомление отправлено.",
+    failed: "Не удалось отправить. Проверьте токен и chat ID.",
+    waiting: "Тест можно отправить после готовности настроек."
+  },
+  "pt-BR": {
+    send: "Enviar teste",
+    sending: "Enviando",
+    sent: "Alerta de teste enviado.",
+    failed: "Falha no envio. Verifique o token e o chat ID.",
+    waiting: "Você poderá enviar um teste quando as configurações estiverem prontas."
+  },
+  tr: {
+    send: "Test bildirimi gönder",
+    sending: "Gönderiliyor",
+    sent: "Test bildirimi gönderildi.",
+    failed: "Gönderim başarısız. Token ve chat ID'yi kontrol edin.",
+    waiting: "Ayarlar hazır olduğunda test bildirimi gönderebilirsiniz."
   }
 } as const;
 

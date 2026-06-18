@@ -28,6 +28,8 @@ export type LandingCopy = {
   readonly alertCards: readonly { readonly title: string; readonly body: string }[];
   readonly pricingTitle: string;
   readonly pricingSubtitle: string;
+  readonly billingAnnual: string;
+  readonly billingMonthly: string;
   readonly pricingPlans: readonly {
     readonly name: string;
     readonly price: string;
@@ -96,6 +98,8 @@ const copy = {
     ],
     pricingTitle: "시뮬레이션 리그를 보고, 필요한 트레이더만 구독하세요.",
     pricingSubtitle: "초기 검토는 무료로 시작하고, 실시간 Telegram 액션 알림은 구독 플랜에서 관리합니다.",
+    billingAnnual: "연간 결제 (15% 할인)",
+    billingMonthly: "월간 결제",
     pricingPlans: [
       {
         name: "Observer",
@@ -194,6 +198,8 @@ const copy = {
     ],
     pricingTitle: "Inspect the simulation league, then subscribe to selected traders.",
     pricingSubtitle: "Start with public review. Use a subscription when you want real-time Telegram action alerts from favorite AI traders.",
+    billingAnnual: "Annual (15% off)",
+    billingMonthly: "Monthly",
     pricingPlans: [
       {
         name: "Observer",
@@ -246,8 +252,8 @@ const copy = {
     footerTagline: "Virtual AI traders, simulated positions, real-time Telegram action alerts.",
     disclaimer: "This product is for education and simulation. It is not investment advice or a recommendation to buy or sell."
   }
-} as const satisfies Record<Locale, LandingCopy>;
+} as const satisfies Record<"ko" | "en", LandingCopy>;
 
 export function landingCopy(locale: Locale): LandingCopy {
-  return copy[locale] ?? copy.ko;
+  return locale === "ko" ? copy.ko : copy.en;
 }

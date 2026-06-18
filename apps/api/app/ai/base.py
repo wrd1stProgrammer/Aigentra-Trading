@@ -2,6 +2,7 @@ import json
 from typing import Any, Dict, Optional
 
 from app.paper.holding_policy import trader_holding_policy
+from app.ai.league_sentiment_models import LeagueSentimentOpinionResult, LeagueSentimentPayload
 from app.traders.models import (
     ManagementAction,
     PositionManagementPayload,
@@ -39,6 +40,7 @@ VALID_MANAGEMENT_ACTIONS = VALID_MANAGEMENT_DECISIONS | {
     "REDUCE_SIZE",
     "EXPIRE_PLAN",
 }
+VALID_LEAGUE_BIASES = {"LONG_BIASED", "SHORT_BIASED", "NEUTRAL", "MIXED", "RISK_OFF"}
 
 
 class BaseAIProvider:
@@ -54,6 +56,11 @@ class BaseAIProvider:
     async def review_position_management(
         self, payload: PositionManagementPayload
     ) -> PositionManagementResult:
+        raise NotImplementedError
+
+    async def review_league_sentiment(
+        self, payload: LeagueSentimentPayload
+    ) -> LeagueSentimentOpinionResult:
         raise NotImplementedError
 
     def normalize_result(self, raw: Dict[str, Any]) -> TradeReviewResult:
@@ -150,6 +157,38 @@ class BaseAIProvider:
             rationale=str(raw.get("rationale", "Management review completed.")),
             counterThesis=str(raw.get("counterThesis", "If invalidation fires, hard risk rules take priority.")),
             userSummary=self._normalize_optional_text(raw.get("userSummary")),
+            provider=self.name,
+            model=self.model,
+            fallback=self.fallback,
+        )
+
+    def normalize_league_sentiment_result(self, raw: Dict[str, Any]) -> LeagueSentimentOpinionResult:
+        bias = str(raw.get("bias", "MIXED")).upper()
+        if bias not in VALID_LEAGUE_BIASES:
+            bias = "MIXED"
+        risk_level = str(raw.get("riskLevel", "MEDIUM")).upper()
+        if risk_level not in VALID_RISK_LEVELS:
+            risk_level = "MEDIUM"
+        source_counts = raw.get("sourceCounts") if isinstance(raw.get("sourceCounts"), dict) else {}
+        normalized_counts = {}
+        for key, value in source_counts.items():
+            try:
+                normalized_counts[str(key)] = max(0, int(value))
+            except (TypeError, ValueError):
+                normalized_counts[str(key)] = 0
+        return LeagueSentimentOpinionResult(
+            bias=bias,
+            confidence=max(0, min(self._normalize_confidence(raw.get("confidence", 50)), 100)),
+            riskLevel=risk_level,
+            headline=self._normalize_optional_text(raw.get("headline")) or "Market context needs review.",
+            summary=self._normalize_optional_text(raw.get("summary")) or "Not enough reliable trader context is available.",
+            keyDrivers=self._normalize_limited_string_list(raw.get("keyDrivers"), 4),
+            risks=self._normalize_limited_string_list(raw.get("risks"), 3),
+            watchConditions=self._normalize_limited_string_list(raw.get("watchConditions"), 3),
+            action=self._normalize_optional_text(raw.get("action")) or "Wait for the next hourly context refresh.",
+            longShortContext=self._normalize_optional_text(raw.get("longShortContext")) or "No active long/short skew.",
+            dataQuality=self._normalize_limited_string_list(raw.get("dataQuality"), 5),
+            sourceCounts=normalized_counts,
             provider=self.name,
             model=self.model,
             fallback=self.fallback,
@@ -657,3 +696,40 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
 
 def management_prompt(payload: PositionManagementPayload) -> str:
     return position_management_review_prompt(payload)
+
+
+def league_sentiment_prompt(payload: LeagueSentimentPayload) -> str:
+    locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
+    language_instruction = (
+        "Write headline, summary, keyDrivers, risks, watchConditions, action, longShortContext, and dataQuality in Korean."
+        if locale == "ko"
+        else "Write headline, summary, keyDrivers, risks, watchConditions, action, longShortContext, and dataQuality in English."
+    )
+    try:
+        payload_data = payload.model_dump(mode="json")
+    except TypeError:
+        payload_data = payload.model_dump()
+    return (
+        "You are Aigentra's hourly aggregate sentiment analyst for a futures paper-trading league. "
+        "Return only strict JSON with keys bias, confidence, riskLevel, headline, summary, keyDrivers, risks, "
+        "watchConditions, action, longShortContext, dataQuality, sourceCounts. "
+        "Valid bias values are LONG_BIASED, SHORT_BIASED, NEUTRAL, MIXED, RISK_OFF. "
+        "Valid riskLevel values are LOW, MEDIUM, HIGH, EXTREME. Confidence must be an integer from 0 to 100. "
+        "This is not financial advice and must not tell users to place real trades. It is a context summary of paper-trading agents only. "
+        "Use only the supplied payload. Never invent traders, prices, PnL, order states, reviews, wins, losses, or market levels. "
+        "The backend sourceCounts are authoritative; echo them exactly in sourceCounts. "
+        "Active positions and pending orders define the current directional skew. Recent take-profit/stop-loss events change risk and confidence, "
+        "but they must not automatically flip direction. Entry reviews describe why a setup was accepted or rejected. "
+        "Management reviews describe what changed after entry. Ignore records that are fallback, provider-error, or explicitly failed if they appear in the payload; "
+        "treat them only as dataQuality limitations. "
+        "If active/pending data is thin or conflicting, choose NEUTRAL or MIXED and keep confidence at or below 55. "
+        "If both long and short exposures are meaningful, choose MIXED unless one side has clearly stronger active notional, confidence, or fresh review quality. "
+        "If recent losses cluster, failed reviews dominate, or market risk is unclear, choose RISK_OFF even if one side has more entries. "
+        "Write for a beginner: use plain language, short sentences, and explain what the current league context means. "
+        "Do not dump raw indicators without explaining their meaning. "
+        "headline: one sentence. summary: two to three sentences. keyDrivers: up to four bullets. risks: up to three bullets. "
+        "watchConditions: up to three concrete next-hour checks. action: one practical monitoring instruction for this paper league. "
+        "longShortContext: one compact sentence comparing LONG and SHORT pressure. dataQuality: up to five source caveats or confirmations. "
+        f"{language_instruction}\n\n"
+        f"Payload:\n{json.dumps(payload_data, ensure_ascii=False)}"
+    )

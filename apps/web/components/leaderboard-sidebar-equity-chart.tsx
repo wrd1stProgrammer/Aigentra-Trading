@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { EquitySnapshot } from "@/lib/api";
-import { formatCurrency, formatDateTime } from "@/lib/format";
+import { formatCurrency, formatDateTime, intlLocale } from "@/lib/format";
+import type { Locale } from "@/lib/i18n";
 import type { TraderStanding } from "@/lib/league";
 
 export const SIDEBAR_CHART_STROKE_WIDTH = "1.25";
@@ -33,7 +34,7 @@ function getTraderColor(traderId: string) {
   return TRADER_COLORS[index] || TRADER_COLORS[0];
 }
 
-function formatBriefPrice(value: number, locale: "ko" | "en"): string {
+function formatBriefPrice(value: number, locale: Locale): string {
   if (value >= 1_000_000) {
     const val = value / 1_000_000;
     return `${val.toFixed(val % 1 === 0 ? 0 : 1)}M`;
@@ -42,26 +43,28 @@ function formatBriefPrice(value: number, locale: "ko" | "en"): string {
     const val = value / 1_000;
     return `${val.toFixed(val % 1 === 0 ? 0 : 1)}k`;
   }
-  return value.toLocaleString(locale === "ko" ? "ko-KR" : "en-US", { maximumFractionDigits: 1 });
+  return value.toLocaleString(intlLocale(locale), { maximumFractionDigits: 1 });
 }
 
-function formatExactPrice(value: number, locale: "ko" | "en"): string {
-  return new Intl.NumberFormat(locale === "ko" ? "ko-KR" : "en-US", {
+function formatExactPrice(value: number, locale: Locale): string {
+  return new Intl.NumberFormat(intlLocale(locale), {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(value);
 }
 
-function formatTooltipTime(timeStr: string | null | undefined, locale: "ko" | "en"): string {
+function formatTooltipTime(timeStr: string | null | undefined, locale: Locale): string {
   if (!timeStr) return "";
   const date = new Date(timeStr);
   if (Number.isNaN(date.getTime())) return "";
 
-  const months = date.getUTCMonth() + 1;
-  const days = date.getUTCDate();
-  const hours = String(date.getUTCHours()).padStart(2, "0");
-  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
-  return `${months}/${days} ${hours}:${minutes} (UTC)`;
+  return `${new Intl.DateTimeFormat(intlLocale(locale), {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC"
+  }).format(date)} UTC`;
 }
 
 
@@ -75,7 +78,7 @@ export function EquityAreaChart({
   readonly trader: TraderStanding;
   readonly snapshots: readonly EquitySnapshot[];
   readonly loading: boolean;
-  readonly locale: "ko" | "en";
+  readonly locale: Locale;
   readonly t: (key: string) => string;
 }) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);

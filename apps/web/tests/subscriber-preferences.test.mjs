@@ -44,6 +44,8 @@ test("telegram alert settings normalize unsupported inputs and report delivery r
 test("account UI exposes favorites and Telegram alert customization", () => {
   assert.match(accountSource, /data-testid="subscriber-favorites"/, "account page should expose favorite traders");
   assert.match(accountSource, /data-testid="telegram-alert-settings"/, "account page should expose Telegram alert settings");
+  assert.match(accountSource, /data-testid="subscriber-command-summary"/, "account page should expose a compact operational summary");
+  assert.match(accountSource, /aria-label=\{copy\.telegramSettingsLabel\}/, "Telegram master switch should have an accessible label");
   assert.match(accountSource, /TelegramReviewSectionSettings/, "account page should expose Telegram review section settings");
   assert.match(preferencesSource, /"pending_entry"/, "alert types should cover pending entries");
   assert.match(preferencesSource, /"ai_review_high"/, "alert types should expose AI review importance");

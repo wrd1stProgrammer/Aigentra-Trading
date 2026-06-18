@@ -2,7 +2,8 @@ from typing import Any, Dict
 
 import httpx
 
-from app.ai.base import BaseAIProvider, entry_approval_prompt, extract_json_object, position_management_review_prompt
+from app.ai.base import BaseAIProvider, entry_approval_prompt, extract_json_object, league_sentiment_prompt, position_management_review_prompt
+from app.ai.league_sentiment_models import LeagueSentimentOpinionResult, LeagueSentimentPayload
 from app.traders.models import PositionManagementPayload, PositionManagementResult, TradeReviewPayload, TradeReviewResult
 
 
@@ -52,5 +53,26 @@ class GrokProvider(BaseAIProvider):
                 json=body,
             )
             response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
+        content = response.json()["choices"][0]["message"]["content"]
         return self.normalize_management_result(extract_json_object(content))
+
+    async def review_league_sentiment(
+        self, payload: LeagueSentimentPayload
+    ) -> LeagueSentimentOpinionResult:
+        body: Dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": "Return only strict JSON."},
+                {"role": "user", "content": league_sentiment_prompt(payload)},
+            ],
+            "temperature": 0.2,
+        }
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json=body,
+            )
+            response.raise_for_status()
+            content = response.json()["choices"][0]["message"]["content"]
+        return self.normalize_league_sentiment_result(extract_json_object(content))

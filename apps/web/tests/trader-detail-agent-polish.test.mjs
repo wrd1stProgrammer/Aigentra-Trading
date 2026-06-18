@@ -213,9 +213,10 @@ test("chart marks completed take-profit levels from backend state and prefers la
 
 test("trader detail header binds trader names descriptions and desk aliases through i18n keys", () => {
   assert.match(headerSource, /traderNameKey/, "header should not render backend trader.name directly");
-  assert.match(headerSource, /traderShortKey/, "header should localize the trader concept/description");
+  assert.match(headerSource, /traderDetailKey/, "header should use richer localized trader descriptions");
   assert.match(headerSource, /traderAliasKey/, "header should localize the desk alias");
   assert.match(i18nSource, /traders\.channel-rider\.alias/, "desk aliases need localization keys");
+  assert.match(i18nSource, /traders\.channel-rider\.detail/, "richer trader descriptions need localization keys");
   assert.match(i18nSource, /"traders\.channel-rider\.name": "채널 라이더"/, "Korean trader names should be localized, not English literals");
 });
 

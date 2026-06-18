@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { Locale, translate } from "@/lib/i18n";
+import { Locale, isSupportedLocale, translate } from "@/lib/i18n";
 import { LEAGUE_QUERY_GC_TIME_MS, LEAGUE_QUERY_STALE_TIME_MS } from "@/lib/api";
 
 type AppContextValue = {
@@ -36,7 +36,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const storedLocale = window.localStorage.getItem("atl-locale");
-    if (storedLocale === "ko" || storedLocale === "en") setLocaleState(storedLocale);
+    if (isSupportedLocale(storedLocale)) setLocaleState(storedLocale);
   }, []);
 
   useEffect(() => {

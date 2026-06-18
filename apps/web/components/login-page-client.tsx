@@ -12,7 +12,30 @@ type LoginPageClientProps = {
   readonly googleConfigured: boolean;
 };
 
-const copy = {
+const copy: Record<"ko" | "en", {
+  signinTitle: string;
+  signinSubtitle: string;
+  googleCta: string;
+  emailLabel: string;
+  passwordLabel: string;
+  forgotCta: string;
+  signinSubmit: string;
+  noAccount: string;
+  signupLink: string;
+  signupTitle: string;
+  nameLabel: string;
+  confirmPasswordLabel: string;
+  termsAccept: string;
+  signupSubmit: string;
+  hasAccount: string;
+  signinLink: string;
+  forgotTitle: string;
+  forgotSubtitle: string;
+  forgotSubmit: string;
+  rememberPassword: string;
+  demoNotice: string;
+  googleMissing: string;
+}> = {
   ko: {
     signinTitle: "Sign in",
     signinSubtitle: "Sign in to access AI Trader League",
@@ -67,11 +90,11 @@ const copy = {
     demoNotice: "Demo Mode: Email authentication is mocked in this layout. Please use Google Login.",
     googleMissing: "Google OAuth Config Missing"
   }
-} as const;
+};
 
 export function LoginPageClient({ nextPath, googleConfigured }: LoginPageClientProps) {
   const { locale } = useAppContext();
-  const text = copy[locale] ?? copy.ko;
+  const text = locale === "ko" ? copy.ko : copy.en;
   const callbackUrl = safeInternalPath(nextPath);
 
   // Modes: "signin" | "signup" | "forgot"

@@ -85,7 +85,7 @@ class TradeReviewPayload(BaseModel):
     symbol: str
     marketSnapshot: Dict[str, Any]
     candidate: TradeCandidate
-    locale: str = "ko"
+    locale: str = "en"
     recentAiReviews: List[Dict[str, Any]] = Field(default_factory=list)
     recentManagementReviews: List[Dict[str, Any]] = Field(default_factory=list)
     activeExposure: Dict[str, Any] = Field(default_factory=dict)
@@ -163,7 +163,7 @@ class PositionManagementPayload(BaseModel):
     marketSnapshot: Dict[str, Any]
     event: ManagementEvent
     exposure: ManagedExposure
-    locale: str = "ko"
+    locale: str = "en"
     recentManagementReviews: List[Dict[str, Any]] = Field(default_factory=list)
     recentTradeEvents: List[Dict[str, Any]] = Field(default_factory=list)
     siblingExposures: Dict[str, Any] = Field(default_factory=dict)
@@ -215,7 +215,7 @@ class TradePlan(BaseModel):
 
 class RunCycleRequest(BaseModel):
     symbol: str = "BTCUSDT"
-    locale: str = "ko"
+    locale: str = "en"
 
 
 class RunCycleResponse(BaseModel):

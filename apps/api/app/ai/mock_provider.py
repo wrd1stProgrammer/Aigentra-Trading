@@ -1,4 +1,5 @@
 from app.ai.base import BaseAIProvider
+from app.ai.league_sentiment_models import LeagueSentimentOpinionResult, LeagueSentimentPayload
 from app.paper.holding_policy import trader_holding_policy
 from app.traders.models import PositionManagementPayload, PositionManagementResult, TradeReviewPayload, TradeReviewResult
 from app.traders.strategy_base import candidate_geometry_errors
@@ -232,6 +233,85 @@ class MockAIProvider(BaseAIProvider):
                 "rationale": rationale,
                 "counterThesis": counter,
                 "userSummary": None,
+            }
+        )
+
+    async def review_league_sentiment(
+        self, payload: LeagueSentimentPayload
+    ) -> LeagueSentimentOpinionResult:
+        locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
+        counts = payload.sourceCounts
+        long_count = int(counts.get("activeLongPositions", 0)) + int(counts.get("pendingLongOrders", 0))
+        short_count = int(counts.get("activeShortPositions", 0)) + int(counts.get("pendingShortOrders", 0))
+        active_count = int(counts.get("activePositions", 0))
+        pending_count = int(counts.get("pendingOrders", 0))
+        losses = int(counts.get("recentStopLosses", 0))
+        wins = int(counts.get("recentTakeProfits", 0))
+
+        if losses >= max(2, wins + 2):
+            bias = "RISK_OFF"
+            confidence = 62
+        elif long_count > short_count:
+            bias = "LONG_BIASED"
+            confidence = 64 if short_count else 70
+        elif short_count > long_count:
+            bias = "SHORT_BIASED"
+            confidence = 64 if long_count else 70
+        elif active_count or pending_count:
+            bias = "MIXED"
+            confidence = 55
+        else:
+            bias = "NEUTRAL"
+            confidence = 45
+
+        risk_level = "HIGH" if losses >= 2 or bias == "RISK_OFF" else "MEDIUM"
+        if locale == "ko":
+            headline = "Aigentra 트레이더들의 방향이 한 시간 단위로 다시 정리됐습니다."
+            summary = (
+                f"현재 활성 포지션 {active_count}건, 진입 대기 {pending_count}건을 기준으로 보면 LONG {long_count}건과 SHORT {short_count}건이 비교됩니다. "
+                "최근 익절과 손절 기록은 방향보다 리스크 판단에 더 크게 반영했습니다."
+            )
+            action = "새로운 한 시간 캔들이 마감될 때까지 활성 포지션의 무효화 조건과 신규 대기 주문 체결 여부를 함께 확인하세요."
+            context = f"LONG {long_count}건 / SHORT {short_count}건, 최근 익절 {wins}건 / 손절 {losses}건입니다."
+            drivers = [
+                f"진입 중 포지션 {active_count}건",
+                f"진입 대기 주문 {pending_count}건",
+                f"최근 익절 {wins}건과 손절 {losses}건",
+            ]
+            risks = ["한쪽 방향으로 확실히 쏠리지 않으면 짧은 변동에 해석이 흔들릴 수 있습니다."]
+            watch = ["다음 1시간 마감 후 LONG/SHORT 활성 건수가 바뀌는지 확인하세요."]
+            quality = payload.dataQuality or ["백엔드가 집계한 paper 포지션, 주문, 리뷰만 사용했습니다."]
+        else:
+            headline = "Aigentra trader context has been refreshed for the current hour."
+            summary = (
+                f"The league currently has {active_count} active positions and {pending_count} pending entries, "
+                f"with LONG {long_count} versus SHORT {short_count}. Recent TP/SL history is used mostly as risk context."
+            )
+            action = "Until the next hourly close, monitor invalidation levels and whether pending entries actually fill."
+            context = f"LONG {long_count} / SHORT {short_count}; recent TP {wins} / SL {losses}."
+            drivers = [
+                f"{active_count} active positions",
+                f"{pending_count} pending entries",
+                f"{wins} recent take-profits and {losses} stop-losses",
+            ]
+            risks = ["If direction remains split, short-term moves can change the read quickly."]
+            watch = ["Check whether active LONG/SHORT counts change after the next hourly close."]
+            quality = payload.dataQuality or ["Only backend-counted paper positions, orders, and reviews were used."]
+
+        return self.normalize_league_sentiment_result(
+            {
+                "bias": bias,
+                "confidence": confidence,
+                "riskLevel": risk_level,
+                "headline": headline,
+                "summary": summary,
+                "keyDrivers": drivers,
+                "risks": risks,
+                "watchConditions": watch,
+                "action": action,
+                "longShortContext": context,
+                "dataQuality": quality,
+                "sourceCounts": counts,
             }
         )
 

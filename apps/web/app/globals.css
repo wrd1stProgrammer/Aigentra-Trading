@@ -48,6 +48,12 @@
   box-sizing: border-box;
 }
 
+html {
+  min-height: 100%;
+  background: var(--app-bg);
+  scroll-padding-top: 84px;
+}
+
 body {
   min-height: 100dvh;
   background:
@@ -55,6 +61,30 @@ body {
     var(--app-bg);
   color: var(--ink);
   font-variant-numeric: tabular-nums;
+  overflow-x: clip;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+@supports not (overflow: clip) {
+  body {
+    overflow-x: hidden;
+  }
+}
+
+main,
+section,
+article,
+aside,
+header,
+footer {
+  min-width: 0;
+}
+
+img,
+svg,
+video {
+  max-width: 100%;
 }
 
 ::selection {
@@ -223,6 +253,15 @@ body {
 
   .text-soft-app {
     color: var(--ink-soft);
+  }
+
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
   }
 }
 

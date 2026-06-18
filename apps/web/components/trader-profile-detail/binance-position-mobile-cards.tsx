@@ -2,6 +2,7 @@
 
 import type { PaperPosition } from "@/lib/api";
 import { formatClockTime, formatCurrency, formatNumber } from "@/lib/format";
+import type { Locale } from "@/lib/i18n";
 import { statusLabel } from "@/lib/status";
 import type { DisplayPaperOrder } from "@/components/trader-profile-detail/position-panel-rows";
 import {
@@ -21,7 +22,6 @@ import {
   recordValue
 } from "@/components/trader-profile-detail/position-panel-calculations";
 
-type Locale = "ko" | "en";
 type Translator = (key: string) => string;
 
 export function MobilePositionCards({

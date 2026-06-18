@@ -1,4 +1,15 @@
-type Locale = "ko" | "en";
+type Locale = "en" | "ko" | "ru" | "pt-BR" | "tr";
+
+function intlLocale(locale?: Locale) {
+  const locales: Record<Locale, string> = {
+    en: "en-US",
+    ko: "ko-KR",
+    ru: "ru-RU",
+    "pt-BR": "pt-BR",
+    tr: "tr-TR"
+  };
+  return locale ? locales[locale] : "en-US";
+}
 
 type SnapshotInput = {
   readonly equity?: number | string | null;
@@ -176,7 +187,7 @@ function isoDateKey(date: Date) {
 }
 
 function monthLabel(date: Date, locale: Locale) {
-  return new Intl.DateTimeFormat(locale === "ko" ? "ko-KR" : "en-US", {
+  return new Intl.DateTimeFormat(intlLocale(locale), {
     year: "numeric",
     month: "long",
     timeZone: "UTC"

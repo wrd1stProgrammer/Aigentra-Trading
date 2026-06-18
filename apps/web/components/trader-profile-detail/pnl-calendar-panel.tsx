@@ -1,6 +1,6 @@
 "use client";
 
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, intlLocale } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
 import type { MonthlyPnlCalendar, PnlCalendarDay } from "@/components/trader-profile-detail/pnl-calendar";
 import type { Translator } from "@/components/trader-profile-detail/types";
@@ -89,6 +89,6 @@ function assetBarWidth(returnPct: number) {
 }
 
 function weekdayLabels(locale: Locale) {
-  const formatter = new Intl.DateTimeFormat(locale === "ko" ? "ko-KR" : "en-US", { weekday: "narrow", timeZone: "UTC" });
+  const formatter = new Intl.DateTimeFormat(intlLocale(locale), { weekday: "narrow", timeZone: "UTC" });
   return Array.from({ length: 7 }, (_, index) => formatter.format(new Date(Date.UTC(2026, 5, 7 + index))));
 }

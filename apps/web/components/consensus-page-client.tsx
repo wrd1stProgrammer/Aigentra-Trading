@@ -7,10 +7,12 @@ import { useQuery } from "@tanstack/react-query";
 import { CircleNotch } from "@phosphor-icons/react";
 import { useAppContext } from "@/components/app-provider";
 import { ConsensusAveragePrices } from "@/components/consensus-average-prices";
+import { ConsensusHourlyOpinion } from "@/components/consensus-hourly-opinion";
 import { 
   getCachedLeaderboardBundle, 
   getRecentTradePlans, 
   getKlines,
+  getLeagueSentimentOpinion,
   LEAGUE_LIVE_REFETCH_INTERVAL_MS, 
   leaderboardBundleQueryOptions,
   type LeaderboardBundle,
@@ -265,6 +267,14 @@ export function ConsensusPageClient() {
   });
   const currentPrice = klinesQuery.data?.candles?.[0]?.close ?? null;
 
+  const hourlyOpinionQuery = useQuery({
+    queryKey: ["league", "sentiment-opinion", "BTCUSDT", locale],
+    queryFn: () => getLeagueSentimentOpinion("BTCUSDT", locale),
+    staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
+    refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+  });
+
   // Fetch pending trade plans
   const pendingPlansQuery = useQuery({
     queryKey: ["league", "trade-plans", "BTCUSDT", "pending"],
@@ -289,7 +299,7 @@ export function ConsensusPageClient() {
 
   const bundle = btcQuery.data ?? fallbackBundle;
   const pendingPlans = pendingPlansQuery.data ?? [];
-  const isFetching = btcQuery.isFetching || pendingPlansQuery.isFetching || klinesQuery.isFetching;
+  const isFetching = btcQuery.isFetching || pendingPlansQuery.isFetching || klinesQuery.isFetching || hourlyOpinionQuery.isFetching;
 
   const traders = bundle.traders?.length ? bundle.traders : (fallbackTraders as unknown as TraderProfile[]);
   const standings = useMemo(() => buildStandings(traders, bundle.summaries ?? []), [bundle.summaries, traders]);
@@ -329,7 +339,7 @@ export function ConsensusPageClient() {
       let rationale = activeScenario?.rationale || activeScenario?.summary || activePayload?.aiApprovalReason || activePayload?.entryReason || activePayload?.managementRationale;
       
       if (!rationale && (activeState.status === "inPosition" || activeState.status === "pendingEntry")) {
-        rationale = locale === "ko" ? "진입 분석 데이터를 불러오는 중입니다..." : "Loading entry analysis...";
+        rationale = t("consensus.entryAnalysisLoading");
       } else if (!rationale) {
         rationale = standing.description;
       }
@@ -435,6 +445,16 @@ export function ConsensusPageClient() {
       .filter(t => t.activeState.side === "short")
       .sort(sortActiveTraders);
   }, [activeTraders]);
+  const biasKey =
+    ratioStats.totalCount === 0
+      ? "consensus.neutralBias"
+      : ratioStats.longWeightedPct >= 55
+        ? "consensus.longBias"
+        : ratioStats.shortWeightedPct >= 55
+          ? "consensus.shortBias"
+          : "consensus.neutralBias";
+  const biasTone =
+    biasKey === "consensus.longBias" ? "emerald" : biasKey === "consensus.shortBias" ? "rose" : "zinc";
 
   // Non-active traders are watching
   const watchingTraders = useMemo(() => {
@@ -444,33 +464,33 @@ export function ConsensusPageClient() {
   }, [tradersWithStates]);
 
   const loading = btcQuery.isPending && !btcQuery.data;
-  const error = btcQuery.error ? (btcQuery.error instanceof Error ? btcQuery.error.message : String(btcQuery.error)) : null;
+  const error = btcQuery.error ? t("common.liveDataUnavailable") : null;
 
   if (loading) {
     return (
       <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col gap-6 animate-pulse">
-        <div className="h-20 w-full rounded-xl bg-white/5 border border-white/10" />
-        <div className="h-36 w-full rounded-xl bg-white/5 border border-white/10" />
-        <div className="h-96 rounded-xl bg-white/5 border border-white/10" />
+        <div className="h-20 w-full rounded-xl border border-zinc-200 bg-zinc-100 dark:border-white/10 dark:bg-white/5" />
+        <div className="h-36 w-full rounded-xl border border-zinc-200 bg-zinc-100 dark:border-white/10 dark:bg-white/5" />
+        <div className="h-96 rounded-xl border border-zinc-200 bg-zinc-100 dark:border-white/10 dark:bg-white/5" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 py-8 animate-rise grid gap-8">
+    <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 py-8 animate-rise grid gap-6 md:gap-8">
       {/* Title Header Row */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between border-b border-white/[0.08] pb-6">
+      <div data-testid="consensus-command-header" className="flex flex-col gap-4 border-b border-zinc-200/80 pb-6 dark:border-white/[0.08] md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white md:text-3xl break-keep">
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-950 dark:text-white md:text-3xl break-keep">
             {t("consensus.title")}
           </h1>
-          <p className="text-zinc-400 mt-1.5 max-w-xl text-sm leading-relaxed break-keep">
+          <p className="text-zinc-600 mt-1.5 max-w-xl text-sm leading-relaxed break-keep dark:text-zinc-400">
             {t("consensus.subtitle")}
           </p>
         </div>
         <div className="flex items-center gap-2.5 shrink-0 self-start md:self-center">
           {isFetching ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.04] px-3.5 py-1.5 text-xs font-semibold text-zinc-400 border border-white/10">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-zinc-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
               <CircleNotch className="animate-spin" size={13} />
               {t("common.loading")}
             </span>
@@ -486,13 +506,48 @@ export function ConsensusPageClient() {
         </div>
       </div>
 
+      <section data-testid="consensus-market-strip" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <ConsensusSummaryMetric
+          label={t("consensus.currentPrice")}
+          value={currentPrice ? `$${formatNumber(currentPrice, 1, locale)}` : "-"}
+          detail="BTCUSDT"
+          tone="sky"
+        />
+        <ConsensusSummaryMetric
+          label={t("consensus.activeCount")}
+          value={`${ratioStats.totalCount}`}
+          detail={t("consensus.activeTradersOnly")}
+          tone="emerald"
+        />
+        <ConsensusSummaryMetric
+          label={t("consensus.marketBias")}
+          value={t(biasKey)}
+          detail={`L ${ratioStats.longWeightedPct.toFixed(0)}% / S ${ratioStats.shortWeightedPct.toFixed(0)}%`}
+          tone={biasTone}
+        />
+        <ConsensusSummaryMetric
+          label={t("consensus.liveStatus")}
+          value={isFetching ? t("common.loading") : "LIVE"}
+          detail={error ?? t("chart.liveSource")}
+          tone={error ? "rose" : "emerald"}
+        />
+      </section>
+
+      <div data-testid="consensus-hourly-opinion">
+        <ConsensusHourlyOpinion
+          data={hourlyOpinionQuery.data}
+          isFetching={hourlyOpinionQuery.isFetching}
+          locale={locale}
+          t={t}
+        />
+      </div>
 
       {/* Top Ratio and Averages Panel */}
       <div className="grid min-w-0 gap-6 md:grid-cols-2">
         {/* Left Side: Long/Short Ratio Panel */}
-        <div className="min-w-0 rounded-2xl border border-white/[0.08] bg-[#0c0d0d] p-4 flex flex-col justify-between shadow-xl sm:p-6">
+        <div className="min-w-0 rounded-2xl border border-zinc-200 bg-white p-4 flex flex-col justify-between shadow-sm dark:border-white/[0.08] dark:bg-white/[0.025] sm:p-6">
           <div>
-            <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wider mb-1">
+            <h2 className="text-sm font-bold text-zinc-800 uppercase tracking-wider mb-1 dark:text-zinc-300">
               {t("consensus.ratioOverview")}
             </h2>
             <p className="text-[11px] text-zinc-500">
@@ -505,13 +560,13 @@ export function ConsensusPageClient() {
               <div className="mt-6 space-y-6">
                 {/* Trader Count Split */}
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs font-semibold text-zinc-400">
+                  <div className="flex items-center justify-between text-xs font-semibold text-zinc-500 dark:text-zinc-400">
                     <span>{t("consensus.countRatio")}</span>
                     <span className="font-mono">
                       L {ratioStats.longCount} ({ratioStats.longPct.toFixed(0)}%) / S {ratioStats.shortCount} ({ratioStats.shortPct.toFixed(0)}%)
                     </span>
                   </div>
-                  <div className="h-3 w-full bg-zinc-900 rounded-full overflow-hidden flex ring-1 ring-white/5">
+                  <div className="h-2.5 w-full bg-zinc-100 rounded-full overflow-hidden flex ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-white/5">
                     <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${ratioStats.longPct}%` }} />
                     <div className="h-full bg-rose-500 transition-all duration-500" style={{ width: `${ratioStats.shortPct}%` }} />
                   </div>
@@ -519,13 +574,13 @@ export function ConsensusPageClient() {
 
                 {/* Leverage Weighted Split */}
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs font-semibold text-zinc-400">
+                  <div className="flex items-center justify-between text-xs font-semibold text-zinc-500 dark:text-zinc-400">
                     <span>{t("consensus.leverageWeighted")}</span>
                     <span className="font-mono">
                       L {ratioStats.longWeight}x ({ratioStats.longWeightedPct.toFixed(0)}%) / S {ratioStats.shortWeight}x ({ratioStats.shortWeightedPct.toFixed(0)}%)
                     </span>
                   </div>
-                  <div className="h-3 w-full bg-zinc-900 rounded-full overflow-hidden flex ring-1 ring-white/5">
+                  <div className="h-2.5 w-full bg-zinc-100 rounded-full overflow-hidden flex ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-white/5">
                     <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${ratioStats.longWeightedPct}%` }} />
                     <div className="h-full bg-rose-500 transition-all duration-500" style={{ width: `${ratioStats.shortWeightedPct}%` }} />
                   </div>
@@ -536,9 +591,9 @@ export function ConsensusPageClient() {
         </div>
 
         {/* Right Side: Averages Table Panel */}
-        <div className="min-w-0 rounded-2xl border border-white/[0.08] bg-[#0c0d0d] p-4 shadow-xl flex flex-col justify-between sm:p-6">
+        <div className="min-w-0 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm flex flex-col justify-between dark:border-white/[0.08] dark:bg-white/[0.025] sm:p-6">
           <div>
-            <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wider mb-1">
+            <h2 className="text-sm font-bold text-zinc-800 uppercase tracking-wider mb-1 dark:text-zinc-300">
               {t("consensus.avgPrices")}
             </h2>
             <p className="text-[11px] text-zinc-500">
@@ -565,7 +620,7 @@ export function ConsensusPageClient() {
           </div>
 
           {activeLongTraders.length === 0 ? (
-            <div className="rounded-xl border border-white/[0.06] bg-[#0c0d0d] p-8 text-center text-zinc-500 text-xs">
+            <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center text-zinc-500 text-xs dark:border-white/[0.06] dark:bg-[#0c0d0d]">
               {t("consensus.noActivePositions")}
             </div>
           ) : (
@@ -590,7 +645,7 @@ export function ConsensusPageClient() {
           </div>
 
           {activeShortTraders.length === 0 ? (
-            <div className="rounded-xl border border-white/[0.06] bg-[#0c0d0d] p-8 text-center text-zinc-500 text-xs">
+            <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center text-zinc-500 text-xs dark:border-white/[0.06] dark:bg-[#0c0d0d]">
               {t("consensus.noActivePositions")}
             </div>
           ) : (
@@ -605,12 +660,12 @@ export function ConsensusPageClient() {
 
       {/* Watchlist Section */}
       <section className="space-y-4 pt-4">
-        <div className="flex items-center justify-between border-b border-white/10 pb-2">
-          <h2 className="text-sm font-bold text-zinc-400 flex items-center gap-2">
+        <div className="flex items-center justify-between border-b border-zinc-200 pb-2 dark:border-white/10">
+          <h2 className="text-sm font-bold text-zinc-600 flex items-center gap-2 dark:text-zinc-400">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-zinc-500" />
             {t("consensus.watchingSide")}
           </h2>
-          <span className="font-mono text-xs font-bold bg-white/[0.04] text-zinc-400 px-2.5 py-0.5 rounded-full border border-white/10">
+          <span className="font-mono text-xs font-bold bg-zinc-100 text-zinc-500 px-2.5 py-0.5 rounded-full border border-zinc-200 dark:bg-white/[0.04] dark:text-zinc-400 dark:border-white/10">
             {watchingTraders.length}
           </span>
         </div>
@@ -622,7 +677,7 @@ export function ConsensusPageClient() {
             return (
               <div 
                 key={trader.id}
-                className="group relative rounded-xl border border-white/[0.06] bg-[#0c0d0d] p-3 flex flex-col justify-between hover:border-white/10 hover:bg-[#111313] transition-all duration-300 shadow-sm"
+                className="group relative rounded-xl border border-zinc-200 bg-white p-3 flex flex-col justify-between hover:border-zinc-300 hover:bg-zinc-50 transition-all duration-300 shadow-sm dark:border-white/[0.06] dark:bg-[#0c0d0d] dark:hover:border-white/10 dark:hover:bg-[#111313]"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 min-w-0">
@@ -630,7 +685,7 @@ export function ConsensusPageClient() {
                       {visual.initials}
                     </div>
                     <div className="min-w-0">
-                      <h4 className="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                      <h4 className="text-xs font-bold text-zinc-950 truncate flex items-center gap-1.5 dark:text-white">
                         {trader.name}
                         <span className="text-[10px] shrink-0" title="Flag">{flag}</span>
                       </h4>
@@ -638,7 +693,7 @@ export function ConsensusPageClient() {
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <span className="inline-flex items-center rounded bg-white/[0.04] px-1.5 py-0.5 text-[8px] font-extrabold text-zinc-400 border border-white/5">
+                    <span className="inline-flex items-center rounded bg-zinc-100 px-1.5 py-0.5 text-[8px] font-extrabold text-zinc-500 border border-zinc-200 dark:bg-white/[0.04] dark:text-zinc-400 dark:border-white/5">
                       {trader.activeState.detail || t("leaderboard.status.watching")}
                     </span>
                   </div>
@@ -648,7 +703,7 @@ export function ConsensusPageClient() {
                   {trader.concept || trader.description}
                 </p>
 
-                <div className="mt-3 border-t border-white/[0.04] pt-2 flex items-center justify-between">
+                <div className="mt-3 border-t border-zinc-100 pt-2 flex items-center justify-between dark:border-white/[0.04]">
                   <div className="flex items-center gap-1.5 text-[10px]">
                     <span className="text-zinc-500 font-medium">30D Return</span>
                     <span className={`font-mono font-bold ${trader.returnPct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
@@ -669,10 +724,39 @@ export function ConsensusPageClient() {
       </section>
 
       {error ? (
-        <div className="mt-4 rounded-xl border border-rose-900/50 bg-rose-950/20 p-4 text-sm text-rose-200">
+        <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-200">
           {error}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function ConsensusSummaryMetric({
+  label,
+  value,
+  detail,
+  tone
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone: "emerald" | "rose" | "sky" | "zinc";
+}) {
+  const toneClass =
+    tone === "emerald"
+      ? "border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-600 dark:text-emerald-400"
+      : tone === "rose"
+        ? "border-rose-500/20 bg-rose-500/[0.06] text-rose-600 dark:text-rose-400"
+        : tone === "sky"
+          ? "border-sky-500/20 bg-sky-500/[0.06] text-sky-600 dark:text-sky-400"
+          : "border-zinc-200 bg-white text-zinc-600 dark:border-white/[0.08] dark:bg-white/[0.025] dark:text-zinc-300";
+
+  return (
+    <div className={`min-w-0 rounded-2xl border p-4 ${toneClass}`}>
+      <p className="text-[10px] font-bold uppercase tracking-wider opacity-80">{label}</p>
+      <p className="mt-2 truncate font-mono text-2xl font-semibold tracking-tight text-zinc-950 dark:text-white">{value}</p>
+      <p className="mt-1 line-clamp-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{detail}</p>
     </div>
   );
 }
@@ -690,10 +774,10 @@ function ActiveTraderRow({ trader, locale, t }: { trader: any; locale: Locale; t
       ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
       : activeState.tone === "warn"
         ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-        : "bg-zinc-800/50 text-zinc-400 border-zinc-700/50";
+        : "bg-zinc-100 text-zinc-500 border-zinc-200 dark:bg-zinc-800/50 dark:text-zinc-400 dark:border-zinc-700/50";
 
   return (
-    <div className="relative rounded-xl border border-white/[0.06] bg-[#0c0d0d] p-4 flex flex-col justify-between hover:border-white/10 hover:bg-[#111313] transition-all duration-300 shadow-md">
+    <div className="relative rounded-xl border border-zinc-200 bg-white p-4 flex flex-col justify-between hover:border-zinc-300 hover:bg-zinc-50 transition-all duration-300 shadow-md dark:border-white/[0.06] dark:bg-[#0c0d0d] dark:hover:border-white/10 dark:hover:bg-[#111313]">
       <div>
         {/* Header Info */}
         <div className="flex items-center justify-between gap-3">
@@ -702,7 +786,7 @@ function ActiveTraderRow({ trader, locale, t }: { trader: any; locale: Locale; t
               {visual.initials}
             </div>
             <div className="min-w-0">
-              <h4 className="text-xs font-bold text-white truncate flex items-center gap-1.5">
+              <h4 className="text-xs font-bold text-zinc-950 truncate flex items-center gap-1.5 dark:text-white">
                 {trader.name}
                 <span className="text-[10px] shrink-0" title="Flag">{flag}</span>
               </h4>
@@ -735,10 +819,10 @@ function ActiveTraderRow({ trader, locale, t }: { trader: any; locale: Locale; t
 
         {/* Price Targets */}
         {(activeState.price || activeState.takeProfit || activeState.stopLoss) && (
-          <div className="mt-3 bg-white/[0.01] border border-white/[0.04] rounded-lg p-2 grid grid-cols-3 gap-2 text-center text-[9px] font-mono">
+          <div className="mt-3 bg-zinc-50 border border-zinc-100 rounded-lg p-2 grid grid-cols-3 gap-2 text-center text-[9px] font-mono dark:bg-white/[0.01] dark:border-white/[0.04]">
             <div>
               <p className="text-zinc-500 uppercase font-semibold">{t("detail.averageEntry")}</p>
-              <p className="mt-0.5 font-bold text-zinc-200">
+              <p className="mt-0.5 font-bold text-zinc-950 dark:text-zinc-200">
                 {activeState.price ? `$${formatNumber(activeState.price, 0, locale)}` : "-"}
               </p>
             </div>
@@ -760,8 +844,8 @@ function ActiveTraderRow({ trader, locale, t }: { trader: any; locale: Locale; t
         {/* Justification Box (진입이유) */}
         <div className="mt-3">
           <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider mb-1">{t("consensus.entryReason")}</p>
-          <div className={`border-l-2 ${isLong ? "border-emerald-500/40" : "border-rose-500/40"} pl-3 py-1 bg-white/[0.01] rounded-r`}>
-            <p className="text-xs text-zinc-300 leading-relaxed italic">
+          <div className={`border-l-2 ${isLong ? "border-emerald-500/40" : "border-rose-500/40"} pl-3 py-1 bg-zinc-50 rounded-r dark:bg-white/[0.01]`}>
+            <p className="text-xs text-zinc-700 leading-relaxed italic dark:text-zinc-300">
               “{rationale}”
             </p>
             {trader.activeScenario && (
@@ -776,7 +860,7 @@ function ActiveTraderRow({ trader, locale, t }: { trader: any; locale: Locale; t
         </div>
       </div>
 
-      <div className="mt-3 border-t border-white/[0.04] pt-2 flex justify-end">
+      <div className="mt-3 border-t border-zinc-100 pt-2 flex justify-end dark:border-white/[0.04]">
         <Link 
           href={`/traders/${trader.id}`} 
           className={`focus-ring inline-flex items-center gap-1 text-[10px] font-bold transition-colors ${

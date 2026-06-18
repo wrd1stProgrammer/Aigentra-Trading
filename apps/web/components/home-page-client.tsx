@@ -5,6 +5,7 @@ import { ArrowRight, BellRinging, CaretDown, Check, Star, TelegramLogo, Translat
 import { useAppContext } from "@/components/app-provider";
 import { PipelinePreview, PositionManagementPreview, ConsensusPreview, TradePlanPreview, AlertPreview, LandingFooter, PricingCard, VideoFrame } from "@/components/home-landing-visuals";
 import { landingCopy } from "@/lib/marketing-copy";
+import { SUPPORTED_LOCALES } from "@/lib/i18n";
 
 function CandleNotch({
   position,
@@ -76,7 +77,7 @@ function ScrollReveal({
     <div
       ref={ref}
       className={`transform transition-all duration-700 ease-out ${
-        isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+        isVisible ? "translate-y-0" : "translate-y-3"
       } ${className}`}
       style={{ transitionDelay: `${delay}ms` }}
     >
@@ -101,6 +102,7 @@ export function HomePageClient() {
   const [activeFaqIndex, setActiveFaqIndex] = useState<number | null>(null);
   const [isAboutExpanded, setIsAboutExpanded] = useState(false);
   const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("annual");
+  const nextLocale = SUPPORTED_LOCALES[(SUPPORTED_LOCALES.indexOf(locale) + 1) % SUPPORTED_LOCALES.length] ?? "en";
 
   return (
     <div className="landing-page bg-white text-zinc-950 antialiased overflow-x-hidden">
@@ -109,11 +111,11 @@ export function HomePageClient() {
         className="relative overflow-hidden bg-[#070908] text-white pt-6 pb-0"
         style={{
           backgroundImage:
-            "linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px), radial-gradient(circle at 50% 25%, rgba(16,185,129,0.15), transparent 40%)",
+            "linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px), linear-gradient(180deg, rgba(16,185,129,0.14), transparent 44%)",
           backgroundSize: "128px 128px, 128px 128px, auto"
         }}
       >
-        <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16 pb-16">
+        <div className="relative mx-auto max-w-[1240px] px-4 pb-14 sm:px-10 sm:pb-16 lg:px-16">
           {/* Vertical grid lines */}
           <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
@@ -122,23 +124,23 @@ export function HomePageClient() {
           <CandleNotch position="top-right" theme="dark" pulse />
 
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/10 pb-5 pt-4">
+          <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-5 pt-4">
             <Link href="/" className="focus-ring flex items-center gap-3 rounded-lg hover:opacity-90 transition">
               <span className="grid size-9 place-items-center rounded-lg border border-emerald-400/35 bg-emerald-400/10 font-mono text-xs text-emerald-300">AT</span>
-              <span className="text-lg font-bold tracking-tight">Aigentra Trading</span>
+              <span className="text-base font-bold tracking-tight sm:text-lg">Aigentra Trading</span>
             </Link>
-            <div className="flex items-center gap-4">
+            <div className="flex shrink-0 items-center gap-2 sm:gap-4">
               <button
                 type="button"
-                onClick={() => setLocale(locale === "ko" ? "en" : "ko")}
-                className="focus-ring inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-4 py-2 font-mono text-xs text-zinc-200 hover:bg-white/[0.08] transition select-none"
+                onClick={() => setLocale(nextLocale)}
+                className="focus-ring inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-3 py-2 font-mono text-xs text-zinc-200 hover:bg-white/[0.08] transition select-none sm:px-4"
                 aria-label={t("common.language")}
               >
                 <Translate size={14} />
                 {locale.toUpperCase()}
               </button>
-              <Link href="/login" className="text-white hover:text-emerald-300 font-mono text-sm font-semibold transition shrink-0">
-                {locale === "ko" ? "시작하기 →" : "Get started now →"}
+              <Link href="/login" className="hidden text-white hover:text-emerald-300 font-mono text-sm font-semibold transition shrink-0 sm:inline">
+                {copy.getStartedCta} →
               </Link>
             </div>
           </div>
@@ -175,7 +177,7 @@ export function HomePageClient() {
 
       {/* Connection Divider Block */}
       <div className="relative bg-[#070908]">
-        <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16 h-12">
+        <div className="relative mx-auto h-8 max-w-[1240px] px-4 sm:h-12 sm:px-10 lg:px-16">
           {/* Vertical grid lines */}
           <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
@@ -193,7 +195,7 @@ export function HomePageClient() {
       </div>
 
       <section data-testid="landing-agent-system" className="relative overflow-hidden bg-[#070908] pt-0 pb-24 text-white">
-          <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16 pt-16">
+          <div className="relative mx-auto max-w-[1240px] px-4 pt-14 sm:px-10 sm:pt-16 lg:px-16">
           {/* Vertical grid lines */}
           <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
@@ -259,8 +261,8 @@ export function HomePageClient() {
         </div>
       </section>
 
-      <section data-testid="landing-get-started" className="relative overflow-hidden bg-white py-24 text-zinc-950 border-y border-zinc-200">
-        <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16">
+      <section data-testid="landing-get-started" className="relative overflow-hidden bg-white py-16 text-zinc-950 border-y border-zinc-200 md:py-24">
+        <div className="relative mx-auto max-w-[1240px] px-4 sm:px-10 lg:px-16">
           {/* Vertical grid lines */}
           <div className="absolute inset-y-0 left-0 hidden w-px bg-zinc-200 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-zinc-200 lg:block" />
@@ -301,8 +303,8 @@ export function HomePageClient() {
         </div>
       </section>
 
-      <section data-testid="landing-telegram-alerts" className="relative overflow-hidden bg-white py-24 text-zinc-950">
-        <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16">
+      <section data-testid="landing-telegram-alerts" className="relative overflow-hidden bg-white py-16 text-zinc-950 md:py-24">
+        <div className="relative mx-auto max-w-[1240px] px-4 sm:px-10 lg:px-16">
           {/* Vertical grid lines */}
           <div className="absolute inset-y-0 left-0 hidden w-px bg-zinc-200 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-zinc-200 lg:block" />
@@ -313,7 +315,7 @@ export function HomePageClient() {
           <CandleNotch position="bottom-right" theme="light" />
 
           <ScrollReveal>
-            <div className="mx-auto grid gap-8 rounded-[24px] border border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] p-8 text-white shadow-[0_22px_60px_rgba(0,0,0,0.5)] lg:grid-cols-[0.82fr_1.18fr] hover:border-emerald-500/10 transition duration-300">
+            <div className="mx-auto grid gap-6 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] p-5 text-white shadow-[0_22px_60px_rgba(0,0,0,0.5)] transition duration-300 hover:border-emerald-500/10 sm:p-8 lg:grid-cols-[0.82fr_1.18fr]">
               <div className="flex flex-col justify-between py-2">
                 <div>
                   <span className="grid size-12 place-items-center rounded-xl bg-sky-500 text-white shadow-[0_0_20px_rgba(14,165,233,0.35)]">
@@ -348,8 +350,8 @@ export function HomePageClient() {
         </div>
       </section>
 
-      <section data-testid="landing-pricing" className="relative overflow-hidden bg-[#070908] py-24 text-white">
-        <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16">
+      <section data-testid="landing-pricing" className="relative overflow-hidden bg-[#070908] py-16 text-white md:py-24">
+        <div className="relative mx-auto max-w-[1240px] px-4 sm:px-10 lg:px-16">
           {/* Vertical grid lines */}
           <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
@@ -369,7 +371,7 @@ export function HomePageClient() {
 
           {/* Billing Cycle Toggle */}
           <div className="flex justify-center mt-10">
-            <div className="relative p-1 bg-zinc-900 border border-white/10 rounded-full flex items-center">
+            <div className="relative grid w-full max-w-[360px] grid-cols-2 rounded-full border border-white/10 bg-zinc-900 p-1 sm:flex sm:w-auto sm:max-w-none sm:items-center">
               <button
                 onClick={() => setBillingCycle("annual")}
                 className={`px-5 py-2 text-xs font-bold rounded-full transition-all duration-300 ${
@@ -378,7 +380,7 @@ export function HomePageClient() {
                     : "text-zinc-400 hover:text-white"
                 }`}
               >
-                {locale === "ko" ? "연간 결제 (15% 할인)" : "Annual (15% OFF)"}
+                {copy.billingAnnual}
               </button>
               <button
                 onClick={() => setBillingCycle("monthly")}
@@ -388,7 +390,7 @@ export function HomePageClient() {
                     : "text-zinc-400 hover:text-white"
                 }`}
               >
-                {locale === "ko" ? "월간 결제" : "Monthly"}
+                {copy.billingMonthly}
               </button>
             </div>
           </div>
@@ -403,8 +405,8 @@ export function HomePageClient() {
         </div>
       </section>
 
-      <section className="relative overflow-hidden bg-white py-24 text-zinc-950 border-t border-zinc-200">
-        <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16">
+      <section className="relative overflow-hidden bg-white py-16 text-zinc-950 border-t border-zinc-200 md:py-24">
+        <div className="relative mx-auto max-w-[1240px] px-4 sm:px-10 lg:px-16">
           {/* Vertical grid lines */}
           <div className="absolute inset-y-0 left-0 hidden w-px bg-zinc-200 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-zinc-200 lg:block" />
@@ -467,11 +469,11 @@ export function HomePageClient() {
         </div>
       </section>
 
-      <section data-testid="landing-about" className="relative bg-white py-24 border-t border-zinc-200">
-        <div className="relative mx-auto max-w-[1440px] px-6 sm:px-10 lg:px-0">
+      <section data-testid="landing-about" className="relative bg-white py-16 border-t border-zinc-200 md:py-24">
+        <div className="relative mx-auto max-w-[1440px] px-4 sm:px-10 lg:px-0">
           {/* The main dark card block */}
           <div
-            className="relative rounded-[32px] border border-white/[0.08] bg-[#070908] py-16 px-6 sm:px-12 lg:px-20 text-center overflow-hidden shadow-[0_22px_60px_rgba(0,0,0,0.5)]"
+            className="relative rounded-2xl border border-white/[0.08] bg-[#070908] px-5 py-12 text-center overflow-hidden shadow-[0_22px_60px_rgba(0,0,0,0.5)] sm:px-12 sm:py-16 lg:rounded-[32px] lg:px-20"
             style={{
               backgroundImage:
                 "linear-gradient(rgba(16,185,129,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(16,185,129,0.08) 1px, transparent 1px)",
@@ -534,8 +536,8 @@ export function HomePageClient() {
         </div>
       </section>
 
-      <footer data-testid="landing-footer" className="relative overflow-hidden bg-white py-16 text-zinc-950 border-t border-zinc-200">
-        <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16">
+      <footer data-testid="landing-footer" className="relative overflow-hidden bg-white py-14 text-zinc-950 border-t border-zinc-200 sm:py-16">
+        <div className="relative mx-auto max-w-[1240px] px-4 sm:px-10 lg:px-16">
           <LandingFooter copy={copy} />
         </div>
       </footer>

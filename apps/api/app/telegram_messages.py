@@ -2,7 +2,11 @@ import math
 from decimal import Decimal
 from typing import Any, Protocol
 
+from sqlalchemy.orm import object_session
+
+from app.ai.translation_cache import localized_payload_for_source
 from app.db import PositionManagementReviewRecord, TradeEventRecord
+from app.locales import AI_TRANSLATION_SOURCE_AI_REVIEW, AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT
 from app.repositories import from_json
 from app.subscriber_alert_types import DEFAULT_TELEGRAM_REVIEW_SECTIONS, normalize_review_sections
 
@@ -46,6 +50,8 @@ def compose_event_message(preferences: TelegramPreferences, event: TradeEventRec
     price = f"{float(event.price):,.1f}" if event.price is not None else "-"
     pnl = f"{float(event.realized_pnl):+,.2f}" if event.realized_pnl else "-"
     payload = from_json(event.payload_json)
+    if isinstance(payload, dict):
+        payload = localized_trade_event_payload(event, payload, preferences.locale)
     review_lines = entry_review_lines(payload, preferences.locale) if isinstance(payload, dict) else []
     if review_lines:
         return "\n".join(
@@ -79,6 +85,16 @@ def compose_management_message(
     trader_name = TRADER_NAMES.get(review.trader_id or "", review.trader_id or "-")
     label = telegram_event_label(telegram_event_type, preferences.locale)
     payload = from_json(review.payload_json)
+    if isinstance(payload, dict):
+        session = object_session(review)
+        if session is not None and review.id is not None:
+            payload, _ = localized_payload_for_source(
+                session,
+                source_type=AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
+                source_id=review.id,
+                payload=payload,
+                locale=preferences.locale,
+            )
     payload_record = first_record(payload) or {}
     event_payload = first_record(payload_record.get("event")) or {}
     exposure_payload = first_record(payload_record.get("exposure")) or {}
@@ -112,6 +128,30 @@ def compose_management_message(
         )
     lines.extend(management_review_detail_lines(review_payload, sections, preferences.locale, rationale))
     return "\n".join(lines)
+
+
+def localized_trade_event_payload(event: TradeEventRecord, payload: dict[str, Any], locale: str) -> dict[str, Any]:
+    ai_review_id = first_number(payload.get("aiReviewId"))
+    ai_review = first_record(payload.get("aiReview"))
+    session = object_session(event)
+    if session is None or ai_review_id is None or ai_review is None:
+        return payload
+    localized_review, meta = localized_payload_for_source(
+        session,
+        source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+        source_id=int(ai_review_id),
+        payload=ai_review,
+        locale=locale,
+    )
+    if meta.get("status") != "ok":
+        return payload
+    next_payload = {**payload, "aiReview": localized_review}
+    structured = first_record(localized_review.get("structuredReview"))
+    if structured is not None:
+        next_payload["aiStructuredReview"] = structured
+    if localized_review.get("approvalReason"):
+        next_payload["aiApprovalReason"] = localized_review.get("approvalReason")
+    return next_payload
 
 
 def management_review_detail_lines(
@@ -160,16 +200,6 @@ def review_sections_for_preferences(preferences: TelegramPreferences) -> list[st
 
 def telegram_event_label(telegram_event_type: str, locale: str) -> str:
     labels = {
-        "ko": {
-            "pending_entry": "진입대기",
-            "position_entry": "진입완료",
-            "take_profit": "익절완료",
-            "stop_loss": "손절완료",
-            "ai_review_low": "AI 중간 리뷰 낮음",
-            "ai_review_medium": "AI 중간 리뷰 중간",
-            "ai_review_high": "AI 중간 리뷰 높음",
-            "risk": "리스크",
-        },
         "en": {
             "pending_entry": "Entry Pending",
             "position_entry": "Entry Filled",
@@ -180,8 +210,49 @@ def telegram_event_label(telegram_event_type: str, locale: str) -> str:
             "ai_review_high": "AI Review High",
             "risk": "Risk",
         },
+        "ko": {
+            "pending_entry": "진입대기",
+            "position_entry": "진입완료",
+            "take_profit": "익절완료",
+            "stop_loss": "손절완료",
+            "ai_review_low": "AI 중간 리뷰 낮음",
+            "ai_review_medium": "AI 중간 리뷰 중간",
+            "ai_review_high": "AI 중간 리뷰 높음",
+            "risk": "리스크",
+        },
+        "ru": {
+            "pending_entry": "Ожидает входа",
+            "position_entry": "Вход исполнен",
+            "take_profit": "Тейк-профит",
+            "stop_loss": "Стоп-лосс",
+            "ai_review_low": "AI-обзор: низкая важность",
+            "ai_review_medium": "AI-обзор: средняя важность",
+            "ai_review_high": "AI-обзор: высокая важность",
+            "risk": "Риск",
+        },
+        "pt-BR": {
+            "pending_entry": "Entrada pendente",
+            "position_entry": "Entrada executada",
+            "take_profit": "Take profit",
+            "stop_loss": "Stop loss",
+            "ai_review_low": "Revisão AI baixa",
+            "ai_review_medium": "Revisão AI média",
+            "ai_review_high": "Revisão AI alta",
+            "risk": "Risco",
+        },
+        "tr": {
+            "pending_entry": "Giriş bekliyor",
+            "position_entry": "Giriş tamamlandı",
+            "take_profit": "Kar alındı",
+            "stop_loss": "Zarar kesildi",
+            "ai_review_low": "AI ara inceleme düşük",
+            "ai_review_medium": "AI ara inceleme orta",
+            "ai_review_high": "AI ara inceleme yüksek",
+            "risk": "Risk",
+        },
     }
-    return labels["en" if locale == "en" else "ko"].get(telegram_event_type, telegram_event_type)
+    active = labels.get(locale, labels["en"])
+    return active.get(telegram_event_type, telegram_event_type)
 
 
 def entry_review_lines(payload: dict[str, Any], locale: str) -> list[str]:
@@ -224,26 +295,49 @@ def entry_review_lines(payload: dict[str, Any], locale: str) -> list[str]:
 
 
 def review_labels(locale: str) -> dict[str, str]:
-    if locale == "en":
-        return {
+    labels = {
+        "en": {
             "action": "Next action",
             "keyReasons": "Key reasons",
             "risks": "Risks",
             "watchConditions": "Watch next",
             "managerNote": "Manager note",
-        }
-    return {
-        "action": "지금 할 일",
-        "keyReasons": "핵심 이유",
-        "risks": "주의할 점",
-        "watchConditions": "다음 확인 조건",
-        "managerNote": "관리 메모",
+        },
+        "ko": {
+            "action": "지금 할 일",
+            "keyReasons": "핵심 이유",
+            "risks": "주의할 점",
+            "watchConditions": "다음 확인 조건",
+            "managerNote": "관리 메모",
+        },
+        "ru": {
+            "action": "Что сделать сейчас",
+            "keyReasons": "Ключевые причины",
+            "risks": "На что обратить внимание",
+            "watchConditions": "Следующие условия",
+            "managerNote": "Заметка менеджера",
+        },
+        "pt-BR": {
+            "action": "Próxima ação",
+            "keyReasons": "Motivos principais",
+            "risks": "Pontos de atenção",
+            "watchConditions": "Próximas condições",
+            "managerNote": "Nota de gestão",
+        },
+        "tr": {
+            "action": "Şimdi yapılacak",
+            "keyReasons": "Ana nedenler",
+            "risks": "Dikkat edilecekler",
+            "watchConditions": "Sonraki koşullar",
+            "managerNote": "Yönetim notu",
+        },
     }
+    return labels.get(locale, labels["en"])
 
 
 def management_message_labels(locale: str) -> dict[str, str]:
-    if locale == "en":
-        return {
+    labels = {
+        "en": {
             "statusTitle": "Status",
             "phase": "Phase",
             "decision": "Decision",
@@ -258,23 +352,73 @@ def management_message_labels(locale: str) -> dict[str, str]:
             "takeProfit": "Take Profit",
             "pnl": "PnL",
             "rationaleTitle": "Reason",
-        }
-    return {
-        "statusTitle": "상태",
-        "phase": "단계",
-        "decision": "판단",
-        "action": "조치",
-        "confidence": "신뢰도",
-        "positionTitle": "포지션",
-        "summaryTitle": "요약",
-        "side": "방향",
-        "entry": "진입가",
-        "current": "현재가",
-        "stop": "손절가",
-        "takeProfit": "익절가",
-        "pnl": "PnL",
-        "rationaleTitle": "판단 근거",
+        },
+        "ko": {
+            "statusTitle": "상태",
+            "phase": "단계",
+            "decision": "판단",
+            "action": "조치",
+            "confidence": "신뢰도",
+            "positionTitle": "포지션",
+            "summaryTitle": "요약",
+            "side": "방향",
+            "entry": "진입가",
+            "current": "현재가",
+            "stop": "손절가",
+            "takeProfit": "익절가",
+            "pnl": "PnL",
+            "rationaleTitle": "판단 근거",
+        },
+        "ru": {
+            "statusTitle": "Статус",
+            "phase": "Этап",
+            "decision": "Решение",
+            "action": "Действие",
+            "confidence": "Уверенность",
+            "positionTitle": "Позиция",
+            "summaryTitle": "Итог",
+            "side": "Направление",
+            "entry": "Вход",
+            "current": "Текущая",
+            "stop": "Стоп",
+            "takeProfit": "Цель",
+            "pnl": "PnL",
+            "rationaleTitle": "Основание",
+        },
+        "pt-BR": {
+            "statusTitle": "Status",
+            "phase": "Fase",
+            "decision": "Decisão",
+            "action": "Ação",
+            "confidence": "Confiança",
+            "positionTitle": "Posição",
+            "summaryTitle": "Resumo",
+            "side": "Direção",
+            "entry": "Entrada",
+            "current": "Atual",
+            "stop": "Stop",
+            "takeProfit": "Alvo",
+            "pnl": "PnL",
+            "rationaleTitle": "Motivo",
+        },
+        "tr": {
+            "statusTitle": "Durum",
+            "phase": "Aşama",
+            "decision": "Karar",
+            "action": "Aksiyon",
+            "confidence": "Güven",
+            "positionTitle": "Pozisyon",
+            "summaryTitle": "Özet",
+            "side": "Yön",
+            "entry": "Giriş",
+            "current": "Güncel",
+            "stop": "Stop",
+            "takeProfit": "Hedef",
+            "pnl": "PnL",
+            "rationaleTitle": "Gerekçe",
+        },
     }
+    return labels.get(locale, labels["en"])
 
 
 def management_position_lines(exposure_payload: dict[str, Any], metrics_payload: dict[str, Any], locale: str) -> list[str]:

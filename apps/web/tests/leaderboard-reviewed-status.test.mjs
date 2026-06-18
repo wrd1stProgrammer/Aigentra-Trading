@@ -22,10 +22,10 @@ test("league overview stream is restricted to AI review records", () => {
   assert.doesNotMatch(leaderboardSource, /fallback-1/, "League Overview must not show synthetic scanner fallback rows");
   assert.doesNotMatch(leaderboardSource, /type: "PLAN"/, "League Overview should not emit plan log rows");
   assert.match(leaderboardSource, /review\.traderId \?\? review\.trader_id/, "overview review rows should handle backend snake_case trader ids");
-  assert.match(leaderboardSource, /getManagementReviews\(limit, offset\)/, "overview should still load AI management reviews");
-  assert.match(leaderboardSource, /getAiReviews\(limit, offset\)/, "overview should include second-stage entry AI reviews");
+  assert.match(leaderboardSource, /getManagementReviews\(limit, offset, undefined, undefined, locale\)/, "overview should still load localized AI management reviews");
+  assert.match(leaderboardSource, /getAiReviews\(limit, offset, undefined, undefined, locale\)/, "overview should include localized second-stage entry AI reviews");
   assert.match(leaderboardSource, /record\.aiReviews/, "overview should extract entry review records from the AI reviews API");
-  assert.match(leaderboardSource, /진입 심사 완료/, "entry reviews should be labeled separately from risk audits");
+  assert.match(leaderboardSource, /leaderboard\.entryReviewCompleted/, "entry reviews should be labeled separately through i18n");
   assert.match(leaderboardSource, /formatRelativeDateTime\(createdAt, locale, t\)/, "overview review rows should show recent relative time");
 });
 

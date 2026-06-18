@@ -3,6 +3,7 @@ import {
   mergeStoredSubscriberPreferences,
   type SubscriberPreferences,
 } from "@/lib/subscriber-preferences";
+import type { Locale } from "@/lib/i18n";
 import { z } from "zod";
 
 const DEFAULT_API_BASE_URL = "http://localhost:8000";
@@ -34,7 +35,7 @@ export async function loadSubscriberPreferences(identity: SubscriberIdentity): P
   }
 }
 
-export async function saveSubscriberPreferences(preferences: SubscriberPreferences, locale: "ko" | "en" = "ko"): Promise<SubscriberPreferences | null> {
+export async function saveSubscriberPreferences(preferences: SubscriberPreferences, locale: Locale = "en"): Promise<SubscriberPreferences | null> {
   const apiUrl = subscriberApiUrl({ userId: preferences.userId, email: preferences.email });
   if (!apiUrl) return null;
 

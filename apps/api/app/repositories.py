@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db import (
     AIReviewRecord,
+    AITranslationCacheRecord,
     APICallLogRecord,
     CandidateTradeRecord,
     MarketSnapshotRecord,
@@ -324,6 +325,88 @@ def create_provider_call_log(db: Session, provider: str, model: str, success: bo
     return record
 
 
+def get_translation_cache_record(
+    db: Session,
+    *,
+    source_type: str,
+    source_id: int,
+    source_hash: str,
+    locale: str,
+) -> Optional[AITranslationCacheRecord]:
+    return db.execute(
+        select(AITranslationCacheRecord).where(
+            AITranslationCacheRecord.source_type == source_type,
+            AITranslationCacheRecord.source_id == source_id,
+            AITranslationCacheRecord.source_hash == source_hash,
+            AITranslationCacheRecord.locale == locale,
+        )
+    ).scalar_one_or_none()
+
+
+def get_successful_translation_by_hash(
+    db: Session,
+    *,
+    source_type: str,
+    source_hash: str,
+    locale: str,
+) -> Optional[AITranslationCacheRecord]:
+    return db.execute(
+        select(AITranslationCacheRecord)
+        .where(
+            AITranslationCacheRecord.source_type == source_type,
+            AITranslationCacheRecord.source_hash == source_hash,
+            AITranslationCacheRecord.locale == locale,
+            AITranslationCacheRecord.status == "ok",
+        )
+        .order_by(desc(AITranslationCacheRecord.updated_at), desc(AITranslationCacheRecord.id))
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def upsert_translation_cache_record(
+    db: Session,
+    *,
+    source_type: str,
+    source_id: int,
+    source_hash: str,
+    locale: str,
+    status: str,
+    payload: dict,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    symbol: Optional[str] = None,
+    trader_id: Optional[str] = None,
+    raw: Optional[dict] = None,
+    error_message: Optional[str] = None,
+) -> AITranslationCacheRecord:
+    record = get_translation_cache_record(
+        db,
+        source_type=source_type,
+        source_id=source_id,
+        source_hash=source_hash,
+        locale=locale,
+    )
+    if record is None:
+        record = AITranslationCacheRecord(
+            source_type=source_type,
+            source_id=source_id,
+            source_hash=source_hash,
+            locale=locale,
+        )
+        db.add(record)
+    record.status = status
+    record.updated_at = utc_now()
+    record.provider = provider
+    record.model = model
+    record.symbol = symbol
+    record.trader_id = trader_id
+    record.payload_json = to_json(payload)
+    record.raw_json = to_json(raw) if raw is not None else None
+    record.error_message = sanitize_error_message(error_message)
+    db.flush()
+    return record
+
+
 def create_position_management_review(
     db: Session,
     *,
@@ -335,6 +418,7 @@ def create_position_management_review(
     status: str = "ok",
     error_message: Optional[str] = None,
     applied_actions: Optional[list] = None,
+    notify: bool = True,
 ) -> PositionManagementReviewRecord:
     event_payload = model_payload(event)
     exposure_payload = model_payload(exposure)
@@ -368,9 +452,10 @@ def create_position_management_review(
     )
     db.add(record)
     db.flush()
-    from app.subscribers import notify_subscribers_for_management_review
+    if notify:
+        from app.subscribers import notify_subscribers_for_management_review
 
-    notify_subscribers_for_management_review(db, record)
+        notify_subscribers_for_management_review(db, record)
     return record
 
 

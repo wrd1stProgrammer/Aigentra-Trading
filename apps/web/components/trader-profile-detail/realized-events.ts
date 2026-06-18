@@ -1,7 +1,18 @@
 import type { TimelineItem } from "@/components/trader-profile-detail/types";
 
 type Translator = (key: string) => string;
-type Locale = "ko" | "en";
+type Locale = "en" | "ko" | "ru" | "pt-BR" | "tr";
+
+function intlLocale(locale?: Locale) {
+  const locales: Record<Locale, string> = {
+    en: "en-US",
+    ko: "ko-KR",
+    ru: "ru-RU",
+    "pt-BR": "pt-BR",
+    tr: "tr-TR"
+  };
+  return locale ? locales[locale] : "en-US";
+}
 
 type RealizedEventInput = {
   readonly id?: string | number;
@@ -130,11 +141,11 @@ function normalizeKey(value: unknown) {
 }
 
 function formatNumber(value: number, digits: number, locale: Locale) {
-  return new Intl.NumberFormat(locale === "ko" ? "ko-KR" : "en-US", { maximumFractionDigits: digits }).format(value);
+  return new Intl.NumberFormat(intlLocale(locale), { maximumFractionDigits: digits }).format(value);
 }
 
 function formatCurrency(value: number, locale: Locale) {
-  return new Intl.NumberFormat(locale === "ko" ? "ko-KR" : "en-US", {
+  return new Intl.NumberFormat(intlLocale(locale), {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: Math.abs(value) >= 1000 ? 0 : 2
@@ -145,7 +156,7 @@ function formatDateTime(value: string | null | undefined, locale: Locale) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value.replace("T", " ").slice(0, 16);
-  return new Intl.DateTimeFormat(locale === "ko" ? "ko-KR" : "en-US", {
+  return new Intl.DateTimeFormat(intlLocale(locale), {
     month: "short",
     day: "numeric",
     hour: "2-digit",

@@ -19,6 +19,7 @@ import {
   type TelegramReviewSection
 } from "@/lib/subscriber-preferences";
 import { translate, type Locale } from "@/lib/i18n";
+import { intlLocale } from "@/lib/format";
 import { fallbackTraders, traderNameKey, traderShortKey } from "@/lib/traders";
 
 type SubscriberAccountClientProps = {
@@ -34,6 +35,9 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
   const [preferences, setPreferences] = useState<SubscriberPreferences>(initialPreferences);
   const readiness = telegramDeliveryReadiness(preferences.telegramSettings, { botTokenConfigured });
   const { savedAt, saveState } = useSubscriberPreferenceSync(preferences, resolvedLocale);
+  const selectedTraderCount = preferences.favoriteTraderIds.length || fallbackTraders.length;
+  const eventTypeCount = preferences.telegramSettings.eventTypes.length;
+  const reviewSectionCount = preferences.telegramSettings.reviewSections.length;
 
   const traderRows = useMemo(
     () =>
@@ -132,7 +136,7 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
                 <span className="truncate font-mono font-medium text-zinc-500 dark:text-zinc-400">
                   {savedAt
                     ? `${copy.saved} (${savedAt.toLocaleTimeString(
-                        resolvedLocale === "ko" ? "ko-KR" : "en-US",
+                        intlLocale(resolvedLocale),
                         { hour: "2-digit", minute: "2-digit", second: "2-digit" }
                       )})`
                     : copy.saved}
@@ -142,6 +146,27 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
           </div>
         </div>
       </header>
+
+      <section data-testid="subscriber-command-summary" className="grid gap-3 sm:grid-cols-3">
+        <AccountSummaryMetric
+          label={copy.monitoredScope}
+          value={`${selectedTraderCount}/${fallbackTraders.length}`}
+          detail={preferences.favoriteTraderIds.length === 0 ? copy.allTradersActive : copy.activeTradersActive}
+          tone="emerald"
+        />
+        <AccountSummaryMetric
+          label={copy.eventChannels}
+          value={`${eventTypeCount}/${telegramEventTypes.length}`}
+          detail={preferences.telegramSettings.enabled ? copy.enabled : copy.disabled}
+          tone={preferences.telegramSettings.enabled ? "sky" : "zinc"}
+        />
+        <AccountSummaryMetric
+          label={copy.reviewContent}
+          value={`${reviewSectionCount}/9`}
+          detail={readiness.canSend ? copy.statusConnected : copy.statusDisconnected}
+          tone={readiness.canSend ? "emerald" : "amber"}
+        />
+      </section>
 
       {/* Main Grid Layout */}
       <div className="grid gap-5 lg:grid-cols-12 lg:gap-8">
@@ -188,7 +213,7 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
                     onClick={() =>
                       setPreferences((current) => toggleFavoriteTrader(current, trader.id))
                     }
-                    className={`focus-ring relative overflow-hidden rounded-xl border text-left p-4 transition-all duration-300 ${
+                    className={`focus-ring relative min-h-[148px] overflow-hidden rounded-xl border p-4 text-left transition-all duration-300 ${
                       selected
                         ? "bg-emerald-500/[0.02] border-emerald-500 dark:border-emerald-500/40 text-zinc-950 dark:text-white shadow-[0_0_12px_rgba(16,185,129,0.04)]"
                         : "bg-white dark:bg-[#070908] border-zinc-200 dark:border-white/[0.06] hover:border-zinc-300 dark:hover:border-white/20 text-zinc-800 dark:text-zinc-300 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/20"
@@ -284,6 +309,7 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
               <button
                 type="button"
                 role="switch"
+                aria-label={copy.telegramSettingsLabel}
                 aria-checked={preferences.telegramSettings.enabled}
                 onClick={() =>
                   setPreferences((current) =>
@@ -400,6 +426,35 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function AccountSummaryMetric({
+  label,
+  value,
+  detail,
+  tone
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly detail: string;
+  readonly tone: "emerald" | "sky" | "amber" | "zinc";
+}) {
+  const toneClass =
+    tone === "emerald"
+      ? "border-emerald-500/20 bg-emerald-500/[0.04] text-emerald-500"
+      : tone === "sky"
+        ? "border-sky-500/20 bg-sky-500/[0.04] text-sky-500"
+        : tone === "amber"
+          ? "border-amber-500/20 bg-amber-500/[0.04] text-amber-500"
+          : "border-zinc-200 bg-zinc-50 text-zinc-500 dark:border-white/[0.08] dark:bg-white/[0.03]";
+
+  return (
+    <div className={`rounded-2xl border p-4 ${toneClass}`}>
+      <p className="text-[10px] font-bold uppercase tracking-wider opacity-80">{label}</p>
+      <p className="mt-2 font-mono text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{value}</p>
+      <p className="mt-1 line-clamp-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{detail}</p>
     </div>
   );
 }

@@ -2,7 +2,8 @@ from typing import Any, Dict
 
 import httpx
 
-from app.ai.base import BaseAIProvider, entry_approval_prompt, extract_json_object, position_management_review_prompt
+from app.ai.base import BaseAIProvider, entry_approval_prompt, extract_json_object, league_sentiment_prompt, position_management_review_prompt
+from app.ai.league_sentiment_models import LeagueSentimentOpinionResult, LeagueSentimentPayload
 from app.traders.models import PositionManagementPayload, PositionManagementResult, TradeReviewPayload, TradeReviewResult
 
 
@@ -60,3 +61,27 @@ class GeminiProvider(BaseAIProvider):
             data = response.json()
         text = data["candidates"][0]["content"]["parts"][0]["text"]
         return self.normalize_management_result(extract_json_object(text))
+
+    async def review_league_sentiment(
+        self, payload: LeagueSentimentPayload
+    ) -> LeagueSentimentOpinionResult:
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{self.model}:generateContent?key={self.api_key}"
+        )
+        body: Dict[str, Any] = {
+            "contents": [
+                {"role": "user", "parts": [{"text": league_sentiment_prompt(payload)}]},
+            ],
+            "generationConfig": {
+                "temperature": 0.2,
+                "responseMimeType": "application/json",
+            },
+        }
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(url, json=body)
+            if response.status_code >= 400:
+                raise RuntimeError(f"Gemini request failed with status {response.status_code}.")
+            data = response.json()
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        return self.normalize_league_sentiment_result(extract_json_object(text))

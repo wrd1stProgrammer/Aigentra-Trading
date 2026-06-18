@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { PaperOrder, PaperPosition } from "@/lib/api";
 import { formatClockTime, formatCurrency, formatNumber } from "@/lib/format";
+import type { Locale } from "@/lib/i18n";
 import { useAppContext } from "@/components/app-provider";
 import { isOpenChartExposure } from "@/components/live-candle-chart-overlays";
 import { scenarioRationaleFromPayload, scenarioSummaryFromPayload, type LeagueSymbol, type TraderScenario } from "@/lib/league";
@@ -154,7 +155,7 @@ function PositionRow({
   onOpenScenario
 }: {
   readonly position: PaperPosition;
-  readonly locale: "ko" | "en";
+  readonly locale: Locale;
   readonly t: (key: string) => string;
   readonly onOpenScenario?: (position: PaperPosition) => void;
 }) {
@@ -207,7 +208,7 @@ function OrderRow({
   onOpenScenario
 }: {
   readonly order: DisplayPaperOrder;
-  readonly locale: "ko" | "en";
+  readonly locale: Locale;
   readonly t: (key: string) => string;
   readonly onOpenScenario?: (order: DisplayPaperOrder) => void;
 }) {

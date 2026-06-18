@@ -2,8 +2,15 @@ import type { Locale } from "@/lib/i18n";
 
 type Translator = (key: string) => string;
 
-function intlLocale(locale?: Locale) {
-  return locale === "ko" ? "ko-KR" : "en-US";
+export function intlLocale(locale?: Locale) {
+  const locales: Record<Locale, string> = {
+    en: "en-US",
+    ko: "ko-KR",
+    ru: "ru-RU",
+    "pt-BR": "pt-BR",
+    tr: "tr-TR"
+  };
+  return locale ? locales[locale] : "en-US";
 }
 
 export function formatCurrency(value: number | null | undefined, locale?: Locale): string {
