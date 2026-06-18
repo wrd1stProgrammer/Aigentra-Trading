@@ -21,8 +21,8 @@ class LiquidityReaper(TraderStrategy):
     profile = TraderProfile(
         id="liquidity-reaper",
         name="Liquidity Reaper",
-        description="Targets stop sweeps above highs or below lows after reclaim/failure confirmation.",
-        concept="Liquidity sweep, wick rejection, and 15m reclaim/fail.",
+        description="Targets stop-sweep traps around prior highs or lows after price quickly reclaims or fails the swept level.",
+        concept="When price pokes beyond an obvious level and snaps back, this trader treats it as trapped liquidity rather than a clean breakout.",
         baseRiskPercent=0.6,
         riskLevel="HIGH",
         longConditions=[

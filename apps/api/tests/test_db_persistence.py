@@ -664,6 +664,46 @@ def test_paper_order_sizing_can_use_full_equity_budget_for_high_score(temp_db):
         assert result["actualMarginDeploymentPercent"] >= 99.6
 
 
+def test_paper_order_sizing_lifts_margin_for_high_confidence_review(temp_db):
+    with session_scope() as db:
+        candidate = TradeCandidate(
+            created=True,
+            side="LONG",
+            setupType="TEST_SETUP",
+            setupScore=70,
+            entries=[
+                EntryPlan(price=68000, weight=1.0, reason="single starter"),
+            ],
+            stopLoss=66000,
+            takeProfits=[TakeProfitPlan(price=72400, weight=1.0, reason="target")],
+            riskPercent=1.0,
+        )
+        review = TradeReviewResult(
+            decision="ADJUST_AND_APPROVE",
+            confidence=92,
+            riskLevel="MEDIUM",
+            riskPercentOverride=1.8,
+            approvalReason="Clean setup with strong RR.",
+            counterThesis="Invalid if structure fails.",
+        )
+
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="volume-breaker",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=build_orderable_plan(candidate, leverage=6),
+            settings=build_sizing_settings(minimum=10, maximum=100),
+            review=review,
+        )
+
+        assert result["created"]
+        assert result["marginDeploymentPercent"] == pytest.approx(60)
+        assert result["targetMarginBudget"] == pytest.approx(6000)
+
+
 def test_paper_order_payload_preserves_ai_review_rationale(temp_db):
     with session_scope() as db:
         candidate = TradeCandidate(

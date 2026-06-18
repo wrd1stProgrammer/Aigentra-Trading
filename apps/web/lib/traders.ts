@@ -27,7 +27,8 @@ export const fallbackTraders = [
   {
     id: "channel-rider",
     name: "Channel Rider",
-    description: "Trades pullbacks near regression channel edges with trend confirmation.",
+    description: "Trades channel pullbacks only when price reaches a clear edge and the larger trend still supports the bounce or rejection.",
+    concept: "Think of it as riding a sloped price lane: it buys near the lower lane in uptrends and shorts near the upper lane in downtrends.",
     riskLevel: "MEDIUM",
     currentPlan: "Waiting for a clean channel-edge pullback.",
     baseRiskPercent: 0.7,
@@ -36,7 +37,8 @@ export const fallbackTraders = [
   {
     id: "volume-breaker",
     name: "Volume Breaker",
-    description: "Looks for volume-backed breakouts and support/resistance retests.",
+    description: "Waits for a major level to break with real participation, then checks whether the retest confirms the breakout instead of chasing.",
+    concept: "Its core idea is simple: a breakout matters only when volume, retest behavior, and structure all agree that new traders joined.",
     riskLevel: "MEDIUM_HIGH",
     currentPlan: "Monitoring retests after clean high-volume level breaks.",
     baseRiskPercent: 0.8,
@@ -45,7 +47,8 @@ export const fallbackTraders = [
   {
     id: "pullback-architect",
     name: "Pullback Architect",
-    description: "Builds scaled entries where EMA, VWAP-like mean, Fib, and support overlap.",
+    description: "Builds staged entries inside healthy trend pullbacks where moving averages, fair-value zones, and structure overlap.",
+    concept: "It tries to avoid buying the top: first prove the larger trend, then split entries around the pullback zone with a clear invalidation.",
     riskLevel: "MEDIUM",
     currentPlan: "Preparing staged continuation entries near 1H moving average zones.",
     baseRiskPercent: 0.7,
@@ -54,7 +57,8 @@ export const fallbackTraders = [
   {
     id: "leverage-hunter",
     name: "Leverage Hunter",
-    description: "Uses futures-specific overheating signals, then waits for structure trigger.",
+    description: "Uses futures crowding, funding, and open-interest pressure to find squeeze setups, but still waits for a structure trigger.",
+    concept: "It hunts moments where crowded leverage may be forced out, then enters only after price confirms the squeeze direction.",
     riskLevel: "HIGH",
     currentPlan: "Waiting for crowding plus a real 15m structure trigger.",
     baseRiskPercent: 0.6,
@@ -63,7 +67,8 @@ export const fallbackTraders = [
   {
     id: "liquidity-reaper",
     name: "Liquidity Reaper",
-    description: "Targets stop sweeps above highs or below lows after reclaim/failure confirmation.",
+    description: "Targets stop-sweep traps around prior highs or lows after price quickly reclaims or fails the swept level.",
+    concept: "When price pokes beyond an obvious level and snaps back, this trader treats it as trapped liquidity rather than a clean breakout.",
     riskLevel: "HIGH",
     currentPlan: "Watching prior highs and lows for failed stop runs.",
     baseRiskPercent: 0.6,
@@ -72,7 +77,8 @@ export const fallbackTraders = [
   {
     id: "volatility-squeezer",
     name: "Volatility Squeezer",
-    description: "Waits for volatility compression, then trades the first confirmed expansion.",
+    description: "Waits for volatility to compress, then joins the first expansion only when candle body, volume, and direction confirm.",
+    concept: "Quiet markets often expand suddenly; this trader looks for the first clean release while avoiding one-candle fakeouts.",
     riskLevel: "MEDIUM",
     currentPlan: "Waiting for compressed BTC volatility to release with volume.",
     baseRiskPercent: 0.55,
@@ -81,7 +87,8 @@ export const fallbackTraders = [
   {
     id: "trend-sentinel",
     name: "Trend Sentinel",
-    description: "Holds only high-timeframe continuation setups with slow trailing management.",
+    description: "Focuses on slower high-timeframe continuation trades and gives winners more room when the larger trend remains intact.",
+    concept: "It is the patient trend desk: fewer trades, wider context, controlled pullback entries, and trailing exits instead of quick scalps.",
     riskLevel: "LOW_MEDIUM",
     currentPlan: "Waiting for a clean high-timeframe continuation pullback.",
     baseRiskPercent: 0.45,
@@ -90,7 +97,8 @@ export const fallbackTraders = [
   {
     id: "range-maker",
     name: "Range Maker",
-    description: "Trades only clear sideways ranges, fading edges and exiting before breakouts accelerate.",
+    description: "Trades only clear sideways ranges, fading the edges when trend pressure is weak and exiting before breakouts accelerate.",
+    concept: "It assumes the market will rotate inside a box until proven otherwise, so it buys low edges and shorts high edges with quick invalidation.",
     riskLevel: "LOW_MEDIUM",
     currentPlan: "Waiting for clean range edges without breakout pressure.",
     baseRiskPercent: 0.4,
@@ -99,7 +107,8 @@ export const fallbackTraders = [
   {
     id: "funding-contrarian",
     name: "Funding Contrarian",
-    description: "Fades extreme futures funding only after price stalls and structure confirms.",
+    description: "Fades extreme futures funding only when price stalls, structure confirms, and the crowded side starts losing momentum.",
+    concept: "High or negative funding alone is not enough; this trader waits for proof that the crowded futures bet is becoming vulnerable.",
     riskLevel: "MEDIUM_HIGH",
     currentPlan: "Watching funding extremes, but refusing to fade without structure confirmation.",
     baseRiskPercent: 0.45,
@@ -108,7 +117,8 @@ export const fallbackTraders = [
   {
     id: "orderflow-sniper",
     name: "Orderflow Sniper",
-    description: "A short-horizon simulated scalper using 1m/5m flow bursts and strict exit timing.",
+    description: "Runs short-horizon simulated scalps from 1m and 5m order-flow bursts, with very fast exits when flow weakens.",
+    concept: "This is the fast desk: it wants immediate participation from taker flow and accepts that stale micro trades should die quickly.",
     riskLevel: "HIGH",
     currentPlan: "Only taking fast simulated scalps when 1m/5m flow is unusually clean.",
     baseRiskPercent: 0.3,
@@ -148,7 +158,7 @@ export const fallbackTraders = [
   {
     id: "ichimoku-cloud-pilot",
     name: "Ichimoku Cloud Pilot",
-    description: "Uses a cloud-style trend proxy to ride BTC continuation setups.",
+    description: "Uses a cloud-style trend proxy to ride BTC continuation only while trend, momentum, and funding stay healthy.",
     concept: "Ichimoku-inspired trend follower using EMA cloud proxy, 4H trend, momentum health, and delayed confirmation.",
     longConditions: [
       "4H trend is bullish",
@@ -179,7 +189,7 @@ export const fallbackTraders = [
   {
     id: "vwap-reclaimer",
     name: "VWAP Reclaimer",
-    description: "Trades reclaim or rejection around BTC intraday fair value.",
+    description: "Trades reclaim or rejection around BTC intraday fair value after price stretches too far and then proves acceptance.",
     concept: "VWAP-like mean reclaim using EMA20 proxy, volume response, and rejection of unfair intraday price.",
     longConditions: [
       "Price stretches below fair value then reclaims EMA20/VWAP proxy",
@@ -210,7 +220,7 @@ export const fallbackTraders = [
   {
     id: "wyckoff-spring",
     name: "Wyckoff Spring",
-    description: "Looks for BTC spring/upthrust behavior around range extremes.",
+    description: "Looks for BTC spring or upthrust traps around range extremes where a sweep quickly snaps back inside the range.",
     concept: "Wyckoff spring/upthrust trader: sweep outside range, reclaim/failure close, volume spike, and fast invalidation.",
     longConditions: [
       "Price sweeps range low",
@@ -241,7 +251,7 @@ export const fallbackTraders = [
   {
     id: "rsi-divergence-scout",
     name: "RSI Divergence Scout",
-    description: "Scans BTC momentum divergence before structure reclaim or failure.",
+    description: "Scans BTC momentum divergence, then waits for structure reclaim or failure before treating exhaustion as tradable.",
     concept: "Momentum divergence scout using RSI, swing structure, exhaustion behavior, and confirmation candle.",
     longConditions: [
       "15m/1H RSI is below neutral but improving",
@@ -303,7 +313,7 @@ export const fallbackTraders = [
   {
     id: "imbalance-hunter",
     name: "Imbalance Hunter",
-    description: "Uses BTC displacement candles and imbalance-style pullbacks.",
+    description: "Uses BTC displacement candles and imbalance-style pullbacks when a strong move leaves a clean retest zone.",
     concept: "Displacement and imbalance pullback trader using strong candle body, midpoint retest, and continuation structure.",
     longConditions: [
       "15m bullish displacement body is strong",
@@ -334,7 +344,7 @@ export const fallbackTraders = [
   {
     id: "momentum-ignition",
     name: "Momentum Ignition",
-    description: "Takes BTC momentum only when trend, RSI, volume, and OI align.",
+    description: "Takes BTC momentum only when trend, RSI, volume, open interest, and taker pressure align in the same direction.",
     concept: "Aggressive momentum ignition trader requiring EMA stack, RSI thrust, OI increase, and taker-flow confirmation.",
     longConditions: [
       "1H EMA20 is above EMA50",
@@ -396,7 +406,7 @@ export const fallbackTraders = [
   {
     id: "atr-trail-commander",
     name: "ATR Trail Commander",
-    description: "Lets BTC trend winners breathe using ATR stops and slower management.",
+    description: "Lets BTC trend winners breathe using ATR stops and slower management when the higher-timeframe trend remains intact.",
     concept: "ATR continuation system: higher timeframe trend, volatility-adjusted stop, and pyramiding only after profit cushion.",
     longConditions: [
       "4H trend is bullish",

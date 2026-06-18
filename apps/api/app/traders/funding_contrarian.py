@@ -25,8 +25,8 @@ class FundingContrarian(TraderStrategy):
     profile = TraderProfile(
         id="funding-contrarian",
         name="Funding Contrarian",
-        description="Fades extreme futures funding only after price stalls and structure confirms.",
-        concept="Funding premium/discount, mark-index pressure, OI presence, stall, and structure trigger.",
+        description="Fades extreme futures funding only when price stalls, structure confirms, and the crowded side starts losing momentum.",
+        concept="High or negative funding alone is not enough; this trader waits for proof that the crowded futures bet is becoming vulnerable.",
         baseRiskPercent=0.45,
         riskLevel="MEDIUM_HIGH",
         longConditions=[

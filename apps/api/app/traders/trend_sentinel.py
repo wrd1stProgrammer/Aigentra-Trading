@@ -24,8 +24,8 @@ class TrendSentinel(TraderStrategy):
     profile = TraderProfile(
         id="trend-sentinel",
         name="Trend Sentinel",
-        description="Holds only high-timeframe continuation setups with slow trailing management.",
-        concept="4H/1D trend alignment, ADX strength, shallow pullback, and ATR trailing exits.",
+        description="Focuses on slower high-timeframe continuation trades and gives winners more room when the larger trend remains intact.",
+        concept="It is the patient trend desk: fewer trades, wider context, controlled pullback entries, and trailing exits instead of quick scalps.",
         baseRiskPercent=0.45,
         riskLevel="LOW_MEDIUM",
         longConditions=[

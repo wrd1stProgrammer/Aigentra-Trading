@@ -10,6 +10,23 @@ import { scenarioRationaleFromPayload, scenarioSummaryFromPayload, type LeagueSy
 import { statusLabel } from "@/lib/status";
 import { buildDisplayOpenOrders, type DisplayPaperOrder } from "@/components/trader-profile-detail/position-panel-rows";
 import type { PlanView } from "@/components/trader-profile-detail/types";
+import { MobilePositionCards } from "@/components/trader-profile-detail/binance-position-mobile-cards";
+import {
+  baseAsset,
+  derivedMargin,
+  expectedPositionProfitAtTarget,
+  firstFiniteNumber,
+  firstNonZeroFiniteNumber,
+  firstString,
+  normalizedSide,
+  positionEntryPrice,
+  positionLeverage,
+  positionMargin,
+  positionMarkPrice,
+  positionPnl,
+  positionQuantity,
+  recordValue
+} from "@/components/trader-profile-detail/position-panel-calculations";
 
 type PositionPanelTab = "positions" | "orders";
 
@@ -47,9 +64,18 @@ export function BinancePositionPanel({
         <PositionTab active={activeTab === "positions"} label={`${t("detail.positionTabPositions")}(${openPositions.length})`} onClick={() => setActiveTab("positions")} />
         <PositionTab active={activeTab === "orders"} label={`${t("detail.positionTabOpenOrders")}(${openOrders.length})`} onClick={() => setActiveTab("orders")} />
       </div>
-      <div className="overflow-x-auto">
+      <MobilePositionCards
+        activeTab={activeTab}
+        positions={openPositions}
+        orders={openOrders}
+        locale={locale}
+        t={t}
+        onOpenPosition={onOpenScenario ? openScenarioForPosition : undefined}
+        onOpenOrder={onOpenScenario ? openScenarioForOrder : undefined}
+      />
+      <div className="hidden overflow-x-auto md:block">
         {activeTab === "positions" ? (
-          <table className="min-w-[980px] w-full border-separate border-spacing-0 text-left text-xs">
+          <table className="min-w-[1140px] w-full border-separate border-spacing-0 text-left text-xs">
             <thead className="text-zinc-500">
               <tr>
                 <PositionHead>{t("detail.positionSymbol")}</PositionHead>
@@ -59,6 +85,7 @@ export function BinancePositionPanel({
                 <PositionHead>{t("detail.positionLiqPrice")}</PositionHead>
                 <PositionHead>{t("detail.positionMarginRatio")}</PositionHead>
                 <PositionHead>{t("detail.positionMargin")}</PositionHead>
+                <PositionHead>{t("detail.positionExpectedProfit")}</PositionHead>
                 <PositionHead>{t("detail.positionPnlRoe")}</PositionHead>
                 <PositionHead>{t("detail.rowDetail")}</PositionHead>
               </tr>
@@ -132,14 +159,15 @@ function PositionRow({
   readonly onOpenScenario?: (position: PaperPosition) => void;
 }) {
   const side = normalizedSide(position.side);
-  const quantity = firstFiniteNumber(position.quantity, position.size);
-  const entryPrice = firstFiniteNumber(position.averageEntryPrice, position.avgEntryPrice, position.entryPrice, position.openPrice);
-  const markPrice = firstFiniteNumber(position.markPrice, position.price, entryPrice);
-  const leverage = firstFiniteNumber(position.leverage, recordValue(position.payload)?.leverage, recordValue(recordValue(position.payload)?.leveragePlan)?.suggestedLeverage);
+  const quantity = positionQuantity(position);
+  const entryPrice = positionEntryPrice(position);
+  const markPrice = positionMarkPrice(position);
+  const leverage = positionLeverage(position);
   const liquidation = firstFiniteNumber(position.liquidationPrice, position.liquidation_price);
-  const margin = firstFiniteNumber(position.margin, position.openMargin, derivedMargin(quantity, entryPrice, leverage));
-  const pnl = firstFiniteNumber(position.unrealizedPnl, position.realizedPnl);
+  const margin = positionMargin(position);
+  const pnl = positionPnl(position);
   const roe = margin !== null && margin > 0 && pnl !== null ? (pnl / margin) * 100 : null;
+  const expectedProfit = expectedPositionProfitAtTarget(position);
 
   return (
     <tr className="hover:bg-zinc-50 dark:hover:bg-white/[0.03]">
@@ -160,6 +188,7 @@ function PositionRow({
       <PositionCell className="font-mono text-orange-600 dark:text-orange-400">{formatNumber(liquidation, 1, locale)}</PositionCell>
       <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatPercentNumber(firstFiniteNumber(position.marginRatio, position.margin_ratio))}</PositionCell>
       <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatCurrency(margin, locale)}</PositionCell>
+      <PositionCell className={`font-mono font-semibold ${pnlToneClass(expectedProfit)}`}>{formatCurrency(expectedProfit, locale)}</PositionCell>
       <PositionCell>
         <div className={`font-mono font-bold ${pnlToneClass(pnl)}`}>{formatCurrency(pnl, locale)}</div>
         <div className={`mt-0.5 font-mono text-[11px] ${pnlToneClass(roe)}`}>{formatPercentNumber(roe)}</div>
@@ -244,14 +273,6 @@ function matchesSymbol(value: unknown, symbol: LeagueSymbol) {
   return !value || String(value).toUpperCase() === symbol;
 }
 
-function normalizedSide(value: unknown) {
-  const normalized = String(value ?? "").toUpperCase();
-  if (normalized === "SELL") return "SHORT";
-  if (normalized === "BUY") return "LONG";
-  if (normalized === "SHORT" || normalized === "LONG") return normalized;
-  return "-";
-}
-
 function findScenario(scenarios: readonly TraderScenario[], source: TraderScenario["source"], id: unknown) {
   if (id === null || id === undefined || id === "") return null;
   return scenarios.find((scenario) => scenario.source === source && scenario.id === `${source}-${String(id)}`) ?? null;
@@ -315,43 +336,4 @@ function formatPercentNumber(value: number | null) {
 function pnlToneClass(value: number | null) {
   if (value === null || Math.abs(value) <= 0.000001) return "text-zinc-400";
   return value > 0 ? "text-emerald-400" : "text-rose-400";
-}
-
-function baseAsset(symbol: string) {
-  return symbol.replace("USDT", "");
-}
-
-function derivedMargin(quantity: number | null, price: number | null, leverage: number | null) {
-  if (quantity === null || price === null || leverage === null || leverage <= 0) return null;
-  return Math.abs(quantity * price) / leverage;
-}
-
-function firstFiniteNumber(...values: readonly unknown[]) {
-  for (const value of values) {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string" && value.trim() !== "") {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
-  return null;
-}
-
-function firstNonZeroFiniteNumber(...values: readonly unknown[]) {
-  for (const value of values) {
-    const parsed = firstFiniteNumber(value);
-    if (parsed !== null && Math.abs(parsed) > 0.00000001) return parsed;
-  }
-  return firstFiniteNumber(...values);
-}
-
-function firstString(...values: readonly unknown[]) {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim() !== "") return value;
-  }
-  return null;
-}
-
-function recordValue(value: unknown) {
-  return typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
 }

@@ -25,8 +25,8 @@ class OrderflowSniper(TraderStrategy):
     profile = TraderProfile(
         id="orderflow-sniper",
         name="Orderflow Sniper",
-        description="A short-horizon paper scalper using 1m/5m flow bursts and strict exit timing.",
-        concept="Taker imbalance, 1m/5m impulse, tight ATR stop, and fast AI management reviews.",
+        description="Runs short-horizon simulated scalps from 1m and 5m order-flow bursts, with very fast exits when flow weakens.",
+        concept="This is the fast desk: it wants immediate participation from taker flow and accepts that stale micro trades should die quickly.",
         baseRiskPercent=0.3,
         riskLevel="HIGH",
         longConditions=[

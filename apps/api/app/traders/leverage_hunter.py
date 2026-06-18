@@ -22,8 +22,8 @@ class LeverageHunter(TraderStrategy):
     profile = TraderProfile(
         id="leverage-hunter",
         name="Leverage Hunter",
-        description="Uses futures-specific overheating signals, then waits for structure trigger.",
-        concept="Open interest, funding, crowding proxy, and structure break.",
+        description="Uses futures crowding, funding, and open-interest pressure to find squeeze setups, but still waits for a structure trigger.",
+        concept="It hunts moments where crowded leverage may be forced out, then enters only after price confirms the squeeze direction.",
         baseRiskPercent=0.6,
         riskLevel="HIGH",
         longConditions=[

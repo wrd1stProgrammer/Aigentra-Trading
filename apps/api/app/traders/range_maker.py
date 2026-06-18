@@ -24,8 +24,8 @@ class RangeMaker(TraderStrategy):
     profile = TraderProfile(
         id="range-maker",
         name="Range Maker",
-        description="Trades only clear sideways ranges, fading edges and exiting before breakouts accelerate.",
-        concept="Low ADX, flat channel, neutral funding, and range-edge mean reversion.",
+        description="Trades only clear sideways ranges, fading the edges when trend pressure is weak and exiting before breakouts accelerate.",
+        concept="It assumes the market will rotate inside a box until proven otherwise, so it buys low edges and shorts high edges with quick invalidation.",
         baseRiskPercent=0.4,
         riskLevel="LOW_MEDIUM",
         longConditions=[

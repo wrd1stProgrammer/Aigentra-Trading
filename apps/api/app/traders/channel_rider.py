@@ -22,8 +22,8 @@ class ChannelRider(TraderStrategy):
     profile = TraderProfile(
         id="channel-rider",
         name="Channel Rider",
-        description="Trades pullbacks near regression channel edges with trend confirmation.",
-        concept="Parallel channel, higher timeframe trend, and edge-zone entries.",
+        description="Trades channel pullbacks only when price reaches a clear edge and the larger trend still supports the bounce or rejection.",
+        concept="Think of it as riding a sloped price lane: it buys near the lower lane in uptrends and shorts near the upper lane in downtrends.",
         baseRiskPercent=0.7,
         riskLevel="MEDIUM",
         longConditions=[

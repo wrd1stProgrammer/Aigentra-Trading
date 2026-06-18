@@ -9,6 +9,7 @@ from app.db import PaperOrderRecord, PaperPositionRecord
 from app.paper.engine import place_paper_order
 from app.paper.repositories import create_trade_event, ensure_trader_state, upsert_risk_settings
 from app.paper.review_payload import review_payload_fields
+from app.paper.sizing import adjusted_margin_deployment_percent
 from app.repositories import serialize_record
 from app.traders.models import TradeCandidate, TradePlan, TradeReviewResult
 
@@ -180,7 +181,8 @@ def create_paper_orders_from_plan(
     equity = Decimal(str(state.equity))
     available_cash = max(Decimal("0"), Decimal(str(state.cash_balance)))
     risk_budget = equity * (risk_percent / Decimal("100"))
-    deployment_percent = target_margin_deployment_percent(candidate, settings)
+    base_deployment_percent = target_margin_deployment_percent(candidate, settings)
+    deployment_percent = adjusted_margin_deployment_percent(base_deployment_percent, candidate, settings, review)
     target_margin_budget = equity * (deployment_percent / Decimal("100"))
     fee_reserve_rate = max(risk_settings.maker_fee_rate, risk_settings.taker_fee_rate)
     cash_budget_cap = (
@@ -229,6 +231,7 @@ def create_paper_orders_from_plan(
             "plannedEntryPrice": float(entry_price),
             "plannedStopLoss": float(stop_loss),
             "riskPercent": float(risk_percent),
+            "baseMarginDeploymentPercent": float(base_deployment_percent),
             "marginDeploymentPercent": float(deployment_percent),
             "plannedMargin": float(planned_margin),
             "plannedNotional": float(planned_notional),
@@ -288,6 +291,7 @@ def create_paper_orders_from_plan(
         "skipped": skipped,
         "riskBudget": float(risk_budget),
         "riskPercent": float(risk_percent),
+        "baseMarginDeploymentPercent": float(base_deployment_percent),
         "marginDeploymentPercent": float(deployment_percent),
         "actualMarginDeploymentPercent": float((actual_margin_used / equity) * Decimal("100")) if equity > 0 else 0.0,
         "targetMarginBudget": float(target_margin_budget),

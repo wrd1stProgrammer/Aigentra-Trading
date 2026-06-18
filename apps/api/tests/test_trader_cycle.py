@@ -219,6 +219,41 @@ def test_trade_plan_clamps_provider_leverage_override_to_service_minimum():
     assert "clamped to the service minimum" in " ".join(plan.notes)
 
 
+def test_trade_plan_allows_larger_risk_for_high_confidence_high_rr_setup():
+    snapshot = sample_snapshot()
+    strategy = get_strategy("channel-rider")
+    candidate = strategy.evaluate(snapshot)
+    assert candidate.created is True
+    assert candidate.riskPlan is not None
+    candidate.setupScore = 82
+    candidate.riskPlan.estimatedRiskReward = 2.2
+    review = TradeReviewResult(
+        decision="ADJUST_AND_APPROVE",
+        confidence=92,
+        riskLevel="MEDIUM",
+        adjustments=["Provider requested higher size for a clean setup."],
+        leverageOverride=None,
+        riskPercentOverride=2.5,
+        earlyExitRecommendations=[],
+        approvalReason="Approved with larger but bounded risk.",
+        counterThesis="Invalidation remains active.",
+        userSummary="Approved.",
+        provider="openai",
+        model="gpt-test",
+    )
+
+    plan = trade_plan_from_review("BTCUSDT", candidate, review)
+
+    assert plan.status == "PAPER_TRADING_PENDING"
+    assert plan.riskPercent == pytest.approx(1.575)
+
+
+def test_public_trader_profiles_have_beginner_readable_concepts():
+    for trader in list_traders():
+        assert len(trader.description) >= 70, trader.id
+        assert len(trader.concept) >= 70, trader.id
+
+
 @pytest.mark.asyncio
 async def test_mock_ai_review():
     snapshot = sample_snapshot()
@@ -519,6 +554,7 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "Do not use setupScore as the main reason" in entry_contract
     assert "Treat 5x as the service execution floor" in entry_contract
     assert "Do not require arbitrary setupScore 70+ or 75+" in entry_contract
+    assert "exactly one second-pass review for the whole candidate" in entry_contract
     assert "higher leverage should require progressively stronger confirmation" in entry_contract
     assert "Use recentAiReviews as context, not as an independent veto" in entry_contract
     assert "For reversal, mean-reversion, divergence, or fade strategies" in entry_contract

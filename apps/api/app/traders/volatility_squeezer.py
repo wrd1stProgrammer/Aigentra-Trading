@@ -25,8 +25,8 @@ class VolatilitySqueezer(TraderStrategy):
     profile = TraderProfile(
         id="volatility-squeezer",
         name="Volatility Squeezer",
-        description="Waits for volatility compression, then trades the first confirmed expansion.",
-        concept="Bollinger/Keltner compression, ATR percentile, volume expansion, and breakout close.",
+        description="Waits for volatility to compress, then joins the first expansion only when candle body, volume, and direction confirm.",
+        concept="Quiet markets often expand suddenly; this trader looks for the first clean release while avoiding one-candle fakeouts.",
         baseRiskPercent=0.55,
         riskLevel="MEDIUM",
         longConditions=[

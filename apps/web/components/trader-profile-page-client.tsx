@@ -71,6 +71,7 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
     }
     return null;
   };
+  const recordValue = (value: unknown) => typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
 
   const groups = new Map<string, PaperPosition[]>();
   for (const pos of positions) {
@@ -97,29 +98,71 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
     let totalQty = 0;
     let weightedEntrySum = 0;
     let weightedLiqSum = 0;
+    let weightedMarkSum = 0;
+    let markQty = 0;
     let totalMargin = 0;
     let totalPnl = 0;
+    let totalEntryFee = 0;
     let maxLeverage = 0;
+    let takeProfitPrice: number | null = null;
+    let stopLossPrice: number | null = null;
+    const positionLegs = list.map((pos) => ({
+      symbol: pos.symbol,
+      side: pos.side,
+      quantity: firstFiniteNumber(pos.quantity, pos.size),
+      size: firstFiniteNumber(pos.quantity, pos.size),
+      entryPrice: firstFiniteNumber(pos.averageEntryPrice, pos.avgEntryPrice, pos.entryPrice, pos.openPrice),
+      averageEntryPrice: firstFiniteNumber(pos.averageEntryPrice, pos.avgEntryPrice, pos.entryPrice, pos.openPrice),
+      leverage: firstFiniteNumber(pos.leverage),
+      margin: firstFiniteNumber(pos.margin, pos.openMargin),
+      entryFee: firstFiniteNumber(pos.entryFee, pos.entry_fee),
+      entry_fee: firstFiniteNumber(pos.entryFee, pos.entry_fee),
+      takeProfitPrice: firstFiniteNumber(pos.takeProfit, pos.takeProfitPrice, pos.take_profit_price),
+      take_profit_price: firstFiniteNumber(pos.takeProfit, pos.takeProfitPrice, pos.take_profit_price),
+      stopLossPrice: firstFiniteNumber(pos.stopLoss, pos.stopLossPrice, pos.stop_loss_price),
+      stop_loss_price: firstFiniteNumber(pos.stopLoss, pos.stopLossPrice, pos.stop_loss_price),
+      takeProfits: pos.takeProfits,
+      payload: pos.payload,
+    }));
     
     for (const pos of list) {
       const qty = Math.abs(firstFiniteNumber(pos.quantity, pos.size) ?? 0);
       const entryPrice = firstFiniteNumber(pos.averageEntryPrice, pos.avgEntryPrice, pos.entryPrice, pos.openPrice) ?? 0;
       const liqPrice = firstFiniteNumber(pos.liquidationPrice, pos.liquidation_price) ?? 0;
+      const markPrice = firstFiniteNumber(pos.markPrice, pos.mark_price);
       const margin = firstFiniteNumber(pos.margin, pos.openMargin) ?? 0;
       const pnl = firstFiniteNumber(pos.unrealizedPnl, pos.realizedPnl) ?? 0;
       const leverage = firstFiniteNumber(pos.leverage) ?? 0;
+      const entryFee = firstFiniteNumber(pos.entryFee, pos.entry_fee) ?? 0;
       
       totalQty += qty;
       weightedEntrySum += qty * entryPrice;
       weightedLiqSum += qty * liqPrice;
+      if (markPrice !== null) {
+        weightedMarkSum += qty * markPrice;
+        markQty += qty;
+      }
       totalMargin += margin;
       totalPnl += pnl;
+      totalEntryFee += entryFee;
       if (leverage > maxLeverage) maxLeverage = leverage;
+      if (takeProfitPrice === null) takeProfitPrice = firstFiniteNumber(pos.takeProfit, pos.takeProfitPrice, pos.take_profit_price);
+      if (stopLossPrice === null) stopLossPrice = firstFiniteNumber(pos.stopLoss, pos.stopLossPrice, pos.stop_loss_price);
     }
 
     const avgEntryPrice = totalQty > 0 ? weightedEntrySum / totalQty : 0;
     const avgLiqPrice = totalQty > 0 ? weightedLiqSum / totalQty : 0;
+    const avgMarkPrice = markQty > 0 ? weightedMarkSum / markQty : null;
     const mergedId = `position-merged-${first.symbol}-${first.side}`;
+    const firstPayload = recordValue(first.payload);
+    const mergedPayload = {
+      ...(firstPayload ?? {}),
+      initialQuantity: totalQty,
+      entryFee: totalEntryFee,
+      positionLegs,
+      takeProfitPrice: takeProfitPrice ?? firstPayload?.takeProfitPrice,
+      stopLossPrice: stopLossPrice ?? firstPayload?.stopLossPrice
+    };
     
     const merged: PaperPosition = {
       ...first,
@@ -130,13 +173,21 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
       avgEntryPrice: avgEntryPrice,
       entryPrice: avgEntryPrice,
       openPrice: avgEntryPrice,
+      markPrice: avgMarkPrice ?? undefined,
       liquidationPrice: avgLiqPrice > 0 ? avgLiqPrice : undefined,
       liquidation_price: avgLiqPrice > 0 ? avgLiqPrice : undefined,
       margin: totalMargin,
       openMargin: totalMargin,
+      entryFee: totalEntryFee,
+      entry_fee: totalEntryFee,
       unrealizedPnl: totalPnl,
       realizedPnl: totalPnl,
       leverage: maxLeverage > 0 ? maxLeverage : first.leverage,
+      takeProfitPrice: takeProfitPrice ?? first.takeProfitPrice,
+      take_profit_price: takeProfitPrice ?? first.take_profit_price,
+      stopLossPrice: stopLossPrice ?? first.stopLossPrice,
+      stop_loss_price: stopLossPrice ?? first.stop_loss_price,
+      payload: mergedPayload,
     };
     result.push(merged);
   }

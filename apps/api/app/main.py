@@ -76,6 +76,7 @@ from app.paper.planner import (
 )
 from app.paper.plan_state import latest_active_trade_plan, list_active_trade_plans
 from app.paper.repositories import ensure_trader_state
+from app.paper.sizing import final_trade_risk_percent
 from app.ops.trader_history_reset import RESET_CONFIRMATION_TEXT, reset_trader_history
 from app.repositories import (
     create_ai_review,
@@ -334,16 +335,17 @@ def trade_plan_from_review(symbol: str, candidate, review) -> TradePlan:
         leverage = float(review_leverage or suggested_leverage)
         leverage = max(leverage_floor, min(leverage, leverage_cap))
 
-        base_risk = float(candidate.riskPercent or 0.0)
         review_risk = getattr(review, "riskPercentOverride", None)
-        risk_percent = float(review_risk if review_risk is not None else base_risk)
-        if base_risk > 0:
-            risk_percent = max(0.1, min(risk_percent, base_risk * 1.25, 1.5))
+        risk_percent = final_trade_risk_percent(candidate, review)
 
         review_adjustments = list(getattr(review, "adjustments", []) or [])
         if review_leverage is not None and float(review_leverage) < leverage_floor:
             review_adjustments.append(
                 f"Provider leverage override {float(review_leverage):.1f}x was clamped to the service minimum {leverage_floor:.1f}x."
+            )
+        if review_risk is not None and risk_percent < float(review_risk):
+            review_adjustments.append(
+                f"Provider risk override {float(review_risk):.2f}% was capped to {risk_percent:.2f}% by the paper sizing policy."
             )
         early_exit_recommendations = list(getattr(review, "earlyExitRecommendations", []) or [])
         order_style = getattr(getattr(candidate, "orderIntent", None), "execution", "LIMIT_STAGED")

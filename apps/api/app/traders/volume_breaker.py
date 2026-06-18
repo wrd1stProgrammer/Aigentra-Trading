@@ -22,8 +22,8 @@ class VolumeBreaker(TraderStrategy):
     profile = TraderProfile(
         id="volume-breaker",
         name="Volume Breaker",
-        description="Looks for volume-backed breakouts and support/resistance retests.",
-        concept="Resistance/support break, volume expansion, then retest confirmation.",
+        description="Waits for a major level to break with real participation, then checks whether the retest confirms the breakout instead of chasing.",
+        concept="Its core idea is simple: a breakout matters only when volume, retest behavior, and structure all agree that new traders joined.",
         baseRiskPercent=0.8,
         riskLevel="MEDIUM_HIGH",
         longConditions=[

@@ -56,7 +56,7 @@ SPECIALIST_CONFIGS: List[Dict[str, Any]] = [
     {
         "id": "ichimoku-cloud-pilot",
         "name": "Ichimoku Cloud Pilot",
-        "description": "Uses EMA cloud proxy, 4H trend, and RSI health to ride BTC continuation.",
+        "description": "Uses a cloud-style trend proxy to ride BTC continuation only while trend, momentum, and funding stay healthy.",
         "concept": "Ichimoku-inspired trend filter: price above/below cloud proxy, momentum health, delayed confirmation.",
         "risk": 0.58,
         "riskLevel": "MEDIUM",
@@ -80,7 +80,7 @@ SPECIALIST_CONFIGS: List[Dict[str, Any]] = [
     {
         "id": "vwap-reclaimer",
         "name": "VWAP Reclaimer",
-        "description": "Trades reclaim/failure around BTC intraday fair value after stretched moves.",
+        "description": "Trades reclaim or rejection around BTC intraday fair value after price stretches too far and then proves acceptance.",
         "concept": "VWAP-like mean reclaim using EMA20 proxy, volume response, and rejection of unfair price.",
         "risk": 0.5,
         "riskLevel": "MEDIUM",
@@ -104,7 +104,7 @@ SPECIALIST_CONFIGS: List[Dict[str, Any]] = [
     {
         "id": "wyckoff-spring",
         "name": "Wyckoff Spring",
-        "description": "Looks for BTC spring/upthrust behavior around range extremes before reversal.",
+        "description": "Looks for BTC spring or upthrust traps around range extremes where a sweep quickly snaps back inside the range.",
         "concept": "Wyckoff spring/upthrust: sweep outside range, reclaim/failure close, volume spike, and fast invalidation.",
         "risk": 0.56,
         "riskLevel": "HIGH",
@@ -128,7 +128,7 @@ SPECIALIST_CONFIGS: List[Dict[str, Any]] = [
     {
         "id": "rsi-divergence-scout",
         "name": "RSI Divergence Scout",
-        "description": "Scans BTC for momentum divergence before structure reclaim or failure.",
+        "description": "Scans BTC momentum divergence, then waits for structure reclaim or failure before treating exhaustion as tradable.",
         "concept": "RSI divergence proxy with swing structure, exhaustion, and confirmation candle.",
         "risk": 0.48,
         "riskLevel": "MEDIUM",
@@ -176,7 +176,7 @@ SPECIALIST_CONFIGS: List[Dict[str, Any]] = [
     {
         "id": "imbalance-hunter",
         "name": "Imbalance Hunter",
-        "description": "Uses BTC displacement candles and fair-value-gap style pullbacks.",
+        "description": "Uses BTC displacement candles and imbalance-style pullbacks when a strong move leaves a clean retest zone.",
         "concept": "Smart-money inspired displacement: strong body, imbalance midpoint retest, structure continuation.",
         "risk": 0.57,
         "riskLevel": "MEDIUM_HIGH",
@@ -200,7 +200,7 @@ SPECIALIST_CONFIGS: List[Dict[str, Any]] = [
     {
         "id": "momentum-ignition",
         "name": "Momentum Ignition",
-        "description": "Takes BTC momentum continuation only when trend, RSI, volume, and OI align.",
+        "description": "Takes BTC momentum only when trend, RSI, volume, open interest, and taker pressure align in the same direction.",
         "concept": "Momentum ignition: EMA stack, RSI thrust, OI increase, taker share confirmation.",
         "risk": 0.6,
         "riskLevel": "HIGH",
@@ -248,7 +248,7 @@ SPECIALIST_CONFIGS: List[Dict[str, Any]] = [
     {
         "id": "atr-trail-commander",
         "name": "ATR Trail Commander",
-        "description": "Lets BTC trend winners breathe using ATR stops and slower AI management.",
+        "description": "Lets BTC trend winners breathe using ATR stops and slower management when the higher-timeframe trend remains intact.",
         "concept": "ATR continuation system: higher timeframe trend, volatility-adjusted stop, pyramiding only after profit cushion.",
         "risk": 0.55,
         "riskLevel": "MEDIUM",

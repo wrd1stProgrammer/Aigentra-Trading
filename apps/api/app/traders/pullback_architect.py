@@ -21,8 +21,8 @@ class PullbackArchitect(TraderStrategy):
     profile = TraderProfile(
         id="pullback-architect",
         name="Pullback Architect",
-        description="Builds scaled entries where EMA, VWAP-like mean, Fib, and support overlap.",
-        concept="Trend continuation pullback with three staged entries.",
+        description="Builds staged entries inside healthy trend pullbacks where moving averages, fair-value zones, and structure overlap.",
+        concept="It tries to avoid buying the top: first prove the larger trend, then split entries around the pullback zone with a clear invalidation.",
         baseRiskPercent=0.7,
         riskLevel="MEDIUM",
         longConditions=[

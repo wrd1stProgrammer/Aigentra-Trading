@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import ts from "typescript";
 
 const holdingMetrics = loadTsModule("../components/trader-profile-detail/holding-metrics.ts");
+const positionCalculations = loadTsModule("../components/trader-profile-detail/position-panel-calculations.ts");
+const traderCatalog = loadTsModule("../lib/traders.ts");
 const binancePanelSource = readFileSync(new URL("../components/trader-profile-detail/binance-position-panel.tsx", import.meta.url), "utf8");
 
 test("entry sizing explains margin notional account percent and entry weight", () => {
@@ -68,6 +70,83 @@ test("open order panel removes account/notional percent columns and adds detail 
   assert.match(binancePanelSource, /detail\.rowDetail/, "orders and positions need a localized detail action column");
   assert.match(binancePanelSource, /detail\.orderTime/, "orders should end with a compact time column");
   assert.match(binancePanelSource, /formatClockTime\(/, "the rightmost time column should use compact clock formatting");
+});
+
+test("position panel derives mark price from unrealized PnL instead of echoing entry", () => {
+  const position = {
+    symbol: "BTCUSDT",
+    side: "LONG",
+    entryPrice: 64092.2,
+    quantity: 0.498,
+    unrealizedPnl: 13.03
+  };
+
+  assert.equal(positionCalculations.positionEntryPrice(position), 64092.2);
+  assert.equal(positionCalculations.positionMarkPrice(position), 64118.364658634535);
+});
+
+test("position panel estimates TP profit after entry and exit fees", () => {
+  const position = {
+    symbol: "BTCUSDT",
+    side: "SHORT",
+    entryPrice: 65342.2,
+    quantity: 0.346,
+    leverage: 6,
+    entryFee: 4.52128,
+    takeProfitPrice: 64991.8,
+    payload: {
+      feeRates: { maker: 0.0002, taker: 0.0005 }
+    }
+  };
+
+  assert.equal(positionCalculations.expectedPositionProfitAtTarget(position), 105.47353859999798);
+});
+
+test("position panel sums expected profit per merged position leg", () => {
+  const mergedPosition = {
+    symbol: "BTCUSDT",
+    side: "LONG",
+    entryPrice: 100,
+    quantity: 3,
+    takeProfitPrice: 110,
+    payload: {
+      positionLegs: [
+        {
+          symbol: "BTCUSDT",
+          side: "LONG",
+          entryPrice: 100,
+          quantity: 1,
+          entryFee: 0.02,
+          takeProfitPrice: 110,
+          payload: { feeRates: { maker: 0.0002, taker: 0.0005 } }
+        },
+        {
+          symbol: "BTCUSDT",
+          side: "LONG",
+          entryPrice: 100,
+          quantity: 2,
+          entryFee: 0.04,
+          takeProfitPrice: 120,
+          payload: { feeRates: { maker: 0.0002, taker: 0.0005 } }
+        }
+      ]
+    }
+  };
+
+  assert.equal(positionCalculations.expectedPositionProfitAtTarget(mergedPosition), 49.765);
+});
+
+test("position table shows a dedicated expected profit column", () => {
+  assert.match(binancePanelSource, /detail\.positionExpectedProfit/, "positions should show expected TP profit as a dedicated column");
+  const pageSource = readFileSync(new URL("../components/trader-profile-page-client.tsx", import.meta.url), "utf8");
+  assert.match(pageSource, /positionLegs/, "merged open positions should keep per-leg TP and fee inputs for expected-profit math");
+});
+
+test("fallback trader catalog has beginner-readable concepts for every trader", () => {
+  for (const trader of traderCatalog.fallbackTraders) {
+    assert.ok(typeof trader.description === "string" && trader.description.length >= 70, `${trader.id} needs a fuller description`);
+    assert.ok(typeof trader.concept === "string" && trader.concept.length >= 70, `${trader.id} needs a fuller concept`);
+  }
 });
 
 function loadTsModule(relativePath) {
