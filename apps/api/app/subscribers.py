@@ -281,6 +281,8 @@ def closed_position_event_type(event: TradeEventRecord) -> str:
 
 
 def telegram_event_type_for_management_review(review: PositionManagementReviewRecord) -> Optional[str]:
+    if not deliverable_management_review(review):
+        return None
     payload = from_json(review.payload_json)
     event_payload = payload.get("event", {}) if isinstance(payload, dict) else {}
     review_payload = payload.get("review", {}) if isinstance(payload, dict) else {}
@@ -290,6 +292,24 @@ def telegram_event_type_for_management_review(review: PositionManagementReviewRe
     if severity == "LOW":
         return "ai_review_low"
     return "ai_review_medium"
+
+
+def deliverable_management_review(review: PositionManagementReviewRecord) -> bool:
+    if review.status != "ok" or review.error_message or review.fallback:
+        return False
+    payload = from_json(review.payload_json)
+    review_payload = payload.get("review", {}) if isinstance(payload, dict) else {}
+    if not isinstance(review_payload, dict):
+        return True
+    if bool(review_payload.get("fallback")):
+        return False
+    risk_flags = review_payload.get("riskFlags")
+    if isinstance(risk_flags, list) and "provider_failed" in risk_flags:
+        return False
+    rationale = review_payload.get("rationale")
+    if isinstance(rationale, str) and rationale.strip().lower() == "position management provider failed.":
+        return False
+    return True
 
 
 def delivery_exists(db: Session, subscriber_id: int, event_id: int) -> bool:
