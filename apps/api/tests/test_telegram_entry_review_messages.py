@@ -1,9 +1,9 @@
 from decimal import Decimal
 
-from app.db import TradeEventRecord
+from app.db import PositionManagementReviewRecord, TradeEventRecord
 from app.repositories import to_json
 from app.subscribers import SubscriberPreferencesView, TelegramSettingsView
-from app.telegram_messages import compose_event_message
+from app.telegram_messages import compose_event_message, compose_management_message
 
 
 def test_entry_alert_uses_ai_review_summary_when_available():
@@ -99,3 +99,74 @@ def test_entry_alert_uses_nested_ai_review_summary_when_available():
     assert "지금 할 일: 빠른 만료 규칙을 적용해 주문을 관리하세요." in text
     assert "Event:" not in text
     assert "Reason: Confirmed BTC setup participation" not in text
+
+
+def test_management_alert_includes_position_context_readably():
+    preferences = SubscriberPreferencesView(
+        user_id="google-1",
+        email="operator@example.com",
+        subscription_status="active",
+        favorite_trader_ids=["liquidity-reaper"],
+        telegram_settings=TelegramSettingsView(
+            enabled=True,
+            chat_id="123456789",
+            event_types=["ai_review_high"],
+            min_return_pct=0,
+        ),
+        locale="ko",
+    )
+    review = PositionManagementReviewRecord(
+        trader_id="liquidity-reaper",
+        symbol="BTCUSDT",
+        status="ok",
+        event_type="liquidity_position_heartbeat",
+        phase="OPEN_POSITION",
+        provider="anthropic",
+        model="claude-haiku-4-5",
+        decision="HOLD",
+        confidence=84,
+        action_type="MOVE_STOP_TO_BREAKEVEN",
+        payload_json=to_json(
+            {
+                "event": {
+                    "severity": "HIGH",
+                    "phase": "OPEN_POSITION",
+                    "metrics": {
+                        "price": 63920.25,
+                        "entryPrice": 63800,
+                        "stopLoss": 63666,
+                        "takeProfit": 64500,
+                        "unrealizedPnl": 42.3,
+                    },
+                },
+                "exposure": {
+                    "kind": "position",
+                    "id": 7,
+                    "status": "open",
+                    "side": "LONG",
+                    "quantity": 0.2,
+                    "entryPrice": 63800,
+                    "stopLoss": 63666,
+                    "takeProfit": 64500,
+                    "leverage": 5,
+                    "unrealizedPnl": 42.3,
+                },
+                "review": {
+                    "decision": "HOLD",
+                    "confidence": 84,
+                    "riskLevel": "HIGH",
+                    "rationale": "현재 포지션은 소폭 이익 상태이며 손절이 본전으로 올라와 있습니다.",
+                },
+            }
+        ),
+    )
+
+    text = compose_management_message(preferences, review, "ai_review_high")
+
+    assert "[AI Trader League] AI 중간 리뷰 높음" in text
+    assert "Liquidity Reaper · BTCUSDT" in text
+    assert "\n\n상태\n  단계: OPEN_POSITION\n  판단: HOLD\n  조치: MOVE_STOP_TO_BREAKEVEN\n  신뢰도: 84" in text
+    assert "\n\n포지션\n  방향: LONG · 5x\n  진입가: 63,800\n  현재가: 63,920.25" in text
+    assert "  손절가: 63,666\n  익절가: 64,500\n  PnL: +42.30" in text
+    assert "\n\n판단 근거\n  현재 포지션은 소폭 이익 상태이며 손절이 본전으로 올라와 있습니다." in text
+    assert "Reason:" not in text

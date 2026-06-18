@@ -1,3 +1,5 @@
+import math
+from decimal import Decimal
 from typing import Any, Protocol
 
 from app.db import PositionManagementReviewRecord, TradeEventRecord
@@ -71,17 +73,29 @@ def compose_management_message(
     trader_name = TRADER_NAMES.get(review.trader_id or "", review.trader_id or "-")
     label = telegram_event_label(telegram_event_type, preferences.locale)
     payload = from_json(review.payload_json)
-    event_payload = payload.get("event", {}) if isinstance(payload, dict) else {}
-    review_payload = payload.get("review", {}) if isinstance(payload, dict) else {}
-    rationale = review_payload.get("rationale") or review.error_message or "-"
+    payload_record = first_record(payload) or {}
+    event_payload = first_record(payload_record.get("event")) or {}
+    exposure_payload = first_record(payload_record.get("exposure")) or {}
+    review_payload = first_record(payload_record.get("review")) or {}
+    metrics_payload = first_record(event_payload.get("metrics")) or {}
+    labels = management_message_labels(preferences.locale)
+    rationale = text_value(review_payload.get("rationale")) or text_value(review.error_message) or "-"
     return "\n".join(
         [
             f"[AI Trader League] {label}",
             f"{trader_name} · {review.symbol or '-'}",
-            f"Phase: {review.phase or event_payload.get('phase') or '-'}",
-            f"Decision: {review.decision or '-'} / Action: {review.action_type or '-'}",
-            f"Confidence: {review.confidence if review.confidence is not None else '-'}",
-            f"Reason: {rationale}",
+            "",
+            labels["statusTitle"],
+            f"  {labels['phase']}: {review.phase or text_value(event_payload.get('phase')) or '-'}",
+            f"  {labels['decision']}: {review.decision or text_value(review_payload.get('decision')) or '-'}",
+            f"  {labels['action']}: {review.action_type or first_action_type(review_payload) or '-'}",
+            f"  {labels['confidence']}: {review.confidence if review.confidence is not None else '-'}",
+            "",
+            labels["positionTitle"],
+            *management_position_lines(exposure_payload, metrics_payload, preferences.locale),
+            "",
+            labels["rationaleTitle"],
+            f"  {rationale}",
         ]
     )
 
@@ -167,6 +181,138 @@ def review_labels(locale: str) -> dict[str, str]:
         "watchConditions": "다음 확인 조건",
         "managerNote": "관리 메모",
     }
+
+
+def management_message_labels(locale: str) -> dict[str, str]:
+    if locale == "en":
+        return {
+            "statusTitle": "Status",
+            "phase": "Phase",
+            "decision": "Decision",
+            "action": "Action",
+            "confidence": "Confidence",
+            "positionTitle": "Position",
+            "side": "Side",
+            "entry": "Entry",
+            "current": "Current",
+            "stop": "Stop",
+            "takeProfit": "Take Profit",
+            "pnl": "PnL",
+            "rationaleTitle": "Reason",
+        }
+    return {
+        "statusTitle": "상태",
+        "phase": "단계",
+        "decision": "판단",
+        "action": "조치",
+        "confidence": "신뢰도",
+        "positionTitle": "포지션",
+        "side": "방향",
+        "entry": "진입가",
+        "current": "현재가",
+        "stop": "손절가",
+        "takeProfit": "익절가",
+        "pnl": "PnL",
+        "rationaleTitle": "판단 근거",
+    }
+
+
+def management_position_lines(exposure_payload: dict[str, Any], metrics_payload: dict[str, Any], locale: str) -> list[str]:
+    labels = management_message_labels(locale)
+    side = text_value(exposure_payload.get("side")) or "-"
+    leverage = first_number(exposure_payload.get("leverage"), metrics_payload.get("leverage"))
+    side_detail = f"{side} · {format_leverage(leverage)}" if leverage is not None else side
+    entry = first_number(
+        exposure_payload.get("entryPrice"),
+        exposure_payload.get("limitPrice"),
+        metrics_payload.get("entryPrice"),
+        metrics_payload.get("limitPrice"),
+    )
+    current = first_number(
+        metrics_payload.get("price"),
+        metrics_payload.get("currentPrice"),
+        exposure_payload.get("currentPrice"),
+    )
+    stop = first_number(exposure_payload.get("stopLoss"), metrics_payload.get("stopLoss"))
+    take_profit = first_number(exposure_payload.get("takeProfit"), metrics_payload.get("takeProfit"))
+    return [
+        f"  {labels['side']}: {side_detail}",
+        f"  {labels['entry']}: {format_price(entry)}",
+        f"  {labels['current']}: {format_price(current)}",
+        f"  {labels['stop']}: {format_price(stop)}",
+        f"  {labels['takeProfit']}: {format_price(take_profit)}",
+        f"  {labels['pnl']}: {format_pnl(exposure_payload, metrics_payload)}",
+    ]
+
+
+def first_action_type(review_payload: dict[str, Any]) -> str | None:
+    actions = review_payload.get("actions")
+    if not isinstance(actions, list) or not actions:
+        return text_value(review_payload.get("action"))
+    first_action = first_record(actions[0])
+    return text_value(first_action.get("type")) if first_action else text_value(review_payload.get("action"))
+
+
+def first_number(*values: Any) -> float | None:
+    for value in values:
+        parsed = number_value(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def number_value(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float, Decimal)):
+        parsed = float(value)
+    elif isinstance(value, str):
+        clean = value.strip().replace(",", "")
+        if not clean:
+            return None
+        try:
+            parsed = float(clean)
+        except ValueError:
+            return None
+    else:
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def format_price(value: float | None) -> str:
+    if value is None:
+        return "-"
+    return compact_number(value, max_decimals=2)
+
+
+def format_leverage(value: float) -> str:
+    return f"{compact_number(value, max_decimals=2)}x"
+
+
+def format_pnl(exposure_payload: dict[str, Any], metrics_payload: dict[str, Any]) -> str:
+    pnl = first_number(
+        exposure_payload.get("unrealizedPnl"),
+        metrics_payload.get("unrealizedPnl"),
+        exposure_payload.get("pnl"),
+        metrics_payload.get("pnl"),
+    )
+    if pnl is None:
+        return "-"
+    pnl_text = f"{pnl:+,.2f}"
+    pnl_pct = first_number(
+        exposure_payload.get("unrealizedPnlPercent"),
+        metrics_payload.get("unrealizedPnlPercent"),
+        exposure_payload.get("pnlPercent"),
+        metrics_payload.get("pnlPercent"),
+        exposure_payload.get("roePercent"),
+        metrics_payload.get("roePercent"),
+    )
+    return f"{pnl_text} ({pnl_pct:+.2f}%)" if pnl_pct is not None else pnl_text
+
+
+def compact_number(value: float, *, max_decimals: int) -> str:
+    rounded = 0.0 if abs(value) < 0.5 * (10**-max_decimals) else value
+    return f"{rounded:,.{max_decimals}f}".rstrip("0").rstrip(".")
 
 
 def first_record(*values: Any) -> dict[str, Any] | None:
