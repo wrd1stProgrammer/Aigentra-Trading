@@ -168,6 +168,57 @@ test("order and position scenarios prefer AI rationale over entry labels", () =>
   assert.notEqual(orderScenario.rationale, "15분 확인 캔들");
 });
 
+test("provider failure management reviews do not become latest scenario cards", () => {
+  // Given: production can persist an internal provider-failure management review next to a valid review.
+  const trader = { id: "liquidity-reaper", currentPlan: "watch", baseRiskPercent: 0.7, description: "strategy", concept: "concept" };
+  const reviews = [
+    {
+      id: 447,
+      traderId: "liquidity-reaper",
+      symbol: "BTCUSDT",
+      status: "error",
+      errorMessage: "AI_PROVIDER=openai selected but required API key is missing.",
+      decision: "NEEDS_MORE_DATA",
+      actionType: "NEEDS_MORE_DATA",
+      phase: "OPEN_POSITION",
+      eventType: "sweep_failure_exit",
+      fallback: false,
+      createdAt: "2026-06-18T06:30:08.466959+00:00",
+      rationale: "Position management provider failed.",
+      riskFlags: ["provider_failed"],
+      review: {
+        decision: "NEEDS_MORE_DATA",
+        rationale: "Position management provider failed.",
+        riskFlags: ["provider_failed"]
+      }
+    },
+    {
+      id: 448,
+      traderId: "liquidity-reaper",
+      symbol: "BTCUSDT",
+      status: "ok",
+      decision: "MOVE_STOP_TO_BREAKEVEN",
+      actionType: "MOVE_STOP_TO_BREAKEVEN",
+      phase: "OPEN_POSITION",
+      eventType: "sweep_failure_exit",
+      createdAt: "2026-06-18T06:35:08.466959+00:00",
+      rationale: "손절선을 본절로 올려 리스크를 제거합니다.",
+      review: {
+        decision: "MOVE_STOP_TO_BREAKEVEN",
+        rationale: "손절선을 본절로 올려 리스크를 제거합니다."
+      }
+    }
+  ];
+
+  // When: scenarios are built for the latest scenario timeline.
+  const scenarios = league.buildScenarios({ trader, positions: [], orders: [], reviews, events: [] });
+
+  // Then: the internal provider failure is hidden while the valid management review remains.
+  assert.equal(scenarios.some((scenario) => scenario.id === "review-447"), false);
+  assert.equal(scenarios.some((scenario) => scenario.rationale === "Position management provider failed."), false);
+  assert.deepEqual(scenarios.filter((scenario) => scenario.source === "review").map((scenario) => scenario.id), ["review-448"]);
+});
+
 test("position panel exposes detail callbacks for positions and orders", () => {
   assert.match(chartSource, /onOpenScenario/, "detail chart should pass a scenario-opening callback to the position panel");
   assert.match(panelSource, /onOpenScenario/, "position panel should accept a scenario-opening callback");
@@ -263,6 +314,33 @@ test("trader detail builds scenarios from closed positions without sending them 
   assert.match(pageSource, /buildScenarioPositions\(positions, closedPositions\)/, "closed positions should feed scenario generation only");
   assert.match(pageSource, /buildScenarios\(\{ trader, positions: scenarioPositions, orders, reviews, events \}\)/);
   assert.match(pageSource, /paperPositions=\{positions\}/, "chart should continue receiving active positions only");
+});
+
+test("active position scenario time uses the stable open time instead of live mark updates", () => {
+  // Given: an open position receives frequent mark/PnL updates after it was opened.
+  const trader = { id: "range-maker", currentPlan: "watch", baseRiskPercent: 0.7, description: "strategy", concept: "concept" };
+  const positions = [
+    {
+      id: 901,
+      symbol: "BTCUSDT",
+      status: "open",
+      side: "long",
+      entryPrice: 64092,
+      openedAt: "2026-06-18T06:00:00.000Z",
+      createdAt: "2026-06-18T05:59:00.000Z",
+      updatedAt: "2026-06-18T06:11:00.000Z",
+      payload: {
+        aiApprovalReason: "AI는 범위 하단 반등 논리가 유지된다고 승인했습니다."
+      }
+    }
+  ];
+
+  // When: the timeline scenario is built for the detail page.
+  const scenarios = league.buildScenarios({ trader, positions, orders: [], reviews: [], events: [] });
+
+  // Then: the PO card does not pretend the latest mark update is a fresh AI review.
+  const positionScenario = scenarios.find((scenario) => scenario.id === "position-901");
+  assert.equal(positionScenario.createdAt, "2026-06-18T06:00:00.000Z");
 });
 
 function loadTsModule(relativePath, requireStubs = {}) {

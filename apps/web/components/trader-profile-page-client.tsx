@@ -373,7 +373,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       ) {
         return previousData;
       }
-      return getCachedTraderDetailBundle(traderId, symbol, reviewsLimit, eventsLimit) ?? fallbackDetailBundle;
+      return clientHydrated ? getCachedTraderDetailBundle(traderId, symbol, reviewsLimit, eventsLimit) ?? fallbackDetailBundle : fallbackDetailBundle;
     }
   });
   const equitySnapshotsQuery = useQuery({

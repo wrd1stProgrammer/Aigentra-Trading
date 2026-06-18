@@ -1,12 +1,22 @@
 import json
 
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 
 import app.core.config as config
 import app.db as db_module
-from app.db import MarketSnapshotRecord, TraderRunLogRecord, init_db, reset_db_engine, session_scope
+from app.db import (
+    MarketSnapshotRecord,
+    PositionManagementReviewRecord,
+    TraderLeaderboardSnapshotRecord,
+    TraderRunLogRecord,
+    init_db,
+    reset_db_engine,
+    session_scope,
+)
+import app.main as main
 from app.main import app
-from app.repositories import create_market_snapshot, create_trader_run_log, from_json, update_trader_run_log
+from app.repositories import create_market_snapshot, create_trader_run_log, from_json, to_json, update_trader_run_log
 
 
 def test_settings_read_environment_at_instantiation(monkeypatch):
@@ -126,3 +136,105 @@ def test_storage_policy_endpoint_reports_neon_safe_defaults():
     assert data["policies"]["marketSnapshots"]["mode"] == "compact"
     assert data["policies"]["traderRunLogs"]["storesFullMarketSnapshot"] is False
     assert data["privateTradingApi"] is False
+
+
+def test_slim_record_queries_do_not_fetch_json_payload_columns(tmp_path):
+    reset_db_engine(f"sqlite:///{tmp_path / 'slim-query.db'}")
+    init_db()
+    large_payload = {"review": {"rationale": "x" * 10_000}}
+    with session_scope() as db:
+        db.add(
+            PositionManagementReviewRecord(
+                trader_id="channel-rider",
+                symbol="BTCUSDT",
+                status="ok",
+                event_type="heartbeat",
+                phase="OPEN_POSITION",
+                provider="mock",
+                model="mock-position-manager",
+                decision="HOLD",
+                confidence=70,
+                action_type="HOLD",
+                payload_json=to_json(large_payload),
+                raw_json=to_json({"unused": True}),
+            )
+        )
+
+    captured_sql: list[str] = []
+
+    def capture_sql(_conn, _cursor, statement, _parameters, _context, _executemany):
+        captured_sql.append(statement.lower())
+
+    event.listen(db_module.engine, "before_cursor_execute", capture_sql)
+    try:
+        with session_scope() as db:
+            records = main.list_filtered_records(
+                db,
+                PositionManagementReviewRecord,
+                limit=1,
+                symbol="BTCUSDT",
+                include_payload=False,
+            )
+    finally:
+        event.remove(db_module.engine, "before_cursor_execute", capture_sql)
+
+    select_sql = "\n".join(statement for statement in captured_sql if " from position_management_reviews" in statement)
+    assert records[0]["decision"] == "HOLD"
+    assert "payload" not in records[0]
+    assert "payload_json" not in select_sql
+    assert "raw_json" not in select_sql
+
+
+def test_leaderboard_bundle_keeps_management_reviews_slim(tmp_path):
+    reset_db_engine(f"sqlite:///{tmp_path / 'leaderboard-slim.db'}")
+    init_db()
+    with session_scope() as db:
+        db.add(
+            TraderLeaderboardSnapshotRecord(
+                trader_id="channel-rider",
+                trader_name="Channel Rider",
+                symbol="BTCUSDT",
+                status="active",
+                has_live_paper_data=True,
+                rank=1,
+                rank_score=100.0,
+                equity=10_100.0,
+                cash_balance=10_000.0,
+                total_pnl=100.0,
+                latest_run_status="COMPLETED",
+                last_decision="HOLD",
+            )
+        )
+        db.add(
+            PositionManagementReviewRecord(
+                trader_id="channel-rider",
+                symbol="BTCUSDT",
+                status="ok",
+                event_type="heartbeat",
+                phase="OPEN_POSITION",
+                provider="mock",
+                model="mock-position-manager",
+                decision="HOLD",
+                confidence=70,
+                action_type="HOLD",
+                payload_json=to_json(
+                    {
+                        "event": {"reason": "large event body"},
+                        "exposure": {"payload": {"large": "x" * 10_000}},
+                        "review": {"rationale": "hold the position"},
+                        "appliedActions": [],
+                    }
+                ),
+            )
+        )
+
+    with session_scope() as db:
+        payload = main.build_league_bundle_payload(db, "BTCUSDT", include_related=True)
+
+    review = payload["managementReviews"][0]
+    assert review["decision"] == "HOLD"
+    assert review["actionType"] == "HOLD"
+    assert "payload" not in review
+    assert "event" not in review
+    assert "exposure" not in review
+    assert "review" not in review

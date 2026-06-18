@@ -131,6 +131,77 @@ test("holdings exclude protective exit orders from active capital deployment", (
   assert.equal(holdings.accountDeploymentPercent(items), 10);
 });
 
+test("holdings do not show stale plan entries after a trade has ended", () => {
+  const items = holdings.buildHoldingItems({
+    standing: {
+      equity: 10_000,
+      returnPct: 0,
+      openOrders: 0,
+      openPositions: 0,
+      summary: {
+        latestPlanStatus: null,
+        latestRunStatus: "STOP_LOSS",
+        openOrders: 0,
+        openPositions: 0
+      }
+    },
+    positions: [],
+    orders: [],
+    latestPlan: {
+      status: "PAPER_TRADING_PENDING",
+      side: "LONG",
+      leverage: 5,
+      entries: [
+        { price: 65656, weight: 50, reason: "old scale entry" },
+        { price: 65853, weight: 50, reason: "old scale entry" }
+      ],
+      takeProfits: [],
+      notes: []
+    },
+    symbol: "BTCUSDT",
+    locale: "ko",
+    t: (key) => key
+  });
+
+  assert.deepEqual(items.map((item) => item.id), ["cash"]);
+  assert.equal(holdings.accountDeploymentPercent(items), 0);
+});
+
+test("holdings keep current pending plan entries when the summary marks the plan active", () => {
+  const items = holdings.buildHoldingItems({
+    standing: {
+      equity: 10_000,
+      returnPct: 0,
+      openOrders: 0,
+      openPositions: 0,
+      summary: {
+        latestPlanStatus: "PAPER_TRADING_PENDING",
+        openOrders: 0,
+        openPositions: 0
+      }
+    },
+    positions: [],
+    orders: [],
+    latestPlan: {
+      status: "PAPER_TRADING_PENDING",
+      side: "LONG",
+      leverage: 5,
+      entries: [
+        { price: 65656, weight: 50, reason: "current scale entry" },
+        { price: 65853, weight: 50, reason: "current scale entry" }
+      ],
+      takeProfits: [],
+      notes: []
+    },
+    symbol: "BTCUSDT",
+    locale: "ko",
+    t: (key) => key
+  });
+
+  assert.deepEqual(items.map((item) => item.id), ["plan-entry-0", "plan-entry-1"]);
+  assert.equal(holdings.accountDeploymentPercent(items), 20);
+});
+
 function loadTsModule(relativePath, requireStubs = {}) {
   const tsSource = readFileSync(new URL(relativePath, import.meta.url), "utf8");
   const { outputText } = ts.transpileModule(tsSource, {

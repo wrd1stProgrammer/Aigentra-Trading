@@ -27,7 +27,7 @@ const copy = {
     signupTitle: "Create an account",
     nameLabel: "Name",
     confirmPasswordLabel: "Confirm password",
-    termsAccept: "I accept the Terms of Sale, the Disclaimer and the Legal Notices",
+    termsAccept: "이용약관, 면책조항, 법적 고지 및 개인정보 처리방침에 동의합니다.",
     signupSubmit: "Create my account",
     hasAccount: "Already have an account?",
     signinLink: "Sign in",
@@ -54,7 +54,7 @@ const copy = {
     signupTitle: "Create an account",
     nameLabel: "Name",
     confirmPasswordLabel: "Confirm password",
-    termsAccept: "I accept the Terms of Sale, the Disclaimer and the Legal Notices",
+    termsAccept: "I accept the Terms of Service, the Disclaimer, the Legal Notices and the Privacy Policy",
     signupSubmit: "Create my account",
     hasAccount: "Already have an account?",
     signinLink: "Sign in",
@@ -96,24 +96,24 @@ export function LoginPageClient({ nextPath, googleConfigured }: LoginPageClientP
 
   return (
     <div 
-      className="relative flex min-h-[100dvh] w-full items-center justify-center bg-[#070808] px-4 py-12 text-white select-none"
+      className="relative flex min-h-[100dvh] w-full items-center justify-center bg-[#070808] px-4 py-20 text-white select-none sm:py-12"
       style={{
         backgroundImage: "radial-gradient(circle at 50% 50%, rgba(16,185,129,0.04), transparent 70%)"
       }}
     >
       {/* Top Left Home navigation for escape hatch (Softened visual footprint) */}
-      <div className="absolute top-6 left-6 z-10">
+      <div className="absolute left-4 right-4 top-4 z-10 sm:left-6 sm:right-auto sm:top-6">
         <Link 
           href="/" 
-          className="focus-ring inline-flex items-center gap-1.5 rounded-lg bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.05] px-3.5 py-1.5 text-xs font-semibold text-zinc-500 hover:text-zinc-300 transition duration-200"
+          className="focus-ring inline-flex max-w-full items-center gap-1.5 rounded-lg border border-white/[0.05] bg-white/[0.02] px-3.5 py-2 text-xs font-semibold text-zinc-500 transition duration-200 hover:bg-white/[0.06] hover:text-zinc-300"
         >
           <ArrowLeft size={13} weight="bold" />
-          <span>Back to Aigentra Trading</span>
+          <span className="truncate">Back to Aigentra Trading</span>
         </Link>
       </div>
 
       <div className="w-full max-w-[400px] z-10 transition-all duration-300">
-        <div className="rounded-2xl border border-white/[0.05] bg-[#0c0d0d]/90 p-8 md:p-9 shadow-[0_32px_96px_rgba(0,0,0,0.85),inset_0_1px_1px_rgba(255,255,255,0.01)] backdrop-blur-xl">
+        <div className="rounded-2xl border border-white/[0.05] bg-[#0c0d0d]/90 p-5 shadow-[0_32px_96px_rgba(0,0,0,0.85),inset_0_1px_1px_rgba(255,255,255,0.01)] backdrop-blur-xl sm:p-8 md:p-9">
           
           {/* Sign In Mode */}
           {mode === "signin" && (
@@ -335,7 +335,30 @@ export function LoginPageClient({ nextPath, googleConfigured }: LoginPageClientP
                     className="focus-ring mt-1 h-3.5 w-3.5 rounded border-zinc-800 bg-[#121313] text-emerald-500 focus:ring-emerald-500 transition duration-150"
                   />
                   <label htmlFor="terms" className="text-xs text-zinc-500 select-none leading-relaxed break-keep">
-                    {text.termsAccept}
+                    {locale === "ko" ? (
+                      <>
+                        <Link href="/terms" className="underline hover:text-zinc-300 transition">이용약관</Link>
+                        ,{" "}
+                        <Link href="/disclaimer" className="underline hover:text-zinc-300 transition">면책조항</Link>
+                        ,{" "}
+                        <Link href="/legal-notices" className="underline hover:text-zinc-300 transition">법적 고지</Link>
+                        및{" "}
+                        <Link href="/privacy-policy" className="underline hover:text-zinc-300 transition">개인정보 처리방침</Link>
+                        에 동의합니다.
+                      </>
+                    ) : (
+                      <>
+                        I accept the{" "}
+                        <Link href="/terms" className="underline hover:text-zinc-300 transition">Terms of Service</Link>
+                        , the{" "}
+                        <Link href="/disclaimer" className="underline hover:text-zinc-300 transition">Disclaimer</Link>
+                        , the{" "}
+                        <Link href="/legal-notices" className="underline hover:text-zinc-300 transition">Legal Notices</Link>
+                        {" "}and the{" "}
+                        <Link href="/privacy-policy" className="underline hover:text-zinc-300 transition">Privacy Policy</Link>
+                        .
+                      </>
+                    )}
                   </label>
                 </div>
 

@@ -17,6 +17,7 @@ import {
 } from "@/components/trader-profile-detail/holding-metrics";
 
 const HOLDING_COLORS = ["bg-rose-600", "bg-blue-700", "bg-slate-400", "bg-emerald-600", "bg-amber-500"] as const;
+const PLAN_HOLDING_STATUSES = new Set(["PAPER_TRADING_PENDING", "PENDING", "PENDING_ORDER"]);
 
 export function buildHoldingItems({
   standing,
@@ -80,7 +81,7 @@ export function buildHoldingItems({
     });
   }
 
-  if (latestPlan.entries.length) {
+  if (shouldShowPlanEntryHoldings(latestPlan, standing)) {
     return latestPlan.entries.map((entry, index) => {
       const numbers = planEntryHoldingNumbers(entry, latestPlan, accountEquity);
       const weight = normalizePercentWeight(entry.weight) ?? 1;
@@ -115,6 +116,14 @@ export function buildHoldingItems({
       details: [{ label: t("common.equity"), value: standing ? formatCurrency(standing.equity, locale) : "-" }]
     }
   ];
+}
+
+function shouldShowPlanEntryHoldings(latestPlan: PlanView, standing?: TraderStanding) {
+  if (!latestPlan.entries.length) return false;
+  const summary = standing?.summary;
+  const summaryPlanStatus = normalizeHoldingStatus(summary?.latestPlanStatus);
+  if (summary) return PLAN_HOLDING_STATUSES.has(summaryPlanStatus);
+  return PLAN_HOLDING_STATUSES.has(normalizeHoldingStatus(latestPlan.status));
 }
 
 export function accountDeploymentPercent(items: readonly HoldingItem[]) {
@@ -215,4 +224,11 @@ function exposureTotal(values: ReadonlyArray<number | null | undefined>, fallbac
 function exposureWeight(value: number | null | undefined, total: number, fallbackCount: number) {
   if (total > 0 && value !== null && value !== undefined) return Math.max(1, Math.min(100, (Math.abs(value) / total) * 100));
   return 100 / Math.max(1, fallbackCount);
+}
+
+function normalizeHoldingStatus(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .replace(/[-\s]+/g, "_")
+    .toUpperCase();
 }

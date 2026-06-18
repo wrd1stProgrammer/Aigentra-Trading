@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useQuery } from "@tanstack/react-query";
 import { CircleNotch } from "@phosphor-icons/react";
 import { useAppContext } from "@/components/app-provider";
+import { ConsensusAveragePrices } from "@/components/consensus-average-prices";
 import { 
   getCachedLeaderboardBundle, 
   getRecentTradePlans, 
@@ -230,6 +231,7 @@ function formatProviderName(provider: string) {
 
 export function ConsensusPageClient() {
   const { locale, t } = useAppContext();
+  const [cacheReady, setCacheReady] = useState(false);
 
   const fallbackBundle = useMemo<LeaderboardBundle>(() => ({
     symbol: "BTCUSDT",
@@ -241,10 +243,17 @@ export function ConsensusPageClient() {
     scanner: null
   }), []);
 
+  useEffect(() => {
+    setCacheReady(true);
+  }, []);
+
   // Fetch leaderboard bundle
   const btcQuery = useQuery({
     ...leaderboardBundleQueryOptions("BTCUSDT"),
-    placeholderData: (previousData) => previousData?.symbol === "BTCUSDT" ? previousData : getCachedLeaderboardBundle("BTCUSDT") ?? fallbackBundle
+    placeholderData: (previousData) => {
+      if (previousData?.symbol === "BTCUSDT") return previousData;
+      return cacheReady ? getCachedLeaderboardBundle("BTCUSDT") ?? fallbackBundle : fallbackBundle;
+    }
   });
 
   // Fetch live BTC price
@@ -479,9 +488,9 @@ export function ConsensusPageClient() {
 
 
       {/* Top Ratio and Averages Panel */}
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid min-w-0 gap-6 md:grid-cols-2">
         {/* Left Side: Long/Short Ratio Panel */}
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c0d0d] p-6 flex flex-col justify-between shadow-xl">
+        <div className="min-w-0 rounded-2xl border border-white/[0.08] bg-[#0c0d0d] p-4 flex flex-col justify-between shadow-xl sm:p-6">
           <div>
             <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wider mb-1">
               {t("consensus.ratioOverview")}
@@ -527,7 +536,7 @@ export function ConsensusPageClient() {
         </div>
 
         {/* Right Side: Averages Table Panel */}
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0c0d0d] p-6 shadow-xl flex flex-col justify-between">
+        <div className="min-w-0 rounded-2xl border border-white/[0.08] bg-[#0c0d0d] p-4 shadow-xl flex flex-col justify-between sm:p-6">
           <div>
             <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wider mb-1">
               {t("consensus.avgPrices")}
@@ -536,44 +545,7 @@ export function ConsensusPageClient() {
               {t("consensus.activeTradersOnly")}
             </p>
 
-            <div className="mt-5 overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-white/[0.08] text-[10px] text-zinc-500 font-bold uppercase font-mono">
-                    <th className="py-2">{locale === "ko" ? "관점" : "Side"}</th>
-                    <th className="py-2 text-right">{t("consensus.avgEntryPrice")}</th>
-                    <th className="py-2 text-right">{t("consensus.avgTakeProfit")}</th>
-                    <th className="py-2 text-right">{t("consensus.avgStopLoss")}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/[0.04] text-xs font-mono">
-                  <tr className="text-emerald-400 font-semibold">
-                    <td className="py-3.5 font-sans">{t("consensus.longTraders")}</td>
-                    <td className="py-3.5 text-right">
-                      {averages.long.entry ? `$${formatNumber(averages.long.entry, 0, locale)}` : "-"}
-                    </td>
-                    <td className="py-3.5 text-right">
-                      {averages.long.tp ? `$${formatNumber(averages.long.tp, 0, locale)}` : "-"}
-                    </td>
-                    <td className="py-3.5 text-right">
-                      {averages.long.sl ? `$${formatNumber(averages.long.sl, 0, locale)}` : "-"}
-                    </td>
-                  </tr>
-                  <tr className="text-rose-400 font-semibold">
-                    <td className="py-3.5 font-sans">{t("consensus.shortTraders")}</td>
-                    <td className="py-3.5 text-right">
-                      {averages.short.entry ? `$${formatNumber(averages.short.entry, 0, locale)}` : "-"}
-                    </td>
-                    <td className="py-3.5 text-right">
-                      {averages.short.tp ? `$${formatNumber(averages.short.tp, 0, locale)}` : "-"}
-                    </td>
-                    <td className="py-3.5 text-right">
-                      {averages.short.sl ? `$${formatNumber(averages.short.sl, 0, locale)}` : "-"}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <ConsensusAveragePrices averages={averages} locale={locale} t={t} />
           </div>
         </div>
       </div>

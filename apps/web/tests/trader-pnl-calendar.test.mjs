@@ -39,6 +39,27 @@ test("monthly pnl calendar groups snapshots and trade events by day", () => {
   assert.equal(calendar.assetChange.deltaText, "+34.50");
 });
 
+test("monthly pnl calendar uses realized event pnl when snapshot and trade history share a UTC day", () => {
+  const pnlCalendar = loadTsModule("../components/trader-profile-detail/pnl-calendar.ts");
+
+  const calendar = pnlCalendar.buildMonthlyPnlCalendar({
+    now: new Date("2026-06-05T12:00:00Z"),
+    locale: "en",
+    startingEquity: 10000,
+    snapshots: [
+      { equity: 10000, createdAt: "2026-06-01T23:00:00Z" },
+      { equity: 10002, createdAt: "2026-06-02T23:00:00Z" }
+    ],
+    dailyPnl: [{ date: "2026-06-02", pnl: 10 }]
+  });
+
+  const day2 = calendar.days.find((day) => day.dateKey === "2026-06-02");
+
+  assert.equal(day2.pnlText, "+10.00");
+  assert.equal(day2.equity, 10010);
+  assert.equal(calendar.assetChange.current, 10010);
+});
+
 function loadTsModule(relativePath) {
   const tsSource = readFileSync(new URL(relativePath, import.meta.url), "utf8");
   const { outputText } = ts.transpileModule(tsSource, {

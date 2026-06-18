@@ -78,9 +78,10 @@ export function buildMonthlyPnlCalendar({
     const date = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth(), day));
     const dateKey = isoDateKey(date);
     const snapshotEquity = snapshotEquityByDay.get(dateKey);
+    const hasEventPnl = eventPnlByDay.has(dateKey);
     const eventPnl = eventPnlByDay.get(dateKey) ?? 0;
-    const pnl = snapshotEquity === undefined ? eventPnl : snapshotEquity - currentEquity;
-    currentEquity = snapshotEquity === undefined ? currentEquity + eventPnl : snapshotEquity;
+    const pnl = hasEventPnl ? eventPnl : snapshotEquity === undefined ? eventPnl : snapshotEquity - currentEquity;
+    currentEquity = hasEventPnl ? currentEquity + eventPnl : snapshotEquity === undefined ? currentEquity + eventPnl : snapshotEquity;
     days.push({
       dateKey,
       day,

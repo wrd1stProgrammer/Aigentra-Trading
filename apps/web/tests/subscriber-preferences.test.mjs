@@ -27,11 +27,13 @@ test("telegram alert settings normalize unsupported inputs and report delivery r
     enabled: true,
     chatId: " 123456789 ",
     eventTypes: ["entry", "take_profit", "ai_review_high", "invalid-kind"],
+    reviewSections: ["position", "action", "watch_conditions", "invalid-section"],
     minReturnPct: "2.75"
   });
 
   assert.equal(normalized.chatId, "123456789");
   assert.deepEqual(normalized.eventTypes, ["pending_entry", "position_entry", "take_profit", "ai_review_high"]);
+  assert.deepEqual(normalized.reviewSections, ["position", "action", "watch_conditions"]);
   assert.equal(normalized.minReturnPct, 2.75);
   assert.deepEqual(preferences.telegramDeliveryReadiness(normalized, { botTokenConfigured: false }), {
     status: "missing_server_token",
@@ -42,17 +44,52 @@ test("telegram alert settings normalize unsupported inputs and report delivery r
 test("account UI exposes favorites and Telegram alert customization", () => {
   assert.match(accountSource, /data-testid="subscriber-favorites"/, "account page should expose favorite traders");
   assert.match(accountSource, /data-testid="telegram-alert-settings"/, "account page should expose Telegram alert settings");
+  assert.match(accountSource, /TelegramReviewSectionSettings/, "account page should expose Telegram review section settings");
   assert.match(preferencesSource, /"pending_entry"/, "alert types should cover pending entries");
   assert.match(preferencesSource, /"ai_review_high"/, "alert types should expose AI review importance");
+  assert.match(preferencesSource, /"watch_conditions"/, "review section settings should expose full AI review content");
 });
 
-test("telegram alert settings default to core trade lifecycle alerts", () => {
+test("telegram alert settings default to all event types and full review content", () => {
   const initial = preferences.createSubscriberPreferences({
     userId: "user_google_1",
     email: "operator@example.com"
   });
 
-  assert.deepEqual(initial.telegramSettings.eventTypes, ["pending_entry", "position_entry", "take_profit", "stop_loss"]);
+  assert.deepEqual(initial.telegramSettings.eventTypes, [
+    "pending_entry",
+    "position_entry",
+    "take_profit",
+    "stop_loss",
+    "ai_review_low",
+    "ai_review_medium",
+    "ai_review_high",
+    "risk"
+  ]);
+  assert.deepEqual(initial.telegramSettings.reviewSections, [
+    "status",
+    "position",
+    "summary",
+    "action",
+    "key_reasons",
+    "risks",
+    "watch_conditions",
+    "manager_note",
+    "rationale"
+  ]);
+});
+
+test("account min-return inputs capture DOM values before scheduling preference updates", () => {
+  assert.match(
+    accountSource,
+    /const updateMinReturnPct = \(value: string\) =>/,
+    "account page should normalize the input value before invoking a state updater"
+  );
+  assert.doesNotMatch(
+    accountSource,
+    /setPreferences\(\(current\)[\s\S]{0,260}event\.currentTarget\.value/,
+    "React event targets should not be read inside functional state updaters"
+  );
 });
 
 test("subscriber preferences are account-backed instead of browser-only localStorage", () => {

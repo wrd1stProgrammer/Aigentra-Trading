@@ -155,6 +155,15 @@ def test_management_alert_includes_position_context_readably():
                     "decision": "HOLD",
                     "confidence": 84,
                     "riskLevel": "HIGH",
+                    "structuredReview": {
+                        "verdict": "유지",
+                        "headline": "스윕 재수집 논리는 아직 살아 있습니다.",
+                        "action": "손절은 본전으로 두고 15분 종가가 63666 아래로 내려가면 즉시 종료하세요.",
+                        "keyReasons": ["포지션은 소폭 이익 상태입니다.", "손절이 본전으로 올라와 있습니다."],
+                        "risks": ["1시간 약세 헤드윈드가 남아 있습니다."],
+                        "watchConditions": ["15분 종가 63666 이탈을 확인하세요."],
+                        "managerNote": "즉시 방어 조치보다는 무효화 조건 감시가 우선입니다.",
+                    },
                     "rationale": "현재 포지션은 소폭 이익 상태이며 손절이 본전으로 올라와 있습니다.",
                 },
             }
@@ -168,5 +177,76 @@ def test_management_alert_includes_position_context_readably():
     assert "\n\n상태\n  단계: OPEN_POSITION\n  판단: HOLD\n  조치: MOVE_STOP_TO_BREAKEVEN\n  신뢰도: 84" in text
     assert "\n\n포지션\n  방향: LONG · 5x\n  진입가: 63,800\n  현재가: 63,920.25" in text
     assert "  손절가: 63,666\n  익절가: 64,500\n  PnL: +42.30" in text
+    assert "\n\n요약\n  유지 · 스윕 재수집 논리는 아직 살아 있습니다." in text
+    assert "\n\n지금 할 일\n  손절은 본전으로 두고 15분 종가가 63666 아래로 내려가면 즉시 종료하세요." in text
+    assert "\n\n핵심 이유\n  포지션은 소폭 이익 상태입니다. · 손절이 본전으로 올라와 있습니다." in text
+    assert "\n\n주의할 점\n  1시간 약세 헤드윈드가 남아 있습니다." in text
+    assert "\n\n다음 확인 조건\n  15분 종가 63666 이탈을 확인하세요." in text
+    assert "\n\n관리 메모\n  즉시 방어 조치보다는 무효화 조건 감시가 우선입니다." in text
     assert "\n\n판단 근거\n  현재 포지션은 소폭 이익 상태이며 손절이 본전으로 올라와 있습니다." in text
     assert "Reason:" not in text
+
+
+def test_management_alert_respects_selected_review_sections():
+    preferences = SubscriberPreferencesView(
+        user_id="google-1",
+        email="operator@example.com",
+        subscription_status="active",
+        favorite_trader_ids=["range-maker"],
+        telegram_settings=TelegramSettingsView(
+            enabled=True,
+            chat_id="123456789",
+            event_types=["ai_review_medium"],
+            review_sections=["position", "action", "risks"],
+            min_return_pct=0,
+        ),
+        locale="ko",
+    )
+    review = PositionManagementReviewRecord(
+        trader_id="range-maker",
+        symbol="BTCUSDT",
+        status="ok",
+        event_type="range_position_heartbeat",
+        phase="OPEN_POSITION",
+        provider="openai",
+        model="gpt-4.1-mini",
+        decision="HOLD",
+        confidence=83,
+        action_type="HOLD",
+        payload_json=to_json(
+            {
+                "event": {"severity": "MEDIUM", "phase": "OPEN_POSITION", "metrics": {"price": 64574.2}},
+                "exposure": {
+                    "kind": "position",
+                    "side": "LONG",
+                    "entryPrice": 64092.24,
+                    "stopLoss": 63236.5,
+                    "takeProfit": 65464.3,
+                    "leverage": 5,
+                    "unrealizedPnl": 246.44,
+                },
+                "review": {
+                    "structuredReview": {
+                        "verdict": "유지",
+                        "headline": "범위 하단 반등 논리는 유지됩니다.",
+                        "action": "지금은 보유하세요.",
+                        "keyReasons": ["4시간 횡보 범위가 유지됩니다."],
+                        "risks": ["1시간 약세가 남아 있습니다."],
+                        "watchConditions": ["15분 종가 64650 위 수용 여부를 확인하세요."],
+                    },
+                    "rationale": "짧은 근거",
+                },
+            }
+        ),
+    )
+
+    text = compose_management_message(preferences, review, "ai_review_medium")
+
+    assert "\n\n포지션\n  방향: LONG · 5x" in text
+    assert "\n\n지금 할 일\n  지금은 보유하세요." in text
+    assert "\n\n주의할 점\n  1시간 약세가 남아 있습니다." in text
+    assert "\n\n상태\n" not in text
+    assert "\n\n요약\n" not in text
+    assert "\n\n핵심 이유\n" not in text
+    assert "\n\n다음 확인 조건\n" not in text
+    assert "\n\n판단 근거\n" not in text

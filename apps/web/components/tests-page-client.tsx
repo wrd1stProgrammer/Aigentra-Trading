@@ -182,9 +182,9 @@ export function TestsPageClient() {
           <h1 className="text-3xl font-semibold tracking-tight">{t("tests.title")}</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">{t("tests.subtitle")}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-none sm:flex sm:flex-wrap">
           {["BTCUSDT"].map((item) => (
-            <button key={item} className={`ghost-button ${symbol === item ? "bg-zinc-950 text-white dark:bg-zinc-100 dark:text-zinc-950" : ""}`} onClick={() => setSymbol(item)}>
+            <button key={item} className={`ghost-button w-full sm:w-auto ${symbol === item ? "bg-zinc-950 text-white dark:bg-zinc-100 dark:text-zinc-950" : ""}`} onClick={() => setSymbol(item)}>
               {item}
             </button>
           ))}

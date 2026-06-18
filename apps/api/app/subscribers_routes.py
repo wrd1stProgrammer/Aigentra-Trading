@@ -24,6 +24,7 @@ class TelegramSettingsPayload(BaseModel):
     enabled: bool = False
     chatId: str = ""
     eventTypes: list[str] | None = None
+    reviewSections: list[str] | None = None
     minReturnPct: float = 0.0
 
 
@@ -164,6 +165,7 @@ def update_subscriber_preferences(
                 enabled=payload.telegramSettings.enabled,
                 chat_id=payload.telegramSettings.chatId,
                 event_types=payload.telegramSettings.eventTypes,
+                review_sections=payload.telegramSettings.reviewSections,
                 min_return_pct=payload.telegramSettings.minReturnPct,
             ),
             locale=payload.locale,

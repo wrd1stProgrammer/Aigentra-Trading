@@ -35,20 +35,21 @@ import { useAppContext } from "@/components/app-provider";
 import { buildStandings, traderVisuals, type LeagueSymbol, type TraderStanding } from "@/lib/league";
 import { EquityAreaChart } from "@/components/leaderboard-sidebar-equity-chart";
 import { fallbackTraders, traderShortKey } from "@/lib/traders";
-import { formatClockTime, formatCurrency, formatDateTime, formatNumber } from "@/lib/format";
+import { formatClockTime, formatCurrency, formatDateTime, formatNumber, formatRelativeDateTime } from "@/lib/format";
 import { statusLabel, statusTone } from "@/lib/status";
 import { activePositionLeverage, appendLeverageSample, formatLeverageBadge, orderLeverage, planLeverage, positionLeverage } from "@/components/leaderboard-leverage";
+import {
+  isDisplayableOverviewReview,
+  overviewReviewDecision,
+  type OverviewReviewRecord,
+  type OverviewReviewSource
+} from "@/components/leaderboard-overview-filter";
 
 const SYMBOLS: LeagueSymbol[] = ["BTCUSDT"];
 const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_100px_90px_60px_80px_65px_24px] gap-3";
 const OVERVIEW_INITIAL_LIMIT = 20;
 const OVERVIEW_PAGE_LIMIT = 10;
 const OVERVIEW_CACHE_TTL_MS = 60_000;
-
-type OverviewReviewSource = "entry_review" | "management_review";
-type OverviewReviewRecord = Record<string, unknown> & {
-  overviewSource?: OverviewReviewSource;
-};
 
 type OverviewActivityCache = {
   reviews: OverviewReviewRecord[];
@@ -130,6 +131,7 @@ export function LeaderboardPageClient() {
   const [activeTraderId, setActiveTraderId] = useState<string | null>(null);
   const [isPeriodOpen, setIsPeriodOpen] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<"ALL" | "7D" | "30D" | "90D">("ALL");
+  const [cacheReady, setCacheReady] = useState(false);
 
   const fallbackBundle = useMemo<LeaderboardBundle>(() => ({
     symbol: "BTCUSDT",
@@ -141,9 +143,16 @@ export function LeaderboardPageClient() {
     scanner: null
   }), []);
 
+  useEffect(() => {
+    setCacheReady(true);
+  }, []);
+
   const btcQuery = useQuery({
     ...leaderboardBundleQueryOptions("BTCUSDT"),
-    placeholderData: (previousData) => previousData?.symbol === "BTCUSDT" ? previousData : getCachedLeaderboardBundle("BTCUSDT") ?? fallbackBundle
+    placeholderData: (previousData) => {
+      if (previousData?.symbol === "BTCUSDT") return previousData;
+      return cacheReady ? getCachedLeaderboardBundle("BTCUSDT") ?? fallbackBundle : fallbackBundle;
+    }
   });
 
   const isFetching = btcQuery.isFetching;
@@ -1018,14 +1027,6 @@ function getReviewImportance(decision: string, text: string): 'critical' | 'impo
   return 'routine';
 }
 
-function isDisplayableOverviewReview(review: OverviewReviewRecord) {
-  const traderId = String(review.traderId ?? review.trader_id ?? "");
-  const createdAt = String(review.createdAt ?? review.created_at ?? "");
-  if (!traderId || !createdAt) return false;
-  const source = String(review.source ?? review.type ?? review.eventType ?? review.event_type ?? "").toUpperCase();
-  return !source.includes("SCAN") && !source.includes("PLAN");
-}
-
 function extractOverviewReviews(value: unknown, overviewSource: OverviewReviewSource): OverviewReviewRecord[] {
   if (Array.isArray(value)) return tagOverviewReviews(value.filter(isOverviewReviewRecord), overviewSource);
   const record = recordValue(value);
@@ -1232,8 +1233,8 @@ function OptionActivityStream({
     aiReviewLogsOnly.forEach((review) => {
       const traderId = String(review.traderId ?? review.trader_id ?? "");
       const createdAt = String(review.createdAt ?? review.created_at ?? "");
-      const decision = String(review.decision ?? review.action ?? "HOLD").toUpperCase();
-      const timeStr = createdAt ? new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : "16:21:40";
+      const decision = overviewReviewDecision(review) || "HOLD";
+      const timeStr = formatRelativeDateTime(createdAt, locale, t);
       const rawTimeVal = createdAt ? Date.parse(createdAt) : Date.now() - 1000 * 120;
       
       let rText = "";
@@ -1283,8 +1284,8 @@ function OptionActivityStream({
   }, [reviewsList, traderNameMap, locale, t]);
 
   return (
-    <div className="p-6 rounded-b-[22px] overflow-hidden text-left">
-      <div className="rounded-xl border border-white/5 bg-black/60 p-4 font-mono text-xs text-zinc-300 shadow-inner flex flex-col justify-between">
+    <div className="overflow-hidden rounded-b-[22px] p-4 text-left sm:p-6">
+      <div className="flex flex-col justify-between rounded-xl border border-white/5 bg-black/60 p-3 font-mono text-xs text-zinc-300 shadow-inner sm:p-4">
         <div 
           ref={containerRef}
           className="max-h-[220px] overflow-y-auto space-y-2 pr-2 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent scroll-smooth"
@@ -1305,15 +1306,21 @@ function OptionActivityStream({
               <Link
                 key={log.id}
                 href={`/leaderboard/${log.traderId}`}
-                className="flex items-start gap-3 border-b border-white/[0.02] pb-2 last:border-0 last:pb-0 hover:bg-white/[0.03] transition-colors rounded px-2 py-1 -mx-2 group cursor-pointer"
+                className="-mx-2 flex flex-col gap-1 rounded border-b border-white/[0.02] px-2 py-2 pb-2 transition-colors last:border-0 last:pb-0 hover:bg-white/[0.03] sm:flex-row sm:items-start sm:gap-3 sm:py-1"
               >
-                <span className="text-zinc-500 shrink-0 select-none font-mono group-hover:text-zinc-400 transition-colors">[{log.time}]</span>
-                <span className="flex items-center gap-1.5 font-bold shrink-0 font-sans">
-                  <span className={`inline-block size-1.5 rounded-full ${dotColor} animate-pulse`} />
-                  <span className="text-zinc-400 group-hover:text-emerald-400 transition-colors">{log.trader}</span>
+                <span className="flex items-center gap-2 sm:block">
+                  <span className="shrink-0 select-none font-mono text-zinc-500 transition-colors group-hover:text-zinc-400">[{log.time}]</span>
+                  <span className="flex min-w-0 items-center gap-1.5 font-sans font-bold sm:hidden">
+                    <span className={`inline-block size-1.5 rounded-full ${dotColor} animate-pulse`} />
+                    <span className="truncate text-zinc-400 transition-colors group-hover:text-emerald-400">{log.trader}</span>
+                  </span>
                 </span>
-                <span className="text-zinc-300 group-hover:text-white transition-colors truncate break-keep font-sans flex-1">{log.text}</span>
-                <span className="text-zinc-500 text-[10px] shrink-0 font-mono self-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <span className="hidden items-center gap-1.5 font-sans font-bold sm:flex sm:shrink-0">
+                  <span className={`inline-block size-1.5 rounded-full ${dotColor} animate-pulse`} />
+                  <span className="text-zinc-400 transition-colors group-hover:text-emerald-400">{log.trader}</span>
+                </span>
+                <span className="line-clamp-2 flex-1 break-keep font-sans text-zinc-300 transition-colors group-hover:text-white sm:truncate">{log.text}</span>
+                <span className="hidden shrink-0 self-center font-mono text-[10px] text-zinc-500 opacity-0 transition-opacity group-hover:opacity-100 sm:inline">
                   {locale === "ko" ? "상세보기 →" : "View →"}
                 </span>
               </Link>

@@ -85,6 +85,16 @@ function ScrollReveal({
   );
 }
 
+function formatAboutText(text: string) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={i} className="font-bold text-white">{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+}
+
 export function HomePageClient() {
   const { locale, setLocale, t } = useAppContext();
   const copy = landingCopy(locale);
@@ -117,21 +127,19 @@ export function HomePageClient() {
               <span className="grid size-9 place-items-center rounded-lg border border-emerald-400/35 bg-emerald-400/10 font-mono text-xs text-emerald-300">AT</span>
               <span className="text-lg font-bold tracking-tight">Aigentra Trading</span>
             </Link>
-            <div className="flex items-center gap-3">
-              <div className="hidden items-center gap-6 font-mono text-sm text-zinc-300 lg:flex">
-                <Link href="/leaderboard" className="hover:text-white transition">Leaderboard</Link>
-                <Link href="/account" className="hover:text-white transition">Alerts</Link>
-                <Link href="/login" className="text-white hover:text-emerald-300 transition">Get started now →</Link>
-              </div>
+            <div className="flex items-center gap-4">
               <button
                 type="button"
                 onClick={() => setLocale(locale === "ko" ? "en" : "ko")}
-                className="focus-ring inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-4 py-2 font-mono text-xs text-zinc-200 hover:bg-white/[0.08] transition"
+                className="focus-ring inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-4 py-2 font-mono text-xs text-zinc-200 hover:bg-white/[0.08] transition select-none"
                 aria-label={t("common.language")}
               >
                 <Translate size={14} />
                 {locale.toUpperCase()}
               </button>
+              <Link href="/login" className="text-white hover:text-emerald-300 font-mono text-sm font-semibold transition shrink-0">
+                {locale === "ko" ? "시작하기 →" : "Get started now →"}
+              </Link>
             </div>
           </div>
 
@@ -157,8 +165,10 @@ export function HomePageClient() {
             </div>
           </div>
 
-          <div data-testid="landing-video-placeholder" className="relative mx-auto max-w-[1100px] animate-fade-in-up animation-delay-500">
+          <div data-testid="landing-product-proof" className="relative mx-auto max-w-[1100px] animate-fade-in-up animation-delay-500">
+            <div data-testid="landing-video-placeholder">
             <VideoFrame title={copy.videoTitle} subtitle={copy.videoSubtitle} />
+            </div>
           </div>
         </div>
       </section>
@@ -458,75 +468,66 @@ export function HomePageClient() {
       </section>
 
       <section data-testid="landing-about" className="relative bg-white py-24 border-t border-zinc-200">
-        <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16">
-          {/* Vertical grid lines */}
-          <div className="absolute inset-y-0 left-0 hidden w-px bg-zinc-200 lg:block" />
-          <div className="absolute inset-y-0 right-0 hidden w-px bg-zinc-200 lg:block" />
-          <CandleNotch position="top-left" theme="light" />
-          <CandleNotch position="top-right" theme="light" />
-          <CandleNotch position="bottom-left" theme="light" />
-          <CandleNotch position="bottom-right" theme="light" />
-
+        <div className="relative mx-auto max-w-[1440px] px-6 sm:px-10 lg:px-0">
           {/* The main dark card block */}
           <div
-            className="relative rounded-[32px] border border-white/[0.08] bg-[#070908] py-20 px-6 sm:px-12 lg:px-20 text-center overflow-hidden shadow-[0_22px_60px_rgba(0,0,0,0.5)]"
+            className="relative rounded-[32px] border border-white/[0.08] bg-[#070908] py-16 px-6 sm:px-12 lg:px-20 text-center overflow-hidden shadow-[0_22px_60px_rgba(0,0,0,0.5)]"
             style={{
               backgroundImage:
-                "linear-gradient(rgba(16,185,129,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(16,185,129,0.06) 1px, transparent 1px)",
+                "linear-gradient(rgba(16,185,129,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(16,185,129,0.08) 1px, transparent 1px)",
               backgroundSize: "64px 64px"
             }}
           >
             {/* Absolute wicks (vertical green lines with notches) inside card */}
-            <div className="absolute inset-y-0 left-[12%] hidden w-px bg-white/10 lg:block">
+            <div className="absolute inset-y-0 left-[10%] hidden w-px bg-white/10 lg:block">
               <CandleNotch position="top-left" theme="dark" pulse flush />
               <CandleNotch position="bottom-left" theme="dark" pulse flush />
             </div>
-            <div className="absolute inset-y-0 right-[12%] hidden w-px bg-white/10 lg:block">
+            <div className="absolute inset-y-0 right-[10%] hidden w-px bg-white/10 lg:block">
               <CandleNotch position="top-right" theme="dark" pulse flush />
               <CandleNotch position="bottom-right" theme="dark" pulse flush />
             </div>
 
-            <div className="relative mx-auto max-w-3xl z-10">
-              <span className="inline-block border border-sky-400/20 bg-sky-500/5 text-sky-300 font-mono text-[10px] uppercase tracking-[0.12em] px-3.5 py-1 rounded">
-                JOIN YOUR AI TRADING SOFTWARE
+            <div className="relative mx-auto max-w-4xl z-10 flex flex-col items-center">
+              <span className="inline-block text-emerald-400 font-mono text-[11px] sm:text-xs uppercase tracking-[0.15em] mb-4 select-none">
+                [ JOIN YOUR AI TRADING SOFTWARE ]
               </span>
-              <h2 className="mt-6 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl break-keep">
+              <h2 className="mt-6 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl lg:text-[2.6rem] lg:leading-[1.15] break-keep">
                 {copy.aboutTitle}
               </h2>
               
-              <div className="relative mt-8 text-center">
+              <div className="relative mt-8 text-center w-full">
                 {/* Text transition container */}
                 <div
-                  className={`transition-all duration-500 ease-in-out overflow-hidden text-left ${
-                    isAboutExpanded ? "max-h-[1200px]" : "max-h-[155px]"
+                  className={`relative transition-all duration-500 ease-in-out overflow-hidden text-left ${
+                    isAboutExpanded ? "max-h-[1200px]" : "max-h-[110px]"
                   }`}
                 >
                   <div className="space-y-6 text-sm sm:text-base leading-7 text-zinc-400 break-keep text-center">
                     {copy.aboutBody.map((paragraph, index) => (
-                      <p key={index}>{paragraph}</p>
+                      <p key={index}>{formatAboutText(paragraph)}</p>
                     ))}
                   </div>
                   
                   {/* Fading overlay */}
                   {!isAboutExpanded && (
-                    <div className="absolute bottom-0 inset-x-0 h-24 bg-gradient-to-t from-[#070908] to-transparent pointer-events-none" />
+                    <div className="absolute bottom-0 inset-x-0 h-16 bg-gradient-to-t from-[#070908] to-transparent pointer-events-none" />
                   )}
                 </div>
 
                 <button
                   onClick={() => setIsAboutExpanded(!isAboutExpanded)}
-                  className="mt-6 text-xs font-mono uppercase tracking-wider text-zinc-500 hover:text-white transition duration-200 flex items-center gap-1.5 mx-auto"
+                  className="mt-6 text-xs font-mono uppercase tracking-wider text-zinc-500 hover:text-white transition duration-200 flex items-center gap-1.5 mx-auto select-none"
                 >
-                  {isAboutExpanded ? "View less ▲" : "View more ▼"}
+                  {isAboutExpanded ? "View less ∧" : "View more ∨"}
                 </button>
               </div>
 
               <Link
                 href="/leaderboard"
-                className="focus-ring mt-10 inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 hover:bg-emerald-400 px-8 py-4 text-sm font-bold text-white shadow-neon-emerald transition duration-300"
+                className="focus-ring mt-8 inline-flex items-center justify-center rounded-xl bg-[#10b981] hover:bg-[#059669] px-8 py-3.5 text-base font-bold text-white shadow-[0_0_24px_rgba(16,185,129,0.35)] hover:shadow-[0_0_30px_rgba(16,185,129,0.55)] transition-all duration-300 select-none"
               >
                 Get started now
-                <ArrowRight size={16} weight="bold" />
               </Link>
             </div>
           </div>
@@ -535,19 +536,9 @@ export function HomePageClient() {
 
       <footer data-testid="landing-footer" className="relative overflow-hidden bg-white py-16 text-zinc-950 border-t border-zinc-200">
         <div className="relative mx-auto max-w-[1240px] px-6 sm:px-10 lg:px-16">
-          {/* Vertical grid lines */}
-          <div className="absolute inset-y-0 left-0 hidden w-px bg-zinc-200 lg:block" />
-          <div className="absolute inset-y-0 right-0 hidden w-px bg-zinc-200 lg:block" />
-          {/* Corner Markers / Notches */}
-          <CandleNotch position="top-left" theme="light" />
-          <CandleNotch position="top-right" theme="light" />
-          <CandleNotch position="bottom-left" theme="light" />
-          <CandleNotch position="bottom-right" theme="light" />
-
           <LandingFooter copy={copy} />
         </div>
       </footer>
     </div>
   );
 }
-

@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useAppContext } from "@/components/app-provider";
 import { SUBSCRIBER_ACCOUNT_COPY } from "@/components/subscriber-account-copy";
 import { TelegramConnectPanel } from "@/components/telegram-connect-panel";
+import { TelegramReviewSectionSettings } from "@/components/telegram-review-section-settings";
 import { TelegramTestButton } from "@/components/telegram-test-button";
 import { useSubscriberPreferenceSync } from "@/components/use-subscriber-preference-sync";
 import {
@@ -14,7 +15,8 @@ import {
   toggleFavoriteTrader,
   updateTelegramSettings,
   type SubscriberPreferences,
-  type TelegramEventType
+  type TelegramEventType,
+  type TelegramReviewSection
 } from "@/lib/subscriber-preferences";
 import { translate, type Locale } from "@/lib/i18n";
 import { fallbackTraders, traderNameKey, traderShortKey } from "@/lib/traders";
@@ -53,6 +55,26 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
     });
   };
 
+  const updateReviewSection = (section: TelegramReviewSection) => {
+    setPreferences((current) => {
+      const reviewSections = current.telegramSettings.reviewSections.includes(section)
+        ? current.telegramSettings.reviewSections.filter((currentSection) => currentSection !== section)
+        : [...current.telegramSettings.reviewSections, section];
+
+      return updateTelegramSettings(current, { ...current.telegramSettings, reviewSections });
+    });
+  };
+
+  const updateMinReturnPct = (value: string) => {
+    const minReturnPct = Number(value);
+    setPreferences((current) =>
+      updateTelegramSettings(current, {
+        ...current.telegramSettings,
+        minReturnPct
+      })
+    );
+  };
+
   const refreshPreferences = async () => {
     const response = await fetch("/api/subscriber/preferences", { cache: "no-store" });
     if (!response.ok) return;
@@ -61,9 +83,9 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8 pb-12 animate-fade-in-up">
+    <div className="mx-auto max-w-6xl space-y-6 pb-12 animate-fade-in-up sm:space-y-8">
       {/* Top Header Card */}
-      <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b border-zinc-200/80 dark:border-white/[0.08] pb-6">
+      <header className="flex min-w-0 flex-col gap-4 border-b border-zinc-200/80 pb-5 dark:border-white/[0.08] md:flex-row md:items-center md:justify-between md:pb-6">
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white sm:text-3xl break-keep">
@@ -80,17 +102,17 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
         </div>
 
         {/* Sync/Status Badge panel */}
-        <div className="flex items-center gap-4 rounded-xl border border-zinc-200/80 dark:border-white/[0.08] bg-zinc-50/50 dark:bg-[#0c0f0d] p-3 text-xs">
+        <div className="flex w-full min-w-0 items-center gap-3 rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-3 text-xs dark:border-white/[0.08] dark:bg-[#0c0f0d] sm:w-auto sm:gap-4">
           <div className="min-w-0">
             <span className="block text-[9px] font-mono uppercase tracking-wider text-zinc-400">
               Cabinet ID
             </span>
-            <span className="block truncate font-mono font-semibold text-zinc-800 dark:text-zinc-200 mt-0.5 max-w-[150px]">
+            <span className="mt-0.5 block max-w-[48vw] truncate font-mono font-semibold text-zinc-800 dark:text-zinc-200 sm:max-w-[150px]">
               {preferences.email}
             </span>
           </div>
           <div className="h-6 w-px bg-zinc-200 dark:bg-white/10" />
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             {saveState === "saving" ? (
               <>
                 <span className="relative flex h-2 w-2">
@@ -107,7 +129,7 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
             ) : (
               <>
                 <CheckCircle size={14} className="text-emerald-500" />
-                <span className="font-mono font-medium text-zinc-500 dark:text-zinc-400">
+                <span className="truncate font-mono font-medium text-zinc-500 dark:text-zinc-400">
                   {savedAt
                     ? `${copy.saved} (${savedAt.toLocaleTimeString(
                         resolvedLocale === "ko" ? "ko-KR" : "en-US",
@@ -122,10 +144,10 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
       </header>
 
       {/* Main Grid Layout */}
-      <div className="grid gap-8 lg:grid-cols-12">
+      <div className="grid gap-5 lg:grid-cols-12 lg:gap-8">
         {/* Left Column: Monitored AI Traders */}
         <div className="lg:col-span-7 space-y-6">
-          <div data-testid="subscriber-favorites" className="panel p-6 border-zinc-200/80 dark:border-white/[0.08] dark:bg-[#0c0f0d]">
+          <div data-testid="subscriber-favorites" className="panel border-zinc-200/80 p-4 dark:border-white/[0.08] dark:bg-[#0c0f0d] sm:p-6">
             <div className="mb-6">
               <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-white">
                 {copy.favorites}
@@ -216,7 +238,7 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
 
         {/* Right Column: Telegram Webhook Configuration */}
         <div className="lg:col-span-5 space-y-6">
-          <div data-testid="telegram-alert-settings" className="panel p-6 border-zinc-200/80 dark:border-white/[0.08] dark:bg-[#0c0f0d] space-y-6">
+          <div data-testid="telegram-alert-settings" className="panel space-y-5 border-zinc-200/80 p-4 dark:border-white/[0.08] dark:bg-[#0c0f0d] sm:space-y-6 sm:p-6">
             <div>
               <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-white">
                 {copy.alerts}
@@ -301,14 +323,7 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
                     step="0.1"
                     disabled={!preferences.telegramSettings.enabled}
                     value={preferences.telegramSettings.minReturnPct}
-                    onChange={(event) =>
-                      setPreferences((current) =>
-                        updateTelegramSettings(current, {
-                          ...current.telegramSettings,
-                          minReturnPct: Number(event.currentTarget.value),
-                        })
-                      )
-                    }
+                    onChange={(event) => updateMinReturnPct(event.currentTarget.value)}
                     className="w-full accent-emerald-500 h-1 bg-zinc-200 dark:bg-white/10 rounded-lg cursor-pointer appearance-none"
                   />
                   <input
@@ -318,14 +333,7 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
                     step="0.1"
                     disabled={!preferences.telegramSettings.enabled}
                     value={preferences.telegramSettings.minReturnPct}
-                    onChange={(event) =>
-                      setPreferences((current) =>
-                        updateTelegramSettings(current, {
-                          ...current.telegramSettings,
-                          minReturnPct: Number(event.currentTarget.value),
-                        })
-                      )
-                    }
+                    onChange={(event) => updateMinReturnPct(event.currentTarget.value)}
                     className="focus-ring w-20 rounded-lg border border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[#070908] px-2 py-1 text-xs font-mono text-center text-zinc-900 dark:text-white"
                   />
                 </div>
@@ -374,6 +382,15 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
                   })}
                 </div>
               </div>
+
+              <TelegramReviewSectionSettings
+                enabled={preferences.telegramSettings.enabled}
+                selectedSections={preferences.telegramSettings.reviewSections}
+                title={copy.reviewSectionGroupLabel}
+                labels={copy.reviewSectionLabels}
+                descriptions={copy.reviewSectionDescriptions}
+                onToggle={updateReviewSection}
+              />
 
               {/* Test Button Integration */}
               <div className="pt-2">

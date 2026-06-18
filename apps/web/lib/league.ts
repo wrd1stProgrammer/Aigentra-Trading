@@ -246,6 +246,9 @@ export type TraderScenario = {
   source: "position" | "order" | "review" | "event" | "strategy";
 };
 
+const HIDDEN_MANAGEMENT_SCENARIO_DECISIONS = new Set(["REJECT", "REJECTED", "DEFER", "NEEDS_MORE_DATA"]);
+const PROVIDER_FAILURE_FLAGS = new Set(["PROVIDER_FAILED", "PROVIDER_FAILURE", "PROVIDER_ERROR"]);
+
 export function buildScenarios(args: {
   trader: TraderProfile;
   positions: PaperPosition[];
@@ -276,7 +279,7 @@ export function buildScenarios(args: {
       reviewBrief,
       rationale: scenarioRationaleFromPayload(payload, position.closeReason),
       summary: scenarioSummaryFromPayload(payload),
-      createdAt: position.updatedAt ?? position.openedAt ?? position.createdAt ?? null,
+      createdAt: position.openedAt ?? position.createdAt ?? position.updatedAt ?? null,
       source: "position"
     });
   }
@@ -306,6 +309,7 @@ export function buildScenarios(args: {
   }
 
   for (const review of args.reviews) {
+    if (!isDisplayableManagementScenarioReview(review)) continue;
     const payload = (review.payload ?? {}) as Record<string, any>;
     const event = review.event ?? payload.event ?? {};
     const exposurePayload = (review.exposure ?? payload.exposure ?? {}) as Record<string, any>;
@@ -364,6 +368,45 @@ export function buildScenarios(args: {
   return scenarios.sort((a, b) => scenarioTime(b.createdAt) - scenarioTime(a.createdAt));
 }
 
+function isDisplayableManagementScenarioReview(review: ManagementReview): boolean {
+  const status = normalizeReviewToken(review.status);
+  if (status && status !== "OK") return false;
+  if (firstString(review.errorMessage, review.error_message)) return false;
+
+  const nested = recordValue(review.review);
+  const payload = recordValue(review.payload);
+  const payloadReview = recordValue(payload?.review);
+  if (Boolean(review.fallback ?? nested?.fallback ?? payload?.fallback ?? payloadReview?.fallback)) return false;
+
+  const decision = firstReviewToken(review.decision, nested?.decision, payloadReview?.decision, review.action, review.actionType);
+  if (HIDDEN_MANAGEMENT_SCENARIO_DECISIONS.has(decision)) return false;
+
+  const riskFlags = [
+    ...stringList(review.riskFlags),
+    ...stringList(nested?.riskFlags),
+    ...stringList(payloadReview?.riskFlags)
+  ];
+  if (riskFlags.some((flag) => PROVIDER_FAILURE_FLAGS.has(normalizeReviewToken(flag)))) return false;
+
+  const rationale = firstString(review.rationale, nested?.rationale, payloadReview?.rationale, review.reason);
+  if (rationale?.trim().toLowerCase() === "position management provider failed.") return false;
+
+  return true;
+}
+
+function firstReviewToken(...values: Array<unknown>): string {
+  for (const value of values) {
+    const token = normalizeReviewToken(value);
+    if (token) return token;
+  }
+  return "";
+}
+
+function normalizeReviewToken(value: unknown): string {
+  if (typeof value !== "string" && typeof value !== "number") return "";
+  return String(value).trim().replace(/[\s-]+/g, "_").toUpperCase();
+}
+
 export function numberValue(...values: Array<unknown>): number {
   for (const value of values) {
     if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -415,6 +458,11 @@ function firstString(...values: Array<unknown>): string | null {
     if (typeof value === "string" && value.trim()) return value;
   }
   return null;
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }
 
 function recordValue(value: unknown): Record<string, any> | null {

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 import os
 from typing import Any, Iterable, Optional
@@ -14,7 +14,7 @@ from app.db import (
     utc_now,
 )
 from app.repositories import from_json, to_json
-from app.subscriber_alert_types import DEFAULT_TELEGRAM_EVENT_TYPES, normalize_event_types
+from app.subscriber_alert_types import DEFAULT_TELEGRAM_EVENT_TYPES, DEFAULT_TELEGRAM_REVIEW_SECTIONS, normalize_event_types, normalize_review_sections
 from app.telegram_client import send_telegram_message
 from app.telegram_messages import compose_event_message, compose_management_message
 
@@ -24,6 +24,7 @@ class TelegramSettingsInput:
     enabled: bool = False
     chat_id: str = ""
     event_types: Iterable[str] | None = None
+    review_sections: Iterable[str] | None = None
     min_return_pct: float = 0.0
 
 
@@ -32,7 +33,8 @@ class TelegramSettingsView:
     enabled: bool
     chat_id: str
     event_types: list[str]
-    min_return_pct: float
+    review_sections: list[str] = field(default_factory=lambda: list(DEFAULT_TELEGRAM_REVIEW_SECTIONS))
+    min_return_pct: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,7 @@ def get_or_create_subscriber_preferences(db: Session, user_id: str, email: str) 
             subscription_status="active",
             favorite_trader_ids_json="[]",
             telegram_event_types_json=to_json(DEFAULT_TELEGRAM_EVENT_TYPES),
+            telegram_review_sections_json=to_json(DEFAULT_TELEGRAM_REVIEW_SECTIONS),
         )
         db.add(record)
         db.flush()
@@ -84,6 +87,7 @@ def upsert_subscriber_preferences(
     record.telegram_enabled = bool(telegram_settings.enabled)
     record.telegram_chat_id = normalize_optional_text(telegram_settings.chat_id)
     record.telegram_event_types_json = to_json(normalize_event_types(telegram_settings.event_types))
+    record.telegram_review_sections_json = to_json(normalize_review_sections(telegram_settings.review_sections))
     record.telegram_min_return_pct = normalize_float(telegram_settings.min_return_pct)
     record.locale = normalize_locale(locale)
     record.updated_at = utc_now()
@@ -180,6 +184,7 @@ def preferences_payload(preferences: SubscriberPreferencesView) -> dict[str, Any
             "enabled": preferences.telegram_settings.enabled,
             "chatId": preferences.telegram_settings.chat_id,
             "eventTypes": preferences.telegram_settings.event_types,
+            "reviewSections": preferences.telegram_settings.review_sections,
             "minReturnPct": preferences.telegram_settings.min_return_pct,
         },
         "locale": preferences.locale,
@@ -250,6 +255,7 @@ def to_preferences_view(record: SubscriberPreferenceRecord) -> SubscriberPrefere
             enabled=record.telegram_enabled,
             chat_id=record.telegram_chat_id or "",
             event_types=normalize_event_types(read_string_list(record.telegram_event_types_json)),
+            review_sections=normalize_review_sections(read_string_list(record.telegram_review_sections_json)),
             min_return_pct=record.telegram_min_return_pct,
         ),
         locale=record.locale,

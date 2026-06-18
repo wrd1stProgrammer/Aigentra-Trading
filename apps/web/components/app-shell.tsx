@@ -18,7 +18,7 @@ const links = [
   { href: "/login", key: "nav.login", icon: SignIn }
 ];
 
-const APP_SHELL_CONTAINER_CLASS = "mx-auto w-full max-w-[1760px] px-6 sm:px-8 lg:px-12 2xl:px-16";
+const APP_SHELL_CONTAINER_CLASS = "mx-auto w-full max-w-[1760px] px-4 sm:px-6 lg:px-10 2xl:px-14";
 
 function CandleNotch({
   position,
@@ -68,11 +68,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const isLandingPage = pathname === "/";
   const isLoginPage = pathname === "/login";
+  const isTermsPage = pathname === "/terms";
+  const isDisclaimerPage = pathname === "/disclaimer";
+  const isLegalNoticesPage = pathname === "/legal-notices";
+  const isPrivacyPolicyPage = pathname === "/privacy-policy";
+  const isRiskDisclosurePage = pathname === "/risk-disclosure";
 
   return (
     <div className="min-h-[100dvh] transition-colors">
       {!isLandingPage && (
-        !isLoginPage ? (
+        (!isLoginPage && !isTermsPage && !isDisclaimerPage && !isLegalNoticesPage && !isPrivacyPolicyPage && !isRiskDisclosurePage) ? (
           <header
             className="sticky top-0 z-20 border-b border-white/10 bg-[#070908]/90 backdrop-blur-xl text-white relative overflow-hidden"
             style={{
@@ -81,7 +86,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               backgroundSize: "64px 64px, 64px 64px, auto"
             }}
           >
-            <div className={`${APP_SHELL_CONTAINER_CLASS} relative flex items-center justify-between gap-3 py-3`}>
+            <div className={`${APP_SHELL_CONTAINER_CLASS} relative flex min-w-0 items-center justify-between gap-2 py-3 sm:gap-3`}>
               {/* Vertical grid lines aligning with the page grids */}
               <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
               <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
@@ -101,7 +106,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <span className="text-zinc-500 block text-[10px] font-mono uppercase tracking-wider">{t("common.paperOnly")}</span>
                 </span>
               </Link>
-              <nav className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] p-1 backdrop-blur-md z-10">
+              <nav className="z-10 flex min-w-0 max-w-[calc(100vw-9rem)] items-center gap-1 overflow-x-auto rounded-full border border-white/10 bg-white/[0.04] p-1 backdrop-blur-md scrollbar-none sm:max-w-none">
                 {links
                   .filter((link) => !(link.href === "/login" && session?.user))
                   .map((link) => {
@@ -111,14 +116,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <Link
                         key={link.href}
                         href={link.href}
-                        className={`focus-ring inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-bold transition ${
+                        aria-label={navLabel(locale, link.key, t)}
+                        className={`focus-ring inline-flex min-h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-bold transition md:px-4 ${
                           active
                             ? "bg-white text-zinc-950 shadow-sm"
                             : "text-zinc-400 hover:text-white"
                         }`}
                       >
                         <Icon size={14} weight={active ? "bold" : "regular"} />
-                        <span>{navLabel(locale, link.key, t)}</span>
+                        <span className="hidden md:inline">{navLabel(locale, link.key, t)}</span>
                       </Link>
                     );
                   })}
@@ -127,7 +133,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <button
                   type="button"
                   onClick={() => setLocale(locale === "ko" ? "en" : "ko")}
-                  className="focus-ring inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-4 py-1.5 font-mono text-xs text-zinc-200 hover:bg-white/[0.08] transition"
+                  className="focus-ring inline-flex min-h-9 items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-3 py-1.5 font-mono text-xs text-zinc-200 transition hover:bg-white/[0.08] sm:px-4"
                   aria-label={t("common.language")}
                 >
                   <Translate size={14} />

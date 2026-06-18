@@ -16,6 +16,12 @@ API_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATABASE_URL = f"sqlite:///{API_ROOT / 'data' / 'dev.db'}"
 REMOTE_DATABASE_PREFIXES = ("postgres://", "postgresql://", "postgresql+psycopg://")
 LOCAL_APP_ENVS = {"local", "dev", "development", "test"}
+DEFAULT_TELEGRAM_EVENT_TYPES_JSON = (
+    '["pending_entry","position_entry","take_profit","stop_loss","ai_review_low","ai_review_medium","ai_review_high","risk"]'
+)
+DEFAULT_TELEGRAM_REVIEW_SECTIONS_JSON = (
+    '["status","position","summary","action","key_reasons","risks","watch_conditions","manager_note","rationale"]'
+)
 
 
 def utc_now() -> datetime:
@@ -347,7 +353,8 @@ class SubscriberPreferenceRecord(CommonMixin, Base):
     telegram_chat_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     telegram_link_token_hash: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, unique=True, index=True)
     telegram_link_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
-    telegram_event_types_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    telegram_event_types_json: Mapped[str] = mapped_column(Text, default=DEFAULT_TELEGRAM_EVENT_TYPES_JSON, nullable=False)
+    telegram_review_sections_json: Mapped[str] = mapped_column(Text, default=DEFAULT_TELEGRAM_REVIEW_SECTIONS_JSON, nullable=False)
     telegram_min_return_pct: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     locale: Mapped[str] = mapped_column(String(8), default="ko", nullable=False)
 

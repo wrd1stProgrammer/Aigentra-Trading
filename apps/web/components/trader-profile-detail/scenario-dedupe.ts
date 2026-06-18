@@ -27,6 +27,9 @@ export function dedupeScenarioTimelineScenarios(scenarios: readonly TraderScenar
 
 export function scenarioTimelineDedupeKey(scenario: ScenarioDedupeShape): string {
   if (scenario.source === "review") {
+    if (scenario.id !== undefined && scenario.id !== null && scenario.id !== "") {
+      return `review:${scenario.id}`;
+    }
     if (scenario.createdAt) {
       const timeKey = new Date(scenario.createdAt).getTime();
       if (!Number.isNaN(timeKey)) {
@@ -42,4 +45,3 @@ export function scenarioTimelineDedupeKey(scenario: ScenarioDedupeShape): string
   }
   return `${scenario.source}:${scenario.id}`;
 }
-

@@ -9,14 +9,31 @@ export const telegramEventTypes = [
   "risk",
 ] as const;
 
-export const defaultTelegramEventTypes = ["pending_entry", "position_entry", "take_profit", "stop_loss"] as const;
+export const defaultTelegramEventTypes = telegramEventTypes;
 
 export type TelegramEventType = (typeof telegramEventTypes)[number];
+
+export const telegramReviewSections = [
+  "status",
+  "position",
+  "summary",
+  "action",
+  "key_reasons",
+  "risks",
+  "watch_conditions",
+  "manager_note",
+  "rationale"
+] as const;
+
+export const defaultTelegramReviewSections = telegramReviewSections;
+
+export type TelegramReviewSection = (typeof telegramReviewSections)[number];
 
 export type TelegramSettings = {
   readonly enabled: boolean;
   readonly chatId: string;
   readonly eventTypes: readonly TelegramEventType[];
+  readonly reviewSections: readonly TelegramReviewSection[];
   readonly minReturnPct: number;
 };
 
@@ -45,6 +62,7 @@ type TelegramSettingsInput = {
   readonly enabled?: unknown;
   readonly chatId?: unknown;
   readonly eventTypes?: unknown;
+  readonly reviewSections?: unknown;
   readonly minReturnPct?: unknown;
 };
 
@@ -87,6 +105,7 @@ export function normalizeTelegramSettings(settings: TelegramSettingsInput): Tele
     enabled: settings.enabled === true,
     chatId: typeof settings.chatId === "string" ? settings.chatId.trim() : "",
     eventTypes: normalizeEventTypes(settings.eventTypes),
+    reviewSections: normalizeReviewSections(settings.reviewSections),
     minReturnPct: normalizeMinReturnPct(settings.minReturnPct)
   };
 }
@@ -166,6 +185,7 @@ function readTelegramSettings(input: unknown): TelegramSettingsInput {
     enabled: input["enabled"],
     chatId: input["chatId"],
     eventTypes: input["eventTypes"],
+    reviewSections: input["reviewSections"],
     minReturnPct: input["minReturnPct"]
   };
 }
@@ -190,6 +210,24 @@ function expandTelegramEventType(input: unknown): readonly TelegramEventType[] {
     default:
       return [];
   }
+}
+
+function normalizeReviewSections(input: unknown): readonly TelegramReviewSection[] {
+  if (input === undefined) return [...defaultTelegramReviewSections];
+  if (!Array.isArray(input)) return [...defaultTelegramReviewSections];
+
+  const sectionSet = new Set<TelegramReviewSection>();
+  for (const item of input) {
+    if (isTelegramReviewSection(item)) {
+      sectionSet.add(item);
+    }
+  }
+
+  return telegramReviewSections.filter((section) => sectionSet.has(section));
+}
+
+function isTelegramReviewSection(input: unknown): input is TelegramReviewSection {
+  return typeof input === "string" && telegramReviewSections.includes(input as TelegramReviewSection);
 }
 
 function isRecord(input: unknown): input is Readonly<Record<string, unknown>> {

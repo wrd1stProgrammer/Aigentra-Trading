@@ -4,10 +4,16 @@ from typing import Any, Protocol
 
 from app.db import PositionManagementReviewRecord, TradeEventRecord
 from app.repositories import from_json
+from app.subscriber_alert_types import DEFAULT_TELEGRAM_REVIEW_SECTIONS, normalize_review_sections
+
+
+class TelegramSettingsPreferences(Protocol):
+    review_sections: list[str]
 
 
 class TelegramPreferences(Protocol):
     locale: str
+    telegram_settings: TelegramSettingsPreferences
 
 
 TRADER_NAMES = {
@@ -79,25 +85,77 @@ def compose_management_message(
     review_payload = first_record(payload_record.get("review")) or {}
     metrics_payload = first_record(event_payload.get("metrics")) or {}
     labels = management_message_labels(preferences.locale)
+    sections = review_sections_for_preferences(preferences)
     rationale = text_value(review_payload.get("rationale")) or text_value(review.error_message) or "-"
-    return "\n".join(
-        [
-            f"[AI Trader League] {label}",
-            f"{trader_name} · {review.symbol or '-'}",
-            "",
-            labels["statusTitle"],
-            f"  {labels['phase']}: {review.phase or text_value(event_payload.get('phase')) or '-'}",
-            f"  {labels['decision']}: {review.decision or text_value(review_payload.get('decision')) or '-'}",
-            f"  {labels['action']}: {review.action_type or first_action_type(review_payload) or '-'}",
-            f"  {labels['confidence']}: {review.confidence if review.confidence is not None else '-'}",
-            "",
-            labels["positionTitle"],
-            *management_position_lines(exposure_payload, metrics_payload, preferences.locale),
-            "",
-            labels["rationaleTitle"],
-            f"  {rationale}",
-        ]
-    )
+    lines = [
+        f"[AI Trader League] {label}",
+        f"{trader_name} · {review.symbol or '-'}",
+    ]
+    if "status" in sections:
+        lines.extend(
+            [
+                "",
+                labels["statusTitle"],
+                f"  {labels['phase']}: {review.phase or text_value(event_payload.get('phase')) or '-'}",
+                f"  {labels['decision']}: {review.decision or text_value(review_payload.get('decision')) or '-'}",
+                f"  {labels['action']}: {review.action_type or first_action_type(review_payload) or '-'}",
+                f"  {labels['confidence']}: {review.confidence if review.confidence is not None else '-'}",
+            ]
+        )
+    if "position" in sections:
+        lines.extend(
+            [
+                "",
+                labels["positionTitle"],
+                *management_position_lines(exposure_payload, metrics_payload, preferences.locale),
+            ]
+        )
+    lines.extend(management_review_detail_lines(review_payload, sections, preferences.locale, rationale))
+    return "\n".join(lines)
+
+
+def management_review_detail_lines(
+    review_payload: dict[str, Any],
+    sections: list[str],
+    locale: str,
+    fallback_rationale: str,
+) -> list[str]:
+    labels = management_message_labels(locale)
+    translated = review_labels(locale)
+    structured = first_record(review_payload.get("structuredReview"), review_payload.get("aiStructuredReview")) or {}
+    lines: list[str] = []
+
+    verdict = text_value(structured.get("verdict"))
+    headline = text_value(structured.get("headline"))
+    action = text_value(structured.get("action"))
+    manager_note = text_value(structured.get("managerNote"))
+    key_reasons = text_list(structured.get("keyReasons"), 3)
+    risks = text_list(structured.get("risks"), 3)
+    watch_conditions = text_list(structured.get("watchConditions"), 3)
+
+    if "summary" in sections and (verdict or headline):
+        summary = " · ".join([part for part in (verdict, headline) if part])
+        lines.extend(["", labels["summaryTitle"], f"  {summary}"])
+    if "action" in sections and action:
+        lines.extend(["", translated["action"], f"  {action}"])
+    if "key_reasons" in sections and key_reasons:
+        lines.extend(["", translated["keyReasons"], f"  {' · '.join(key_reasons)}"])
+    if "risks" in sections and risks:
+        lines.extend(["", translated["risks"], f"  {' · '.join(risks)}"])
+    if "watch_conditions" in sections and watch_conditions:
+        lines.extend(["", translated["watchConditions"], f"  {' · '.join(watch_conditions)}"])
+    if "manager_note" in sections and manager_note:
+        lines.extend(["", translated["managerNote"], f"  {manager_note}"])
+    if "rationale" in sections:
+        lines.extend(["", labels["rationaleTitle"], f"  {fallback_rationale}"])
+    return lines
+
+
+def review_sections_for_preferences(preferences: TelegramPreferences) -> list[str]:
+    settings = getattr(preferences, "telegram_settings", None)
+    if settings is None:
+        return list(DEFAULT_TELEGRAM_REVIEW_SECTIONS)
+    return normalize_review_sections(getattr(settings, "review_sections", None))
 
 
 def telegram_event_label(telegram_event_type: str, locale: str) -> str:
@@ -192,6 +250,7 @@ def management_message_labels(locale: str) -> dict[str, str]:
             "action": "Action",
             "confidence": "Confidence",
             "positionTitle": "Position",
+            "summaryTitle": "Summary",
             "side": "Side",
             "entry": "Entry",
             "current": "Current",
@@ -207,6 +266,7 @@ def management_message_labels(locale: str) -> dict[str, str]:
         "action": "조치",
         "confidence": "신뢰도",
         "positionTitle": "포지션",
+        "summaryTitle": "요약",
         "side": "방향",
         "entry": "진입가",
         "current": "현재가",

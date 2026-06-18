@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChartLineUp, Check, Clock, Pulse, ShieldCheck, Star, TelegramLogo, TrendUp } from "@phosphor-icons/react";
+import { ChartLineUp, Check, Clock, Pulse, ShieldCheck, Star, TelegramLogo, TrendUp, InstagramLogo } from "@phosphor-icons/react";
 import type { LandingCopy } from "@/lib/marketing-copy";
 
 const traderRows = [
@@ -400,7 +400,7 @@ export function PricingCard({
         </div>
 
         <Link 
-          href={plan.name === "Observer" ? "/leaderboard" : "/account"} 
+          href={featured ? "/leaderboard" : "/account"} 
           className={`mt-8 inline-flex w-full justify-center rounded-full px-5 py-3.5 text-sm font-bold text-white transition active:scale-[0.99] duration-300 ${
             featured 
               ? "bg-emerald-500 shadow-neon-emerald hover:bg-emerald-400" 
@@ -469,32 +469,80 @@ export function AlertPreview() {
 export function LandingFooter({ copy }: { readonly copy: LandingCopy }) {
   return (
     <>
-      <div className="mx-auto grid max-w-[1500px] gap-10 border-b border-zinc-200 pb-12 md:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr]">
-        <div>
+      <div className="mx-auto grid max-w-[1500px] gap-10 border-b border-zinc-200 pb-12 sm:grid-cols-2 md:grid-cols-6 text-left">
+        <div className="md:col-span-2">
           <div className="flex items-center gap-3">
-            <span className="grid size-9 place-items-center rounded-lg border border-emerald-200 text-emerald-600">AT</span>
-            <span className="text-2xl font-semibold">Aigentra Trading</span>
+            <span className="grid size-9 place-items-center rounded-lg border border-emerald-400/35 bg-emerald-400/10 font-mono text-xs text-emerald-300">AT</span>
+            <span className="text-xl font-bold tracking-tight text-zinc-900">Aigentra Trading</span>
           </div>
-          <p className="mt-5 max-w-[42ch] text-base leading-7 text-zinc-600">{copy.footerTagline}</p>
+          <p className="mt-5 max-w-[32ch] text-sm leading-6 text-zinc-500">{copy.footerTagline}</p>
         </div>
-        {[
-          ["Product", "Home", "Leaderboard", "Traders"],
-          ["Company", "Account", "Login", "Telegram"],
-          ["Legal", "Disclaimer", "Risk notice", "Privacy"]
-        ].map(([title, ...items]) => (
-          <div key={title}>
-            <h3 className="font-semibold">{title}</h3>
-            <div className="mt-4 grid gap-3 text-sm text-zinc-600">
-              {items.map((item) => (
-                <span key={item}>{item}</span>
-              ))}
-            </div>
+        
+        <div>
+          <h3 className="font-semibold text-sm text-zinc-800 uppercase tracking-wider">Product</h3>
+          <div className="mt-4 grid gap-3 text-sm text-zinc-500">
+            <Link href="/" className="hover:text-zinc-900 transition">How it works</Link>
+            <Link href="/login" className="hover:text-zinc-900 transition">Pricing</Link>
+            <Link href="/login" className="hover:text-zinc-900 transition">Testimonials</Link>
+            <Link href="/login" className="hover:text-zinc-900 transition">FAQ</Link>
           </div>
-        ))}
+        </div>
+
+        <div>
+          <h3 className="font-semibold text-sm text-zinc-800 uppercase tracking-wider">Company</h3>
+          <div className="mt-4 grid gap-3 text-sm text-zinc-500">
+            <a href="mailto:support@aigentra.trading" className="hover:text-zinc-900 transition">Contact</a>
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-sm text-zinc-800 uppercase tracking-wider">Legal</h3>
+            <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-zinc-900 transition md:hidden">
+              <InstagramLogo size={20} />
+            </a>
+          </div>
+          <div className="mt-4 grid gap-3 text-sm text-zinc-500">
+            <Link href="/terms" className="hover:text-zinc-900 transition">Terms of Service</Link>
+            <Link href="/disclaimer" className="hover:text-zinc-900 transition">Disclaimer</Link>
+            <Link href="/legal-notices" className="hover:text-zinc-900 transition">Legal Notices</Link>
+            <Link href="/privacy-policy" className="hover:text-zinc-900 transition">Privacy Policy</Link>
+            <Link href="/risk-disclosure" className="hover:text-zinc-900 transition">Risk Disclosure</Link>
+          </div>
+        </div>
+
+        <div className="hidden md:flex justify-end items-start">
+          <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-zinc-900 transition">
+            <InstagramLogo size={20} />
+          </a>
+        </div>
       </div>
-      <div className="mx-auto flex max-w-[1500px] flex-col gap-4 pt-8 text-sm text-zinc-500 md:flex-row md:items-center md:justify-between">
-        <p>© 2026 AI Trader League.</p>
-        <p className="max-w-[88ch] leading-6">{copy.disclaimer}</p>
+      
+      <div className="mx-auto flex flex-col gap-4 pt-8 text-[11px] text-zinc-400 max-w-[1500px]">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between font-medium">
+          <p>© 2026 Aigentra Trading. All rights reserved.</p>
+          <div className="flex flex-wrap items-center text-zinc-500 gap-y-2">
+            <Link href="/terms" className="hover:text-zinc-900 transition mr-4 md:mr-6">Terms of Service</Link>
+            <Link href="/disclaimer" className="hover:text-zinc-900 transition mr-4 md:mr-6">Disclaimer</Link>
+            <Link href="/legal-notices" className="hover:text-zinc-900 transition mr-4 md:mr-6">Legal Notices</Link>
+            <Link href="/privacy-policy" className="hover:text-zinc-900 transition mr-4 md:mr-6">Privacy Policy</Link>
+            <Link href="/risk-disclosure" className="hover:text-zinc-900 transition">Risk Disclosure</Link>
+          </div>
+          <p className="text-zinc-400">Made by <span className="font-semibold text-zinc-800">SERN</span></p>
+        </div>
+        <div className="mt-6 text-[10px] leading-5 text-zinc-400/80 border-t border-zinc-100/60 pt-6 space-y-2 text-left">
+          <p>{copy.disclaimer}</p>
+          <p className="text-[9px] text-zinc-400/60">
+            Aigentra Trading is an AI-powered chart analysis tool for educational purposes only. Nothing on this site constitutes financial advice, investment advice, or a solicitation to buy or sell any financial instrument. Not Financial Advice (NFA). Do Your Own Research (DYOR). Trading involves significant risk of loss. Past performance is not indicative of future results. Results are not typical and may vary.
+          </p>
+          <div className="flex gap-3 text-[9px] text-zinc-400/50">
+            <Link href="/privacy-policy" className="hover:underline">Privacy Policy</Link>
+            <span>|</span>
+            <Link href="/disclaimer" className="hover:underline">Disclaimer</Link>
+            <span>|</span>
+            <Link href="/risk-disclosure" className="hover:underline">Risk Disclosure</Link>
+          </div>
+        </div>
       </div>
     </>
   );
@@ -520,4 +568,3 @@ function MiniChart({ tall = false }: { readonly tall?: boolean }) {
     </div>
   );
 }
-

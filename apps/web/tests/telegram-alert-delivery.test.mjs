@@ -32,11 +32,13 @@ test("subscriber account exposes a Telegram test-send control", () => {
 
 test("subscriber account connects Telegram through a user-bound start link", () => {
   const accountSource = readSource("apps/web/components/subscriber-account-client.tsx");
+  const copySource = readSource("apps/web/components/subscriber-account-copy.ts");
   const connectPanelSource = readSource("apps/web/components/telegram-connect-panel.tsx");
   const linkRouteSource = readSource("apps/web/app/api/telegram/link/route.ts");
   const apiClientSource = readSource("apps/web/lib/subscriber-preference-api.ts");
 
   assert.match(accountSource, /TelegramConnectPanel/, "account page should render the connection panel instead of a raw chat-id workflow");
+  assert.match(copySource, /Chat ID 입력은 필요 없습니다/, "connection copy should explain that users do not manually enter a Chat ID");
   assert.match(connectPanelSource, /\/api\/telegram\/link/, "connection panel should request a signed Telegram start link");
   assert.match(connectPanelSource, /window\.open/, "connection panel should open Telegram for the user");
   assert.match(linkRouteSource, /createTelegramStartLink/, "local route should proxy link creation through the backend service");

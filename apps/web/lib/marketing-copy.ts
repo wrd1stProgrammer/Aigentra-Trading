@@ -140,9 +140,9 @@ const copy = {
     ],
     aboutTitle: "Aigentra Trading은 자동매매 버튼이 아니라, AI 판단을 비교하는 관제면입니다.",
     aboutBody: [
-      "Aigentra Trading은 초보자와 숙련된 트레이더 모두를 위해 설계된 AI 기반 트레이딩 시뮬레이션 및 분석의 선두주자로서 자부심을 가지고 있습니다. 고도화된 기술을 바탕으로 사용자에게 가장 정밀한 시뮬레이션 분석과 시장 인사이트를 제공합니다. 당사의 AI 소프트웨어는 단 몇 초 만에 주요 가격대, 지지 및 저항선, 트렌드, 암호화폐 시장의 패턴을 감지하도록 설계되었습니다.",
-      "우리는 또한 기술적 분석을 단순화하고 감정적인 결정을 제거하도록 설계된 다양한 전문 도구를 제공합니다. 다중 컨플루언스 분석, 전략 센티멘트 비율, 오더 블록, 피보나치 레벨 등의 기능을 통해 시뮬레이션 매매에 최적화된 고품질 인사이트를 제공합니다. 스캘핑, 스윙 트레이딩, 데이 트레이딩 등 어떤 전략을 사용하든 AI 어시스턴트가 모든 전략과 시장 조건에 유연하게 대응합니다.",
-      "결과적으로 Aigentra Trading은 자신감, 명확성, 그리고 규율을 가지고 선물 시뮬레이션 거래를 추적할 수 있는 완벽한 솔루션입니다. 확률을 기반으로 설계된 상승/하락 시나리오를 통해 목표에 부합하는 트레이딩 계획을 수립할 수 있습니다. Aigentra Trading을 선택하는 것은 품질, 혁신, 그리고 프로페셔널리즘을 선택하는 것입니다. 사용자의 퍼포먼스를 극대화하고 시장 리스크를 명확히 이해하도록 돕는 가장 혁신적이고 실용적인 AI 플랫폼을 제공할 것을 약속드립니다."
+      "**Aigentra Trading**은 초보자와 숙련된 트레이더 모두를 위해 설계된 **AI 기반 트레이딩 시뮬레이션 및 분석**의 선두주자로서 자부심을 가지고 있습니다. 고도화된 기술을 바탕으로 사용자에게 가장 정밀한 **시뮬레이션 분석**과 **시장 인사이트**를 제공합니다. 당사의 **AI 소프트웨어**는 단 몇 초 만에 주요 가격대, 지지 및 저항선, 트렌드, 암호화폐 시장의 패턴을 감지하도록 설계되었습니다.",
+      "우리는 또한 기술적 분석을 단순화하고 감정적인 결정을 제거하도록 설계된 다양한 **전문 도구**를 제공합니다. **다중 컨플루언스 분석**, **전략 센티멘트 비율**, **오더 블록**, **피보나치 레벨** 등의 기능을 통해 시뮬레이션 매매에 최적화된 고품질 인사이트를 제공합니다. 스캘핑, 스윙 트레이딩, 데이 트레이딩 등 어떤 전략을 사용하든 **AI 어시스턴트**가 모든 전략과 시장 조건에 유연하게 대응합니다.",
+      "결과적으로 **Aigentra Trading**은 자신감, 명확성, 그리고 규율을 가지고 **선물 시뮬레이션 거래**를 추적할 수 있는 완벽한 솔루션입니다. 확률을 기반으로 설계된 상승/하락 시나리오를 통해 목표에 부합하는 트레이딩 계획을 수립할 수 있습니다. **Aigentra Trading**을 선택하는 것은 **품질, 혁신, 그리고 프로페셔널리즘**을 선택하는 것입니다. 사용자의 퍼포먼스를 극대화하고 시장 리스크를 명확히 이해하도록 돕는 가장 혁신적이고 실용적인 AI 플랫폼을 제공할 것을 약속드립니다."
     ],
     aboutPoints: ["실제 계좌 키를 요구하지 않음", "BTCUSDT 전문 감시", "구독자별 Telegram 설정"],
     footerTagline: "Virtual AI traders, simulated positions, real-time Telegram action alerts.",
@@ -238,9 +238,9 @@ const copy = {
     ],
     aboutTitle: "Aigentra Trading, Your Expert AI Trading Software",
     aboutBody: [
-      "At Aigentra Trading, we take pride in being recognized as leaders in AI-powered trading simulation and analysis designed for both beginners and experienced traders. With our advanced technology, we provide our users with the most accurate simulated analysis and market insights available. Our AI trading software is built to detect key levels, identify supports, resistances, trends, and patterns across crypto markets in just seconds.",
-      "We also offer a wide range of professional tools designed to simplify technical analysis and eliminate emotional decision-making. With features like multi-confluence analysis, strategy sentiment ratios, Order Blocks, and Fibonacci levels, you can be confident that you'll receive high-grade insights tailored to simulated trading. Whether you're scalping, swing trading, or day trading, our AI trading assistant adapts to every strategy and every market condition.",
-      "Ultimately, Aigentra Trading is the perfect solution to track simulated futures trading with confidence, clarity, and discipline. With clear bullish and bearish scenarios backed by probabilities, you can be sure to find a plan that fits your goals. When you choose Aigentra Trading, you choose Quality, Innovation, and Professionalism. We're committed to delivering the most innovative and practical AI trading platform to help you maximize performance and understand market risk."
+      "At **Aigentra Trading**, we take pride in being recognized as leaders in **AI-powered trading simulation and analysis** designed for both beginners and experienced traders. With our advanced technology, we provide our users with the most accurate **simulated analysis** and **market insights** available. Our **AI trading software** is built to detect key levels, identify supports, resistances, trends, and patterns across crypto markets in just seconds.",
+      "We also offer a wide range of **professional tools** designed to simplify technical analysis and eliminate emotional decision-making. With features like **multi-confluence analysis**, **strategy sentiment ratios**, **Order Blocks**, and **Fibonacci levels**, you can be confident that you'll receive high-grade insights tailored to simulated trading. Whether you're scalping, swing trading, or day trading, our **AI trading assistant** adapts to every strategy and every market condition.",
+      "Ultimately, **Aigentra Trading** is the perfect solution to track **simulated futures trading** with confidence, clarity, and discipline. With clear bullish and bearish scenarios backed by probabilities, you can be sure to find a plan that fits your goals. When you choose **Aigentra Trading**, you choose **Quality, Innovation, and Professionalism**. We're committed to delivering the most innovative and practical AI trading platform to help you maximize performance and understand market risk."
     ],
     aboutPoints: ["No exchange keys required", "Focused on BTCUSDT", "Account-scoped Telegram settings"],
     footerTagline: "Virtual AI traders, simulated positions, real-time Telegram action alerts.",

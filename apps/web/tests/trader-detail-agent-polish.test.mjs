@@ -14,8 +14,10 @@ const journalSource = readFileSync(new URL("../components/trader-profile-detail/
 const chartSource = readFileSync(new URL("../components/live-candle-chart.tsx", import.meta.url), "utf8");
 const detailChartSource = readFileSync(new URL("../components/trader-profile-detail/chart.tsx", import.meta.url), "utf8");
 const binancePanelSource = readFileSync(new URL("../components/trader-profile-detail/binance-position-panel.tsx", import.meta.url), "utf8");
+const mobileBinancePanelSource = readFileSync(new URL("../components/trader-profile-detail/binance-position-mobile-cards.tsx", import.meta.url), "utf8");
 const positionPanelRowsSource = readFileSync(new URL("../components/trader-profile-detail/position-panel-rows.ts", import.meta.url), "utf8");
 const scenarioFeedSource = readFileSync(new URL("../components/trader-profile-detail/scenario-feed.ts", import.meta.url), "utf8");
+const profileSource = readFileSync(new URL("../components/trader-profile-page-client.tsx", import.meta.url), "utf8");
 const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
 
@@ -104,6 +106,39 @@ test("latest scenario timeline preserves distinct management review records", ()
     deduped.map((scenario) => scenario.id),
     ["review-84", "review-83", "review-82", "order-1"]
   );
+});
+
+test("latest scenario timeline keeps distinct review ids even inside the same minute and price bucket", () => {
+  const scenarios = [
+    {
+      id: "review-101",
+      source: "review",
+      createdAt: "2026-06-17T12:00:10Z",
+      phase: "OPEN_POSITION",
+      side: "LONG",
+      price: 65251
+    },
+    {
+      id: "review-102",
+      source: "review",
+      createdAt: "2026-06-17T12:00:35Z",
+      phase: "OPEN_POSITION",
+      side: "LONG",
+      price: 65249
+    },
+    {
+      id: "review-101",
+      source: "review",
+      createdAt: "2026-06-17T12:00:10Z",
+      phase: "OPEN_POSITION",
+      side: "LONG",
+      price: 65251
+    }
+  ];
+
+  const deduped = scenarioDedupe.dedupeScenarioTimelineScenarios(scenarios);
+
+  assert.deepEqual(deduped.map((scenario) => scenario.id), ["review-101", "review-102"]);
 });
 
 test("review facts replace user summary in visible review UI", () => {
@@ -254,12 +289,25 @@ test("detail chart includes a Binance-style paper position panel below the chart
   assert.match(binancePanelSource, /detail\.positionPnlRoe/, "position table should show PnL and ROE");
 });
 
+test("Binance-style paper panel has mobile cards before desktop wide tables", () => {
+  assert.match(binancePanelSource, /MobilePositionCards/, "panel should render mobile cards");
+  assert.match(binancePanelSource, /hidden overflow-x-auto md:block/, "wide desktop tables should be hidden on mobile");
+  assert.match(mobileBinancePanelSource, /data-testid="mobile-position-cards"/, "mobile cards should be testable");
+  assert.match(mobileBinancePanelSource, /grid grid-cols-2 gap-2/, "mobile cards should summarize key metrics in two columns");
+});
+
 test("Binance-style paper panel supports light theme and stays out of scenario modal charts", () => {
   assert.match(binancePanelSource, /dark:bg-\[#11161c\]/, "dark-mode Binance panel skin should remain available");
   assert.match(binancePanelSource, /bg-white/, "light-mode Binance panel skin should be explicit");
   assert.doesNotMatch(binancePanelSource, /positionTabOrderHistory/, "panel should not render inactive placeholder tabs");
   assert.match(detailChartSource, /showPositionPanel/, "detail chart should expose a switch for modal usage");
   assert.match(modalSource, /showPositionPanel=\{false\}/, "scenario modal should hide the extra position panel");
+});
+
+test("trader detail browser cache placeholders wait until after hydration", () => {
+  assert.match(profileSource, /const \[clientHydrated, setClientHydrated\] = useState\(false\)/, "detail cache readiness should be client-state driven");
+  assert.match(profileSource, /useEffect\(\(\) => \{\s*setClientHydrated\(true\);\s*\}, \[\]\);/s, "detail cache should only activate after mount");
+  assert.match(profileSource, /clientHydrated \? getCachedTraderDetailBundle/, "localStorage-backed detail cache should not run during hydration");
 });
 
 function loadTsModule(relativePath) {

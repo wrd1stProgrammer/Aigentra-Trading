@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.ai.factory import provider_status
 from app.ai.context import build_management_review_context, build_trade_review_context
@@ -387,6 +387,14 @@ def normalize_provider(provider: Optional[str]) -> str:
 
 
 SLIM_EXCLUDED_COLUMNS = {"payload_json", "raw_json"}
+
+
+def slim_load_columns(model) -> list[Any]:
+    return [getattr(model, column.name) for column in model.__table__.columns if column.name not in SLIM_EXCLUDED_COLUMNS]
+
+
+def slim_select(model):
+    return select(model).options(load_only(*slim_load_columns(model)))
 
 
 def snake_to_camel(value: str) -> str:
@@ -1448,25 +1456,25 @@ def list_filtered_records(
 ) -> list[dict]:
     safe_limit = max(1, min(limit, 1000))
     safe_offset = max(0, offset)
-    stmt = select(model)
+    stmt = select(model) if include_payload else slim_select(model)
     if symbol:
         stmt = stmt.where(model.symbol == normalize_symbol(symbol))
     if trader_id:
         stmt = stmt.where(model.trader_id == trader_id)
     if status:
         stmt = stmt.where(model.status == status)
-    
+
     stmt = stmt.order_by(desc(model.created_at), desc(model.id))
     if safe_offset > 0:
         stmt = stmt.offset(safe_offset)
-        
+
     records = db.execute(stmt.limit(safe_limit)).scalars().all()
     return [serialize_record_for_ui(record, include_payload=include_payload) for record in records]
 
 
 def list_records_slim(db: Session, model, limit: int = 20) -> list:
     safe_limit = max(1, min(limit, 100))
-    records = db.execute(select(model).order_by(desc(model.created_at), desc(model.id)).limit(safe_limit)).scalars().all()
+    records = db.execute(slim_select(model).order_by(desc(model.created_at), desc(model.id)).limit(safe_limit)).scalars().all()
     return [serialize_record_slim(record) for record in records]
 
 
@@ -1720,7 +1728,7 @@ def leaderboard_snapshot_to_summary(record: TraderLeaderboardSnapshotRecord) -> 
 def list_leaderboard_summaries(db: Session, symbol: str) -> list[dict[str, Any]]:
     try:
         records = db.execute(
-            select(TraderLeaderboardSnapshotRecord)
+            slim_select(TraderLeaderboardSnapshotRecord)
             .where(TraderLeaderboardSnapshotRecord.symbol == symbol)
             .order_by(
                 desc(TraderLeaderboardSnapshotRecord.rank_score),
@@ -2026,7 +2034,7 @@ def upsert_leaderboard_snapshot_from_summary(db: Session, summary: dict) -> Trad
 
 def refresh_leaderboard_ranks(db: Session, symbol: str) -> list[TraderLeaderboardSnapshotRecord]:
     records = db.execute(
-        select(TraderLeaderboardSnapshotRecord)
+        slim_select(TraderLeaderboardSnapshotRecord)
         .where(TraderLeaderboardSnapshotRecord.symbol == symbol)
         .order_by(
             desc(TraderLeaderboardSnapshotRecord.rank_score),
@@ -2259,7 +2267,7 @@ def build_league_bundle_payload(
     scheduled_refresh: bool = False,
     missing_ids: Optional[set[str]] = None,
 ) -> dict[str, Any]:
-    stmt = select(TraderLeaderboardSnapshotRecord).where(TraderLeaderboardSnapshotRecord.symbol == clean_symbol)
+    stmt = slim_select(TraderLeaderboardSnapshotRecord).where(TraderLeaderboardSnapshotRecord.symbol == clean_symbol)
     if not include_empty:
         stmt = stmt.where(TraderLeaderboardSnapshotRecord.has_live_paper_data.is_(True))
     snapshots = db.execute(
@@ -2291,14 +2299,14 @@ def build_league_bundle_payload(
         "summaries": summaries,
         "positions": list_filtered_records(db, PaperPositionRecord, limit=100, symbol=clean_symbol, status="open", include_payload=True) if include_related else [],
         "orders": list_filtered_records(db, PaperOrderRecord, limit=100, symbol=clean_symbol, status="open", include_payload=True) if include_related else [],
-        "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=30, symbol=clean_symbol, include_payload=True) if include_related else [],
+        "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=30, symbol=clean_symbol, include_payload=False) if include_related else [],
         "scanner": scanner_status_payload(),
     }
 
 
 def trader_snapshot_summary(db: Session, trader_id: str, clean_symbol: str) -> Optional[dict[str, Any]]:
     record = db.execute(
-        select(TraderLeaderboardSnapshotRecord).where(
+        slim_select(TraderLeaderboardSnapshotRecord).where(
             TraderLeaderboardSnapshotRecord.trader_id == trader_id,
             TraderLeaderboardSnapshotRecord.symbol == clean_symbol,
         )
@@ -3799,7 +3807,7 @@ async def league_leaderboard(symbol: str = Query("BTCUSDT"), db: Session = Depen
         "summaries": trader_summary_payload(db, clean_symbol),
         "positions": list_filtered_records(db, PaperPositionRecord, limit=100, symbol=clean_symbol, status="open", include_payload=True),
         "orders": list_filtered_records(db, PaperOrderRecord, limit=100, symbol=clean_symbol, status="open", include_payload=True),
-        "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=30, symbol=clean_symbol, include_payload=True),
+        "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=30, symbol=clean_symbol, include_payload=False),
         "scanner": scanner_status_payload(),
     }
 
@@ -3822,11 +3830,11 @@ async def league_leaderboard_fast(
     now = time.monotonic()
     cache_was_stale = bool(cached and cached[0] <= now)
     if not refresh and cached:
-
         is_fresh = cached[0] > now
         if is_fresh:
             return {**cached[1], "cacheHit": True, "stale": False, "scheduledRefresh": False}
         schedule_thread_refresh(refresh_league_bundle_cache_background, clean_symbol, include_empty, include_related)
+        return {**cached[1], "cacheHit": True, "stale": True, "scheduledRefresh": True}
     missing_ids: set[str] = set()
     try:
         known_trader_ids = {trader.id for trader in list_traders()}

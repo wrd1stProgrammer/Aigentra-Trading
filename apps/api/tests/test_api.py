@@ -188,7 +188,7 @@ def test_trader_current_state_reports_watching_without_exposure():
     assert state["labelKey"] == "status.summary.watching"
 
 
-def test_leaderboard_fast_rebuilds_expired_cache(monkeypatch):
+def test_leaderboard_fast_serves_expired_cache_while_refreshing_in_background(monkeypatch):
     cache_key = ("BTCUSDT", True, True)
     main.LEAGUE_BUNDLE_CACHE.clear()
     main.LEAGUE_BUNDLE_CACHE[cache_key] = (
@@ -203,33 +203,27 @@ def test_leaderboard_fast_rebuilds_expired_cache(monkeypatch):
             "managementReviews": [],
         },
     )
+    scheduled: list[tuple[str, bool, bool]] = []
 
-    def fake_payload(db, clean_symbol, *, include_empty=True, include_related=False, refreshed=False, scheduled_refresh=False, missing_ids=None):
-        return {
-            "symbol": clean_symbol,
-            "lastUpdatedAt": "fresh-cache",
-            "traders": [],
-            "summaries": [],
-            "positions": [],
-            "orders": [],
-            "managementReviews": [],
-            "cacheHit": False,
-            "stale": False,
-            "scheduledRefresh": scheduled_refresh,
-            "refreshed": refreshed,
-            "missingSnapshotCount": len(missing_ids or set()),
-        }
+    def fake_payload(*args, **kwargs):
+        raise AssertionError("expired fast cache should be served before synchronous DB rebuild")
+
+    def fake_schedule(_func, symbol, include_empty, include_related):
+        scheduled.append((symbol, include_empty, include_related))
 
     monkeypatch.setattr(main, "list_traders", lambda: [])
     monkeypatch.setattr(main, "build_league_bundle_payload", fake_payload)
+    monkeypatch.setattr(main, "schedule_thread_refresh", fake_schedule)
 
     response = client.get("/api/league/leaderboard-fast?symbol=BTCUSDT&includeRelated=true")
 
     assert response.status_code == 200
     data = response.json()
-    assert data["lastUpdatedAt"] == "fresh-cache"
-    assert data["cacheHit"] is False
-    assert data["stale"] is False
+    assert data["lastUpdatedAt"] == "old-cache"
+    assert data["cacheHit"] is True
+    assert data["stale"] is True
+    assert data["scheduledRefresh"] is True
+    assert scheduled == [("BTCUSDT", True, True)]
 
 
 def test_trader_detail_rebuilds_expired_cache(monkeypatch):

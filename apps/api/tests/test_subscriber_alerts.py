@@ -48,6 +48,27 @@ def test_subscriber_preference_api_requires_internal_token(temp_db, monkeypatch)
     assert unauthorized.status_code == 401
     assert authorized.status_code == 200
     assert authorized.json()["email"] == "qa@example.com"
+    assert authorized.json()["telegramSettings"]["eventTypes"] == [
+        "pending_entry",
+        "position_entry",
+        "take_profit",
+        "stop_loss",
+        "ai_review_low",
+        "ai_review_medium",
+        "ai_review_high",
+        "risk",
+    ]
+    assert authorized.json()["telegramSettings"]["reviewSections"] == [
+        "status",
+        "position",
+        "summary",
+        "action",
+        "key_reasons",
+        "risks",
+        "watch_conditions",
+        "manager_note",
+        "rationale",
+    ]
 
 
 def test_telegram_webhook_replies_with_chat_id(temp_db, monkeypatch):
@@ -166,6 +187,7 @@ def test_subscriber_preferences_persist_favorites_and_telegram_settings(temp_db)
                 enabled=True,
                 chat_id=" 123456789 ",
                 event_types=["entry", "ai_review_high", "invalid"],
+                review_sections=["action", "risks", "invalid"],
                 min_return_pct=1.5,
             ),
         )
@@ -174,6 +196,7 @@ def test_subscriber_preferences_persist_favorites_and_telegram_settings(temp_db)
         assert preferences.favorite_trader_ids == ["channel-rider", "pullback-architect"]
         assert preferences.telegram_settings.chat_id == "123456789"
         assert preferences.telegram_settings.event_types == ["pending_entry", "position_entry", "ai_review_high"]
+        assert preferences.telegram_settings.review_sections == ["action", "risks"]
         assert preferences.telegram_settings.min_return_pct == 1.5
 
 
