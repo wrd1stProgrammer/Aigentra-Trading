@@ -12,6 +12,7 @@ const sourceFiles = [
   "../components/live-candle-chart.tsx",
   "../components/trader-profile-detail/header.tsx",
   "../components/trader-profile-detail/timeline.tsx",
+  "../components/trader-profile-detail/status-feed-thread.tsx",
   "../components/trader-profile-detail/side-panels.tsx",
   "../components/trader-profile-detail/trading-journal.tsx",
   "../components/trader-profile-detail/scenario-modal.tsx"
@@ -21,6 +22,8 @@ const source = sourceFiles.map((file) => readFileSync(new URL(file, import.meta.
 test("trader detail exposes reference-style monitoring layout regions", () => {
   assert.match(source, /data-testid="trader-detail-monitoring-shell"/, "detail page should expose the redesigned monitoring shell");
   assert.match(source, /data-testid="top-chart-panel"/, "detail page should keep the chart in a top monitoring panel");
+  assert.match(source, /data-testid="trader-status-feed-thread"/, "detail page should expose the trader status feed thread next to the chart");
+  assert.match(source, /xl:grid-cols-\[minmax\(0,3fr\)_minmax\(300px,1fr\)\]/, "top monitoring row should split chart and feed at roughly 3/4 to 1/4 width");
   assert.match(source, /data-testid="scenario-timeline"/, "detail page should expose a latest scenario timeline region");
   assert.match(source, /data-testid="holding-panel"/, "detail page should expose the right holding allocation panel");
   assert.match(source, /data-testid="trade-history-panel"/, "detail page should expose the right trade history panel");

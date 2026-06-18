@@ -242,6 +242,7 @@ export function ConsensusPageClient() {
     positions: [],
     orders: [],
     managementReviews: [],
+    statusFeeds: [],
     scanner: null
   }), []);
 
@@ -251,10 +252,10 @@ export function ConsensusPageClient() {
 
   // Fetch leaderboard bundle
   const btcQuery = useQuery({
-    ...leaderboardBundleQueryOptions("BTCUSDT"),
+    ...leaderboardBundleQueryOptions("BTCUSDT", locale),
     placeholderData: (previousData) => {
       if (previousData?.symbol === "BTCUSDT") return previousData;
-      return cacheReady ? getCachedLeaderboardBundle("BTCUSDT") ?? fallbackBundle : fallbackBundle;
+      return cacheReady ? getCachedLeaderboardBundle("BTCUSDT", locale) ?? fallbackBundle : fallbackBundle;
     }
   });
 

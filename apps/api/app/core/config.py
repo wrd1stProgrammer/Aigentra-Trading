@@ -85,6 +85,10 @@ class Settings(BaseModel):
     ai_translation_target_locales: List[str] = Field(
         default_factory=lambda: list(normalize_translation_locales(os.getenv("AI_TRANSLATION_TARGET_LOCALES", "")))
     )
+    trader_status_feed_provider: str = Field(default_factory=lambda: normalize_ai_provider_name(os.getenv("TRADER_STATUS_FEED_PROVIDER"), "openai"))
+    trader_status_feed_model: str = Field(default_factory=lambda: os.getenv("TRADER_STATUS_FEED_MODEL", os.getenv("OPENAI_MODEL", "gpt-4.1-mini")))
+    trader_status_feed_timeout_seconds: float = Field(default_factory=lambda: env_float("TRADER_STATUS_FEED_TIMEOUT_SECONDS", "30"))
+    trader_status_feed_regeneration_seconds: int = Field(default_factory=lambda: env_int("TRADER_STATUS_FEED_REGENERATION_SECONDS", "10800"))
     gemini_api_key: str = Field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
     gemini_model: str = Field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-1.5-flash"))
     anthropic_api_key: str = Field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))

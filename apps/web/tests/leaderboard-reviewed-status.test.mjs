@@ -94,7 +94,13 @@ test("league overview stream keeps a page cache and stops duplicate infinite loa
 test("leaderboard browser cache placeholders wait until after hydration", () => {
   assert.match(leaderboardSource, /const \[cacheReady, setCacheReady\] = useState\(false\)/, "leaderboard cache readiness should be client-state driven");
   assert.match(leaderboardSource, /useEffect\(\(\) => \{\s*setCacheReady\(true\);\s*\}, \[\]\);/s, "leaderboard cache should only activate after mount");
-  assert.match(leaderboardSource, /cacheReady \? getCachedLeaderboardBundle\("BTCUSDT"\)/, "localStorage-backed leaderboard cache should not run during hydration");
+  assert.match(leaderboardSource, /cacheReady \? getCachedLeaderboardBundle\("BTCUSDT", locale\)/, "localStorage-backed leaderboard cache should not run during hydration");
+});
+
+test("leaderboard preview renders the latest trader status feed", () => {
+  assert.match(leaderboardSource, /buildLatestStatusFeedMap\(bundle\.statusFeeds \?\? \[\]\)/, "leaderboard should derive latest feed by trader");
+  assert.match(leaderboardSource, /latestStatusFeed=/, "preview panel should receive the active trader feed");
+  assert.match(leaderboardSource, /LatestStatusFeedNote/, "preview panel should render the compact feed note");
 });
 
 function loadTsModule(relativePath) {

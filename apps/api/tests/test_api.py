@@ -189,7 +189,7 @@ def test_trader_current_state_reports_watching_without_exposure():
 
 
 def test_leaderboard_fast_serves_expired_cache_while_refreshing_in_background(monkeypatch):
-    cache_key = ("BTCUSDT", True, True)
+    cache_key = ("BTCUSDT", True, True, "en")
     main.LEAGUE_BUNDLE_CACHE.clear()
     main.LEAGUE_BUNDLE_CACHE[cache_key] = (
         0,
@@ -203,13 +203,13 @@ def test_leaderboard_fast_serves_expired_cache_while_refreshing_in_background(mo
             "managementReviews": [],
         },
     )
-    scheduled: list[tuple[str, bool, bool]] = []
+    scheduled: list[tuple[str, bool, bool, str]] = []
 
     def fake_payload(*args, **kwargs):
         raise AssertionError("expired fast cache should be served before synchronous DB rebuild")
 
-    def fake_schedule(_func, symbol, include_empty, include_related):
-        scheduled.append((symbol, include_empty, include_related))
+    def fake_schedule(_func, symbol, include_empty, include_related, locale):
+        scheduled.append((symbol, include_empty, include_related, locale))
 
     monkeypatch.setattr(main, "list_traders", lambda: [])
     monkeypatch.setattr(main, "build_league_bundle_payload", fake_payload)
@@ -223,7 +223,7 @@ def test_leaderboard_fast_serves_expired_cache_while_refreshing_in_background(mo
     assert data["cacheHit"] is True
     assert data["stale"] is True
     assert data["scheduledRefresh"] is True
-    assert scheduled == [("BTCUSDT", True, True)]
+    assert scheduled == [("BTCUSDT", True, True, "en")]
 
 
 def test_trader_detail_rebuilds_expired_cache(monkeypatch):

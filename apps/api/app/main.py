@@ -104,6 +104,13 @@ from app.repositories import (
     update_trader_run_log,
 )
 from app.subscribers_routes import router as subscribers_router
+from app.trader_status_feed.records import list_status_feed_payloads
+from app.trader_status_feed.scheduler import create_status_feeds_for_current_states, regenerate_due_status_feeds
+from app.trader_status_feed.service import (
+    create_status_feed_for_ai_review,
+    create_status_feed_for_pending_trade_plan,
+    create_status_feeds_for_trade_events,
+)
 from app.traders.models import (
     EntryPlan,
     ManagedExposure,
@@ -149,6 +156,13 @@ class TraderHistoryResetRequest(BaseModel):
     confirmationText: Optional[str] = None
     allowProduction: bool = False
     allowRemote: bool = False
+
+
+class TraderStatusFeedGenerateRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    traderIds: list[str] = []
+    force: bool = False
+    locale: str = "ko"
 
 
 def require_ops_api_token(x_ops_api_token: str = Header(default="")) -> None:
@@ -207,10 +221,10 @@ AUTO_MANAGEMENT_STATE: dict[str, Any] = {
 AUTO_MANAGEMENT_TASK: Optional[asyncio.Task] = None
 PRICE_SHOCK_STATE: dict[str, dict[str, Any]] = {}
 LEAGUE_BUNDLE_CACHE_TTL_SECONDS = 300
-LEAGUE_BUNDLE_CACHE: dict[tuple[str, bool, bool], tuple[float, dict[str, Any]]] = {}
+LEAGUE_BUNDLE_CACHE: dict[tuple[str, bool, bool, str], tuple[float, dict[str, Any]]] = {}
 TRADER_DETAIL_CACHE: dict[tuple[str, str, int, int, str], tuple[float, dict[str, Any]]] = {}
 LEADERBOARD_REFRESHING: set[tuple[str, str]] = set()
-LEAGUE_BUNDLE_REFRESHING: set[tuple[str, bool, bool]] = set()
+LEAGUE_BUNDLE_REFRESHING: set[tuple[str, bool, bool, str]] = set()
 TRADER_DETAIL_REFRESHING: set[tuple[str, str, str]] = set()
 
 
@@ -1463,6 +1477,7 @@ async def process_existing_paper_exposure(
     before = list_active_paper_exposure(db, trader_id, symbol)
     result = None
     management_reviews: list[dict[str, Any]] = []
+    status_feed_ids: list[int] = []
     if before["hasExposure"]:
         sync_default_paper_settings(db, trader_id, symbol, settings)
         result = process_candle(db, trader_id, symbol, snapshot_to_engine_candle(snapshot))
@@ -1475,6 +1490,8 @@ async def process_existing_paper_exposure(
             locale=locale,
             result=result,
         )
+        status_feed_records = await create_status_feeds_for_trade_events(db, settings=settings, events=result.events)
+        status_feed_ids = [record.id for record in status_feed_records if record.id is not None]
     after = list_active_paper_exposure(db, trader_id, symbol)
     prune_trader_database(db, trader_id, symbol)
     agent_state = latest_agent_state(db, trader_id, symbol)
@@ -1483,6 +1500,7 @@ async def process_existing_paper_exposure(
         "after": after,
         "engine": engine_result_payload(result),
         "managementReviews": management_reviews,
+        "statusFeedIds": status_feed_ids,
         "agentState": serialize_record(agent_state) if agent_state else None,
     }
 
@@ -2311,6 +2329,7 @@ def build_league_bundle_payload(
     refreshed: bool = False,
     scheduled_refresh: bool = False,
     missing_ids: Optional[set[str]] = None,
+    locale: str = CANONICAL_AI_LOCALE,
 ) -> dict[str, Any]:
     stmt = slim_select(TraderLeaderboardSnapshotRecord).where(TraderLeaderboardSnapshotRecord.symbol == clean_symbol)
     if not include_empty:
@@ -2345,6 +2364,7 @@ def build_league_bundle_payload(
         "positions": list_filtered_records(db, PaperPositionRecord, limit=100, symbol=clean_symbol, status="open", include_payload=True) if include_related else [],
         "orders": list_filtered_records(db, PaperOrderRecord, limit=100, symbol=clean_symbol, status="open", include_payload=True) if include_related else [],
         "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=30, symbol=clean_symbol, include_payload=False) if include_related else [],
+        "statusFeeds": list_status_feed_payloads(db, symbol=clean_symbol, limit=120, locale=locale) if include_related else [],
         "scanner": scanner_status_payload(),
     }
 
@@ -2438,6 +2458,13 @@ def build_trader_detail_payload(
             locale=locale,
         ),
         "events": list_filtered_records(db, TradeEventRecord, limit=events_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
+        "statusFeeds": list_status_feed_payloads(
+            db,
+            symbol=clean_symbol,
+            trader_id=trader_id,
+            limit=20,
+            locale=locale,
+        ),
         "dailyPnl": daily_pnl,
         "reviewCountsByDay": review_counts_by_day,
         "tradePlans": trade_plans,
@@ -2446,9 +2473,10 @@ def build_trader_detail_payload(
     }
 
 
-def refresh_league_bundle_cache_background(symbol: str, include_empty: bool = True, include_related: bool = False) -> None:
+def refresh_league_bundle_cache_background(symbol: str, include_empty: bool = True, include_related: bool = False, locale: str = CANONICAL_AI_LOCALE) -> None:
     clean_symbol = normalize_symbol(symbol)
-    refresh_key = (clean_symbol, include_empty, include_related)
+    clean_locale = normalize_locale(locale)
+    refresh_key = (clean_symbol, include_empty, include_related, clean_locale)
     if refresh_key in LEAGUE_BUNDLE_REFRESHING:
         return
     LEAGUE_BUNDLE_REFRESHING.add(refresh_key)
@@ -2474,6 +2502,7 @@ def refresh_league_bundle_cache_background(symbol: str, include_empty: bool = Tr
                 include_related=include_related,
                 refreshed=bool(missing_ids),
                 missing_ids=missing_ids,
+                locale=clean_locale,
             )
             LEAGUE_BUNDLE_CACHE[refresh_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
     finally:
@@ -2545,7 +2574,7 @@ def warm_initial_league_cache() -> None:
                     refreshed=bool(missing_ids),
                     missing_ids=missing_ids,
                 )
-                LEAGUE_BUNDLE_CACHE[(clean_symbol, True, False)] = (
+                LEAGUE_BUNDLE_CACHE[(clean_symbol, True, False, CANONICAL_AI_LOCALE)] = (
                     time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS,
                     payload,
                 )
@@ -2602,6 +2631,7 @@ async def run_scanner_once(
         "openOrders": 0,
         "openPositions": 0,
         "managementReviews": 0,
+        "statusFeeds": 0,
         "noCandidate": 0,
         "activeExposure": 0,
         "cooldowns": 0,
@@ -2889,6 +2919,24 @@ async def run_scanner_once(
             }
         )
 
+    for symbol in clean_symbols:
+        try:
+            with session_scope() as db:
+                due_feeds = await regenerate_due_status_feeds(
+                    db,
+                    settings=settings,
+                    symbol=symbol,
+                    trader_ids=trader_ids,
+                )
+                if due_feeds:
+                    counts["statusFeeds"] += len(due_feeds)
+                    changed_traders_by_symbol.setdefault(symbol, set()).update(
+                        record.trader_id for record in due_feeds if record.trader_id
+                    )
+        except Exception:
+            counts["errors"] += 1
+            symbol_breakdown[symbol]["errors"] += 1
+
     # Detect drifted snapshots and add them to refresh target
     for symbol in clean_symbols:
         try:
@@ -2980,6 +3028,7 @@ async def run_management_once(
         "openOrders": 0,
         "openPositions": 0,
         "managementReviews": 0,
+        "statusFeeds": 0,
         "errors": 0,
     }
     results: list[dict[str, Any]] = []
@@ -3044,6 +3093,15 @@ async def run_management_once(
                 )
         try:
             with session_scope() as db:
+                due_feeds = await regenerate_due_status_feeds(
+                    db,
+                    settings=settings,
+                    symbol=symbol,
+                    trader_ids=active_traders,
+                )
+                counts["statusFeeds"] += len(due_feeds)
+                if due_feeds:
+                    invalidate_league_cache(symbol)
                 refresh_leaderboard_snapshots(db, symbol, set(active_traders))
         except Exception as exc:
             counts["errors"] += 1
@@ -3573,6 +3631,7 @@ async def run_trader_cycle(
                         symbol=clean_symbol,
                         trader_id=strategy.profile.id,
                     )
+                    await create_status_feed_for_ai_review(db, settings=settings, review=review_record)
                     plan = trade_plan_from_review(clean_symbol, candidate, review)
                     if review.decision in {"APPROVE", "ADJUST_AND_APPROVE"}:
                         plan_record = create_trade_plan(db, record_ids["runId"], clean_symbol, strategy.profile.id, plan)
@@ -3589,6 +3648,12 @@ async def run_trader_cycle(
                             ai_review_id=review_record.id,
                         )
                         created_paper_orders = paper_order_result.get("created", [])
+                        await create_status_feed_for_pending_trade_plan(
+                            db,
+                            settings=settings,
+                            plan=plan_record,
+                            created_orders=created_paper_orders,
+                        )
                         paper_result = {
                             **paper_result,
                             "ordersCreated": paper_order_result,
@@ -3756,6 +3821,45 @@ async def trader_history_reset(
     return result
 
 
+@app.post("/api/ops/trader-status-feeds/generate")
+async def generate_trader_status_feeds_api(
+    request: TraderStatusFeedGenerateRequest,
+    _: None = Depends(require_ops_api_token),
+) -> Dict[str, Any]:
+    clean_symbol = normalize_symbol(request.symbol)
+    clean_locale = normalize_locale(request.locale)
+    valid_trader_ids = {trader.id for trader in list_traders()}
+    target_ids = [trader_id for trader_id in request.traderIds if trader_id in valid_trader_ids] or sorted(valid_trader_ids)
+    with session_scope() as db:
+        records = await create_status_feeds_for_current_states(
+            db,
+            settings=settings,
+            symbol=clean_symbol,
+            trader_ids=target_ids,
+            force=request.force,
+        )
+        generated_ids = {record.id for record in records}
+        if generated_ids:
+            invalidate_league_cache(clean_symbol)
+        feed_items = [
+            item
+            for item in list_status_feed_payloads(
+                db,
+                symbol=clean_symbol,
+                limit=max(len(records), 1),
+                locale=clean_locale,
+            )
+            if item.get("id") in generated_ids
+        ]
+    return {
+        "symbol": clean_symbol,
+        "locale": clean_locale,
+        "requestedTraders": target_ids,
+        "generated": len(records),
+        "statusFeeds": feed_items,
+    }
+
+
 @app.get("/api/market/cache/status")
 async def market_cache_status() -> Dict[str, Any]:
     now = time.monotonic()
@@ -3887,11 +3991,13 @@ async def league_leaderboard_fast(
     include_empty: bool = Query(True),
     include_related: bool = Query(False, alias="includeRelated"),
     refresh: bool = Query(False),
+    locale: str = Query(CANONICAL_AI_LOCALE),
     db: Session = Depends(get_db),
 ):
     clean_symbol = normalize_symbol(symbol)
+    clean_locale = normalize_locale(locale)
     init_db()
-    cache_key = (clean_symbol, include_empty, include_related)
+    cache_key = (clean_symbol, include_empty, include_related, clean_locale)
     cached = LEAGUE_BUNDLE_CACHE.get(cache_key)
     if cached and len(cached[1].get("traders", [])) != len(list_traders()):
         LEAGUE_BUNDLE_CACHE.pop(cache_key, None)
@@ -3902,7 +4008,7 @@ async def league_leaderboard_fast(
         is_fresh = cached[0] > now
         if is_fresh:
             return {**cached[1], "cacheHit": True, "stale": False, "scheduledRefresh": False}
-        schedule_thread_refresh(refresh_league_bundle_cache_background, clean_symbol, include_empty, include_related)
+        schedule_thread_refresh(refresh_league_bundle_cache_background, clean_symbol, include_empty, include_related, clean_locale)
         return {**cached[1], "cacheHit": True, "stale": True, "scheduledRefresh": True}
     missing_ids: set[str] = set()
     try:
@@ -3929,6 +4035,7 @@ async def league_leaderboard_fast(
             refreshed=refresh,
             scheduled_refresh=bool((missing_ids or cache_was_stale) and not refresh),
             missing_ids=missing_ids,
+            locale=clean_locale,
         )
     except SQLAlchemyError:
         db.rollback()
@@ -3953,6 +4060,7 @@ async def league_leaderboard_fast(
             "positions": list_filtered_records(db, PaperPositionRecord, limit=100, symbol=clean_symbol, status="open", include_payload=False) if include_related else [],
             "orders": list_filtered_records(db, PaperOrderRecord, limit=100, symbol=clean_symbol, status="open", include_payload=False) if include_related else [],
             "managementReviews": list_filtered_records(db, PositionManagementReviewRecord, limit=30, symbol=clean_symbol, include_payload=False) if include_related else [],
+            "statusFeeds": list_status_feed_payloads(db, symbol=clean_symbol, limit=120, locale=clean_locale) if include_related else [],
             "scanner": scanner_status_payload(),
         }
     if not refresh and not missing_ids and not payload.get("needsMigration"):
@@ -4549,6 +4657,28 @@ async def paper_events(
     return {"events": list_filtered_records(db, TradeEventRecord, limit=limit, symbol=symbol, trader_id=trader_id)}
 
 
+@app.get("/api/trader-status-feeds")
+@app.get("/api/league/status-feeds")
+async def trader_status_feeds(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    symbol: Optional[str] = Query(None),
+    trader_id: Optional[str] = Query(None),
+    locale: str = Query(CANONICAL_AI_LOCALE),
+    db: Session = Depends(get_db),
+):
+    return {
+        "statusFeeds": list_status_feed_payloads(
+            db,
+            limit=limit,
+            offset=offset,
+            symbol=normalize_symbol(symbol) if symbol else None,
+            trader_id=trader_id,
+            locale=normalize_locale(locale),
+        )
+    }
+
+
 @app.get("/api/paper/management-reviews")
 @app.get("/api/position-management/reviews")
 async def position_management_reviews(
@@ -4636,6 +4766,7 @@ async def paper_engine_run_once(request: PaperEngineRunRequest):
     closed_count = 0
     rejected_count = 0
     management_review_count = 0
+    status_feed_count = 0
 
     with session_scope() as db:
         for trader_id in trader_ids:
@@ -4656,10 +4787,12 @@ async def paper_engine_run_once(request: PaperEngineRunRequest):
                     result=result,
                 )
                 result_payload = engine_result_payload(result)
+                status_feed_records = await create_status_feeds_for_trade_events(db, settings=settings, events=result.events)
                 filled_count += len(result_payload["filledOrders"])
                 closed_count += len(result_payload["closedPositions"])
                 rejected_count += len(result_payload["rejectedOrders"])
                 management_review_count += len(management_reviews)
+                status_feed_count += len(status_feed_records)
                 all_events.extend(result_payload["events"])
                 if result_payload["equitySnapshot"]:
                     all_snapshots.append(result_payload["equitySnapshot"])
@@ -4687,6 +4820,7 @@ async def paper_engine_run_once(request: PaperEngineRunRequest):
         "closedPositions": closed_count,
         "rejectedOrders": rejected_count,
         "managementReviews": management_review_count,
+        "statusFeeds": status_feed_count,
         "events": all_events,
         "equitySnapshots": all_snapshots,
         "results": results,

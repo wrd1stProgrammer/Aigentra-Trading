@@ -18,5 +18,5 @@ test("consensus average prices use mobile cards before the wide desktop table", 
 test("consensus delays browser-cache placeholders until after hydration", () => {
   assert.match(consensusSource, /const \[cacheReady, setCacheReady\] = useState\(false\)/, "cache readiness should be client-state driven");
   assert.match(consensusSource, /useEffect\(\(\) => \{\s*setCacheReady\(true\);\s*\}, \[\]\);/s, "browser cache should only activate after mount");
-  assert.match(consensusSource, /cacheReady \? getCachedLeaderboardBundle\("BTCUSDT"\)/, "localStorage-backed cache should not run during the first hydrated render");
+  assert.match(consensusSource, /cacheReady \? getCachedLeaderboardBundle\("BTCUSDT", locale\)/, "localStorage-backed cache should not run during the first hydrated render");
 });

@@ -8,6 +8,7 @@ NON_CANONICAL_AI_LOCALES: Final[tuple[str, ...]] = tuple(locale for locale in SU
 AI_TRANSLATION_SOURCE_AI_REVIEW: Final[str] = "ai_review"
 AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT: Final[str] = "position_management_review"
 AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT: Final[str] = "league_sentiment_opinion"
+AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED: Final[str] = "trader_status_feed"
 
 LOCALE_ALIASES: Final[dict[str, str]] = {
     "en": "en",

@@ -331,6 +331,36 @@ export type ManagementReview = {
   [key: string]: any;
 };
 
+export type TraderStatusFeed = {
+  id?: string | number;
+  traderId?: string | null;
+  trader_id?: string | null;
+  symbol?: string | null;
+  stateKey?: string | null;
+  state_key?: string | null;
+  eventType?: string | null;
+  event_type?: string | null;
+  refreshReason?: string | null;
+  refresh_reason?: string | null;
+  headline?: string | null;
+  message?: string | null;
+  watch?: string | null;
+  mood?: string | null;
+  stance?: string | null;
+  createdAt?: string | null;
+  created_at?: string | null;
+  updatedAt?: string | null;
+  payload?: {
+    headline?: string | null;
+    message?: string | null;
+    watch?: string | null;
+    mood?: string | null;
+    stance?: string | null;
+    [key: string]: any;
+  } | null;
+  [key: string]: any;
+};
+
 export type ScannerStatus = {
   enabled: boolean;
   running: boolean;
@@ -381,6 +411,7 @@ export type LeaderboardBundle = {
   positions: PaperPosition[];
   orders: PaperOrder[];
   managementReviews: ManagementReview[];
+  statusFeeds?: TraderStatusFeed[];
   scanner: ScannerStatus | null;
 };
 
@@ -426,6 +457,7 @@ export type TraderDetailBundle = {
   closedPositions?: PaperPosition[];
   orders: PaperOrder[];
   managementReviews: ManagementReview[];
+  statusFeeds?: TraderStatusFeed[];
   events: PaperTradeEvent[];
   dailyPnl: { date: string; pnl: number }[];
   reviewCountsByDay?: { date: string; count: number }[];
@@ -712,9 +744,10 @@ export function getTraderPaperSummary(symbol: string) {
   );
 }
 
-export function getLeaderboardBundle(symbol: string) {
-  return request<LeaderboardBundle>(`/api/league/leaderboard-fast?symbol=${encodeURIComponent(symbol)}&includeRelated=true`).then((bundle) => {
-    writeBrowserCache(`leaderboard:${symbol}`, bundle);
+export function getLeaderboardBundle(symbol: string, locale: Locale = "en") {
+  const params = new URLSearchParams({ symbol, locale, includeRelated: "true" });
+  return request<LeaderboardBundle>(`/api/league/leaderboard-fast?${params.toString()}`).then((bundle) => {
+    writeBrowserCache(`leaderboard:${symbol}:${locale}`, bundle);
     return bundle;
   });
 }
@@ -739,20 +772,20 @@ export function getTraderDetailBundle(traderId: string, symbol: string, reviewsL
   });
 }
 
-export function getCachedLeaderboardBundle(symbol: string) {
-  return readBrowserCache<LeaderboardBundle>(`leaderboard:${symbol}`, LEADERBOARD_BROWSER_CACHE_MS);
+export function getCachedLeaderboardBundle(symbol: string, locale: Locale = "en") {
+  return readBrowserCache<LeaderboardBundle>(`leaderboard:${symbol}:${locale}`, LEADERBOARD_BROWSER_CACHE_MS);
 }
 
 export function getCachedTraderDetailBundle(traderId: string, symbol: string, reviewsLimit = 20, eventsLimit = 10, locale: Locale = "en") {
   return readBrowserCache<TraderDetailBundle>(`trader:${traderId}:${symbol}:${reviewsLimit}:${eventsLimit}:${locale}`, LEADERBOARD_BROWSER_CACHE_MS);
 }
 
-export const leaderboardBundleQueryKey = (symbol: string) => ["league", "leaderboard", symbol] as const;
+export const leaderboardBundleQueryKey = (symbol: string, locale: Locale = "en") => ["league", "leaderboard", symbol, locale] as const;
 
-export function leaderboardBundleQueryOptions(symbol: string) {
+export function leaderboardBundleQueryOptions(symbol: string, locale: Locale = "en") {
   return {
-    queryKey: leaderboardBundleQueryKey(symbol),
-    queryFn: () => getLeaderboardBundle(symbol),
+    queryKey: leaderboardBundleQueryKey(symbol, locale),
+    queryFn: () => getLeaderboardBundle(symbol, locale),
     staleTime: LEAGUE_QUERY_STALE_TIME_MS,
     gcTime: LEAGUE_QUERY_GC_TIME_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -760,8 +793,8 @@ export function leaderboardBundleQueryOptions(symbol: string) {
   };
 }
 
-export function prefetchLeaderboardBundle(queryClient: QueryClient, symbol: string) {
-  return queryClient.prefetchQuery(leaderboardBundleQueryOptions(symbol));
+export function prefetchLeaderboardBundle(queryClient: QueryClient, symbol: string, locale: Locale = "en") {
+  return queryClient.prefetchQuery(leaderboardBundleQueryOptions(symbol, locale));
 }
 
 export const traderDetailBundleQueryKey = (traderId: string, symbol: string, reviewsLimit: number, eventsLimit: number, locale: Locale) =>

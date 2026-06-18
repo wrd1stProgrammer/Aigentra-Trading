@@ -13,6 +13,7 @@ import {
   type TraderDetailBundle,
   type TraderProfile,
   type PaperPosition,
+  type TraderStatusFeed,
   getTraderTradeHistory,
   type MergedTradeHistoryItem
 } from "@/lib/api";
@@ -40,6 +41,7 @@ import {
   TimelineRow,
   TradingJournal
 } from "@/components/trader-profile-detail/panels";
+import { StatusFeedThread } from "@/components/trader-profile-detail/status-feed-thread";
 import { SYMBOLS, type TradeHistoryItem } from "@/components/trader-profile-detail/types";
 import { traderVisuals } from "@/lib/league";
 import { CaretLeft, CaretRight, Clock } from "@phosphor-icons/react";
@@ -342,7 +344,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const liveAlertContextRef = useRef<string | null>(null);
 
   const fallbackDetailBundle = useMemo<TraderDetailBundle | undefined>(() => {
-    const leaderboardBundle = clientHydrated ? queryClient.getQueryData<LeaderboardBundle>(leaderboardBundleQueryKey(symbol)) : undefined;
+    const leaderboardBundle = clientHydrated ? queryClient.getQueryData<LeaderboardBundle>(leaderboardBundleQueryKey(symbol, locale)) : undefined;
     const traderFromLeaderboard = leaderboardBundle?.traders?.find((item) => item.id === traderId);
     const trader = traderFromLeaderboard ?? fallback;
     if (!trader) return undefined;
@@ -354,12 +356,13 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       closedPositions: [],
       orders: (leaderboardBundle?.orders ?? []).filter((item) => item.traderId === traderId),
       managementReviews: (leaderboardBundle?.managementReviews ?? []).filter((item) => item.traderId === traderId),
+      statusFeeds: (leaderboardBundle?.statusFeeds ?? []).filter((item) => (item.traderId ?? item.trader_id) === traderId),
       events: [],
       dailyPnl: [],
       reviewCountsByDay: [],
       tradePlans: []
     };
-  }, [clientHydrated, fallback, queryClient, symbol, traderId]);
+  }, [clientHydrated, fallback, locale, queryClient, symbol, traderId]);
 
   const detailQuery = useQuery({
     ...traderDetailBundleQueryOptions(traderId, symbol, reviewsLimit, eventsLimit, locale),
@@ -383,7 +386,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     staleTime: 60_000
   });
 
-  const { trader, summaries, positions, closedPositions, orders, reviews, events, dailyPnl, reviewCountsByDay, plans } = useMemo(() => {
+  const { trader, summaries, positions, closedPositions, orders, reviews, statusFeeds, events, dailyPnl, reviewCountsByDay, plans } = useMemo(() => {
     const bundle = detailQuery.data;
     const rawPositions = bundle?.positions ?? [];
     const mergedPositions = mergePositions(rawPositions);
@@ -394,6 +397,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       closedPositions: bundle?.closedPositions ?? [],
       orders: bundle?.orders ?? [],
       reviews: bundle?.managementReviews ?? [],
+      statusFeeds: bundle?.statusFeeds ?? [],
       events: bundle?.events ?? [],
       dailyPnl: bundle?.dailyPnl ?? [],
       reviewCountsByDay: bundle?.reviewCountsByDay ?? [],
@@ -409,8 +413,8 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, [locale, queryClient, traderId]);
 
   const prefetchLeaderboard = useCallback(() => {
-    void prefetchLeaderboardBundle(queryClient, symbol);
-  }, [queryClient, symbol]);
+    void prefetchLeaderboardBundle(queryClient, symbol, locale);
+  }, [locale, queryClient, symbol]);
 
   const standing = useMemo(() => {
     const standings = buildStandings(trader ? [trader] : (fallbackTraders as unknown as TraderProfile[]), summaries);
@@ -638,19 +642,22 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
         </div>
       </div>
 
-      <section data-testid="top-chart-panel" className="mt-4 min-w-0 overflow-hidden rounded-2xl bg-white ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800">
-        <DetailChart
-          symbol={symbol}
-          result={chartResult}
-          paperPositions={positions}
-          paperOrders={orders}
-          paperEvents={events}
-          managementReviews={reviews}
-          height={340}
-          compact
-          scenarios={scenarios}
-          onOpenScenario={setSelectedScenario}
-        />
+      <section data-testid="top-chart-panel" className="mt-4 grid min-w-0 gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(300px,1fr)]">
+        <div className="min-w-0 overflow-hidden rounded-2xl bg-white ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800">
+          <DetailChart
+            symbol={symbol}
+            result={chartResult}
+            paperPositions={positions}
+            paperOrders={orders}
+            paperEvents={events}
+            managementReviews={reviews}
+            height={340}
+            compact
+            scenarios={scenarios}
+            onOpenScenario={setSelectedScenario}
+          />
+        </div>
+        <StatusFeedThread feeds={statusFeeds} locale={locale} t={t} />
       </section>
 
       <section className="mt-5 grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">

@@ -239,6 +239,26 @@ class AITranslationCacheRecord(CommonMixin, Base):
     model: Mapped[Optional[str]] = mapped_column(String(140), nullable=True)
 
 
+class TraderStatusFeedRecord(CommonMixin, Base):
+    __tablename__ = "trader_status_feeds"
+    __table_args__ = (
+        UniqueConstraint("source_type", "source_id", "state_key", "refresh_reason", name="uq_trader_status_feeds_source_state_reason"),
+        Index("ix_trader_status_feeds_trader_symbol_created", "trader_id", "symbol", "created_at"),
+        Index("ix_trader_status_feeds_state_created", "state_key", "created_at"),
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)
+    state_key: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    source_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    source_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    refresh_reason: Mapped[str] = mapped_column(String(40), default="event", nullable=False, index=True)
+    state_started_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime(), nullable=True, index=True)
+    provider: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)
+    model: Mapped[Optional[str]] = mapped_column(String(140), nullable=True)
+    fallback: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+
+
 class TraderAgentStateRecord(CommonMixin, Base):
     __tablename__ = "trader_agent_states"
     __table_args__ = (UniqueConstraint("trader_id", "symbol", name="uq_trader_agent_states_trader_symbol"),)

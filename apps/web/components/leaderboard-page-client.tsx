@@ -29,6 +29,7 @@ import {
   type ManagementReview,
   type PaperOrder,
   type PaperPosition,
+  type TraderStatusFeed,
   type TraderProfile,
 } from "@/lib/api";
 import { useAppContext } from "@/components/app-provider";
@@ -45,6 +46,7 @@ import {
   type OverviewReviewRecord,
   type OverviewReviewSource
 } from "@/components/leaderboard-overview-filter";
+import { LatestStatusFeedNote } from "@/components/trader-profile-detail/status-feed-thread";
 
 const SYMBOLS: LeagueSymbol[] = ["BTCUSDT"];
 const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_100px_90px_60px_80px_65px_24px] gap-3";
@@ -147,6 +149,7 @@ export function LeaderboardPageClient() {
     positions: [],
     orders: [],
     managementReviews: [],
+    statusFeeds: [],
     scanner: null
   }), []);
 
@@ -155,10 +158,10 @@ export function LeaderboardPageClient() {
   }, []);
 
   const btcQuery = useQuery({
-    ...leaderboardBundleQueryOptions("BTCUSDT"),
+    ...leaderboardBundleQueryOptions("BTCUSDT", locale),
     placeholderData: (previousData) => {
       if (previousData?.symbol === "BTCUSDT") return previousData;
-      return cacheReady ? getCachedLeaderboardBundle("BTCUSDT") ?? fallbackBundle : fallbackBundle;
+      return cacheReady ? getCachedLeaderboardBundle("BTCUSDT", locale) ?? fallbackBundle : fallbackBundle;
     }
   });
 
@@ -178,6 +181,7 @@ export function LeaderboardPageClient() {
   const activeTraderCount = standings.filter((item) => item.openPositions || item.openOrders).length;
   const traderNameMap = useMemo(() => new Map(standings.map((item) => [item.id, item.name])), [standings]);
   const latestReviewByTrader = useMemo(() => buildLatestReviewMap(bundle.managementReviews ?? []), [bundle.managementReviews]);
+  const latestStatusFeedByTrader = useMemo(() => buildLatestStatusFeedMap(bundle.statusFeeds ?? []), [bundle.statusFeeds]);
 
   // Fetch pending plans dynamically
   const pendingPlansQuery = useQuery({
@@ -352,6 +356,7 @@ export function LeaderboardPageClient() {
           snapshotsLoading={activeSnapshotsQuery.isFetching}
           exposure={activeTrader ? exposureByTrader.get(activeTrader.id) : undefined}
           latestReview={activeTrader ? latestReviewByTrader.get(activeTrader.id) : undefined}
+          latestStatusFeed={activeTrader ? latestStatusFeedByTrader.get(activeTrader.id) : undefined}
           onPrefetchTrader={prefetchTrader}
         />
       </section>
@@ -492,7 +497,7 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, onPrefetch 
   );
 }
 
-function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, latestReview, onPrefetchTrader }: {
+function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, latestReview, latestStatusFeed, onPrefetchTrader }: {
   trader: TraderStanding | null;
   t: (key: string) => string;
   locale: Locale;
@@ -500,6 +505,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
   snapshotsLoading: boolean;
   exposure?: TraderExposure;
   latestReview?: ManagementReview;
+  latestStatusFeed?: TraderStatusFeed;
   onPrefetchTrader: (traderId: string) => void;
 }) {
   if (!trader) {
@@ -528,6 +534,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
                 <span className="text-lg shrink-0">{traderFlags[trader.id] || "🇰🇷"}</span>
               </h3>
               <p className="text-zinc-400 mt-2 text-xs leading-relaxed font-sans break-keep">{t(traderDetailKey(trader.id))}</p>
+              <LatestStatusFeedNote feed={latestStatusFeed} locale={locale} t={t} />
             </div>
             <RankBadge rank={trader.rank} />
           </div>
@@ -767,6 +774,21 @@ function buildLatestReviewMap(reviews: ManagementReview[]) {
     const current = map.get(traderId);
     if (!current || timeValue(reviewTime(review)) > timeValue(reviewTime(current))) {
       map.set(traderId, review);
+    }
+  }
+  return map;
+}
+
+function buildLatestStatusFeedMap(feeds: TraderStatusFeed[]) {
+  const map = new Map<string, TraderStatusFeed>();
+  for (const feed of feeds) {
+    const traderId = String(feed.traderId ?? feed.trader_id ?? "");
+    if (!traderId) continue;
+    const current = map.get(traderId);
+    const feedTime = feed.createdAt ?? feed.created_at;
+    const currentTime = current?.createdAt ?? current?.created_at;
+    if (!current || timeValue(feedTime) > timeValue(currentTime)) {
+      map.set(traderId, feed);
     }
   }
   return map;
