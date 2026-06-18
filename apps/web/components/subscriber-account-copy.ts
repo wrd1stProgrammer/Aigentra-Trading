@@ -49,6 +49,7 @@ const baseSubscriberAccountCopy = {
       ai_review_low: "AI 리뷰 낮음",
       ai_review_medium: "AI 리뷰 중간",
       ai_review_high: "AI 리뷰 높음",
+      league_sentiment: "Aigentra 종합 의견",
       risk: "리스크 경보",
     },
     eventDescriptions: {
@@ -59,6 +60,7 @@ const baseSubscriberAccountCopy = {
       ai_review_low: "일반 점검성 중간 리뷰",
       ai_review_medium: "주의가 필요한 보유/대기 상태 리뷰",
       ai_review_high: "즉시 확인할 만한 방어적 리뷰",
+      league_sentiment: "새 시간대 종합 의견이 준비되면 짧은 확인 알림 전송",
       risk: "주문 거절, 비정상 리스크, 레버리지 경고"
     },
     reviewSectionGroupLabel: "AI 리뷰 메시지 구성",
@@ -142,6 +144,7 @@ const baseSubscriberAccountCopy = {
       ai_review_low: "AI Review Low",
       ai_review_medium: "AI Review Medium",
       ai_review_high: "AI Review High",
+      league_sentiment: "Aigentra Opinion",
       risk: "Risk Alert",
     },
     eventDescriptions: {
@@ -152,6 +155,7 @@ const baseSubscriberAccountCopy = {
       ai_review_low: "Routine management review",
       ai_review_medium: "Management review worth watching",
       ai_review_high: "Defensive management review that deserves attention",
+      league_sentiment: "Short notice when a new hourly aggregate opinion is ready",
       risk: "Order rejection, abnormal risk, or leverage warning"
     },
     reviewSectionGroupLabel: "AI review message content",
@@ -220,6 +224,7 @@ export const SUBSCRIBER_ACCOUNT_COPY = {
       ai_review_low: "AI-обзор низкий",
       ai_review_medium: "AI-обзор средний",
       ai_review_high: "AI-обзор высокий",
+      league_sentiment: "Сводное мнение Aigentra",
       risk: "Риск"
     },
     reviewSectionLabels: {
@@ -265,6 +270,7 @@ export const SUBSCRIBER_ACCOUNT_COPY = {
       ai_review_low: "Revisão AI baixa",
       ai_review_medium: "Revisão AI média",
       ai_review_high: "Revisão AI alta",
+      league_sentiment: "Opinião geral Aigentra",
       risk: "Risco"
     },
     reviewSectionLabels: {
@@ -310,6 +316,7 @@ export const SUBSCRIBER_ACCOUNT_COPY = {
       ai_review_low: "AI inceleme düşük",
       ai_review_medium: "AI inceleme orta",
       ai_review_high: "AI inceleme yüksek",
+      league_sentiment: "Aigentra genel görüşü",
       risk: "Risk"
     },
     reviewSectionLabels: {

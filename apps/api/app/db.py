@@ -17,7 +17,7 @@ DEFAULT_DATABASE_URL = f"sqlite:///{API_ROOT / 'data' / 'dev.db'}"
 REMOTE_DATABASE_PREFIXES = ("postgres://", "postgresql://", "postgresql+psycopg://")
 LOCAL_APP_ENVS = {"local", "dev", "development", "test"}
 DEFAULT_TELEGRAM_EVENT_TYPES_JSON = (
-    '["pending_entry","position_entry","take_profit","stop_loss","ai_review_low","ai_review_medium","ai_review_high","risk"]'
+    '["pending_entry","position_entry","take_profit","stop_loss","ai_review_low","ai_review_medium","ai_review_high","league_sentiment","risk"]'
 )
 DEFAULT_TELEGRAM_REVIEW_SECTIONS_JSON = (
     '["status","position","summary","action","key_reasons","risks","watch_conditions","manager_note","rationale"]'
@@ -422,12 +422,14 @@ class TelegramAlertDeliveryRecord(CommonMixin, Base):
     __table_args__ = (
         UniqueConstraint("subscriber_preference_id", "trade_event_id", name="uq_telegram_alert_delivery_subscriber_event"),
         UniqueConstraint("subscriber_preference_id", "position_management_review_id", name="uq_telegram_alert_delivery_subscriber_review"),
+        UniqueConstraint("subscriber_preference_id", "league_sentiment_opinion_id", name="uq_telegram_alert_delivery_subscriber_sentiment"),
     )
 
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)
     subscriber_preference_id: Mapped[int] = mapped_column(ForeignKey("subscriber_preferences.id"), nullable=False, index=True)
     trade_event_id: Mapped[Optional[int]] = mapped_column(ForeignKey("trade_events.id"), nullable=True, index=True)
     position_management_review_id: Mapped[Optional[int]] = mapped_column(ForeignKey("position_management_reviews.id"), nullable=True, index=True)
+    league_sentiment_opinion_id: Mapped[Optional[int]] = mapped_column(ForeignKey("league_sentiment_opinions.id"), nullable=True, index=True)
     telegram_event_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     chat_id: Mapped[str] = mapped_column(String(120), nullable=False)
     response_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

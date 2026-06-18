@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import re
 import time
 from typing import Any, Optional
 
@@ -36,6 +37,12 @@ RECENT_TRADE_EVENT_TYPES = {
 }
 ACTIVE_ORDER_STATUSES = {"open", "pending", "submitted"}
 ACTIVE_POSITION_STATUSES = {"open"}
+BANNED_OPINION_TERMS = (
+    ("페이퍼 트레이딩", "시뮬레이션"),
+    ("paper-trading", "simulation"),
+    ("paper trading", "simulation"),
+    ("paper league", "simulation league"),
+)
 
 
 def current_utc_hour_window(now: Optional[datetime] = None) -> tuple[datetime, datetime]:
@@ -54,6 +61,23 @@ def iso_utc(value: Optional[datetime]) -> Optional[str]:
     if value is None:
         return None
     return ensure_utc(value).isoformat()
+
+
+def sanitize_league_sentiment_opinion(opinion: LeagueSentimentOpinionResult) -> LeagueSentimentOpinionResult:
+    return LeagueSentimentOpinionResult.model_validate(scrub_banned_opinion_terms(opinion.model_dump()))
+
+
+def scrub_banned_opinion_terms(value: Any) -> Any:
+    if isinstance(value, str):
+        result = value
+        for banned, replacement in BANNED_OPINION_TERMS:
+            result = re.sub(re.escape(banned), replacement, result, flags=re.IGNORECASE)
+        return result
+    if isinstance(value, list):
+        return [scrub_banned_opinion_terms(item) for item in value]
+    if isinstance(value, dict):
+        return {key: scrub_banned_opinion_terms(item) for key, item in value.items()}
+    return value
 
 
 async def get_or_create_league_sentiment_opinion(
@@ -123,7 +147,7 @@ async def get_or_create_league_sentiment_opinion(
             error_message=error_message,
         )
 
-    opinion = opinion.model_copy(update={"sourceCounts": dict(payload.sourceCounts)})
+    opinion = sanitize_league_sentiment_opinion(opinion.model_copy(update={"sourceCounts": dict(payload.sourceCounts)}))
     record = LeagueSentimentOpinionRecord(
         symbol=symbol,
         trader_id="aigentra-opinion",
@@ -154,6 +178,9 @@ async def get_or_create_league_sentiment_opinion(
             symbol=symbol,
             trader_id="aigentra-opinion",
         )
+        from app.subscribers import notify_subscribers_for_league_sentiment_opinion
+
+        notify_subscribers_for_league_sentiment_opinion(db, record)
         db.commit()
     except IntegrityError:
         db.rollback()

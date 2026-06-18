@@ -5,7 +5,7 @@ from typing import Any, Protocol
 from sqlalchemy.orm import object_session
 
 from app.ai.translation_cache import localized_payload_for_source
-from app.db import PositionManagementReviewRecord, TradeEventRecord
+from app.db import LeagueSentimentOpinionRecord, PositionManagementReviewRecord, TradeEventRecord
 from app.locales import AI_TRANSLATION_SOURCE_AI_REVIEW, AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT
 from app.repositories import from_json
 from app.subscriber_alert_types import DEFAULT_TELEGRAM_REVIEW_SECTIONS, normalize_review_sections
@@ -130,6 +130,19 @@ def compose_management_message(
     return "\n".join(lines)
 
 
+def compose_league_sentiment_message(preferences: TelegramPreferences, opinion: LeagueSentimentOpinionRecord) -> str:
+    label = telegram_event_label("league_sentiment", preferences.locale)
+    copy = league_sentiment_message_copy(preferences.locale)
+    return "\n".join(
+        [
+            f"[AI Trader League] {label}",
+            copy["headline"],
+            f"{copy['symbol']}: {opinion.symbol or '-'}",
+            copy["action"],
+        ]
+    )
+
+
 def localized_trade_event_payload(event: TradeEventRecord, payload: dict[str, Any], locale: str) -> dict[str, Any]:
     ai_review_id = first_number(payload.get("aiReviewId"))
     ai_review = first_record(payload.get("aiReview"))
@@ -208,6 +221,7 @@ def telegram_event_label(telegram_event_type: str, locale: str) -> str:
             "ai_review_low": "AI Review Low",
             "ai_review_medium": "AI Review Medium",
             "ai_review_high": "AI Review High",
+            "league_sentiment": "Aigentra Opinion",
             "risk": "Risk",
         },
         "ko": {
@@ -218,6 +232,7 @@ def telegram_event_label(telegram_event_type: str, locale: str) -> str:
             "ai_review_low": "AI 중간 리뷰 낮음",
             "ai_review_medium": "AI 중간 리뷰 중간",
             "ai_review_high": "AI 중간 리뷰 높음",
+            "league_sentiment": "Aigentra 종합 의견",
             "risk": "리스크",
         },
         "ru": {
@@ -228,6 +243,7 @@ def telegram_event_label(telegram_event_type: str, locale: str) -> str:
             "ai_review_low": "AI-обзор: низкая важность",
             "ai_review_medium": "AI-обзор: средняя важность",
             "ai_review_high": "AI-обзор: высокая важность",
+            "league_sentiment": "Сводное мнение Aigentra",
             "risk": "Риск",
         },
         "pt-BR": {
@@ -238,6 +254,7 @@ def telegram_event_label(telegram_event_type: str, locale: str) -> str:
             "ai_review_low": "Revisão AI baixa",
             "ai_review_medium": "Revisão AI média",
             "ai_review_high": "Revisão AI alta",
+            "league_sentiment": "Opinião geral Aigentra",
             "risk": "Risco",
         },
         "tr": {
@@ -248,11 +265,43 @@ def telegram_event_label(telegram_event_type: str, locale: str) -> str:
             "ai_review_low": "AI ara inceleme düşük",
             "ai_review_medium": "AI ara inceleme orta",
             "ai_review_high": "AI ara inceleme yüksek",
+            "league_sentiment": "Aigentra genel görüşü",
             "risk": "Risk",
         },
     }
     active = labels.get(locale, labels["en"])
     return active.get(telegram_event_type, telegram_event_type)
+
+
+def league_sentiment_message_copy(locale: str) -> dict[str, str]:
+    copy = {
+        "en": {
+            "headline": "A new hourly Aigentra aggregate opinion is ready.",
+            "symbol": "Symbol",
+            "action": "Open Aigentra Trading to read the full context.",
+        },
+        "ko": {
+            "headline": "새 시간대 Aigentra 종합 의견이 준비됐습니다.",
+            "symbol": "심볼",
+            "action": "홈 또는 AI 센티멘트 화면에서 전체 내용을 확인하세요.",
+        },
+        "ru": {
+            "headline": "Готово новое часовое сводное мнение Aigentra.",
+            "symbol": "Символ",
+            "action": "Откройте Aigentra Trading, чтобы прочитать полный контекст.",
+        },
+        "pt-BR": {
+            "headline": "A nova opinião geral horária da Aigentra está pronta.",
+            "symbol": "Símbolo",
+            "action": "Abra o Aigentra Trading para ler o contexto completo.",
+        },
+        "tr": {
+            "headline": "Yeni saatlik Aigentra genel görüşü hazır.",
+            "symbol": "Sembol",
+            "action": "Tam bağlamı okumak için Aigentra Trading'i açın.",
+        },
+    }
+    return copy.get(locale, copy["en"])
 
 
 def entry_review_lines(payload: dict[str, Any], locale: str) -> list[str]:

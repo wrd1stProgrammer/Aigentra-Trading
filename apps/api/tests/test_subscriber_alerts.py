@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from decimal import Decimal
 from urllib.parse import parse_qs, urlparse
 
@@ -6,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.db import (
+    LeagueSentimentOpinionRecord,
     PositionManagementReviewRecord,
     SubscriberPreferenceRecord,
     TelegramAlertDeliveryRecord,
@@ -56,6 +58,7 @@ def test_subscriber_preference_api_requires_internal_token(temp_db, monkeypatch)
         "ai_review_low",
         "ai_review_medium",
         "ai_review_high",
+        "league_sentiment",
         "risk",
     ]
     assert authorized.json()["telegramSettings"]["reviewSections"] == [
@@ -361,3 +364,65 @@ def test_management_review_alerts_respect_importance(temp_db, monkeypatch):
         assert delivery.telegram_event_type == "ai_review_high"
 
     assert "AI 중간 리뷰 높음" in sent_messages[0]["text"]
+
+
+def test_league_sentiment_opinion_alerts_are_short_localized_and_deduplicated(temp_db, monkeypatch):
+    sent_messages = []
+
+    def fake_send_telegram_message(*, bot_token, chat_id, text):
+        sent_messages.append({"bot_token": bot_token, "chat_id": chat_id, "text": text})
+        return {"ok": True}
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setattr("app.subscribers.send_telegram_message", fake_send_telegram_message)
+
+    with session_scope() as db:
+        upsert_subscriber_preferences(
+            db,
+            user_id="league",
+            email="league@example.com",
+            favorite_trader_ids=["range-maker"],
+            telegram_settings=TelegramSettingsInput(
+                enabled=True,
+                chat_id="999",
+                event_types=["league_sentiment"],
+                min_return_pct=0,
+            ),
+            locale="ko",
+        )
+        opinion = LeagueSentimentOpinionRecord(
+            trader_id="aigentra-opinion",
+            symbol="BTCUSDT",
+            status="ok",
+            locale="en",
+            interval_start=datetime(2026, 6, 19, 0, 0, tzinfo=timezone.utc),
+            interval_end=datetime(2026, 6, 19, 1, 0, tzinfo=timezone.utc),
+            provider="openai",
+            model="gpt-4.1-mini",
+            bias="MIXED",
+            confidence=72,
+            risk_level="MEDIUM",
+            fallback=False,
+            payload_json='{"summary":"이 긴 종합 본문은 텔레그램으로 직접 보내지 않습니다. 페이퍼 트레이딩"}',
+        )
+        db.add(opinion)
+        db.flush()
+
+        from app.subscribers import notify_subscribers_for_league_sentiment_opinion
+
+        notify_subscribers_for_league_sentiment_opinion(db, opinion)
+        notify_subscribers_for_league_sentiment_opinion(db, opinion)
+        delivery = db.query(TelegramAlertDeliveryRecord).one()
+
+        assert delivery.trade_event_id is None
+        assert delivery.position_management_review_id is None
+        assert delivery.league_sentiment_opinion_id == opinion.id
+        assert delivery.telegram_event_type == "league_sentiment"
+        assert delivery.status == "sent"
+
+    assert len(sent_messages) == 1
+    text = sent_messages[0]["text"]
+    assert "Aigentra 종합 의견" in text
+    assert "홈 또는 AI 센티멘트 화면" in text
+    assert "이 긴 종합 본문" not in text
+    assert "페이퍼 트레이딩" not in text

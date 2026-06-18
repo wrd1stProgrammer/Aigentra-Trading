@@ -1,12 +1,13 @@
 import hashlib
 import json
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.ai.translation_provider import AITranslationProvider, translate_json_with_logging
 from app.core.config import Settings
-from app.locales import CANONICAL_AI_LOCALE, NON_CANONICAL_AI_LOCALES, normalize_locale
+from app.locales import AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT, CANONICAL_AI_LOCALE, NON_CANONICAL_AI_LOCALES, normalize_locale
 from app.repositories import (
     from_json,
     get_successful_translation_by_hash,
@@ -58,6 +59,12 @@ PROTECTED_KEYS = {
     "intervalStart",
     "intervalEnd",
 }
+LEAGUE_SENTIMENT_BANNED_TERMS = (
+    ("페이퍼 트레이딩", "시뮬레이션"),
+    ("paper-trading", "simulation"),
+    ("paper trading", "simulation"),
+    ("paper league", "simulation league"),
+)
 
 
 class TranslationShapeError(ValueError):
@@ -92,7 +99,7 @@ def localized_payload_for_source(
         return payload, {"status": "missing", "locale": requested_locale, "fallbackLocale": CANONICAL_AI_LOCALE}
     cached_payload = from_json(record.payload_json)
     if isinstance(cached_payload, dict) and record.status == "ok":
-        return cached_payload, {"status": "ok", "locale": requested_locale, "sourceHash": source_hash}
+        return scrub_translation_payload_for_source(source_type, cached_payload), {"status": "ok", "locale": requested_locale, "sourceHash": source_hash}
     return payload, {
         "status": record.status or "fallback",
         "locale": requested_locale,
@@ -134,6 +141,7 @@ async def fanout_ai_translations(
         if reusable is not None:
             reusable_payload = from_json(reusable.payload_json)
             if isinstance(reusable_payload, dict):
+                reusable_payload = scrub_translation_payload_for_source(source_type, reusable_payload)
                 upsert_translation_cache_record(
                     db,
                     source_type=source_type,
@@ -157,7 +165,7 @@ async def fanout_ai_translations(
                 source_hash=source_hash,
                 locale=locale,
                 status="fallback",
-                payload=payload,
+                payload=scrub_translation_payload_for_source(source_type, payload),
                 provider="system",
                 model="translation-disabled",
                 symbol=symbol,
@@ -173,7 +181,7 @@ async def fanout_ai_translations(
                 source_hash=source_hash,
                 locale=locale,
                 status="fallback",
-                payload=payload,
+                payload=scrub_translation_payload_for_source(source_type, payload),
                 provider="openai",
                 model=getattr(settings, "openai_translation_model", "translation"),
                 symbol=symbol,
@@ -192,6 +200,7 @@ async def fanout_ai_translations(
                 provider=provider,
             )
             safe_payload = merge_validated_translation(payload, translated)
+            safe_payload = scrub_translation_payload_for_source(source_type, safe_payload)
             upsert_translation_cache_record(
                 db,
                 source_type=source_type,
@@ -214,7 +223,7 @@ async def fanout_ai_translations(
                 source_hash=source_hash,
                 locale=locale,
                 status="fallback",
-                payload=payload,
+                payload=scrub_translation_payload_for_source(source_type, payload),
                 provider=getattr(provider, "name", "openai"),
                 model=getattr(provider, "model", getattr(settings, "openai_translation_model", "translation")),
                 symbol=symbol,
@@ -256,3 +265,23 @@ def is_protected_path(path: tuple[str, ...]) -> bool:
     if not path:
         return False
     return path[-1] in PROTECTED_KEYS or any(part in {"reviewFacts", "riskFlags", "sourceCounts"} for part in path)
+
+
+def scrub_translation_payload_for_source(source_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if source_type != AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT:
+        return payload
+    cleaned = scrub_league_sentiment_banned_terms(payload)
+    return cleaned if isinstance(cleaned, dict) else payload
+
+
+def scrub_league_sentiment_banned_terms(value: Any) -> Any:
+    if isinstance(value, str):
+        result = value
+        for banned, replacement in LEAGUE_SENTIMENT_BANNED_TERMS:
+            result = re.sub(re.escape(banned), replacement, result, flags=re.IGNORECASE)
+        return result
+    if isinstance(value, list):
+        return [scrub_league_sentiment_banned_terms(item) for item in value]
+    if isinstance(value, dict):
+        return {key: scrub_league_sentiment_banned_terms(item) for key, item in value.items()}
+    return value

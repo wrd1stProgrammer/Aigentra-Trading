@@ -6,6 +6,7 @@ export const telegramEventTypes = [
   "ai_review_low",
   "ai_review_medium",
   "ai_review_high",
+  "league_sentiment",
   "risk",
 ] as const;
 
@@ -205,6 +206,7 @@ function expandTelegramEventType(input: unknown): readonly TelegramEventType[] {
     case "ai_review_low":
     case "ai_review_medium":
     case "ai_review_high":
+    case "league_sentiment":
     case "risk":
       return [input];
     default:

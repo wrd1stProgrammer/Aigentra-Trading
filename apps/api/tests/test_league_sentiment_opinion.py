@@ -130,13 +130,13 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
                 confidence=72,
                 riskLevel="MEDIUM",
                 headline="롱과 숏이 엇갈려 있어 확인 구간입니다.",
-                summary="롱 포지션은 수익 중이고 숏 대기 주문도 있어 한 방향 추격보다 다음 1시간 종가 확인이 중요합니다.",
+                summary="페이퍼 트레이딩이라는 표현 없이, 롱 포지션은 수익 중이고 숏 대기 주문도 있어 다음 1시간 종가 확인이 중요합니다.",
                 keyDrivers=["진입 중 롱 1건", "진입대기 숏 1건", "최근 익절 1건"],
                 risks=["양방향 신호가 충돌합니다."],
                 watchConditions=["BTC가 64100 위에서 1시간 마감하는지 확인"],
                 action="신규 추격보다 기존 계획의 무효화 조건을 우선하세요.",
                 longShortContext="LONG 1 / SHORT 1",
-                dataQuality=["최근 리뷰와 체결 이력이 포함됨"],
+                dataQuality=["paper trading 표현은 사용자에게 노출되면 안 됩니다."],
                 sourceCounts={"activePositions": 1, "pendingOrders": 1, "recentClosedPositions": 1},
                 provider="mock",
                 model="mock-league-opinion",
@@ -158,6 +158,8 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
     assert first.json()["nextRefreshAt"] == first.json()["intervalEnd"]
     assert first.json()["opinion"]["bias"] == "MIXED"
     assert first.json()["opinion"]["sourceCounts"]["activePositions"] == 1
+    assert "페이퍼 트레이딩" not in str(first.json()["opinion"])
+    assert "paper trading" not in str(first.json()["opinion"]).lower()
     assert len(calls) == 1
 
     with session_scope() as db:
@@ -165,6 +167,8 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
       assert len(records) == 1
       assert records[0].locale == "en"
       assert records[0].interval_start.isoformat() == first.json()["intervalStart"]
+      assert "페이퍼 트레이딩" not in str(records[0].payload_json)
+      assert "paper trading" not in str(records[0].payload_json).lower()
 
 
 def test_league_sentiment_opinion_uses_safe_fallback_when_provider_fails(temp_db, monkeypatch):

@@ -5,7 +5,7 @@ import pytest
 from app.ai.translation_cache import fanout_ai_translations, localized_payload_for_source, merge_validated_translation
 from app.core.config import Settings
 from app.db import AITranslationCacheRecord, init_db, reset_db_engine, session_scope
-from app.locales import AI_TRANSLATION_SOURCE_AI_REVIEW
+from app.locales import AI_TRANSLATION_SOURCE_AI_REVIEW, AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT
 
 
 class FakeTranslationProvider:
@@ -24,6 +24,17 @@ class FakeTranslationProvider:
             "headline": f"{target_locale}: translated headline",
             "action": f"{target_locale}: translated action",
         }
+        return translated
+
+
+class BannedTermTranslationProvider:
+    name = "openai"
+    model = "fake-translation"
+
+    async def translate_json(self, *, payload: dict, target_locale: str) -> dict:
+        translated = dict(payload)
+        translated["summary"] = "페이퍼 트레이딩 표현이 번역에서 다시 들어오면 안 됩니다."
+        translated["dataQuality"] = ["paper trading wording should be scrubbed."]
         return translated
 
 
@@ -148,3 +159,46 @@ def test_fanout_translation_falls_back_without_openai_key(temp_db):
         )
         assert meta["status"] == "fallback"
         assert localized == payload
+
+
+def test_league_sentiment_translation_scrubs_banned_terms(temp_db):
+    payload = {
+        "bias": "MIXED",
+        "summary": "Use simulation wording only.",
+        "dataQuality": ["Simulation context only."],
+        "sourceCounts": {"activePositions": 1},
+    }
+    settings = Settings(
+        openai_api_key="test-key",
+        ai_translation_enabled=True,
+        ai_translation_target_locales=["ko"],
+        openai_translation_model="gpt-4.1-nano",
+    )
+
+    with session_scope() as db:
+        asyncio.run(
+            fanout_ai_translations(
+                db,
+                settings=settings,
+                source_type=AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT,
+                source_id=404,
+                payload=payload,
+                symbol="BTCUSDT",
+                trader_id="aigentra-opinion",
+                provider=BannedTermTranslationProvider(),
+            )
+        )
+        localized, meta = localized_payload_for_source(
+            db,
+            source_type=AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT,
+            source_id=404,
+            payload=payload,
+            locale="ko",
+        )
+        record = db.query(AITranslationCacheRecord).one()
+
+        assert meta["status"] == "ok"
+        assert "페이퍼 트레이딩" not in str(localized)
+        assert "paper trading" not in str(localized).lower()
+        assert "페이퍼 트레이딩" not in str(record.payload_json)
+        assert "paper trading" not in str(record.payload_json).lower()

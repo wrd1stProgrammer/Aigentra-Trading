@@ -49,6 +49,7 @@ test("account UI exposes favorites and Telegram alert customization", () => {
   assert.match(accountSource, /TelegramReviewSectionSettings/, "account page should expose Telegram review section settings");
   assert.match(preferencesSource, /"pending_entry"/, "alert types should cover pending entries");
   assert.match(preferencesSource, /"ai_review_high"/, "alert types should expose AI review importance");
+  assert.match(preferencesSource, /"league_sentiment"/, "alert types should expose Aigentra aggregate opinion alerts");
   assert.match(preferencesSource, /"watch_conditions"/, "review section settings should expose full AI review content");
 });
 
@@ -66,6 +67,7 @@ test("telegram alert settings default to all event types and full review content
     "ai_review_low",
     "ai_review_medium",
     "ai_review_high",
+    "league_sentiment",
     "risk"
   ]);
   assert.deepEqual(initial.telegramSettings.reviewSections, [

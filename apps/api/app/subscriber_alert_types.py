@@ -9,6 +9,7 @@ TELEGRAM_EVENT_TYPES = (
     "ai_review_low",
     "ai_review_medium",
     "ai_review_high",
+    "league_sentiment",
     "risk",
 )
 
@@ -20,6 +21,7 @@ DEFAULT_TELEGRAM_EVENT_TYPES = (
     "ai_review_low",
     "ai_review_medium",
     "ai_review_high",
+    "league_sentiment",
     "risk",
 )
 

@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import (
+    LeagueSentimentOpinionRecord,
     PositionManagementReviewRecord,
     SubscriberPreferenceRecord,
     TelegramAlertDeliveryRecord,
@@ -17,7 +18,7 @@ from app.locales import normalize_locale as normalize_supported_locale
 from app.repositories import from_json, to_json
 from app.subscriber_alert_types import DEFAULT_TELEGRAM_EVENT_TYPES, DEFAULT_TELEGRAM_REVIEW_SECTIONS, normalize_event_types, normalize_review_sections
 from app.telegram_client import send_telegram_message
-from app.telegram_messages import compose_event_message, compose_management_message
+from app.telegram_messages import compose_event_message, compose_league_sentiment_message, compose_management_message
 
 
 @dataclass(frozen=True)
@@ -127,6 +128,7 @@ def notify_subscribers_for_trade_event(db: Session, event: TradeEventRecord) -> 
                 subscriber_preference_id=record.id,
                 trade_event_id=event.id,
                 position_management_review_id=None,
+                league_sentiment_opinion_id=None,
                 trader_id=event.trader_id,
                 symbol=event.symbol,
                 status=status,
@@ -163,8 +165,46 @@ def notify_subscribers_for_management_review(db: Session, review: PositionManage
                 subscriber_preference_id=record.id,
                 trade_event_id=None,
                 position_management_review_id=review.id,
+                league_sentiment_opinion_id=None,
                 trader_id=review.trader_id,
                 symbol=review.symbol,
+                status=status,
+                telegram_event_type=telegram_event_type,
+                chat_id=record.telegram_chat_id or "",
+                payload_json=to_json({"message": text}),
+                response_json=to_json(response_payload),
+            )
+        )
+    db.flush()
+
+
+def notify_subscribers_for_league_sentiment_opinion(db: Session, opinion: LeagueSentimentOpinionRecord) -> None:
+    if opinion.id is None or opinion.status != "ok":
+        return
+
+    telegram_event_type = "league_sentiment"
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    for record in matching_league_sentiment_subscriber_records(db, telegram_event_type):
+        if league_sentiment_delivery_exists(db, record.id, opinion.id):
+            continue
+        text = compose_league_sentiment_message(to_preferences_view(record), opinion)
+        status = "missing_token"
+        response_payload: dict[str, Any] = {"ok": False, "description": "missing TELEGRAM_BOT_TOKEN"}
+        if bot_token:
+            try:
+                response_payload = send_telegram_message(bot_token=bot_token, chat_id=record.telegram_chat_id or "", text=text)
+                status = "sent" if response_payload.get("ok") else "failed"
+            except Exception as exc:
+                response_payload = {"ok": False, "description": str(exc)}
+                status = "failed"
+        db.add(
+            TelegramAlertDeliveryRecord(
+                subscriber_preference_id=record.id,
+                trade_event_id=None,
+                position_management_review_id=None,
+                league_sentiment_opinion_id=opinion.id,
+                trader_id="aigentra-opinion",
+                symbol=opinion.symbol,
                 status=status,
                 telegram_event_type=telegram_event_type,
                 chat_id=record.telegram_chat_id or "",
@@ -222,6 +262,19 @@ def matching_management_subscriber_records(
     return [record for record in records if management_subscriber_matches(record, review, telegram_event_type)]
 
 
+def matching_league_sentiment_subscriber_records(db: Session, telegram_event_type: str) -> list[SubscriberPreferenceRecord]:
+    records = db.execute(
+        select(SubscriberPreferenceRecord)
+        .where(
+            SubscriberPreferenceRecord.subscription_status == "active",
+            SubscriberPreferenceRecord.telegram_enabled.is_(True),
+            SubscriberPreferenceRecord.telegram_chat_id.is_not(None),
+        )
+        .order_by(SubscriberPreferenceRecord.id.asc())
+    ).scalars().all()
+    return [record for record in records if league_sentiment_subscriber_matches(record, telegram_event_type)]
+
+
 def subscriber_matches(record: SubscriberPreferenceRecord, event: TradeEventRecord, telegram_event_type: str) -> bool:
     settings = to_preferences_view(record).telegram_settings
     if telegram_event_type not in settings.event_types:
@@ -244,6 +297,11 @@ def management_subscriber_matches(
         return False
     favorite_ids = read_string_list(record.favorite_trader_ids_json)
     return not favorite_ids or (review.trader_id or "") in favorite_ids
+
+
+def league_sentiment_subscriber_matches(record: SubscriberPreferenceRecord, telegram_event_type: str) -> bool:
+    settings = to_preferences_view(record).telegram_settings
+    return telegram_event_type in settings.event_types
 
 
 def to_preferences_view(record: SubscriberPreferenceRecord) -> SubscriberPreferencesView:
@@ -333,6 +391,15 @@ def management_delivery_exists(db: Session, subscriber_id: int, review_id: int) 
         select(TelegramAlertDeliveryRecord.id).where(
             TelegramAlertDeliveryRecord.subscriber_preference_id == subscriber_id,
             TelegramAlertDeliveryRecord.position_management_review_id == review_id,
+        )
+    ).scalar_one_or_none() is not None
+
+
+def league_sentiment_delivery_exists(db: Session, subscriber_id: int, opinion_id: int) -> bool:
+    return db.execute(
+        select(TelegramAlertDeliveryRecord.id).where(
+            TelegramAlertDeliveryRecord.subscriber_preference_id == subscriber_id,
+            TelegramAlertDeliveryRecord.league_sentiment_opinion_id == opinion_id,
         )
     ).scalar_one_or_none() is not None
 
