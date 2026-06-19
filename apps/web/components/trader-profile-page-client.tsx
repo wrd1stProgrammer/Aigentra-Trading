@@ -33,6 +33,7 @@ import {
   timelineItemsForUtcDate
 } from "@/components/trader-profile-detail/scenario-window";
 import {
+  BinancePositionPanel,
   DetailChart,
   DetailSidebar,
   HeroHeader,
@@ -653,12 +654,24 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
             managementReviews={reviews}
             height={340}
             compact
+            showPositionPanel={false}
             scenarios={scenarios}
             onOpenScenario={setSelectedScenario}
           />
         </div>
         <StatusFeedThread feeds={statusFeeds} locale={locale} t={t} />
       </section>
+
+      <div data-testid="detail-full-width-position-panel" className="mt-2 min-w-0">
+        <BinancePositionPanel
+          symbol={symbol}
+          positions={positions}
+          orders={orders}
+          latestPlan={latestPlan}
+          scenarios={scenarios}
+          onOpenScenario={setSelectedScenario}
+        />
+      </div>
 
       <section className="mt-5 grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="min-w-0 space-y-5">

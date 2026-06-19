@@ -73,7 +73,7 @@ export function StatusFeedThread({
   return (
     <aside
       data-testid="trader-status-feed-thread"
-      className="min-h-[340px] min-w-0 overflow-hidden rounded-2xl bg-white ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800"
+      className="min-h-[340px] min-w-0 self-start overflow-hidden rounded-2xl bg-white ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800"
     >
       <div className="border-b border-zinc-100 px-5 py-4 dark:border-zinc-900">
         <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-600 dark:text-emerald-400">{t("detail.statusFeed")}</p>

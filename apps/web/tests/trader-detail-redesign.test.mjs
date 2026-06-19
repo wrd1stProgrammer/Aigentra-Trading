@@ -80,6 +80,8 @@ test("trader detail exposes reference-style monitoring layout regions", () => {
   assert.match(source, /data-testid="top-chart-panel"/, "detail page should keep the chart in a top monitoring panel");
   assert.match(source, /data-testid="trader-status-feed-thread"/, "detail page should expose the trader status feed thread next to the chart");
   assert.match(source, /xl:grid-cols-\[minmax\(0,3fr\)_minmax\(300px,1fr\)\]/, "top monitoring row should split chart and feed at roughly 3/4 to 1/4 width");
+  assert.match(source, /showPositionPanel=\{false\}/, "top monitoring row should not keep the position panel trapped under the chart column");
+  assert.match(source, /data-testid="detail-full-width-position-panel"/, "position panel should sit below the chart/feed row at full content width");
   assert.match(source, /data-testid="scenario-timeline"/, "detail page should expose a latest scenario timeline region");
   assert.match(source, /data-testid="holding-panel"/, "detail page should expose the right holding allocation panel");
   assert.match(source, /data-testid="trade-history-panel"/, "detail page should expose the right trade history panel");
