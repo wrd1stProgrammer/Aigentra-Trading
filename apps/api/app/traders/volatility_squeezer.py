@@ -24,7 +24,7 @@ from app.traders.strategy_base import (
 class VolatilitySqueezer(TraderStrategy):
     profile = TraderProfile(
         id="volatility-squeezer",
-        name="Volatility Squeezer",
+        name="Squeeze Operator",
         description="Waits for volatility to compress, then joins the first expansion only when candle body, volume, and direction confirm.",
         concept="Quiet markets often expand suddenly; this trader looks for the first clean release while avoiding one-candle fakeouts.",
         baseRiskPercent=0.55,

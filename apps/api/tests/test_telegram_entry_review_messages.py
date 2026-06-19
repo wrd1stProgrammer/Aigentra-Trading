@@ -189,7 +189,7 @@ def test_management_alert_includes_position_context_readably():
     text = compose_management_message(preferences, review, "ai_review_high")
 
     assert "[AI Trader League] AI 중간 리뷰 높음" in text
-    assert "Liquidity Reaper · BTCUSDT" in text
+    assert "Liquidity Sweeper · BTCUSDT" in text
     assert "\n\n상태\n  단계: OPEN_POSITION\n  판단: HOLD\n  조치: MOVE_STOP_TO_BREAKEVEN\n  신뢰도: 84" in text
     assert "\n\n포지션\n  방향: LONG · 5x\n  진입가: 63,800\n  현재가: 63,920.25" in text
     assert "  손절가: 63,666\n  익절가: 64,500\n  PnL: +42.30" in text

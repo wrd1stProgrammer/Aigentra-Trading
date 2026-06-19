@@ -8,12 +8,16 @@ import { CircleNotch } from "@phosphor-icons/react";
 import { useAppContext } from "@/components/app-provider";
 import { ConsensusAveragePrices } from "@/components/consensus-average-prices";
 import { ConsensusHourlyOpinion } from "@/components/consensus-hourly-opinion";
+import { PageLoadingOverlay } from "@/components/page-loading-overlay";
 import { 
+  getActivePaperPositions,
   getCachedLeaderboardBundle, 
+  getPaperOrders,
   getRecentTradePlans, 
   getLeagueSentimentOpinion,
   LEAGUE_LIVE_REFETCH_INTERVAL_MS, 
   leaderboardBundleQueryOptions,
+  type LeaderboardBundleRequestOptions,
   type LeaderboardBundle,
   type TraderProfile,
   type PaperPosition,
@@ -21,8 +25,8 @@ import {
   type ManagementReview,
   type TraderPaperSummary
 } from "@/lib/api";
-import { buildScenarios, buildStandings, traderVisuals } from "@/lib/league";
-import { fallbackTraders } from "@/lib/traders";
+import { buildScenarios, buildStandings, traderVisuals, type TraderScenario, type TraderStanding } from "@/lib/league";
+import { fallbackTraders, traderNameKey, traderShortKey } from "@/lib/traders";
 import { formatNumber } from "@/lib/format";
 import { type Locale } from "@/lib/i18n";
 
@@ -48,6 +52,16 @@ const traderFlags: Record<string, string> = {
   "momentum-ignition": "₿",
   "bollinger-reversion": "₿",
   "atr-trail-commander": "₿"
+};
+
+const CONSENSUS_PLAN_LIMIT = 40;
+const CONSENSUS_EXPOSURE_LIMIT = 40;
+const CONSENSUS_BUNDLE_OPTIONS: LeaderboardBundleRequestOptions = { includeRelated: false };
+
+type ConsensusTrader = TraderStanding & {
+  activeState: TraderActiveState;
+  activeScenario?: TraderScenario;
+  rationale?: string | null;
 };
 
 function normalizeSide(value?: string | null): "long" | "short" | undefined {
@@ -83,6 +97,34 @@ function numberValue(...values: Array<unknown>) {
     }
   }
   return null;
+}
+
+function translatedOrFallback(t: (key: string) => string, key: string, fallback: string) {
+  const translated = t(key);
+  return translated === key ? fallback : translated;
+}
+
+function localizedTraderName(trader: { id: string; name: string }, t: (key: string) => string) {
+  return translatedOrFallback(t, traderNameKey(trader.id), trader.name);
+}
+
+function unwrapTradePlans(value: unknown): Array<Record<string, any>> {
+  if (Array.isArray(value)) return value as Array<Record<string, any>>;
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, any>;
+  if (Array.isArray(record.tradePlans)) return record.tradePlans as Array<Record<string, any>>;
+  if (Array.isArray(record.plans)) return record.plans as Array<Record<string, any>>;
+  return [];
+}
+
+function unwrapPaperPositions(value: { positions?: PaperPosition[] } | PaperPosition[]) {
+  if (Array.isArray(value)) return value;
+  return Array.isArray(value.positions) ? value.positions : [];
+}
+
+function unwrapPaperOrders(value: { orders?: PaperOrder[] } | PaperOrder[]) {
+  if (Array.isArray(value)) return value;
+  return Array.isArray(value.orders) ? value.orders : [];
 }
 
 function planEntryPrice(plan?: Record<string, any>) {
@@ -251,10 +293,10 @@ export function ConsensusPageClient() {
 
   // Fetch leaderboard bundle
   const btcQuery = useQuery({
-    ...leaderboardBundleQueryOptions("BTCUSDT", locale),
+    ...leaderboardBundleQueryOptions("BTCUSDT", locale, CONSENSUS_BUNDLE_OPTIONS),
     placeholderData: (previousData) => {
       if (previousData?.symbol === "BTCUSDT") return previousData;
-      return cacheReady ? getCachedLeaderboardBundle("BTCUSDT", locale) ?? fallbackBundle : fallbackBundle;
+      return cacheReady ? getCachedLeaderboardBundle("BTCUSDT", locale, CONSENSUS_BUNDLE_OPTIONS) ?? fallbackBundle : fallbackBundle;
     }
   });
 
@@ -270,18 +312,8 @@ export function ConsensusPageClient() {
   const pendingPlansQuery = useQuery({
     queryKey: ["league", "trade-plans", "BTCUSDT", "pending"],
     queryFn: async () => {
-      try {
-        const res = await getRecentTradePlans(100, "BTCUSDT", undefined, "PAPER_TRADING_PENDING");
-        if (Array.isArray(res)) return res;
-        if (res && typeof res === "object") {
-          const record = res as Record<string, any>;
-          if (Array.isArray(record.tradePlans)) return record.tradePlans;
-          if (Array.isArray(record.plans)) return record.plans;
-        }
-      } catch (e) {
-        console.error("Failed to fetch pending plans:", e);
-      }
-      return [];
+      const res = await getRecentTradePlans(CONSENSUS_PLAN_LIMIT, "BTCUSDT", undefined, "PAPER_TRADING_PENDING");
+      return unwrapTradePlans(res);
     },
     placeholderData: (previousData) => previousData ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -289,29 +321,52 @@ export function ConsensusPageClient() {
   });
 
   const bundle = btcQuery.data ?? fallbackBundle;
+  const activePositionsQuery = useQuery({
+    queryKey: ["paper", "positions", "active", "BTCUSDT", "consensus"],
+    queryFn: async () => unwrapPaperPositions(await getActivePaperPositions("BTCUSDT", undefined, CONSENSUS_EXPOSURE_LIMIT)),
+    placeholderData: (previousData) => previousData ?? [],
+    staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
+    refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false
+  });
+  const activeOrdersQuery = useQuery({
+    queryKey: ["paper", "orders", "open", "BTCUSDT", "consensus"],
+    queryFn: async () => unwrapPaperOrders(await getPaperOrders(CONSENSUS_EXPOSURE_LIMIT, "BTCUSDT", "open")),
+    placeholderData: (previousData) => previousData ?? [],
+    staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
+    refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false
+  });
   const pendingPlans = pendingPlansQuery.data ?? [];
-  const liveDataRefreshing = btcQuery.isFetching || pendingPlansQuery.isFetching || hourlyOpinionQuery.isFetching;
+  const activePositions = activePositionsQuery.data ?? bundle.positions ?? [];
+  const activeOrders = activeOrdersQuery.data ?? bundle.orders ?? [];
+  const liveDataRefreshing =
+    btcQuery.isFetching ||
+    activePositionsQuery.isFetching ||
+    activeOrdersQuery.isFetching ||
+    pendingPlansQuery.isFetching ||
+    hourlyOpinionQuery.isFetching;
 
   const traders = bundle.traders?.length ? bundle.traders : (fallbackTraders as unknown as TraderProfile[]);
   const standings = useMemo(() => buildStandings(traders, bundle.summaries ?? []), [bundle.summaries, traders]);
 
   // Combine standing and active trade state
-  const tradersWithStates = useMemo(() => {
+  const tradersWithStates = useMemo<ConsensusTrader[]>(() => {
     const summaryMap = new Map(bundle.summaries.map((s) => [s.traderId, s]));
     return standings.map((standing) => {
       const summary = summaryMap.get(standing.id);
       const activeState = getTraderActiveState(
         standing,
         summary,
-        bundle.positions ?? [],
-        bundle.orders ?? [],
+        activePositions,
+        activeOrders,
         pendingPlans,
         t
       );
 
       // Extract scenarios
-      const traderPositions = (bundle.positions ?? []).filter((p) => p.traderId === standing.id);
-      const traderOrders = (bundle.orders ?? []).filter((o) => o.traderId === standing.id);
+      const traderPositions = activePositions.filter((p) => p.traderId === standing.id);
+      const traderOrders = activeOrders.filter((o) => o.traderId === standing.id);
       const traderReviews = (bundle.managementReviews ?? []).filter((r) => r.traderId === standing.id || r.trader_id === standing.id);
       
       const scenarios = buildScenarios({
@@ -342,7 +397,7 @@ export function ConsensusPageClient() {
         rationale
       };
     });
-  }, [standings, bundle, pendingPlans, locale, t]);
+  }, [standings, bundle, activeOrders, activePositions, pendingPlans, t]);
 
   // Strict Filter: Only inPosition or pendingEntry
   const activeTraders = useMemo(() => {
@@ -406,7 +461,7 @@ export function ConsensusPageClient() {
   }, [activeTraders]);
 
   const activeLongTraders = useMemo(() => {
-    const sortActiveTraders = (a: any, b: any) => {
+    const sortActiveTraders = (a: ConsensusTrader, b: ConsensusTrader) => {
       if (a.activeState.status === "inPosition" && b.activeState.status !== "inPosition") return -1;
       if (a.activeState.status !== "inPosition" && b.activeState.status === "inPosition") return 1;
       if (a.activeState.status === "inPosition" && b.activeState.status === "inPosition") {
@@ -422,7 +477,7 @@ export function ConsensusPageClient() {
   }, [activeTraders]);
 
   const activeShortTraders = useMemo(() => {
-    const sortActiveTraders = (a: any, b: any) => {
+    const sortActiveTraders = (a: ConsensusTrader, b: ConsensusTrader) => {
       if (a.activeState.status === "inPosition" && b.activeState.status !== "inPosition") return -1;
       if (a.activeState.status !== "inPosition" && b.activeState.status === "inPosition") return 1;
       if (a.activeState.status === "inPosition" && b.activeState.status === "inPosition") {
@@ -443,21 +498,19 @@ export function ConsensusPageClient() {
     );
   }, [tradersWithStates]);
 
-  const loading = btcQuery.isPending && !btcQuery.data;
+  const initialLoading =
+    (btcQuery.isFetching && (btcQuery.isPending || btcQuery.isPlaceholderData)) ||
+    (hourlyOpinionQuery.isPending && !hourlyOpinionQuery.data);
   const error = btcQuery.error ? t("common.liveDataUnavailable") : null;
-
-  if (loading) {
-    return (
-      <div className="max-w-6xl mx-auto px-4 py-8 flex flex-col gap-6 animate-pulse">
-        <div className="h-20 w-full rounded-xl border border-zinc-200 bg-zinc-100 dark:border-white/10 dark:bg-white/5" />
-        <div className="h-36 w-full rounded-xl border border-zinc-200 bg-zinc-100 dark:border-white/10 dark:bg-white/5" />
-        <div className="h-96 rounded-xl border border-zinc-200 bg-zinc-100 dark:border-white/10 dark:bg-white/5" />
-      </div>
-    );
-  }
 
   return (
     <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 py-8 animate-rise grid gap-6 md:gap-8">
+      <PageLoadingOverlay
+        active={initialLoading}
+        label={t("common.loadingSentimentData")}
+        detail={t("common.loadingLiveDataDetail")}
+      />
+
       {/* Title Header Row */}
       <div data-testid="consensus-command-header" className="flex flex-col gap-4 border-b border-zinc-200/80 pb-6 dark:border-white/[0.08] md:flex-row md:items-center md:justify-between">
         <div>
@@ -625,7 +678,8 @@ export function ConsensusPageClient() {
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {watchingTraders.map((trader) => {
-            const visual = traderVisuals[trader.id] ?? { tone: "from-zinc-500 to-zinc-700", initials: "AI", alias: trader.name };
+            const localizedName = localizedTraderName(trader, t);
+            const visual = traderVisuals[trader.id] ?? { tone: "from-zinc-500 to-zinc-700", initials: "AI", alias: localizedName };
             const flag = traderFlags[trader.id] || "🇰🇷";
             return (
               <div 
@@ -639,7 +693,7 @@ export function ConsensusPageClient() {
                     </div>
                     <div className="min-w-0">
                       <h4 className="text-xs font-bold text-zinc-950 truncate flex items-center gap-1.5 dark:text-white">
-                        {trader.name}
+                        {localizedName}
                         <span className="text-[10px] shrink-0" title="Flag">{flag}</span>
                       </h4>
                       <p className="text-[9px] text-zinc-500 font-mono truncate uppercase mt-0.5">{visual.alias}</p>
@@ -653,7 +707,7 @@ export function ConsensusPageClient() {
                 </div>
 
                 <p className="text-zinc-500 text-[10px] mt-2 leading-relaxed line-clamp-1 italic">
-                  {trader.concept || trader.description}
+                  {translatedOrFallback(t, traderShortKey(trader.id), trader.concept || trader.description)}
                 </p>
 
                 <div className="mt-3 border-t border-zinc-100 pt-2 flex items-center justify-between dark:border-white/[0.04]">
@@ -685,8 +739,9 @@ export function ConsensusPageClient() {
   );
 }
 
-function ActiveTraderRow({ trader, locale, t }: { trader: any; locale: Locale; t: (key: string) => string }) {
-  const visual = traderVisuals[trader.id] ?? { tone: "from-zinc-500 to-zinc-700", initials: "AI", alias: trader.name };
+function ActiveTraderRow({ trader, locale, t }: { trader: ConsensusTrader; locale: Locale; t: (key: string) => string }) {
+  const localizedName = localizedTraderName(trader, t);
+  const visual = traderVisuals[trader.id] ?? { tone: "from-zinc-500 to-zinc-700", initials: "AI", alias: localizedName };
   const flag = traderFlags[trader.id] || "🇰🇷";
   const { activeState, rationale } = trader;
   const isLong = activeState.side === "long";
@@ -711,7 +766,7 @@ function ActiveTraderRow({ trader, locale, t }: { trader: any; locale: Locale; t
             </div>
             <div className="min-w-0">
               <h4 className="text-xs font-bold text-zinc-950 truncate flex items-center gap-1.5 dark:text-white">
-                {trader.name}
+                {localizedName}
                 <span className="text-[10px] shrink-0" title="Flag">{flag}</span>
               </h4>
               <p className="text-[9px] text-zinc-500 font-mono tracking-wider uppercase mt-0.5">{visual.alias}</p>

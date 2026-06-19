@@ -21,7 +21,7 @@ from app.traders.strategy_base import (
 class LeverageHunter(TraderStrategy):
     profile = TraderProfile(
         id="leverage-hunter",
-        name="Leverage Hunter",
+        name="Leverage Tracker",
         description="Uses futures crowding, funding, and open-interest pressure to find squeeze setups, but still waits for a structure trigger.",
         concept="It hunts moments where crowded leverage may be forced out, then enters only after price confirms the squeeze direction.",
         baseRiskPercent=0.6,
@@ -167,7 +167,7 @@ class LeverageHunter(TraderStrategy):
             leveragePlan=default_leverage_plan(
                 suggested=leverage,
                 maximum=10,
-                reason="Leverage Hunter is the high-beta futures specialist: 8-10x only after funding/crowding and structure confirm together.",
+                reason="Leverage Tracker is the high-beta futures specialist: 8-10x only after funding/crowding and structure confirm together.",
             ),
             riskPlan=default_risk_plan(
                 risk_percent=risk_percent,

@@ -86,7 +86,7 @@ def test_no_candidate_run_log_is_compact_and_has_no_raw_json(tmp_path):
     reset_db_engine(f"sqlite:///{tmp_path / 'run-log.db'}")
     init_db()
     noisy_payload = {
-        "trader": "Channel Rider",
+        "trader": "Channel Cartographer",
         "symbol": "BTCUSDT",
         "marketSnapshot": {"timeframes": {"1m": {"latestCandle": {"trades": 500}}}},
         "candidate": {"created": False, "reason": "No setup", "setupScore": 42, "entries": []},
@@ -192,7 +192,7 @@ def test_leaderboard_bundle_keeps_management_reviews_slim(tmp_path):
         db.add(
             TraderLeaderboardSnapshotRecord(
                 trader_id="channel-rider",
-                trader_name="Channel Rider",
+                trader_name="Channel Cartographer",
                 symbol="BTCUSDT",
                 status="active",
                 has_live_paper_data=True,

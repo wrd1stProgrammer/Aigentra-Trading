@@ -252,7 +252,7 @@ def test_trade_events_enqueue_matching_telegram_alerts(temp_db, monkeypatch):
             "text": sent_messages[0]["text"],
         }
     ]
-    assert "Channel Rider" in sent_messages[0]["text"]
+    assert "Channel Cartographer" in sent_messages[0]["text"]
     assert "BTCUSDT" in sent_messages[0]["text"]
 
 

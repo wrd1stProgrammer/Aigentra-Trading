@@ -30,7 +30,8 @@ import { useAppContext } from "@/components/app-provider";
 import type { Locale } from "@/lib/i18n";
 import { buildStandings, traderVisuals, type LeagueSymbol, type TraderStanding } from "@/lib/league";
 import { EquityAreaChart } from "@/components/leaderboard-sidebar-equity-chart";
-import { fallbackTraders, traderDetailKey, traderShortKey } from "@/lib/traders";
+import { PageLoadingOverlay } from "@/components/page-loading-overlay";
+import { fallbackTraders, traderDetailKey, traderNameKey, traderShortKey } from "@/lib/traders";
 import { formatCurrency, formatNumber, formatRelativeDateTime } from "@/lib/format";
 import { statusLabel } from "@/lib/status";
 import { activePositionLeverage, appendLeverageSample, formatLeverageBadge, orderLeverage, planLeverage, positionLeverage } from "@/components/leaderboard-leverage";
@@ -159,6 +160,7 @@ export function LeaderboardPageClient() {
   });
 
   const isFetching = btcQuery.isFetching;
+  const initialLoading = btcQuery.isFetching && (btcQuery.isPending || btcQuery.isPlaceholderData);
   const bundle = useMemo<LeaderboardBundle>(() => {
     return btcQuery.data ?? fallbackBundle;
   }, [btcQuery.data, fallbackBundle]);
@@ -237,6 +239,12 @@ export function LeaderboardPageClient() {
 
   return (
     <div className="grid gap-4 pb-8">
+      <PageLoadingOverlay
+        active={initialLoading}
+        label={t("common.loadingLeagueData")}
+        detail={t("common.loadingLiveDataDetail")}
+      />
+
       <section 
         className="relative overflow-hidden border border-white/10 bg-[#070908] text-white rounded-[22px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)]"
         style={{
@@ -428,6 +436,7 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, onPrefetch 
       {standings.map((trader) => (
         (() => {
           const progress = traderProgress(trader, exposureByTrader.get(trader.id), t, locale);
+          const displayName = localizedTraderName(trader, t);
           const isNew = [
             "donchian-breakout",
             "ichimoku-cloud-pilot",
@@ -455,7 +464,7 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, onPrefetch 
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
                       <p className="truncate text-sm font-bold text-white flex items-center gap-1.5">
-                        {trader.name}
+                        {displayName}
                         {isNew && (
                           <span className="inline-flex shrink-0 items-center rounded-sm bg-emerald-500/20 text-emerald-400 px-1 py-0.5 text-[9px] font-extrabold uppercase tracking-wide leading-none border border-emerald-500/30">
                             NEW
@@ -508,6 +517,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
 
   const progress = traderProgress(trader, exposure, t, locale);
   const state = progress.label;
+  const displayName = localizedTraderName(trader, t);
 
   return (
     <aside className="data-card rounded-[22px] border-zinc-200/80 dark:border-white/[0.08] hidden xl:block shadow-sm transition hover:border-emerald-500/20 duration-300 w-full min-w-0 sticky top-[74px] p-5 overflow-hidden">
@@ -517,7 +527,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
             <div className="min-w-0">
               <p className="text-zinc-500 text-xs uppercase tracking-wider font-bold">{t("leaderboard.previewTitle")}</p>
               <h3 className="mt-1 truncate text-2xl font-bold tracking-tight text-white flex items-center gap-2">
-                {trader.name}
+                {displayName}
                 <span className="text-lg shrink-0">{traderFlags[trader.id] || "🇰🇷"}</span>
               </h3>
               <p className="text-zinc-400 mt-2 text-xs leading-relaxed font-sans break-keep">{t(traderDetailKey(trader.id))}</p>
@@ -594,6 +604,7 @@ function TraderMark({ trader, compact = false }: { trader: TraderStanding; compa
 
 function TraderIdentity({ trader, progress, t }: { trader: TraderStanding; progress: TraderProgress; t: (key: string) => string }) {
   const flag = traderFlags[trader.id] || "🇰🇷";
+  const displayName = localizedTraderName(trader, t);
   const isNew = [
     "donchian-breakout",
     "ichimoku-cloud-pilot",
@@ -612,7 +623,7 @@ function TraderIdentity({ trader, progress, t }: { trader: TraderStanding; progr
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
           <p className="truncate text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
-            {trader.name}
+            {displayName}
             {isNew && (
               <span className="inline-flex shrink-0 items-center rounded-sm bg-emerald-500/20 text-emerald-400 px-1 py-0.5 text-[9px] font-extrabold uppercase tracking-wide leading-none border border-emerald-500/30">
                 NEW
@@ -850,12 +861,18 @@ function unwrapTradePlans(value: unknown): Array<Record<string, any>> {
 
 function traderName(id: string | null | undefined, t: (key: string) => string, traderNameMap: Map<string, string>) {
   if (!id) return "-";
-  const localizationKey = `traders.${id}.name`;
+  const localizationKey = traderNameKey(id);
   const translated = t(localizationKey);
   if (translated !== localizationKey) {
     return translated;
   }
   return traderNameMap.get(id) ?? id.split("-").map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ");
+}
+
+function localizedTraderName(trader: TraderStanding, t: (key: string) => string) {
+  const localizationKey = traderNameKey(trader.id);
+  const translated = t(localizationKey);
+  return translated === localizationKey ? trader.name : translated;
 }
 
 function sideText(value?: string | null) {

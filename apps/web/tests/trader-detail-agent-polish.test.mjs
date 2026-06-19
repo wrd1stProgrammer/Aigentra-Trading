@@ -217,7 +217,7 @@ test("trader detail header binds trader names descriptions and desk aliases thro
   assert.match(headerSource, /traderAliasKey/, "header should localize the desk alias");
   assert.match(i18nSource, /traders\.channel-rider\.alias/, "desk aliases need localization keys");
   assert.match(i18nSource, /traders\.channel-rider\.detail/, "richer trader descriptions need localization keys");
-  assert.match(i18nSource, /"traders\.channel-rider\.name": "채널 라이더"/, "Korean trader names should be localized, not English literals");
+  assert.match(i18nSource, /"traders\.channel-rider\.name": "채널 항해사"/, "Korean trader names should be localized, not English literals");
 });
 
 test("holdings use thin account-deployment gauge instead of thick per-item share bar", () => {

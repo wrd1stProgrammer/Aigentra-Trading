@@ -235,7 +235,7 @@ def test_trader_detail_rebuilds_expired_cache(monkeypatch):
         0,
         {
             "symbol": "BTCUSDT",
-            "trader": {"id": "channel-rider", "name": "Channel Rider"},
+            "trader": {"id": "channel-rider", "name": "Channel Cartographer"},
             "summaries": [],
             "positions": [],
             "orders": [],
@@ -316,7 +316,7 @@ def test_trader_detail_refresh_query_replaces_cached_payload(monkeypatch):
         time.monotonic() + 300,
         {
             "symbol": "BTCUSDT",
-            "trader": {"id": "channel-rider", "name": "Channel Rider"},
+            "trader": {"id": "channel-rider", "name": "Channel Cartographer"},
             "summaries": [],
             "positions": [],
             "orders": [],

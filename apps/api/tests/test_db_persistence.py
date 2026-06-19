@@ -408,7 +408,7 @@ def seed_trader_history_for_reset(db) -> dict[str, int]:
             trader_id="channel-rider",
             symbol="BTCUSDT",
             status="active",
-            trader_name="Channel Rider",
+            trader_name="Channel Cartographer",
         )
     )
     db.add(

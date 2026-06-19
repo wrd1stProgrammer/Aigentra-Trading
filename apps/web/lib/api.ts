@@ -6,6 +6,10 @@ export const LEAGUE_QUERY_STALE_TIME_MS = 60_000;
 export const LEAGUE_QUERY_GC_TIME_MS = 10 * 60_000;
 export const LEAGUE_LIVE_REFETCH_INTERVAL_MS = 60_000;
 
+export type LeaderboardBundleRequestOptions = {
+  readonly includeRelated?: boolean;
+};
+
 export type TraderProfile = {
   id: string;
   name: string;
@@ -744,10 +748,19 @@ export function getTraderPaperSummary(symbol: string) {
   );
 }
 
-export function getLeaderboardBundle(symbol: string, locale: Locale = "en") {
-  const params = new URLSearchParams({ symbol, locale, includeRelated: "true" });
+function leaderboardCacheKey(symbol: string, locale: Locale, options?: LeaderboardBundleRequestOptions) {
+  const includeRelated = options?.includeRelated ?? true;
+  return `leaderboard:${symbol}:${locale}:${includeRelated ? "related" : "summary"}`;
+}
+
+export function getLeaderboardBundle(symbol: string, locale: Locale = "en", options?: LeaderboardBundleRequestOptions) {
+  const params = new URLSearchParams({
+    symbol,
+    locale,
+    includeRelated: String(options?.includeRelated ?? true)
+  });
   return request<LeaderboardBundle>(`/api/league/leaderboard-fast?${params.toString()}`).then((bundle) => {
-    writeBrowserCache(`leaderboard:${symbol}:${locale}`, bundle);
+    writeBrowserCache(leaderboardCacheKey(symbol, locale, options), bundle);
     return bundle;
   });
 }
@@ -781,20 +794,21 @@ export function getTraderDetailBundle(traderId: string, symbol: string, reviewsL
   });
 }
 
-export function getCachedLeaderboardBundle(symbol: string, locale: Locale = "en") {
-  return readBrowserCache<LeaderboardBundle>(`leaderboard:${symbol}:${locale}`, LEADERBOARD_BROWSER_CACHE_MS);
+export function getCachedLeaderboardBundle(symbol: string, locale: Locale = "en", options?: LeaderboardBundleRequestOptions) {
+  return readBrowserCache<LeaderboardBundle>(leaderboardCacheKey(symbol, locale, options), LEADERBOARD_BROWSER_CACHE_MS);
 }
 
 export function getCachedTraderDetailBundle(traderId: string, symbol: string, reviewsLimit = 20, eventsLimit = 10, locale: Locale = "en") {
   return readBrowserCache<TraderDetailBundle>(`trader:${traderId}:${symbol}:${reviewsLimit}:${eventsLimit}:${locale}`, TRADER_DETAIL_BROWSER_CACHE_MS);
 }
 
-export const leaderboardBundleQueryKey = (symbol: string, locale: Locale = "en") => ["league", "leaderboard", symbol, locale] as const;
+export const leaderboardBundleQueryKey = (symbol: string, locale: Locale = "en", options?: LeaderboardBundleRequestOptions) =>
+  ["league", "leaderboard", symbol, locale, options?.includeRelated ?? true] as const;
 
-export function leaderboardBundleQueryOptions(symbol: string, locale: Locale = "en") {
+export function leaderboardBundleQueryOptions(symbol: string, locale: Locale = "en", options?: LeaderboardBundleRequestOptions) {
   return {
-    queryKey: leaderboardBundleQueryKey(symbol, locale),
-    queryFn: () => getLeaderboardBundle(symbol, locale),
+    queryKey: leaderboardBundleQueryKey(symbol, locale, options),
+    queryFn: () => getLeaderboardBundle(symbol, locale, options),
     staleTime: LEAGUE_QUERY_STALE_TIME_MS,
     gcTime: LEAGUE_QUERY_GC_TIME_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -802,8 +816,8 @@ export function leaderboardBundleQueryOptions(symbol: string, locale: Locale = "
   };
 }
 
-export function prefetchLeaderboardBundle(queryClient: QueryClient, symbol: string, locale: Locale = "en") {
-  return queryClient.prefetchQuery(leaderboardBundleQueryOptions(symbol, locale));
+export function prefetchLeaderboardBundle(queryClient: QueryClient, symbol: string, locale: Locale = "en", options?: LeaderboardBundleRequestOptions) {
+  return queryClient.prefetchQuery(leaderboardBundleQueryOptions(symbol, locale, options));
 }
 
 export const traderDetailBundleQueryKey = (traderId: string, symbol: string, reviewsLimit: number, eventsLimit: number, locale: Locale) =>
@@ -835,15 +849,18 @@ export function runScannerOnce(symbol = "BTCUSDT", provider = "mock", locale: Lo
   });
 }
 
-export function getActivePaperPositions(symbol?: string, traderId?: string) {
-  const params = new URLSearchParams();
+export function getActivePaperPositions(symbol?: string, traderId?: string, limit = 20) {
+  const params = new URLSearchParams({ limit: String(limit) });
   if (symbol) params.set("symbol", symbol);
   if (traderId) params.set("trader_id", traderId);
-  const query = params.toString() ? `?${params.toString()}` : "";
+  const activeQuery = `?${params.toString()}`;
+  const fallbackParams = new URLSearchParams(params);
+  fallbackParams.set("status", "open");
+  const fallbackQuery = `?${fallbackParams.toString()}`;
   return requestFirst<{ positions: PaperPosition[] } | PaperPosition[]>([
-    `/api/paper/positions/active${query}`,
-    `/api/paper/positions${query}`,
-    `/api/paper-trading/positions${query}`
+    `/api/paper/positions/active${activeQuery}`,
+    `/api/paper/positions${fallbackQuery}`,
+    `/api/paper-trading/positions${fallbackQuery}`
   ]);
 }
 

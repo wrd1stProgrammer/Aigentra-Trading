@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import ts from "typescript";
 
 const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8");
+const overlaySource = readFileSync(new URL("../components/page-loading-overlay.tsx", import.meta.url), "utf8");
 const overviewFilter = loadTsModule("../components/leaderboard-overview-filter.ts");
 const formatSource = readFileSync(new URL("../lib/format.ts", import.meta.url), "utf8");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
@@ -103,6 +104,13 @@ test("leaderboard browser cache placeholders wait until after hydration", () => 
   assert.match(leaderboardSource, /const \[cacheReady, setCacheReady\] = useState\(false\)/, "leaderboard cache readiness should be client-state driven");
   assert.match(leaderboardSource, /useEffect\(\(\) => \{\s*setCacheReady\(true\);\s*\}, \[\]\);/s, "leaderboard cache should only activate after mount");
   assert.match(leaderboardSource, /cacheReady \? getCachedLeaderboardBundle\("BTCUSDT", locale\)/, "localStorage-backed leaderboard cache should not run during hydration");
+});
+
+test("leaderboard uses the shared full-screen loading overlay", () => {
+  assert.match(leaderboardSource, /PageLoadingOverlay/, "leaderboard should render the shared loading overlay");
+  assert.match(leaderboardSource, /common\.loadingLeagueData/, "leaderboard overlay should use localized loading copy");
+  assert.match(overlaySource, /fixed inset-0/, "loading overlay should cover the viewport");
+  assert.match(overlaySource, /backdrop-blur-\[3px\]/, "loading overlay should blur the existing page");
 });
 
 test("leaderboard preview renders the latest trader status feed", () => {

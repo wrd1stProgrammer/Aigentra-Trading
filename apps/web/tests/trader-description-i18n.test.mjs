@@ -6,6 +6,7 @@ import ts from "typescript";
 const traders = loadTsModule("../lib/traders.ts");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
 const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8");
+const consensusSource = readFileSync(new URL("../components/consensus-page-client.tsx", import.meta.url), "utf8");
 const headerSource = readFileSync(new URL("../components/trader-profile-detail/header.tsx", import.meta.url), "utf8");
 
 test("all fallback traders expose richer localized detail copy", () => {
@@ -20,6 +21,17 @@ test("detail surfaces use rich copy while compact trader cards keep short copy",
   assert.match(headerSource, /traderDetailKey/, "trader profile hero should use rich descriptions");
   assert.match(leaderboardSource, /traderDetailKey/, "leaderboard preview sidebar should use rich descriptions");
   assert.match(leaderboardSource, /traderShortKey/, "dense leaderboard rows should keep compact descriptions");
+});
+
+test("trader names are localized across league surfaces", () => {
+  for (const trader of traders.fallbackTraders) {
+    assert.equal(traders.traderNameKey(trader.id), `traders.${trader.id}.name`);
+    assert.match(i18nSource, new RegExp(`"traders\\.${escapeRegExp(trader.id)}\\.name": ".{4,}"`), `${trader.id} needs Korean name copy`);
+  }
+  assert.match(i18nSource, /"traders\.channel-rider\.name": "채널 항해사"/, "Korean names should be culturally rewritten");
+  assert.match(i18nSource, /"traders\.channel-rider\.name": "Channel Cartographer"/, "English names should be rewritten");
+  assert.match(leaderboardSource, /localizedTraderName\(trader, t\)/, "leaderboard rows should use localized trader names");
+  assert.match(consensusSource, /localizedTraderName\(trader, t\)/, "consensus rows should use localized trader names");
 });
 
 function escapeRegExp(value) {

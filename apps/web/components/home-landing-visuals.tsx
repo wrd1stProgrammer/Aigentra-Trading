@@ -5,7 +5,7 @@ import { ChartLineUp, Check, Clock, Pulse, ShieldCheck, Star, TelegramLogo, Tren
 import type { LandingCopy } from "@/lib/marketing-copy";
 
 const traderRows = [
-  { name: "Channel Rider", state: "SHORT · 5x", pnl: "+1.33%" },
+  { name: "Channel Cartographer", state: "SHORT · 5x", pnl: "+1.33%" },
   { name: "Pullback Architect", state: "Entry pending", pnl: "+0.40%" },
   { name: "Funding Contrarian", state: "Watching", pnl: "0.00%" }
 ] as const;
@@ -237,7 +237,7 @@ export function ConsensusPreview() {
             <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded text-[9px] font-mono">LONG (+24.8%)</span>
           </div>
           <div className="flex justify-between items-center rounded-xl border border-white/[0.04] bg-white/[0.01] px-3.5 py-2.5 text-xs text-zinc-300 shadow-md">
-            <span className="text-zinc-400 font-semibold">Channel Rider</span>
+            <span className="text-zinc-400 font-semibold">Channel Cartographer</span>
             <span className="text-rose-400 font-bold bg-rose-500/10 px-2 py-0.5 rounded text-[9px] font-mono">SHORT (+1.3%)</span>
           </div>
         </div>

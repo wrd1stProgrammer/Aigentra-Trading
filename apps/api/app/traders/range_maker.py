@@ -23,7 +23,7 @@ from app.traders.strategy_base import (
 class RangeMaker(TraderStrategy):
     profile = TraderProfile(
         id="range-maker",
-        name="Range Maker",
+        name="Range Mechanic",
         description="Trades only clear sideways ranges, fading the edges when trend pressure is weak and exiting before breakouts accelerate.",
         concept="It assumes the market will rotate inside a box until proven otherwise, so it buys low edges and shorts high edges with quick invalidation.",
         baseRiskPercent=0.4,

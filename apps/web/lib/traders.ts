@@ -26,7 +26,7 @@ export type TraderId = (typeof traderIds)[number];
 export const fallbackTraders = [
   {
     id: "channel-rider",
-    name: "Channel Rider",
+    name: "Channel Cartographer",
     description: "Trades channel pullbacks only when price reaches a clear edge and the larger trend still supports the bounce or rejection.",
     concept: "Think of it as riding a sloped price lane: it buys near the lower lane in uptrends and shorts near the upper lane in downtrends.",
     riskLevel: "MEDIUM",
@@ -56,7 +56,7 @@ export const fallbackTraders = [
   },
   {
     id: "leverage-hunter",
-    name: "Leverage Hunter",
+    name: "Leverage Tracker",
     description: "Uses futures crowding, funding, and open-interest pressure to find squeeze setups, but still waits for a structure trigger.",
     concept: "It hunts moments where crowded leverage may be forced out, then enters only after price confirms the squeeze direction.",
     riskLevel: "HIGH",
@@ -66,7 +66,7 @@ export const fallbackTraders = [
   },
   {
     id: "liquidity-reaper",
-    name: "Liquidity Reaper",
+    name: "Liquidity Sweeper",
     description: "Targets stop-sweep traps around prior highs or lows after price quickly reclaims or fails the swept level.",
     concept: "When price pokes beyond an obvious level and snaps back, this trader treats it as trapped liquidity rather than a clean breakout.",
     riskLevel: "HIGH",
@@ -76,7 +76,7 @@ export const fallbackTraders = [
   },
   {
     id: "volatility-squeezer",
-    name: "Volatility Squeezer",
+    name: "Squeeze Operator",
     description: "Waits for volatility to compress, then joins the first expansion only when candle body, volume, and direction confirm.",
     concept: "Quiet markets often expand suddenly; this trader looks for the first clean release while avoiding one-candle fakeouts.",
     riskLevel: "MEDIUM",
@@ -96,7 +96,7 @@ export const fallbackTraders = [
   },
   {
     id: "range-maker",
-    name: "Range Maker",
+    name: "Range Mechanic",
     description: "Trades only clear sideways ranges, fading the edges when trend pressure is weak and exiting before breakouts accelerate.",
     concept: "It assumes the market will rotate inside a box until proven otherwise, so it buys low edges and shorts high edges with quick invalidation.",
     riskLevel: "LOW_MEDIUM",
@@ -126,7 +126,7 @@ export const fallbackTraders = [
   },
   {
     id: "donchian-breakout",
-    name: "Donchian Breakout",
+    name: "Donchian Breakout Boss",
     description: "Trades BTC range expansion after recent highs or lows break with volume.",
     concept: "Turtle/Donchian style BTC breakout with 15m confirmation, OI expansion, and ATR-based trailing.",
     longConditions: [
@@ -157,7 +157,7 @@ export const fallbackTraders = [
   },
   {
     id: "ichimoku-cloud-pilot",
-    name: "Ichimoku Cloud Pilot",
+    name: "Cloud Pilot",
     description: "Uses a cloud-style trend proxy to ride BTC continuation only while trend, momentum, and funding stay healthy.",
     concept: "Ichimoku-inspired trend follower using EMA cloud proxy, 4H trend, momentum health, and delayed confirmation.",
     longConditions: [
@@ -188,7 +188,7 @@ export const fallbackTraders = [
   },
   {
     id: "vwap-reclaimer",
-    name: "VWAP Reclaimer",
+    name: "VWAP Reclaim Crew",
     description: "Trades reclaim or rejection around BTC intraday fair value after price stretches too far and then proves acceptance.",
     concept: "VWAP-like mean reclaim using EMA20 proxy, volume response, and rejection of unfair intraday price.",
     longConditions: [
@@ -219,7 +219,7 @@ export const fallbackTraders = [
   },
   {
     id: "wyckoff-spring",
-    name: "Wyckoff Spring",
+    name: "Wyckoff Springboard",
     description: "Looks for BTC spring or upthrust traps around range extremes where a sweep quickly snaps back inside the range.",
     concept: "Wyckoff spring/upthrust trader: sweep outside range, reclaim/failure close, volume spike, and fast invalidation.",
     longConditions: [
@@ -343,7 +343,7 @@ export const fallbackTraders = [
   },
   {
     id: "momentum-ignition",
-    name: "Momentum Ignition",
+    name: "Momentum Igniter",
     description: "Takes BTC momentum only when trend, RSI, volume, open interest, and taker pressure align in the same direction.",
     concept: "Aggressive momentum ignition trader requiring EMA stack, RSI thrust, OI increase, and taker-flow confirmation.",
     longConditions: [
@@ -374,7 +374,7 @@ export const fallbackTraders = [
   },
   {
     id: "bollinger-reversion",
-    name: "Bollinger Reversion",
+    name: "Bollinger Boomerang",
     description: "Fades BTC statistical overextension only when trend strength is contained.",
     concept: "Bollinger/RSI mean reversion trader using range filter, volume exhaustion, and midpoint exits.",
     longConditions: [
@@ -405,7 +405,7 @@ export const fallbackTraders = [
   },
   {
     id: "atr-trail-commander",
-    name: "ATR Trail Commander",
+    name: "ATR Trail Boss",
     description: "Lets BTC trend winners breathe using ATR stops and slower management when the higher-timeframe trend remains intact.",
     concept: "ATR continuation system: higher timeframe trend, volatility-adjusted stop, and pyramiding only after profit cushion.",
     longConditions: [

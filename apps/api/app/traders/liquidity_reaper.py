@@ -20,7 +20,7 @@ from app.traders.strategy_base import (
 class LiquidityReaper(TraderStrategy):
     profile = TraderProfile(
         id="liquidity-reaper",
-        name="Liquidity Reaper",
+        name="Liquidity Sweeper",
         description="Targets stop-sweep traps around prior highs or lows after price quickly reclaims or fails the swept level.",
         concept="When price pokes beyond an obvious level and snaps back, this trader treats it as trapped liquidity rather than a clean breakout.",
         baseRiskPercent=0.6,

@@ -22,26 +22,26 @@ class TelegramPreferences(Protocol):
 
 
 TRADER_NAMES = {
-    "channel-rider": "Channel Rider",
+    "channel-rider": "Channel Cartographer",
     "volume-breaker": "Volume Breaker",
     "pullback-architect": "Pullback Architect",
-    "leverage-hunter": "Leverage Hunter",
-    "liquidity-reaper": "Liquidity Reaper",
-    "volatility-squeezer": "Volatility Squeeze",
+    "leverage-hunter": "Leverage Tracker",
+    "liquidity-reaper": "Liquidity Sweeper",
+    "volatility-squeezer": "Squeeze Operator",
     "trend-sentinel": "Trend Sentinel",
-    "range-maker": "Range Maker",
+    "range-maker": "Range Mechanic",
     "funding-contrarian": "Funding Contrarian",
     "orderflow-sniper": "Orderflow Sniper",
-    "donchian-breakout": "Donchian Breakout",
-    "ichimoku-cloud-pilot": "Ichimoku Cloud Pilot",
-    "vwap-reclaimer": "VWAP Reclaimer",
-    "wyckoff-spring": "Wyckoff Spring",
+    "donchian-breakout": "Donchian Breakout Boss",
+    "ichimoku-cloud-pilot": "Cloud Pilot",
+    "vwap-reclaimer": "VWAP Reclaim Crew",
+    "wyckoff-spring": "Wyckoff Springboard",
     "rsi-divergence-scout": "RSI Divergence Scout",
     "session-raider": "Session Raider",
     "imbalance-hunter": "Imbalance Hunter",
-    "momentum-ignition": "Momentum Ignition",
-    "bollinger-reversion": "Bollinger Reversion",
-    "atr-trail-commander": "ATR Trail Commander",
+    "momentum-ignition": "Momentum Igniter",
+    "bollinger-reversion": "Bollinger Boomerang",
+    "atr-trail-commander": "ATR Trail Boss",
 }
 
 

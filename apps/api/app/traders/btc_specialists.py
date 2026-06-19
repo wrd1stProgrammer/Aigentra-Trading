@@ -31,7 +31,7 @@ def _mock_performance() -> Dict[str, Any]:
 SPECIALIST_CONFIGS: List[Dict[str, Any]] = [
     {
         "id": "donchian-breakout",
-        "name": "Donchian Breakout",
+        "name": "Donchian Breakout Boss",
         "description": "Trades BTC range expansion after recent swing highs or lows break with volume.",
         "concept": "Turtle/Donchian style breakout with 15m confirmation, OI expansion, and ATR-based trailing.",
         "risk": 0.62,
@@ -55,7 +55,7 @@ SPECIALIST_CONFIGS: List[Dict[str, Any]] = [
     },
     {
         "id": "ichimoku-cloud-pilot",
-        "name": "Ichimoku Cloud Pilot",
+        "name": "Cloud Pilot",
         "description": "Uses a cloud-style trend proxy to ride BTC continuation only while trend, momentum, and funding stay healthy.",
         "concept": "Ichimoku-inspired trend filter: price above/below cloud proxy, momentum health, delayed confirmation.",
         "risk": 0.58,
@@ -79,7 +79,7 @@ SPECIALIST_CONFIGS: List[Dict[str, Any]] = [
     },
     {
         "id": "vwap-reclaimer",
-        "name": "VWAP Reclaimer",
+        "name": "VWAP Reclaim Crew",
         "description": "Trades reclaim or rejection around BTC intraday fair value after price stretches too far and then proves acceptance.",
         "concept": "VWAP-like mean reclaim using EMA20 proxy, volume response, and rejection of unfair price.",
         "risk": 0.5,
@@ -103,7 +103,7 @@ SPECIALIST_CONFIGS: List[Dict[str, Any]] = [
     },
     {
         "id": "wyckoff-spring",
-        "name": "Wyckoff Spring",
+        "name": "Wyckoff Springboard",
         "description": "Looks for BTC spring or upthrust traps around range extremes where a sweep quickly snaps back inside the range.",
         "concept": "Wyckoff spring/upthrust: sweep outside range, reclaim/failure close, volume spike, and fast invalidation.",
         "risk": 0.56,
@@ -199,7 +199,7 @@ SPECIALIST_CONFIGS: List[Dict[str, Any]] = [
     },
     {
         "id": "momentum-ignition",
-        "name": "Momentum Ignition",
+        "name": "Momentum Igniter",
         "description": "Takes BTC momentum only when trend, RSI, volume, open interest, and taker pressure align in the same direction.",
         "concept": "Momentum ignition: EMA stack, RSI thrust, OI increase, taker share confirmation.",
         "risk": 0.6,
@@ -223,7 +223,7 @@ SPECIALIST_CONFIGS: List[Dict[str, Any]] = [
     },
     {
         "id": "bollinger-reversion",
-        "name": "Bollinger Reversion",
+        "name": "Bollinger Boomerang",
         "description": "Fades BTC statistical overextension only when trend strength is weak enough.",
         "concept": "Bollinger/RSI mean reversion with range filter, volume exhaustion, and midpoint exits.",
         "risk": 0.42,
@@ -247,7 +247,7 @@ SPECIALIST_CONFIGS: List[Dict[str, Any]] = [
     },
     {
         "id": "atr-trail-commander",
-        "name": "ATR Trail Commander",
+        "name": "ATR Trail Boss",
         "description": "Lets BTC trend winners breathe using ATR stops and slower management when the higher-timeframe trend remains intact.",
         "concept": "ATR continuation system: higher timeframe trend, volatility-adjusted stop, pyramiding only after profit cushion.",
         "risk": 0.55,
