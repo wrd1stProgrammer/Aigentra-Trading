@@ -65,9 +65,9 @@ def test_entry_alert_uses_ai_review_summary_when_available():
     assert "조정 후 승인" in text
     assert "BTC가 세션 범위 아래로 확인된 하락 돌파" in text
     assert "지금 할 일: 주문이 채워지지 않으면 2개의 15분 캔들 후 자동 취소하세요." in text
-    assert "핵심 이유: 1시간 약세 추세가 SHORT 방향을 확인합니다. · 위험 보상 비율 1.45가 최소값을 초과합니다." in text
-    assert "주의할 점: 15분 거래량이 약합니다." in text
+    assert "핵심 이유: 1시간 약세 추세가 SHORT 방향을 확인합니다. · 위험 보상 비율 1.45가 최소값을 초과합니다. · 15분 거래량이 약합니다." in text
     assert "다음 확인 조건: 15분 종가가 64862.2 위로 돌파하면 종료하세요." in text
+    assert "관리 메모:" not in text
     assert "Event:" not in text
     assert "Reason: Confirmed BTC setup participation" not in text
 
@@ -195,11 +195,10 @@ def test_management_alert_includes_position_context_readably():
     assert "  손절가: 63,666\n  익절가: 64,500\n  PnL: +42.30" in text
     assert "\n\n요약\n  유지 · 스윕 재수집 논리는 아직 살아 있습니다." in text
     assert "\n\n지금 할 일\n  손절은 본전으로 두고 15분 종가가 63666 아래로 내려가면 즉시 종료하세요." in text
-    assert "\n\n핵심 이유\n  포지션은 소폭 이익 상태입니다. · 손절이 본전으로 올라와 있습니다." in text
-    assert "\n\n주의할 점\n  1시간 약세 헤드윈드가 남아 있습니다." in text
+    assert "\n\n판단 근거\n  포지션은 소폭 이익 상태입니다. · 손절이 본전으로 올라와 있습니다. · 1시간 약세 헤드윈드가 남아 있습니다." in text
     assert "\n\n다음 확인 조건\n  15분 종가 63666 이탈을 확인하세요." in text
-    assert "\n\n관리 메모\n  즉시 방어 조치보다는 무효화 조건 감시가 우선입니다." in text
-    assert "\n\n판단 근거\n  현재 포지션은 소폭 이익 상태이며 손절이 본전으로 올라와 있습니다." in text
+    assert "\n\n관리 메모\n" not in text
+    assert "현재 포지션은 소폭 이익 상태이며 손절이 본전으로 올라와 있습니다." not in text
     assert "Reason:" not in text
 
 
@@ -260,12 +259,11 @@ def test_management_alert_respects_selected_review_sections():
 
     assert "\n\n포지션\n  방향: LONG · 5x" in text
     assert "\n\n지금 할 일\n  지금은 보유하세요." in text
-    assert "\n\n주의할 점\n  1시간 약세가 남아 있습니다." in text
+    assert "\n\n판단 근거\n  1시간 약세가 남아 있습니다." in text
     assert "\n\n상태\n" not in text
     assert "\n\n요약\n" not in text
     assert "\n\n핵심 이유\n" not in text
     assert "\n\n다음 확인 조건\n" not in text
-    assert "\n\n판단 근거\n" not in text
 
 
 def test_management_alert_uses_cached_locale_translation_and_cleans_bullets(temp_db):
@@ -359,8 +357,8 @@ def test_management_alert_uses_cached_locale_translation_and_cleans_bullets(temp
         text = compose_management_message(preferences, review, "ai_review_medium")
 
     assert "숏은 보호됐지만 세션 우위가 약해지고 있습니다." in text
-    assert "  숏 포지션은 유지하세요.\n  손절을 넓히지 마세요." in text
-    assert "손절이 이미 진입가에 있습니다. · 1시간 추세는 아직 약세입니다." in text
+    assert "  숏 포지션은 유지하세요. 손절을 넓히지 마세요." in text
+    assert "손절이 이미 진입가에 있습니다. · 1시간 추세는 아직 약세입니다. · 세션 우위가 약해지고 있습니다." in text
     assert "Hold the short" not in text
     assert "['-" not in text
     assert "\n  - " not in text

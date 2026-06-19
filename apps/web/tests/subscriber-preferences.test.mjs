@@ -67,10 +67,11 @@ test("account UI exposes favorites and Telegram alert customization", () => {
   assert.match(preferencesSource, /"pending_entry"/, "alert types should cover pending entries");
   assert.match(preferencesSource, /"ai_review_high"/, "alert types should expose AI review importance");
   assert.match(preferencesSource, /"league_sentiment"/, "alert types should expose Aigentra aggregate opinion alerts");
+  assert.match(preferencesSource, /"trader_status_feed"/, "alert types should expose trader status feed alerts");
   assert.match(preferencesSource, /"watch_conditions"/, "review section settings should expose full AI review content");
 });
 
-test("telegram alert settings default to all event types and full review content", () => {
+test("telegram alert settings default to core event types and full review content", () => {
   const initial = preferences.createSubscriberPreferences({
     userId: "user_google_1",
     email: "operator@example.com"
@@ -87,6 +88,7 @@ test("telegram alert settings default to all event types and full review content
     "league_sentiment",
     "risk"
   ]);
+  assert.equal(initial.telegramSettings.eventTypes.includes("trader_status_feed"), false);
   assert.deepEqual(initial.telegramSettings.reviewSections, [
     "status",
     "position",

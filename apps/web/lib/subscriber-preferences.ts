@@ -9,10 +9,13 @@ export const telegramEventTypes = [
   "ai_review_medium",
   "ai_review_high",
   "league_sentiment",
+  "trader_status_feed",
   "risk",
 ] as const;
 
-export const defaultTelegramEventTypes = telegramEventTypes;
+export const defaultTelegramEventTypes = telegramEventTypes.filter(
+  (eventType) => eventType !== "trader_status_feed"
+);
 
 export type TelegramEventType = (typeof telegramEventTypes)[number];
 
@@ -229,6 +232,7 @@ function expandTelegramEventType(input: unknown): readonly TelegramEventType[] {
     case "ai_review_medium":
     case "ai_review_high":
     case "league_sentiment":
+    case "trader_status_feed":
     case "risk":
       return [input];
     default:

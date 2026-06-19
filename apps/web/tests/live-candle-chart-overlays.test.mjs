@@ -5,6 +5,7 @@ import ts from "typescript";
 
 const source = readFileSync(new URL("../components/live-candle-chart.tsx", import.meta.url), "utf8");
 const overlayHelpers = loadTsModule("../components/live-candle-chart-overlays.ts");
+const volumeHelpers = loadTsModule("../components/live-candle-chart-volume.ts");
 
 test("live candle chart uses compact overlay price lines", () => {
   assert.match(source, /compactOverlayLines/, "overlay lines should be compacted before rendering");
@@ -115,6 +116,42 @@ test("chart overlays do not mix saved open orders with latest plan preview lines
   assert.match(source, /return isFreshRunCycleResult;/);
   assert.doesNotMatch(source, /return hasOpenPaperOrder \|\| isFreshRunCycleResult;/);
 });
+
+test("OKX realtime volume uses base currency volume and caps isolated display outliers", () => {
+  assert.match(source, /volume:\s*Number\(row\[6\]\s*\?\?\s*row\[5\]\)/, "OKX websocket candles should use volCcy like the REST provider");
+
+  const candles = Array.from({ length: 25 }, (_, index) => candle(index, 100));
+  candles.push(candle(25, 10000));
+
+  const volumePoint = volumeHelpers.volumeHistogramPoint(candles, 25);
+
+  assert.equal(volumePoint.originalValue, 10000);
+  assert.equal(volumePoint.value, 800);
+  assert.equal(volumePoint.capped, true);
+});
+
+test("volume display keeps clustered high-volume regimes uncapped", () => {
+  const candles = Array.from({ length: 25 }, (_, index) => candle(index, 100));
+  candles.push(candle(25, 3000));
+  candles.push(candle(26, 5000));
+
+  const volumePoint = volumeHelpers.volumeHistogramPoint(candles, 26);
+
+  assert.equal(volumePoint.value, 5000);
+  assert.equal(volumePoint.capped, false);
+});
+
+function candle(index, volume) {
+  return {
+    openTime: 1_700_000_000_000 + index * 60_000,
+    open: 100,
+    high: 101,
+    low: 99,
+    close: index % 2 === 0 ? 101 : 99,
+    volume,
+    closeTime: 1_700_000_000_000 + index * 60_000 + 59_999
+  };
+}
 
 function loadTsModule(relativePath) {
   const tsSource = readFileSync(new URL(relativePath, import.meta.url), "utf8");

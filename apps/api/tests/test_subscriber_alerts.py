@@ -7,15 +7,19 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.db import (
+    AITranslationCacheRecord,
     LeagueSentimentOpinionRecord,
     PositionManagementReviewRecord,
     SubscriberPreferenceRecord,
     TelegramAlertDeliveryRecord,
+    TraderStatusFeedRecord,
     db_status,
     init_db,
     reset_db_engine,
     session_scope,
 )
+from app.ai.translation_cache import stable_source_hash
+from app.locales import AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED
 from app.main import app
 from app.paper.repositories import create_trade_event
 from app.subscribers import TelegramSettingsInput, list_matching_telegram_subscribers, upsert_subscriber_preferences
@@ -426,3 +430,106 @@ def test_league_sentiment_opinion_alerts_are_short_localized_and_deduplicated(te
     assert "홈 또는 AI 센티멘트 화면" in text
     assert "이 긴 종합 본문" not in text
     assert "페이퍼 트레이딩" not in text
+
+
+def test_trader_status_feed_alerts_are_localized_filtered_and_deduplicated(temp_db, monkeypatch):
+    sent_messages = []
+
+    def fake_send_telegram_message(*, bot_token, chat_id, text):
+        sent_messages.append({"bot_token": bot_token, "chat_id": chat_id, "text": text})
+        return {"ok": True}
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setattr("app.subscriber_status_feed_alerts.send_telegram_message", fake_send_telegram_message)
+
+    canonical_payload = {
+        "feedType": "trader_status_feed",
+        "stateKey": "position_entry",
+        "eventType": "position_entry_active",
+        "headline": "Short still open",
+        "message": "I'm staying patient while the short keeps working.",
+        "watch": "",
+    }
+    localized_payload = {
+        "feedType": "trader_status_feed",
+        "stateKey": "position_entry",
+        "eventType": "position_entry_active",
+        "headline": "숏 아직 열려 있어요",
+        "message": "내 숏은 아직 살아 있고, 여기서는 괜히 손대지 않을게요.",
+        "watch": "",
+    }
+
+    with session_scope() as db:
+        upsert_subscriber_preferences(
+            db,
+            user_id="feed",
+            email="feed@example.com",
+            favorite_trader_ids=["volume-breaker"],
+            telegram_settings=TelegramSettingsInput(
+                enabled=True,
+                chat_id="777",
+                event_types=["trader_status_feed"],
+                min_return_pct=0,
+            ),
+            locale="ko",
+        )
+        upsert_subscriber_preferences(
+            db,
+            user_id="wrong-feed",
+            email="wrong-feed@example.com",
+            favorite_trader_ids=["channel-rider"],
+            telegram_settings=TelegramSettingsInput(
+                enabled=True,
+                chat_id="888",
+                event_types=["trader_status_feed"],
+                min_return_pct=0,
+            ),
+            locale="ko",
+        )
+        feed = TraderStatusFeedRecord(
+            trader_id="volume-breaker",
+            symbol="BTCUSDT",
+            status="ok",
+            state_key="position_entry",
+            event_type="position_entry_active",
+            source_type="paper_position",
+            source_id=12,
+            refresh_reason="event",
+            provider="openai",
+            model="gpt-4.1-mini",
+            fallback=False,
+            payload_json='{"feedType":"trader_status_feed","stateKey":"position_entry","eventType":"position_entry_active","headline":"Short still open","message":"I\'m staying patient while the short keeps working.","watch":""}',
+        )
+        db.add(feed)
+        db.flush()
+        db.add(
+            AITranslationCacheRecord(
+                source_type=AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED,
+                source_id=feed.id,
+                source_hash=stable_source_hash(canonical_payload),
+                locale="ko",
+                status="ok",
+                provider="openai",
+                model="gpt-4.1-nano",
+                payload_json='{"feedType":"trader_status_feed","stateKey":"position_entry","eventType":"position_entry_active","headline":"숏 아직 열려 있어요","message":"내 숏은 아직 살아 있고, 여기서는 괜히 손대지 않을게요.","watch":""}',
+            )
+        )
+        db.flush()
+
+        from app.subscriber_status_feed_alerts import notify_subscribers_for_status_feed
+
+        notify_subscribers_for_status_feed(db, feed)
+        notify_subscribers_for_status_feed(db, feed)
+        delivery = db.query(TelegramAlertDeliveryRecord).one()
+
+        assert delivery.trader_status_feed_id == feed.id
+        assert delivery.telegram_event_type == "trader_status_feed"
+        assert delivery.status == "sent"
+
+    assert len(sent_messages) == 1
+    text = sent_messages[0]["text"]
+    assert "트레이더 피드" in text
+    assert "Volume Breaker" in text
+    assert "숏 아직 열려 있어요" in text
+    assert "내 숏은 아직 살아 있고" in text
+    assert "Short still open" not in text

@@ -562,3 +562,26 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "reviewFacts" in management
     assert "structuredReview" in management
     assert "rationale is a legacy compatibility field" in management
+
+
+def test_structured_review_normalizer_removes_list_syntax_from_action():
+    review = MockAIProvider().normalize_management_result(
+        {
+            "decision": "HOLD",
+            "confidence": 84,
+            "riskLevel": "MEDIUM",
+            "structuredReview": {
+                "verdict": "유지",
+                "headline": "숏은 보호됐지만 세션 우위가 약해지고 있습니다.",
+                "action": "['- 숏 포지션은 유지하세요.', '- 손절을 넓히지 마세요.']",
+                "keyReasons": ["- 손절이 이미 진입가에 있습니다."],
+                "risks": ["- 세션 우위가 약해지고 있습니다."],
+                "watchConditions": ["- 15분 종가가 트리거 위로 돌아오면 종료하세요."],
+            },
+            "actions": [{"type": "HOLD", "reason": "Hold."}],
+        }
+    )
+
+    assert review.structuredReview is not None
+    assert review.structuredReview.action == "숏 포지션은 유지하세요. 손절을 넓히지 마세요."
+    assert review.structuredReview.keyReasons == ["손절이 이미 진입가에 있습니다."]

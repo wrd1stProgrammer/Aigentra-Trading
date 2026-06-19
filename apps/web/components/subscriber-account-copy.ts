@@ -50,6 +50,7 @@ const baseSubscriberAccountCopy = {
       ai_review_medium: "AI 리뷰 중간",
       ai_review_high: "AI 리뷰 높음",
       league_sentiment: "Aigentra 종합 의견",
+      trader_status_feed: "트레이더 피드",
       risk: "리스크 경보",
     },
     eventDescriptions: {
@@ -61,6 +62,7 @@ const baseSubscriberAccountCopy = {
       ai_review_medium: "주의가 필요한 보유/대기 상태 리뷰",
       ai_review_high: "즉시 확인할 만한 방어적 리뷰",
       league_sentiment: "새 시간대 종합 의견이 준비되면 짧은 확인 알림 전송",
+      trader_status_feed: "트레이더가 새 상태 피드를 남기면 사용자 언어로 전송",
       risk: "주문 거절, 비정상 리스크, 레버리지 경고"
     },
     reviewSectionGroupLabel: "AI 리뷰 메시지 구성",
@@ -145,6 +147,7 @@ const baseSubscriberAccountCopy = {
       ai_review_medium: "AI Review Medium",
       ai_review_high: "AI Review High",
       league_sentiment: "Aigentra Opinion",
+      trader_status_feed: "Trader Feed",
       risk: "Risk Alert",
     },
     eventDescriptions: {
@@ -156,6 +159,7 @@ const baseSubscriberAccountCopy = {
       ai_review_medium: "Management review worth watching",
       ai_review_high: "Defensive management review that deserves attention",
       league_sentiment: "Short notice when a new hourly aggregate opinion is ready",
+      trader_status_feed: "Localized note when a trader posts a new status feed",
       risk: "Order rejection, abnormal risk, or leverage warning"
     },
     reviewSectionGroupLabel: "AI review message content",
@@ -225,6 +229,7 @@ export const SUBSCRIBER_ACCOUNT_COPY = {
       ai_review_medium: "AI-обзор средний",
       ai_review_high: "AI-обзор высокий",
       league_sentiment: "Сводное мнение Aigentra",
+      trader_status_feed: "Лента трейдера",
       risk: "Риск"
     },
     reviewSectionLabels: {
@@ -271,6 +276,7 @@ export const SUBSCRIBER_ACCOUNT_COPY = {
       ai_review_medium: "Revisão AI média",
       ai_review_high: "Revisão AI alta",
       league_sentiment: "Opinião geral Aigentra",
+      trader_status_feed: "Feed do trader",
       risk: "Risco"
     },
     reviewSectionLabels: {
@@ -317,6 +323,7 @@ export const SUBSCRIBER_ACCOUNT_COPY = {
       ai_review_medium: "AI inceleme orta",
       ai_review_high: "AI inceleme yüksek",
       league_sentiment: "Aigentra genel görüşü",
+      trader_status_feed: "Trader akışı",
       risk: "Risk"
     },
     reviewSectionLabels: {

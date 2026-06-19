@@ -59,6 +59,7 @@ import {
   type OverlayLine,
   type OverlayTone
 } from "@/components/live-candle-chart-overlays";
+import { volumeHistogramData, volumeHistogramPoint } from "@/components/live-candle-chart-volume";
 import { isPendingEntryOrder } from "@/components/trader-profile-detail/position-panel-rows";
 
 type TradePlanView = {
@@ -631,10 +632,10 @@ export function LiveCandleChart({
       const chartData = candlesList.map(toChartCandle);
       series.setData(chartData);
       
-      const volData = candlesList.map(c => ({
-        time: Math.floor(c.openTime / 1000) as Time,
-        value: c.volume,
-        color: c.close >= c.open ? "rgba(16, 185, 129, 0.18)" : "rgba(244, 63, 94, 0.18)"
+      const volData = volumeHistogramData(candlesList).map((point) => ({
+        time: point.time as Time,
+        value: point.value,
+        color: point.color
       }));
       volumeSeries.setData(volData);
       
@@ -783,10 +784,11 @@ export function LiveCandleChart({
         hasVisibleCandlesRef.current = true;
         
         series.update(next);
+        const volumePoint = volumeHistogramPoint(chartCandlesRef.current, chartCandlesRef.current.length - 1);
         volumeSeries.update({
-          time: next.time,
-          value: candle.volume,
-          color: candle.close >= candle.open ? "rgba(16, 185, 129, 0.18)" : "rgba(244, 63, 94, 0.18)"
+          time: volumePoint.time as Time,
+          value: volumePoint.value,
+          color: volumePoint.color
         });
 
         setIndicatorCandles([...chartCandlesRef.current]);
@@ -1947,7 +1949,7 @@ function okxKlineToApiCandle(row: unknown[], interval: ChartInterval): KlineCand
     high: Number(row[2]),
     low: Number(row[3]),
     close: Number(row[4]),
-    volume: Number(row[5]),
+    volume: Number(row[6] ?? row[5]),
     closeTime: Number.isFinite(openTime) ? openTime + intervalMs - 1 : openTime
   };
 }

@@ -9,6 +9,7 @@ from app.core.config import Settings
 from app.db import AIReviewRecord, TradeEventRecord, TradePlanRecord, TraderStatusFeedRecord
 from app.locales import AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED
 from app.repositories import create_provider_call_log, sanitize_error_message, serialize_record, to_json
+from app.subscriber_status_feed_alerts import notify_subscribers_for_status_feed
 from app.trader_status_feed.constants import (
     QUALIFYING_STATUS_STATES,
     STATUS_FEED_STATE_PENDING_ENTRY,
@@ -141,6 +142,7 @@ async def create_status_feed_for_event(
         symbol=symbol,
         trader_id=trader_id,
     )
+    notify_subscribers_for_status_feed(db, record)
     return record
 
 

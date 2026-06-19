@@ -34,6 +34,7 @@ const EVENT_LABELS: Record<Locale, Record<TelegramEventType, string>> = {
     ai_review_medium: "AI Review Medium",
     ai_review_high: "AI Review High",
     league_sentiment: "Aigentra Opinion",
+    trader_status_feed: "Trader Feed",
     risk: "Risk",
   },
   ko: {
@@ -45,6 +46,7 @@ const EVENT_LABELS: Record<Locale, Record<TelegramEventType, string>> = {
     ai_review_medium: "AI 리뷰 중간",
     ai_review_high: "AI 리뷰 높음",
     league_sentiment: "Aigentra 종합 의견",
+    trader_status_feed: "트레이더 피드",
     risk: "리스크",
   },
   ru: {
@@ -56,6 +58,7 @@ const EVENT_LABELS: Record<Locale, Record<TelegramEventType, string>> = {
     ai_review_medium: "AI-обзор средний",
     ai_review_high: "AI-обзор высокий",
     league_sentiment: "Сводное мнение Aigentra",
+    trader_status_feed: "Лента трейдера",
     risk: "Риск",
   },
   "pt-BR": {
@@ -67,6 +70,7 @@ const EVENT_LABELS: Record<Locale, Record<TelegramEventType, string>> = {
     ai_review_medium: "Revisão AI média",
     ai_review_high: "Revisão AI alta",
     league_sentiment: "Opinião geral Aigentra",
+    trader_status_feed: "Feed do trader",
     risk: "Risco",
   },
   tr: {
@@ -78,6 +82,7 @@ const EVENT_LABELS: Record<Locale, Record<TelegramEventType, string>> = {
     ai_review_medium: "AI inceleme orta",
     ai_review_high: "AI inceleme yüksek",
     league_sentiment: "Aigentra genel görüşü",
+    trader_status_feed: "Trader akışı",
     risk: "Risk",
   }
 };

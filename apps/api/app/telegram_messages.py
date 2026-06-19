@@ -185,26 +185,31 @@ def management_review_detail_lines(
 
     verdict = text_value(structured.get("verdict"))
     headline = text_value(structured.get("headline"))
-    action_lines = text_lines(structured.get("action"), 6)
+    action_line = " ".join(text_lines(structured.get("action"), 3))
     manager_note = text_value(structured.get("managerNote"))
-    key_reasons = text_list(structured.get("keyReasons"), 3)
-    risks = text_list(structured.get("risks"), 3)
-    watch_conditions = text_list(structured.get("watchConditions"), 3)
+    key_reasons = text_list(structured.get("keyReasons"), 2)
+    risks = text_list(structured.get("risks"), 1)
+    watch_conditions = text_list(structured.get("watchConditions"), 2)
 
     if "summary" in sections and (verdict or headline):
         summary = " · ".join([part for part in (verdict, headline) if part])
         lines.extend(["", labels["summaryTitle"], f"  {summary}"])
-    if "action" in sections and action_lines:
-        lines.extend(["", translated["action"], *[f"  {line}" for line in action_lines]])
-    if "key_reasons" in sections and key_reasons:
-        lines.extend(["", translated["keyReasons"], f"  {' · '.join(key_reasons)}"])
-    if "risks" in sections and risks:
-        lines.extend(["", translated["risks"], f"  {' · '.join(risks)}"])
+    if "action" in sections and action_line:
+        lines.extend(["", translated["action"], f"  {action_line}"])
+
+    rationale_parts: list[str] = []
+    if "key_reasons" in sections:
+        rationale_parts.extend(key_reasons)
+    if "risks" in sections:
+        rationale_parts.extend(risks)
+    if rationale_parts:
+        lines.extend(["", labels["rationaleTitle"], f"  {' · '.join(rationale_parts)}"])
+
     if "watch_conditions" in sections and watch_conditions:
         lines.extend(["", translated["watchConditions"], f"  {' · '.join(watch_conditions)}"])
-    if "manager_note" in sections and manager_note:
+    if "manager_note" in sections and manager_note and not rationale_parts:
         lines.extend(["", translated["managerNote"], f"  {manager_note}"])
-    if "rationale" in sections:
+    if "rationale" in sections and not (verdict or headline or action_line or rationale_parts or watch_conditions):
         lines.extend(["", labels["rationaleTitle"], f"  {fallback_rationale}"])
     return lines
 
@@ -350,11 +355,11 @@ def entry_review_lines(payload: dict[str, Any], locale: str) -> list[str]:
     lines: list[str] = []
     verdict = text_value(structured.get("verdict")) if structured else None
     headline = text_value(structured.get("headline")) if structured else None
-    action = " · ".join(text_lines(structured.get("action"), 6)) if structured else None
+    action = " ".join(text_lines(structured.get("action"), 3)) if structured else None
     manager_note = text_value(structured.get("managerNote")) if structured else None
-    key_reasons = text_list(structured.get("keyReasons"), 3) if structured else []
-    risks = text_list(structured.get("risks"), 2) if structured else []
-    watch_conditions = text_list(structured.get("watchConditions"), 3) if structured else []
+    key_reasons = text_list(structured.get("keyReasons"), 2) if structured else []
+    risks = text_list(structured.get("risks"), 1) if structured else []
+    watch_conditions = text_list(structured.get("watchConditions"), 2) if structured else []
 
     if verdict:
         lines.append(verdict)
@@ -362,13 +367,12 @@ def entry_review_lines(payload: dict[str, Any], locale: str) -> list[str]:
         lines.append(headline or approval_reason or "-")
     if action and action != headline:
         lines.append(f"{translated['action']}: {action}")
-    if key_reasons:
-        lines.append(f"{translated['keyReasons']}: {' · '.join(key_reasons)}")
-    if risks:
-        lines.append(f"{translated['risks']}: {' · '.join(risks)}")
+    rationale_parts = [*key_reasons, *risks]
+    if rationale_parts:
+        lines.append(f"{translated['keyReasons']}: {' · '.join(rationale_parts)}")
     if watch_conditions:
         lines.append(f"{translated['watchConditions']}: {' · '.join(watch_conditions)}")
-    if manager_note:
+    if manager_note and not rationale_parts:
         lines.append(f"{translated['managerNote']}: {manager_note}")
     return lines
 

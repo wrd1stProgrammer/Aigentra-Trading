@@ -16,7 +16,7 @@ export function normalizeStructuredReview(value: unknown): ReviewBrief | null {
   const brief: ReviewBrief = {
     verdict: textValue(record.verdict),
     headline: textValue(record.headline),
-    action: textValue(record.action),
+    action: textLine(record.action, 3),
     keyReasons: textList(record.keyReasons, 3),
     risks: textList(record.risks, 2),
     watchConditions: textList(record.watchConditions, 3),
@@ -77,12 +77,53 @@ function textValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function textLine(value: unknown, limit: number): string | null {
+  const items = textList(value, limit);
+  if (items.length) return items.join(" ");
+  return textValue(value);
+}
+
 function textList(value: unknown, limit: number): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map(textValue)
+  const values = Array.isArray(value) ? value : literalStringList(value) ?? (typeof value === "string" ? splitTextLines(value) : []);
+  return values
+    .map((item) => stripBulletPrefix(textValue(item) ?? ""))
     .filter((item): item is string => Boolean(item))
     .slice(0, limit);
+}
+
+function splitTextLines(value: string): string[] {
+  const lines = value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines.length > 1 ? lines : [value];
+}
+
+function literalStringList(value: unknown): string[] | null {
+  if (typeof value !== "string") return null;
+  const clean = value.trim();
+  if (!clean.startsWith("[") || !clean.endsWith("]")) return null;
+  try {
+    const parsed = JSON.parse(clean);
+    if (Array.isArray(parsed)) return parsed.filter((item): item is string => typeof item === "string");
+  } catch {
+    // Python-style single quoted arrays are common in legacy AI responses; parse those below.
+  }
+  const matches = clean.match(/(['"])(.*?)\1/g);
+  if (!matches?.length) return null;
+  return matches.map((item) => item.slice(1, -1));
+}
+
+function stripBulletPrefix(value: string): string {
+  let clean = value.trim();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const prefix of ["- ", "• ", "* "]) {
+      if (clean.startsWith(prefix)) {
+        clean = clean.slice(prefix.length).trim();
+        changed = true;
+      }
+    }
+  }
+  return clean;
 }
 
 function recordValue(value: unknown): Record<string, unknown> | null {

@@ -443,6 +443,7 @@ class TelegramAlertDeliveryRecord(CommonMixin, Base):
         UniqueConstraint("subscriber_preference_id", "trade_event_id", name="uq_telegram_alert_delivery_subscriber_event"),
         UniqueConstraint("subscriber_preference_id", "position_management_review_id", name="uq_telegram_alert_delivery_subscriber_review"),
         UniqueConstraint("subscriber_preference_id", "league_sentiment_opinion_id", name="uq_telegram_alert_delivery_subscriber_sentiment"),
+        UniqueConstraint("subscriber_preference_id", "trader_status_feed_id", name="uq_telegram_alert_delivery_subscriber_status_feed"),
     )
 
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)
@@ -450,6 +451,7 @@ class TelegramAlertDeliveryRecord(CommonMixin, Base):
     trade_event_id: Mapped[Optional[int]] = mapped_column(ForeignKey("trade_events.id"), nullable=True, index=True)
     position_management_review_id: Mapped[Optional[int]] = mapped_column(ForeignKey("position_management_reviews.id"), nullable=True, index=True)
     league_sentiment_opinion_id: Mapped[Optional[int]] = mapped_column(ForeignKey("league_sentiment_opinions.id"), nullable=True, index=True)
+    trader_status_feed_id: Mapped[Optional[int]] = mapped_column(ForeignKey("trader_status_feeds.id"), nullable=True, index=True)
     telegram_event_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     chat_id: Mapped[str] = mapped_column(String(120), nullable=False)
     response_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

@@ -54,23 +54,23 @@ def structured_review_schema() -> dict[str, Any]:
         "properties": {
             "verdict": {"type": "string", "description": "Short decision label in the requested language."},
             "headline": {"type": "string", "description": "One plain-language sentence explaining the current judgment."},
-            "action": {"type": "string", "description": "One concrete next action for the paper trade."},
+            "action": {"type": "string", "description": "One concrete next action sentence. Never return a list or list-like text."},
             "keyReasons": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Up to three short reasons, written for a beginner.",
+                "description": "Up to two short reasons, written for a beginner.",
             },
             "risks": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Up to two remaining risks or counter-thesis points.",
+                "description": "Up to one remaining risk or counter-thesis point.",
             },
             "watchConditions": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Up to three exact triggers to watch next.",
+                "description": "Up to two exact triggers to watch next.",
             },
-            "managerNote": {"type": "string", "description": "One concise desk note tying the decision together."},
+            "managerNote": {"type": "string", "description": "Optional one concise desk note tying the decision together."},
         },
         "required": ["verdict", "headline", "action", "keyReasons", "risks", "watchConditions", "managerNote"],
         "additionalProperties": False,

@@ -10,6 +10,7 @@ TELEGRAM_EVENT_TYPES = (
     "ai_review_medium",
     "ai_review_high",
     "league_sentiment",
+    "trader_status_feed",
     "risk",
 )
 

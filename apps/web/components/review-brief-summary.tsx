@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, ListChecks, Target, WarningCircle } from "@phosphor-icons/react";
+import { CheckCircle, ListChecks, Target } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { StatusBadge } from "@/components/status-badge";
 import type { ReviewBrief } from "@/lib/review-brief";
@@ -14,6 +14,8 @@ type ReviewBriefSummaryProps = {
 
 export function ReviewBriefSummary({ brief, title, compact = false, t }: ReviewBriefSummaryProps) {
   const headline = brief.headline ?? brief.action ?? brief.managerNote ?? "-";
+  const rationaleItems = [...brief.keyReasons.slice(0, 2), ...brief.risks.slice(0, 1)];
+  const watchItems = brief.watchConditions.slice(0, 2);
   return (
     <div className={`border-l-2 border-emerald-500/70 pl-3 ${compact ? "py-1" : "py-2"}`}>
       <div className="flex flex-wrap items-center gap-2">
@@ -30,15 +32,9 @@ export function ReviewBriefSummary({ brief, title, compact = false, t }: ReviewB
         </div>
       ) : null}
       <div className="mt-3 space-y-2">
-        <BriefSummaryLine icon={<ListChecks size={15} />} label={t("aiReview.keyReasons")} items={brief.keyReasons} />
-        <BriefSummaryLine icon={<WarningCircle size={15} />} label={t("aiReview.risks")} items={brief.risks} />
-        <BriefSummaryLine icon={<Target size={15} />} label={t("aiReview.watchConditions")} items={brief.watchConditions} />
+        <BriefSummaryLine icon={<ListChecks size={15} />} label={t("aiReview.keyReasons")} items={rationaleItems} />
+        <BriefSummaryLine icon={<Target size={15} />} label={t("aiReview.watchConditions")} items={watchItems} />
       </div>
-      {brief.managerNote ? (
-        <p className="mt-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-          <span className="font-semibold">{t("aiReview.managerNote")}:</span> {brief.managerNote}
-        </p>
-      ) : null}
     </div>
   );
 }

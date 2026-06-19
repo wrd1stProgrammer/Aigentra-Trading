@@ -1,3 +1,4 @@
+import ast
 import json
 from typing import Any, Dict, Optional
 
@@ -197,9 +198,12 @@ class BaseAIProvider:
     def _normalize_string_list(self, value: Any) -> list[str]:
         if value is None or value == "":
             return []
+        literal_items = self._literal_string_list(value)
+        if literal_items is not None:
+            value = literal_items
         if not isinstance(value, list):
             value = [value]
-        return [str(item) for item in value if str(item).strip()]
+        return [text for item in value if (text := self._clean_bullet_text(str(item)))]
 
     def _normalize_review_facts(self, value: Any, default: list[dict[str, Any]]) -> list[dict[str, Any]]:
         facts = value if isinstance(value, list) else []
@@ -227,7 +231,7 @@ class BaseAIProvider:
         structured = {
             "verdict": self._normalize_optional_text(value.get("verdict")),
             "headline": self._normalize_optional_text(value.get("headline")),
-            "action": self._normalize_optional_text(value.get("action")),
+            "action": self._normalize_action_text(value.get("action")),
             "keyReasons": self._normalize_limited_string_list(value.get("keyReasons"), 3),
             "risks": self._normalize_limited_string_list(value.get("risks"), 2),
             "watchConditions": self._normalize_limited_string_list(value.get("watchConditions"), 3),
@@ -242,11 +246,42 @@ class BaseAIProvider:
     def _normalize_limited_string_list(self, value: Any, limit: int) -> list[str]:
         return self._normalize_string_list(value)[:limit]
 
+    def _normalize_action_text(self, value: Any) -> Optional[str]:
+        items = self._normalize_string_list(value)
+        if items:
+            return " ".join(items)
+        return self._normalize_optional_text(value)
+
     def _normalize_optional_text(self, value: Any) -> Optional[str]:
         if value is None:
             return None
         text = str(value).strip()
         return text or None
+
+    def _literal_string_list(self, value: Any) -> list[str] | None:
+        if not isinstance(value, str):
+            return None
+        clean = value.strip()
+        if not (clean.startswith("[") and clean.endswith("]")):
+            return None
+        try:
+            parsed = ast.literal_eval(clean)
+        except (SyntaxError, ValueError):
+            return None
+        if not isinstance(parsed, list):
+            return None
+        return [str(item) for item in parsed if str(item).strip()]
+
+    def _clean_bullet_text(self, value: str) -> str:
+        clean = value.strip()
+        changed = True
+        while changed:
+            changed = False
+            for prefix in ("- ", "• ", "* "):
+                if clean.startswith(prefix):
+                    clean = clean[len(prefix) :].strip()
+                    changed = True
+        return clean
 
     def _normalize_confidence(self, value: Any) -> int:
         if isinstance(value, (int, float)):
@@ -606,8 +641,9 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "7) fees/slippage buffer must be included in the risk review, "
         "8) earlyExitRules and invalidation must be specific enough to stop the trade before the full stop when thesis fails. "
         "structuredReview is the primary user-facing explanation. It must be an object with verdict, headline, action, keyReasons, risks, watchConditions, managerNote. "
-        "Write it for a beginner who understands LONG/SHORT but not every indicator: headline is one plain-language decision, action is one concrete next step, "
-        "keyReasons has up to 3 short bullets, risks has up to 2 bullets, watchConditions has up to 3 exact price/time/indicator triggers, and managerNote is one concise desk note. "
+        "Keep it simple and direct for a beginner who understands LONG/SHORT but not every indicator: verdict is a short label, headline is one plain-language decision sentence, "
+        "action is one sentence only and never a list, keyReasons has up to 2 short bullets, risks has up to 1 bullet, watchConditions has up to 2 exact price/time/indicator triggers, "
+        "and managerNote is optional one concise desk note. Do not write raw JSON/Python list syntax inside any string. "
         "Do not dump raw metrics without saying what they mean. Do not hide the actual trade reason behind generic learning or paper-trading language. "
         "approvalReason is a legacy compatibility field. For APPROVE or ADJUST_AND_APPROVE, write 1-2 compact sentences that mirror structuredReview and connect "
         "the trader thesis, entry/stop/target geometry, fee-aware RR, risk adjustment, and the main residual risk. "
@@ -684,8 +720,10 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "unless the event is a hard invalidation or fast-market risk event. Slow trend/channel/pullback traders should be allowed to hold "
         "through normal pullbacks; scalp/orderflow traders can protect faster. "
         "structuredReview is the primary user-facing explanation. It must be an object with verdict, headline, action, keyReasons, risks, watchConditions, managerNote. "
-        "Write it for a beginner who needs to know what changed, what to do now, why, what can go wrong, and exactly what to watch next. "
-        "Use short bullets instead of one dense paragraph. Translate indicators into plain meaning, and include raw numbers only when they support a clear action. "
+        "Keep it simple and direct for a beginner: verdict is a short label, headline is one sentence about the current state, "
+        "action is one sentence only and never a list, keyReasons has up to 2 short bullets, risks has up to 1 bullet, watchConditions has up to 2 exact triggers, "
+        "and managerNote is optional one concise desk note. Do not write raw JSON/Python list syntax inside any string. "
+        "Translate indicators into plain meaning, and include raw numbers only when they support a clear action. "
         "rationale is a legacy compatibility field; keep it to 1-2 compact sentences that mirror structuredReview. "
         "If evidence is weak, choose HOLD or NEEDS_MORE_DATA, but include the exact next condition that would trigger action. "
         f"{shock_instruction}"
