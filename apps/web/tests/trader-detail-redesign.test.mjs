@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import vm from "node:vm";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const React = require("react");
+const { renderToStaticMarkup } = require("react-dom/server");
+const ts = require("typescript");
 
 const sourceFiles = [
   "../components/trader-profile-page-client.tsx",
@@ -18,6 +25,55 @@ const sourceFiles = [
   "../components/trader-profile-detail/scenario-modal.tsx"
 ];
 const source = sourceFiles.map((file) => readFileSync(new URL(file, import.meta.url), "utf8")).join("\n");
+const statusFeedModule = loadStatusFeedModule();
+
+function loadStatusFeedModule() {
+  const tsx = readFileSync(new URL("../components/trader-profile-detail/status-feed-thread.tsx", import.meta.url), "utf8");
+  const compiled = ts.transpileModule(tsx, {
+    compilerOptions: {
+      esModuleInterop: true,
+      jsx: ts.JsxEmit.ReactJSX,
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2020
+    }
+  }).outputText;
+  const module = { exports: {} };
+  const componentRequire = (id) => {
+    if (id === "@/lib/format") return { formatRelativeDateTime: () => "방금 전" };
+    return require(id);
+  };
+  vm.runInNewContext(
+    compiled,
+    { exports: module.exports, module, require: componentRequire },
+    { filename: "status-feed-thread.tsx" }
+  );
+  return module.exports;
+}
+
+function t(key) {
+  const labels = {
+    "detail.noStatusFeed": "피드 없음",
+    "detail.statusFeed": "트레이더 피드",
+    "detail.statusFeedThread": "최근 쓰레드",
+    "leaderboard.latestStatusFeed": "최근 피드",
+    "leaderboard.noStatusFeed": "아직 피드가 없습니다"
+  };
+  return labels[key] ?? key;
+}
+
+const legacyWatchFeed = {
+  id: 1,
+  createdAt: "2026-06-19T00:00:00.000Z",
+  headline: "숏 포지션 종료",
+  message: "익절하고 쉬는 중. 다음 타점은 억지로 안 잡고 기다립니다.",
+  payload: {
+    headline: "숏 포지션 종료",
+    message: "익절하고 쉬는 중. 다음 타점은 억지로 안 잡고 기다립니다.",
+    watch: "다음 확인 · 거래량 확인; 15분 동안 붕괴된 지지선 내로 다시 마감."
+  },
+  stateKey: "position_closed",
+  watch: "다음 확인 · 거래량 확인; 15분 동안 붕괴된 지지선 내로 다시 마감."
+};
 
 test("trader detail exposes reference-style monitoring layout regions", () => {
   assert.match(source, /data-testid="trader-detail-monitoring-shell"/, "detail page should expose the redesigned monitoring shell");
@@ -35,6 +91,31 @@ test("status feed thread reads like a note without next-watch labels", () => {
   assert.doesNotMatch(source, /feedWatch\(feed\)/, "legacy watch fields should not be displayed in the thread UI");
   assert.match(source, /mt-1 break-keep text-sm leading-6 text-zinc-600/, "thread body should keep Korean phrases from orphaning syllables in the narrow card");
   assert.match(source, /mt-1 break-keep text-sm leading-6 text-zinc-300/, "leaderboard note body should use the same Korean-friendly wrapping");
+});
+
+test("status feed render ignores legacy watch checklist content", () => {
+  const threadHtml = renderToStaticMarkup(
+    React.createElement(statusFeedModule.StatusFeedThread, {
+      feeds: [legacyWatchFeed],
+      locale: "ko",
+      t
+    })
+  );
+  const noteHtml = renderToStaticMarkup(
+    React.createElement(statusFeedModule.LatestStatusFeedNote, {
+      feed: legacyWatchFeed,
+      locale: "ko",
+      t
+    })
+  );
+
+  for (const html of [threadHtml, noteHtml]) {
+    assert.match(html, /숏 포지션 종료/, "headline should render");
+    assert.match(html, /익절하고 쉬는 중/, "thread-style message should render");
+    assert.doesNotMatch(html, /다음 확인/, "legacy watch label should stay hidden");
+    assert.doesNotMatch(html, /거래량 확인/, "legacy watch checklist details should stay hidden");
+    assert.doesNotMatch(html, /15분 동안/, "legacy watch timing copy should stay hidden");
+  }
 });
 
 test("scenario timeline uses real trading review and plan data", () => {
