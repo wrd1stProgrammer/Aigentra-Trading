@@ -27,7 +27,7 @@ class FakeStatusFeedGenerator:
             message=f"{request.trader.name} is tracking {request.eventType} with a clean, short desk note.",
             mood="focused",
             stance="patient",
-            watch="Next confirmation candle.",
+            watch="",
             provider=self.name,
             model=self.model,
             fallback=False,

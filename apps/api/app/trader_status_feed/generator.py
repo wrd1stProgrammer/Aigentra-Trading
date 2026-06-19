@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, Final
 
 import httpx
 
@@ -7,21 +7,37 @@ from app.core.config import Settings, normalize_ai_provider_name
 from app.trader_status_feed.models import StatusFeedRequest, StatusFeedResult, TraderStatusFeedGenerator
 
 
-STATUS_FEED_SYSTEM_PROMPT = """You write short status-feed notes for Aigentra AI traders.
+STATUS_FEED_STYLE_CONTRACT: Final[dict[str, str | tuple[str, ...]]] = {
+    "format": "trader_thread_post",
+    "voice": "first_person_or_close_desk_voice",
+    "tone": "human_trader_briefing",
+    "watchPolicy": "empty_string",
+    "forbiddenStyles": ("news_article", "analyst_report", "journalist_summary", "formal_postmortem"),
+    "forbiddenPhrases": ("next_watch_label", "next_confirmation_label", "what_to_watch", "key_signal", "core_signal"),
+}
+
+
+STATUS_FEED_SYSTEM_PROMPT = f"""You write short status-feed notes for Aigentra AI traders.
 Return only a strict JSON object with exactly these keys:
 headline, message, mood, stance, watch.
 
 Source locale is English. A separate lightweight GPT translation step localizes later, so do not write Korean or mixed-language text.
 
+Style contract:
+{json.dumps(STATUS_FEED_STYLE_CONTRACT, ensure_ascii=False, sort_keys=True)}
+
 Rules:
-- Write as the trader in first person or close desk-note voice.
-- Keep headline <= 48 characters, message <= 180 characters, watch <= 80 characters.
+- Write like the trader posting one quick thread update to followers, not a news article, analyst report, or trade recap memo.
+- Use first person when natural: I, I'm, my book, my zone, I'm flat, I'm filled, not chasing.
+- Keep headline <= 44 characters and message <= 165 characters.
+- Set watch to an empty string. Do not create a separate next-check or next-watch line.
+- If the next thing matters, weave it into message as a human aside, not as a label or checklist.
 - Be casual and trader-like, but still professional and grounded.
 - Use the trader persona, current trigger, recent reviews, recent trade events, and recent feed notes.
 - Do not repeat a recent feed note.
 - Do not invent prices, PnL, fills, or decisions not present in the input.
 - Do not give personalized financial advice, promises, guaranteed outcomes, or direct user commands.
-- Avoid emojis, hashtags, markdown, and long explanations."""
+- Avoid emojis, hashtags, markdown, long explanations, semicolon-heavy clauses, and phrases like "key signal" or "core signal"."""
 
 
 class OpenAITraderStatusFeedGenerator:
@@ -74,10 +90,10 @@ class OpenAITraderStatusFeedGenerator:
             raise ValueError("Status feed provider returned non-object JSON.")
         return StatusFeedResult(
             headline=str(parsed.get("headline") or "Status update"),
-            message=str(parsed.get("message") or "I am waiting for a cleaner confirmation before the next move."),
+            message=str(parsed.get("message") or "I'm staying patient until the setup gets clean enough to touch."),
             mood=str(parsed.get("mood") or "focused"),
             stance=str(parsed.get("stance") or "patient"),
-            watch=str(parsed.get("watch") or "Next confirmation candle."),
+            watch="",
             provider=self.name,
             model=self.model,
             fallback=False,
@@ -91,32 +107,27 @@ class MockTraderStatusFeedGenerator:
     async def generate(self, request: StatusFeedRequest) -> StatusFeedResult:
         templates = {
             "review_rejected": (
-                "Setup passed on paper, not on review",
-                "I passed on that setup after the second review. The idea was close, but the edge was not clean enough to force it.",
-                "Next clean setup, not the old one.",
+                "Skipped it after review",
+                "I passed on that setup after the second review. It was close, but not clean enough for my book.",
             ),
             "pending_entry": (
-                "Entry is parked",
-                "My plan is live, but I am still waiting for price to tag the entry zone. No need to chase the middle.",
-                "Entry zone behavior.",
+                "Order parked, no chase",
+                "My order is parked. If price tags the zone, great; if not, I'm not chasing the middle.",
             ),
             "position_entry": (
-                "Position is on",
-                "I got the fill. Now it is management mode: protect the invalidation and let the next candles prove the trade.",
-                "Stop behavior and first reaction.",
+                "I'm in, management mode",
+                "I'm filled. Now it's just management: invalidation first, then let the candles do the talking.",
             ),
             "position_closed": (
-                "Position wrapped",
-                "That position is closed. I am logging the result and waiting for the next setup instead of forcing a re-entry.",
-                "Fresh setup quality.",
+                "Flat again, reset mode",
+                "Closed that one and I'm flat again. Good enough, now I reset instead of forcing another click.",
             ),
         }
-        headline, message, watch = templates.get(
+        headline, message = templates.get(
             request.stateKey,
             (
                 "Desk note",
-                "I am keeping the desk quiet until the next useful market event shows up.",
-                "Next meaningful event.",
+                "I'm keeping the desk quiet until the market gives me something worth touching.",
             ),
         )
         return StatusFeedResult(
@@ -124,7 +135,7 @@ class MockTraderStatusFeedGenerator:
             message=message,
             mood="focused",
             stance="patient",
-            watch=watch,
+            watch="",
             provider=self.name,
             model=self.model,
             fallback=True,

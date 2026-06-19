@@ -1,12 +1,12 @@
 import json
 import time
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
 import httpx
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.locales import CANONICAL_AI_LOCALE
+from app.locales import AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED, CANONICAL_AI_LOCALE
 from app.repositories import create_provider_call_log, sanitize_error_message
 
 
@@ -27,6 +27,7 @@ Preserve all numbers, booleans, nulls, arrays, object shape, and array length.
 Preserve technical trading abbreviations when natural in the target language: BTC, USDT, LONG, SHORT, TP, SL, PnL, RSI, EMA, VWAP, OI, RR, ADX, ATR.
 Keep prices, percentages, timestamps, and candle intervals exactly as provided.
 Use natural, concise product-language for the target locale. Do not sound machine-translated.
+If the user message includes a styleContract, follow it for natural-language values.
 If a string mixes an enum with prose, preserve the enum token and translate only the prose around it."""
 
 
@@ -36,6 +37,34 @@ TARGET_LOCALE_GUIDES = {
     "pt-BR": "Brazilian Portuguese. Natural Brazilian trading UI Portuguese; avoid European phrasing.",
     "tr": "Turkish. Natural Turkish trading UI wording; keep market abbreviations intact.",
 }
+
+TRADER_STATUS_TRANSLATION_STYLE_CONTRACT: Final[dict[str, str | tuple[str, ...]]] = {
+    "contentKind": "trader_status_feed",
+    "tone": "casual_trader_thread",
+    "voice": "short first-person trader briefing, not a product explainer",
+    "forbiddenStyles": ("journalist_summary", "analyst_report", "formal_postmortem"),
+    "forbiddenPhrases": ("next_watch_label", "next_confirmation_label", "what_to_watch"),
+    "avoidExamples": ("다음 확인", "핵심 신호", "주요 위험으로 보고 있습니다"),
+}
+
+GENERIC_TRANSLATION_STYLE_CONTRACT: Final[dict[str, str | tuple[str, ...]]] = {
+    "contentKind": "generic_trading_review",
+    "tone": "concise_product_language",
+    "forbiddenStyles": (),
+    "forbiddenPhrases": (),
+    "avoidExamples": (),
+}
+
+
+def translation_style_contract_for_payload(payload: dict[str, Any], target_locale: str) -> dict[str, str | tuple[str, ...]]:
+    if payload.get("feedType") != AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED:
+        return GENERIC_TRANSLATION_STYLE_CONTRACT
+    if target_locale == "ko":
+        return TRADER_STATUS_TRANSLATION_STYLE_CONTRACT
+    return {
+        **TRADER_STATUS_TRANSLATION_STYLE_CONTRACT,
+        "avoidExamples": ("Next watch", "key signal", "core signal"),
+    }
 
 
 class OpenAIJSONTranslationProvider:
@@ -48,6 +77,7 @@ class OpenAIJSONTranslationProvider:
 
     async def translate_json(self, *, payload: dict[str, Any], target_locale: str) -> dict[str, Any]:
         guide = TARGET_LOCALE_GUIDES.get(target_locale, target_locale)
+        style_contract = translation_style_contract_for_payload(payload, target_locale)
         body: dict[str, Any] = {
             "model": self.model,
             "messages": [
@@ -59,11 +89,13 @@ class OpenAIJSONTranslationProvider:
                             "sourceLocale": CANONICAL_AI_LOCALE,
                             "targetLocale": target_locale,
                             "targetGuide": guide,
+                            "styleContract": style_contract,
                             "rules": [
                                 "same JSON shape",
                                 "do not translate keys",
                                 "preserve enum/status/code/id/provider/model values",
                                 "translate natural-language values only",
+                                "apply styleContract to natural-language strings",
                             ],
                             "content": payload,
                         },

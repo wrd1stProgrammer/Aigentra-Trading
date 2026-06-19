@@ -15,7 +15,8 @@ from app.db import (
     session_scope,
 )
 from app.locales import AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED
-from app.trader_status_feed.models import StatusFeedResult
+from app.trader_status_feed import generator as status_feed_generator
+from app.trader_status_feed.models import StatusFeedPersona, StatusFeedRequest, StatusFeedResult
 from app.trader_status_feed.constants import (
     STATUS_FEED_STATE_PENDING_ENTRY,
     STATUS_FEED_STATE_POSITION_CLOSED,
@@ -42,7 +43,7 @@ class FakeStatusFeedGenerator:
             message=f"{request.trader.name} is tracking {request.eventType} with a clean, short desk note.",
             mood="focused",
             stance="patient",
-            watch="Next confirmation candle.",
+            watch="",
             provider=self.name,
             model=self.model,
             fallback=False,
@@ -158,3 +159,39 @@ def test_current_status_prefers_open_position_over_open_orders(temp_db):
         assert candidate["eventType"] == "position_entry_active"
         assert candidate["sourceType"] == "paper_position"
         assert candidate["sourceId"] == position.id
+
+
+def test_status_feed_prompt_contract_uses_thread_voice_without_watch_label():
+    contract = status_feed_generator.STATUS_FEED_STYLE_CONTRACT
+
+    assert contract["format"] == "trader_thread_post"
+    assert contract["watchPolicy"] == "empty_string"
+    assert "news_article" in contract["forbiddenStyles"]
+    assert "analyst_report" in contract["forbiddenStyles"]
+    assert "next_watch_label" in contract["forbiddenPhrases"]
+
+
+def test_mock_status_feed_generator_keeps_watch_empty_and_human_thread_like():
+    request = StatusFeedRequest(
+        trader=StatusFeedPersona(
+            traderId="volume-breaker",
+            name="Volume Breaker",
+            alias="Volume Desk",
+            voice="brief breakout trader",
+            cadence="compact thread post",
+            avoid="report language",
+        ),
+        symbol="BTCUSDT",
+        stateKey=STATUS_FEED_STATE_POSITION_CLOSED,
+        eventType="position_closed",
+        generatedAt=datetime(2026, 6, 19, 3, 0, tzinfo=timezone.utc),
+        trigger={"reason": "take_profit"},
+        context={},
+    )
+
+    result = asyncio.run(status_feed_generator.MockTraderStatusFeedGenerator().generate(request))
+
+    assert result.watch == ""
+    assert "next" not in result.watch.lower()
+    assert "I " in result.message or "I'm" in result.message
+    assert "key signal" not in result.headline.lower()

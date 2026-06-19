@@ -3,9 +3,10 @@ import asyncio
 import pytest
 
 from app.ai.translation_cache import fanout_ai_translations, localized_payload_for_source, merge_validated_translation
+from app.ai.translation_provider import translation_style_contract_for_payload
 from app.core.config import Settings
 from app.db import AITranslationCacheRecord, init_db, reset_db_engine, session_scope
-from app.locales import AI_TRANSLATION_SOURCE_AI_REVIEW, AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT
+from app.locales import AI_TRANSLATION_SOURCE_AI_REVIEW, AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT, AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED
 
 
 class FakeTranslationProvider:
@@ -202,3 +203,21 @@ def test_league_sentiment_translation_scrubs_banned_terms(temp_db):
         assert "paper trading" not in str(localized).lower()
         assert "페이퍼 트레이딩" not in str(record.payload_json)
         assert "paper trading" not in str(record.payload_json).lower()
+
+
+def test_trader_status_feed_translation_uses_thread_style_contract():
+    payload = {
+        "feedType": AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED,
+        "headline": "Short closed clean",
+        "message": "I took the profit and stepped aside. Volume is the part I care about now.",
+        "watch": "",
+        "stateKey": "position_closed",
+    }
+
+    contract = translation_style_contract_for_payload(payload, "ko")
+
+    assert contract["contentKind"] == "trader_status_feed"
+    assert contract["tone"] == "casual_trader_thread"
+    assert "next_watch_label" in contract["forbiddenPhrases"]
+    assert "journalist_summary" in contract["forbiddenStyles"]
+    assert "다음 확인" in contract["avoidExamples"]

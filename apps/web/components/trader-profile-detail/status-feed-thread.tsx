@@ -17,10 +17,6 @@ function feedMessage(feed: TraderStatusFeed) {
   return feed.message ?? feed.payload?.message ?? "";
 }
 
-function feedWatch(feed: TraderStatusFeed) {
-  return feed.watch ?? feed.payload?.watch ?? "";
-}
-
 function feedState(feed: TraderStatusFeed) {
   return feed.stateKey ?? feed.state_key ?? "";
 }
@@ -59,8 +55,7 @@ export function LatestStatusFeedNote({
         {time ? <span className="font-mono text-[11px] text-zinc-500">{formatRelativeDateTime(time, locale, t)}</span> : null}
       </div>
       {feedHeadline(feed) ? <p className={`mt-2 text-sm font-semibold ${stateTone(state)}`}>{feedHeadline(feed)}</p> : null}
-      <p className="mt-1 text-sm leading-6 text-zinc-300">{feedMessage(feed)}</p>
-      {feedWatch(feed) ? <p className="mt-2 text-xs leading-5 text-zinc-500">{t("detail.statusFeedWatch")} · {feedWatch(feed)}</p> : null}
+      <p className="mt-1 break-keep text-sm leading-6 text-zinc-300">{feedMessage(feed)}</p>
     </div>
   );
 }
@@ -98,8 +93,7 @@ export function StatusFeedThread({
                     <p className={`min-w-0 truncate text-sm font-semibold ${stateTone(state)}`}>{feedHeadline(feed) || t("detail.statusFeed")}</p>
                     {time ? <span className="shrink-0 font-mono text-[11px] text-zinc-500">{formatRelativeDateTime(time, locale, t)}</span> : null}
                   </div>
-                  <p className="mt-1 text-sm leading-6 text-zinc-600 dark:text-zinc-300">{feedMessage(feed)}</p>
-                  {feedWatch(feed) ? <p className="mt-2 text-xs leading-5 text-zinc-500">{t("detail.statusFeedWatch")} · {feedWatch(feed)}</p> : null}
+                  <p className="mt-1 break-keep text-sm leading-6 text-zinc-600 dark:text-zinc-300">{feedMessage(feed)}</p>
                 </article>
               );
             })}

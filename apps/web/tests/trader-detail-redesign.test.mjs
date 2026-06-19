@@ -30,6 +30,13 @@ test("trader detail exposes reference-style monitoring layout regions", () => {
   assert.match(source, /data-testid="management-journal"/, "detail page should expose the lower management journal region");
 });
 
+test("status feed thread reads like a note without next-watch labels", () => {
+  assert.doesNotMatch(source, /detail\.statusFeedWatch/, "status feed should not render a labeled next-watch line");
+  assert.doesNotMatch(source, /feedWatch\(feed\)/, "legacy watch fields should not be displayed in the thread UI");
+  assert.match(source, /mt-1 break-keep text-sm leading-6 text-zinc-600/, "thread body should keep Korean phrases from orphaning syllables in the narrow card");
+  assert.match(source, /mt-1 break-keep text-sm leading-6 text-zinc-300/, "leaderboard note body should use the same Korean-friendly wrapping");
+});
+
 test("scenario timeline uses real trading review and plan data", () => {
   assert.match(source, /scenarioTimelineItems/, "scenario timeline should be driven by a derived view model");
   assert.match(source, /latestPlan/, "scenario timeline should include latest trade plan data");

@@ -4,7 +4,7 @@ from app.traders.models import TraderProfile
 DEFAULT_STATUS_PERSONA = {
     "alias": "Strategy Desk",
     "voice": "calm, specific, and mildly conversational",
-    "cadence": "one compact desk note; no hype; one next-watch clue",
+    "cadence": "one compact thread post; no hype; no labeled checklist",
     "avoid": "financial advice, certainty, promises, and long explanations",
 }
 
