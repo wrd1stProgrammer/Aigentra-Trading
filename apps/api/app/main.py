@@ -1535,6 +1535,128 @@ def list_filtered_records(
     return [serialize_record_for_ui(record, include_payload=include_payload, locale=locale) for record in records]
 
 
+def list_overview_review_records(
+    db: Session,
+    *,
+    limit: int = 20,
+    offset: int = 0,
+    symbol: Optional[str] = None,
+    trader_id: Optional[str] = None,
+    locale: str = CANONICAL_AI_LOCALE,
+) -> dict[str, Any]:
+    safe_limit = max(1, min(limit, 50))
+    safe_offset = max(0, offset)
+    fetch_window = safe_offset + safe_limit + 1
+    clean_symbol = normalize_symbol(symbol) if symbol else None
+
+    candidates: list[tuple[str, Any]] = []
+    for source, model in (
+        ("entry_review", AIReviewRecord),
+        ("management_review", PositionManagementReviewRecord),
+    ):
+        stmt = slim_select(model)
+        if clean_symbol:
+            stmt = stmt.where(model.symbol == clean_symbol)
+        if trader_id:
+            stmt = stmt.where(model.trader_id == trader_id)
+        stmt = stmt.order_by(desc(model.created_at), desc(model.id)).limit(fetch_window)
+        candidates.extend((source, record) for record in db.execute(stmt).scalars().all())
+
+    candidates.sort(key=lambda item: (item[1].created_at, item[1].id), reverse=True)
+    page_candidates = candidates[safe_offset:safe_offset + safe_limit]
+    full_records: dict[tuple[str, int], Any] = {}
+    for source, model in (
+        ("entry_review", AIReviewRecord),
+        ("management_review", PositionManagementReviewRecord),
+    ):
+        source_ids = [record.id for item_source, record in page_candidates if item_source == source]
+        if not source_ids:
+            continue
+        records = db.execute(select(model).where(model.id.in_(source_ids))).scalars().all()
+        full_records.update({(source, record.id): record for record in records})
+
+    reviews = [
+        serialize_overview_review_record(
+            full_records.get((source, record.id), record),
+            overview_source=source,
+            locale=locale,
+        )
+        for source, record in page_candidates
+    ]
+    return {
+        "reviews": reviews,
+        "nextOffset": safe_offset + len(reviews),
+        "hasMore": len(candidates) > safe_offset + safe_limit,
+    }
+
+
+def serialize_overview_review_record(record, *, overview_source: str, locale: str = CANONICAL_AI_LOCALE) -> dict[str, Any]:
+    data = serialize_record_slim(record)
+    data["overviewSource"] = overview_source
+    payload = from_json(getattr(record, "payload_json", None)) or {}
+    translation_meta = None
+    record_session = object_session(record)
+    if isinstance(payload, dict) and record_session is not None:
+        if isinstance(record, AIReviewRecord):
+            payload, translation_meta = localized_payload_for_source(
+                db=record_session,
+                source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+                source_id=record.id,
+                payload=payload,
+                locale=locale,
+            )
+        elif isinstance(record, PositionManagementReviewRecord):
+            payload, translation_meta = localized_payload_for_source(
+                db=record_session,
+                source_type=AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
+                source_id=record.id,
+                payload=payload,
+                locale=locale,
+            )
+    if not isinstance(payload, dict):
+        payload = {}
+
+    if isinstance(record, AIReviewRecord):
+        structured = payload.get("structuredReview") if isinstance(payload.get("structuredReview"), dict) else {}
+        data["source"] = "entry_review"
+        data["structuredReview"] = structured
+        data["approvalReason"] = payload.get("approvalReason")
+        data["rationale"] = payload.get("approvalReason") or payload.get("rationale") or structured.get("headline") or structured.get("action")
+        data["riskFlags"] = payload.get("riskFlags") or []
+        data["reviewFacts"] = payload.get("reviewFacts") or []
+    elif isinstance(record, PositionManagementReviewRecord):
+        event = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+        review = payload.get("review") if isinstance(payload.get("review"), dict) else {}
+        structured = (
+            review.get("structuredReview")
+            if isinstance(review.get("structuredReview"), dict)
+            else payload.get("structuredReview") if isinstance(payload.get("structuredReview"), dict)
+            else {}
+        )
+        data["source"] = "management_review"
+        data["event"] = {
+            "eventType": event.get("eventType"),
+            "phase": event.get("phase"),
+            "severity": event.get("severity"),
+            "reason": event.get("reason"),
+            "suggestedAction": event.get("suggestedAction"),
+        }
+        data["review"] = {
+            "decision": review.get("decision") or data.get("decision"),
+            "action": review.get("action") or data.get("actionType"),
+            "rationale": review.get("rationale"),
+            "structuredReview": structured,
+        }
+        data["structuredReview"] = structured
+        data["rationale"] = review.get("rationale") or structured.get("headline") or structured.get("action") or event.get("reason")
+        data["riskFlags"] = review.get("riskFlags") or []
+        data["reviewFacts"] = review.get("reviewFacts") or []
+        data["riskLevel"] = review.get("riskLevel") or data.get("riskLevel")
+    if translation_meta is not None:
+        data["translation"] = translation_meta
+    return data
+
+
 def list_records_slim(db: Session, model, limit: int = 20) -> list:
     safe_limit = max(1, min(limit, 100))
     records = db.execute(slim_select(model).order_by(desc(model.created_at), desc(model.id)).limit(safe_limit)).scalars().all()
@@ -4084,6 +4206,25 @@ async def league_sentiment_opinion(
         locale=clean_locale,
         settings=settings,
         force=refresh,
+    )
+
+
+@app.get("/api/league/overview-reviews")
+async def league_overview_reviews(
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+    symbol: Optional[str] = Query(None),
+    trader_id: Optional[str] = Query(None),
+    locale: str = Query(CANONICAL_AI_LOCALE),
+    db: Session = Depends(get_db),
+):
+    return list_overview_review_records(
+        db,
+        limit=limit,
+        offset=offset,
+        symbol=symbol,
+        trader_id=trader_id,
+        locale=normalize_locale(locale),
     )
 
 

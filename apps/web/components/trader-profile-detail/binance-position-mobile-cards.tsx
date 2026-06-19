@@ -30,6 +30,7 @@ export function MobilePositionCards({
   orders,
   locale,
   t,
+  liveMarkPrice,
   onOpenPosition,
   onOpenOrder
 }: {
@@ -38,6 +39,7 @@ export function MobilePositionCards({
   readonly orders: readonly DisplayPaperOrder[];
   readonly locale: Locale;
   readonly t: Translator;
+  readonly liveMarkPrice?: number | null;
   readonly onOpenPosition?: (position: PaperPosition) => void;
   readonly onOpenOrder?: (order: DisplayPaperOrder) => void;
 }) {
@@ -50,6 +52,7 @@ export function MobilePositionCards({
               position={position}
               locale={locale}
               t={t}
+              liveMarkPrice={liveMarkPrice}
               onOpen={onOpenPosition}
             />
           ))
@@ -72,20 +75,22 @@ function MobilePositionCard({
   position,
   locale,
   t,
+  liveMarkPrice,
   onOpen
 }: {
   readonly position: PaperPosition;
   readonly locale: Locale;
   readonly t: Translator;
+  readonly liveMarkPrice?: number | null;
   readonly onOpen?: (position: PaperPosition) => void;
 }) {
   const side = normalizedSide(position.side);
   const quantity = positionQuantity(position);
   const entryPrice = positionEntryPrice(position);
-  const markPrice = positionMarkPrice(position);
+  const markPrice = positionMarkPrice(position, liveMarkPrice);
   const leverage = positionLeverage(position);
   const margin = positionMargin(position);
-  const pnl = positionPnl(position);
+  const pnl = positionPnl(position, liveMarkPrice);
   const roe = margin !== null && margin > 0 && pnl !== null ? (pnl / margin) * 100 : null;
   const expectedProfit = expectedPositionProfitAtTarget(position);
 

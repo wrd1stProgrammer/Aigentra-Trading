@@ -47,6 +47,9 @@ import { SYMBOLS, type TradeHistoryItem } from "@/components/trader-profile-deta
 import { traderVisuals } from "@/lib/league";
 import { CaretLeft, CaretRight, Clock } from "@phosphor-icons/react";
 
+const DETAIL_INITIAL_REVIEWS_LIMIT = 20;
+const DETAIL_INITIAL_EVENTS_LIMIT = 20;
+
 function toDateString(date: Date): string {
   if (Number.isNaN(date.getTime())) return "";
   const y = date.getUTCFullYear();
@@ -260,11 +263,12 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     [traderId]
   );
   const [symbol, setSymbol] = useState<LeagueSymbol>("BTCUSDT");
+  const [liveMarkPrice, setLiveMarkPrice] = useState<number | null>(null);
   const [selectedScenario, setSelectedScenario] = useState<TraderScenario | null>(null);
   const [liveAlert, setLiveAlert] = useState<LiveDetailAlert | null>(null);
   const [visibleScenarioCountByDate, setVisibleScenarioCountByDate] = useState<Record<string, number>>({});
-  const [reviewsLimit, setReviewsLimit] = useState(40);
-  const [eventsLimit, setEventsLimit] = useState(30);
+  const [reviewsLimit, setReviewsLimit] = useState(DETAIL_INITIAL_REVIEWS_LIMIT);
+  const [eventsLimit, setEventsLimit] = useState(DETAIL_INITIAL_EVENTS_LIMIT);
   const [historyItems, setHistoryItems] = useState<TradeHistoryItem[]>([]);
   const [historyOffset, setHistoryOffset] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(true);
@@ -338,6 +342,14 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
 
   useEffect(() => {
     setClientHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    setLiveMarkPrice(null);
+  }, [symbol]);
+
+  const handleLatestPriceChange = useCallback((price: number | null) => {
+    setLiveMarkPrice((previous) => previous === price ? previous : price);
   }, []);
 
   const liveAlertKeyRef = useRef<string | null>(null);
@@ -478,8 +490,8 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       lastTraderIdRef.current = traderId;
       lastSymbolRef.current = symbol;
       setVisibleScenarioCountByDate({});
-      setReviewsLimit(40);
-      setEventsLimit(30);
+      setReviewsLimit(DETAIL_INITIAL_REVIEWS_LIMIT);
+      setEventsLimit(DETAIL_INITIAL_EVENTS_LIMIT);
       lastScenarioHydrationKeyRef.current = null;
       
       if (scenarioTimelineItems.length > 0) {
@@ -656,6 +668,8 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
             compact
             showPositionPanel={false}
             scenarios={scenarios}
+            liveMarkPrice={liveMarkPrice}
+            onLatestPriceChange={handleLatestPriceChange}
             onOpenScenario={setSelectedScenario}
           />
         </div>
@@ -669,6 +683,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
           orders={orders}
           latestPlan={latestPlan}
           scenarios={scenarios}
+          liveMarkPrice={liveMarkPrice}
           onOpenScenario={setSelectedScenario}
         />
       </div>

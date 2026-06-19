@@ -71,11 +71,19 @@ export function positionMargin(position: NumericRecord) {
   );
 }
 
-export function positionPnl(position: NumericRecord) {
+export function positionPnl(position: NumericRecord, markPriceOverride?: unknown) {
+  const liveMark = firstFiniteNumber(markPriceOverride);
+  if (liveMark !== null) {
+    const livePnl = positionPnlFromMarkPrice(position, liveMark);
+    if (livePnl !== null) return livePnl;
+  }
   return firstFiniteNumber(position.unrealizedPnl, position.realizedPnl);
 }
 
-export function positionMarkPrice(position: NumericRecord) {
+export function positionMarkPrice(position: NumericRecord, markPriceOverride?: unknown) {
+  const liveMark = firstFiniteNumber(markPriceOverride);
+  if (liveMark !== null) return liveMark;
+
   const payload = recordValue(position.payload);
   const directMark = firstFiniteNumber(position.markPrice, position.mark_price, payload?.markPrice, payload?.mark_price, payload?.currentPrice);
   if (directMark !== null) return directMark;
@@ -86,6 +94,17 @@ export function positionMarkPrice(position: NumericRecord) {
   const pnl = positionPnl(position);
   if (entryPrice === null || quantity <= 0 || pnl === null || Math.abs(pnl) <= 0.00000001) return null;
   return side === "SHORT" ? entryPrice - (pnl / quantity) : entryPrice + (pnl / quantity);
+}
+
+export function positionPnlFromMarkPrice(position: NumericRecord, markPrice: number) {
+  if (!Number.isFinite(markPrice)) return null;
+  const side = normalizedSide(position.side);
+  const entryPrice = positionEntryPrice(position);
+  const quantity = Math.abs(positionQuantity(position) ?? 0);
+  if (entryPrice === null || quantity <= 0 || side === "-") return null;
+  return side === "SHORT"
+    ? (entryPrice - markPrice) * quantity
+    : (markPrice - entryPrice) * quantity;
 }
 
 export function positionTargetPrice(position: NumericRecord) {

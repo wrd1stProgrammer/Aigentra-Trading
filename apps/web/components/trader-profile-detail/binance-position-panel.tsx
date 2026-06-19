@@ -37,7 +37,8 @@ export function BinancePositionPanel({
   orders,
   latestPlan,
   scenarios = [],
-  onOpenScenario
+  onOpenScenario,
+  liveMarkPrice
 }: {
   readonly symbol: LeagueSymbol;
   readonly positions: readonly PaperPosition[];
@@ -45,6 +46,7 @@ export function BinancePositionPanel({
   readonly latestPlan?: PlanView | null;
   readonly scenarios?: readonly TraderScenario[];
   readonly onOpenScenario?: (scenario: TraderScenario) => void;
+  readonly liveMarkPrice?: number | null;
 }) {
   const { locale, t } = useAppContext();
   const openPositions = useMemo(() => positions.filter((position) => matchesSymbol(position.symbol, symbol) && isOpenChartExposure(position)), [positions, symbol]);
@@ -71,6 +73,7 @@ export function BinancePositionPanel({
         orders={openOrders}
         locale={locale}
         t={t}
+        liveMarkPrice={liveMarkPrice}
         onOpenPosition={onOpenScenario ? openScenarioForPosition : undefined}
         onOpenOrder={onOpenScenario ? openScenarioForOrder : undefined}
       />
@@ -93,7 +96,7 @@ export function BinancePositionPanel({
             </thead>
             <tbody>
               {openPositions.map((position, index) => (
-                <PositionRow key={`position-${position.id ?? index}`} position={position} locale={locale} t={t} onOpenScenario={onOpenScenario ? openScenarioForPosition : undefined} />
+                <PositionRow key={`position-${position.id ?? index}`} position={position} locale={locale} t={t} liveMarkPrice={liveMarkPrice} onOpenScenario={onOpenScenario ? openScenarioForPosition : undefined} />
               ))}
             </tbody>
           </table>
@@ -152,21 +155,23 @@ function PositionRow({
   position,
   locale,
   t,
+  liveMarkPrice,
   onOpenScenario
 }: {
   readonly position: PaperPosition;
   readonly locale: Locale;
   readonly t: (key: string) => string;
+  readonly liveMarkPrice?: number | null;
   readonly onOpenScenario?: (position: PaperPosition) => void;
 }) {
   const side = normalizedSide(position.side);
   const quantity = positionQuantity(position);
   const entryPrice = positionEntryPrice(position);
-  const markPrice = positionMarkPrice(position);
+  const markPrice = positionMarkPrice(position, liveMarkPrice);
   const leverage = positionLeverage(position);
   const liquidation = firstFiniteNumber(position.liquidationPrice, position.liquidation_price);
   const margin = positionMargin(position);
-  const pnl = positionPnl(position);
+  const pnl = positionPnl(position, liveMarkPrice);
   const roe = margin !== null && margin > 0 && pnl !== null ? (pnl / margin) * 100 : null;
   const expectedProfit = expectedPositionProfitAtTarget(position);
 

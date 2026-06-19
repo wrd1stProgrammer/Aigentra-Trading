@@ -1,11 +1,13 @@
 import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.db import init_db, reset_db_engine
+from app.db import AIReviewRecord, PositionManagementReviewRecord, init_db, reset_db_engine, session_scope
 from app.main import app
+from app.repositories import to_json
 
 
 client = TestClient(app)
@@ -346,3 +348,68 @@ def test_trader_detail_refresh_query_replaces_cached_payload(monkeypatch):
     assert data["cacheHit"] is False
     assert data["stale"] is False
     assert main.TRADER_DETAIL_CACHE[cache_key][1]["lastUpdatedAt"] == "forced-fresh-detail"
+
+
+def test_league_overview_reviews_returns_one_slim_combined_page(temp_api_db):
+    now = datetime(2026, 6, 19, 12, 0, tzinfo=timezone.utc)
+    large_payload_blob = "x" * 10_000
+    with session_scope() as db:
+        for index in range(15):
+            db.add(
+                AIReviewRecord(
+                    trader_id="session-raider",
+                    symbol="BTCUSDT",
+                    created_at=now - timedelta(minutes=index * 2),
+                    decision="APPROVE",
+                    risk_level="medium",
+                    payload_json=to_json(
+                        {
+                            "approvalReason": f"entry review {index}",
+                            "structuredReview": {"headline": f"entry headline {index}"},
+                            "largeDebugPayload": large_payload_blob,
+                        }
+                    ),
+                )
+            )
+            db.add(
+                PositionManagementReviewRecord(
+                    trader_id="volatility-squeezer",
+                    symbol="BTCUSDT",
+                    created_at=now - timedelta(minutes=index * 2 + 1),
+                    decision="HOLD",
+                    action_type="HOLD",
+                    phase="OPEN_POSITION",
+                    payload_json=to_json(
+                        {
+                            "event": {
+                                "eventType": "position_heartbeat",
+                                "phase": "OPEN_POSITION",
+                                "reason": f"management event {index}",
+                                "suggestedAction": "HOLD",
+                            },
+                            "review": {
+                                "rationale": f"management review {index}",
+                                "structuredReview": {"headline": f"management headline {index}"},
+                            },
+                            "largeDebugPayload": large_payload_blob,
+                        }
+                    ),
+                )
+            )
+
+    first_page = client.get("/api/league/overview-reviews?limit=20&offset=0&locale=ko")
+    assert first_page.status_code == 200
+    data = first_page.json()
+    assert len(data["reviews"]) == 20
+    assert data["nextOffset"] == 20
+    assert data["hasMore"] is True
+    assert {review["overviewSource"] for review in data["reviews"]} == {"entry_review", "management_review"}
+    assert "payload" not in data["reviews"][0]
+    assert "largeDebugPayload" not in str(data)
+
+    second_page = client.get("/api/league/overview-reviews?limit=10&offset=20&locale=ko")
+    assert second_page.status_code == 200
+    second_data = second_page.json()
+    assert len(second_data["reviews"]) == 10
+    assert second_data["nextOffset"] == 30
+    assert second_data["hasMore"] is False

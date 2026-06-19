@@ -229,7 +229,8 @@ export function LiveCandleChart({
   paperEvents = [],
   managementReviews = [],
   height = 340,
-  compact = false
+  compact = false,
+  onLatestPriceChange
 }: {
   symbol: string;
   result: ChartResultView | null;
@@ -239,6 +240,7 @@ export function LiveCandleChart({
   managementReviews?: Array<ManagementReview | Record<string, any>>;
   height?: number;
   compact?: boolean;
+  onLatestPriceChange?: (price: number | null) => void;
 }) {
   const { locale, t, theme } = useAppContext();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -348,6 +350,10 @@ export function LiveCandleChart({
     marketPrice !== null && dailyReferencePrice !== null && dailyReferencePrice > 0
       ? ((marketPrice - dailyReferencePrice) / dailyReferencePrice) * 100
       : null;
+
+  useEffect(() => {
+    onLatestPriceChange?.(marketPrice);
+  }, [marketPrice, onLatestPriceChange]);
 
   useEffect(() => {
     let cancelled = false;

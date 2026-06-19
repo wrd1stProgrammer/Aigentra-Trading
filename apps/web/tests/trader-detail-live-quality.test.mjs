@@ -47,6 +47,8 @@ test("chart surface uses faster initial candle load and production copy", () => 
 
 test("detail bundle uses cached placeholder data without blocking live fetch", () => {
   assert.match(apiSource, /getCachedTraderDetailBundle/, "detail bundle cache reader should exist");
+  assert.match(apiSource, /TRADER_DETAIL_BROWSER_CACHE_MS = 60_000/, "detail trading-state placeholders should expire faster than static leaderboard placeholders");
+  assert.match(apiSource, /getCachedTraderDetailBundle[\s\S]*TRADER_DETAIL_BROWSER_CACHE_MS/, "detail cache reader should use the short trading-state TTL");
   assert.doesNotMatch(pageSource, /initialData/, "placeholder/fallback data must not be treated as fresh live data");
   assert.match(pageSource, /placeholderData[\s\S]*getCachedTraderDetailBundle/, "detail page should use browser cache only as placeholder data");
 });

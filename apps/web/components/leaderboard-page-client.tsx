@@ -17,9 +17,8 @@ import {
 import {
   getEquitySnapshots,
   getCachedLeaderboardBundle,
-  getAiReviews,
+  getLeagueOverviewReviews,
   getRecentTradePlans,
-  getManagementReviews,
   LEAGUE_LIVE_REFETCH_INTERVAL_MS,
   leaderboardBundleQueryOptions,
   prefetchLeaderboardBundle,
@@ -43,8 +42,7 @@ import { activePositionLeverage, appendLeverageSample, formatLeverageBadge, orde
 import {
   isDisplayableOverviewReview,
   overviewReviewDecision,
-  type OverviewReviewRecord,
-  type OverviewReviewSource
+  type OverviewReviewRecord
 } from "@/components/leaderboard-overview-filter";
 import { LatestStatusFeedNote } from "@/components/trader-profile-detail/status-feed-thread";
 
@@ -1056,35 +1054,26 @@ function getReviewImportance(decision: string, text: string): 'critical' | 'impo
   return 'routine';
 }
 
-function extractOverviewReviews(value: unknown, overviewSource: OverviewReviewSource): OverviewReviewRecord[] {
-  if (Array.isArray(value)) return tagOverviewReviews(value.filter(isOverviewReviewRecord), overviewSource);
+function extractOverviewReviews(value: unknown): OverviewReviewRecord[] {
+  if (Array.isArray(value)) return value.filter(isOverviewReviewRecord);
   const record = recordValue(value);
   if (!record) return [];
   const managementReviews = record.managementReviews;
-  if (Array.isArray(managementReviews)) return tagOverviewReviews(managementReviews.filter(isOverviewReviewRecord), overviewSource);
+  if (Array.isArray(managementReviews)) return managementReviews.filter(isOverviewReviewRecord);
   const aiReviews = record.aiReviews;
-  if (Array.isArray(aiReviews)) return tagOverviewReviews(aiReviews.filter(isOverviewReviewRecord), overviewSource);
+  if (Array.isArray(aiReviews)) return aiReviews.filter(isOverviewReviewRecord);
   const reviews = record.reviews;
-  if (Array.isArray(reviews)) return tagOverviewReviews(reviews.filter(isOverviewReviewRecord), overviewSource);
+  if (Array.isArray(reviews)) return reviews.filter(isOverviewReviewRecord);
   return [];
 }
 
-function tagOverviewReviews(reviews: readonly OverviewReviewRecord[], overviewSource: OverviewReviewSource) {
-  return reviews.map((review) => ({ ...review, overviewSource }));
-}
-
 async function loadOverviewReviewPage(limit: number, offset: number, locale: Locale) {
-  const [managementResponse, entryResponse] = await Promise.all([
-    getManagementReviews(limit, offset, undefined, undefined, locale),
-    getAiReviews(limit, offset, undefined, undefined, locale)
-  ]);
-  const managementReviews = extractOverviewReviews(managementResponse, "management_review");
-  const entryReviews = extractOverviewReviews(entryResponse, "entry_review");
-  const reviews = mergeOverviewReviews([], [...entryReviews, ...managementReviews]);
+  const response = await getLeagueOverviewReviews(limit, offset, locale);
+  const reviews = mergeOverviewReviews([], extractOverviewReviews(response));
   return {
     reviews,
-    fetchedCount: Math.max(managementReviews.length, entryReviews.length),
-    hasMore: managementReviews.length >= limit || entryReviews.length >= limit
+    nextOffset: Number.isFinite(response.nextOffset) ? response.nextOffset : offset + reviews.length,
+    hasMore: response.hasMore
   };
 }
 
@@ -1170,7 +1159,7 @@ function OptionActivityStream({
         const fetchedReviews = page.reviews;
         const mergedReviews = mergeOverviewReviews(overviewActivityCache.reviews, fetchedReviews);
         overviewActivityCache.reviews = mergedReviews;
-        overviewActivityCache.offset = Math.max(hasCachedReviews ? overviewActivityCache.offset : 0, page.fetchedCount);
+        overviewActivityCache.offset = Math.max(hasCachedReviews ? overviewActivityCache.offset : 0, page.nextOffset);
         overviewActivityCache.hasMore = page.hasMore;
         overviewActivityCache.fetchedAt = Date.now();
         if (active) {
@@ -1212,7 +1201,7 @@ function OptionActivityStream({
       }
 
       overviewActivityCache.reviews = mergeOverviewReviews(overviewActivityCache.reviews, uniqueReviews);
-      overviewActivityCache.offset = nextOffset + page.fetchedCount;
+      overviewActivityCache.offset = page.nextOffset;
       overviewActivityCache.hasMore = page.hasMore;
       overviewActivityCache.fetchedAt = Date.now();
       setReviewsList(overviewActivityCache.reviews);

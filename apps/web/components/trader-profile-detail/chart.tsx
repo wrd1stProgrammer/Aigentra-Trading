@@ -25,6 +25,8 @@ export function DetailChart({
   compact,
   showPositionPanel = true,
   scenarios,
+  liveMarkPrice,
+  onLatestPriceChange,
   onOpenScenario
 }: {
   symbol: LeagueSymbol;
@@ -37,6 +39,8 @@ export function DetailChart({
   compact?: boolean;
   showPositionPanel?: boolean;
   scenarios?: readonly TraderScenario[];
+  liveMarkPrice?: number | null;
+  onLatestPriceChange?: (price: number | null) => void;
   onOpenScenario?: (scenario: TraderScenario) => void;
 }) {
   return (
@@ -50,6 +54,7 @@ export function DetailChart({
         managementReviews={managementReviews}
         height={height}
         compact={compact}
+        onLatestPriceChange={onLatestPriceChange}
       />
       {showPositionPanel ? (
         <BinancePositionPanel
@@ -58,6 +63,7 @@ export function DetailChart({
           orders={paperOrders}
           latestPlan={result?.tradePlan ?? null}
           scenarios={scenarios}
+          liveMarkPrice={liveMarkPrice}
           onOpenScenario={onOpenScenario}
         />
       ) : null}

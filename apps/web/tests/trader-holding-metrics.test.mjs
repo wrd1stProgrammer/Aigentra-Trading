@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import ts from "typescript";
 
 const holdingMetrics = loadTsModule("../components/trader-profile-detail/holding-metrics.ts");
+const positionCalculations = loadTsModule("../components/trader-profile-detail/position-panel-calculations.ts");
 const holdings = loadTsModule("../components/trader-profile-detail/holdings.ts", {
   "@/lib/format": {
     formatCurrency: (value) => `$${value}`,
@@ -89,6 +90,29 @@ test("holding metrics read average entry, leverage, notional, pnl, and entry wei
   assert.equal(metrics.notional, 17050);
   assert.equal(metrics.pnl, 125.5);
   assert.equal(metrics.entryWeight, 35);
+});
+
+test("position panel recalculates open PnL from the live chart mark price", () => {
+  const shortPosition = {
+    side: "short",
+    averageEntryPrice: "62389.9",
+    quantity: "1.166",
+    unrealizedPnl: "75.32"
+  };
+  const liveMarkAboveEntry = 62573.3;
+  const expectedShortPnl = (62389.9 - liveMarkAboveEntry) * 1.166;
+
+  assert.equal(positionCalculations.positionMarkPrice(shortPosition, liveMarkAboveEntry), liveMarkAboveEntry);
+  assert.equal(positionCalculations.positionPnl(shortPosition, liveMarkAboveEntry), expectedShortPnl);
+  assert.equal(Math.sign(positionCalculations.positionPnl(shortPosition, liveMarkAboveEntry)), -1);
+
+  const longPosition = {
+    side: "long",
+    entryPrice: "100",
+    quantity: "2",
+    unrealizedPnl: "-99"
+  };
+  assert.equal(positionCalculations.positionPnl(longPosition, 105), 10);
 });
 
 test("holding metrics read pending order and plan entry price context", () => {

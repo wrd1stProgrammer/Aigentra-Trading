@@ -481,6 +481,7 @@ const KLINE_CACHE_MAX_ENTRIES = 96;
 const klineCache = new Map<string, KlineCacheEntry>();
 const BROWSER_CACHE_PREFIX = "atl-api-cache:v2:";
 const LEADERBOARD_BROWSER_CACHE_MS = 5 * 60_000;
+const TRADER_DETAIL_BROWSER_CACHE_MS = 60_000;
 
 async function requestFirst<T>(paths: string[], options?: RequestInit): Promise<T> {
   let lastError: unknown;
@@ -757,6 +758,15 @@ export function getLeagueSentimentOpinion(symbol: string, locale: Locale) {
   return request<LeagueSentimentOpinionResponse>(`/api/league/sentiment/opinion?${params.toString()}`);
 }
 
+export function getLeagueOverviewReviews(limit = 20, offset = 0, locale: Locale = "en", symbol?: string, traderId?: string) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset), locale });
+  if (symbol) params.set("symbol", symbol);
+  if (traderId) params.set("trader_id", traderId);
+  return request<{ reviews: Record<string, any>[]; nextOffset: number; hasMore: boolean }>(
+    `/api/league/overview-reviews?${params.toString()}`
+  );
+}
+
 export function getTraderDetailBundle(traderId: string, symbol: string, reviewsLimit = 20, eventsLimit = 10, locale: Locale = "en") {
   const params = new URLSearchParams({
     symbol,
@@ -777,7 +787,7 @@ export function getCachedLeaderboardBundle(symbol: string, locale: Locale = "en"
 }
 
 export function getCachedTraderDetailBundle(traderId: string, symbol: string, reviewsLimit = 20, eventsLimit = 10, locale: Locale = "en") {
-  return readBrowserCache<TraderDetailBundle>(`trader:${traderId}:${symbol}:${reviewsLimit}:${eventsLimit}:${locale}`, LEADERBOARD_BROWSER_CACHE_MS);
+  return readBrowserCache<TraderDetailBundle>(`trader:${traderId}:${symbol}:${reviewsLimit}:${eventsLimit}:${locale}`, TRADER_DETAIL_BROWSER_CACHE_MS);
 }
 
 export const leaderboardBundleQueryKey = (symbol: string, locale: Locale = "en") => ["league", "leaderboard", symbol, locale] as const;
