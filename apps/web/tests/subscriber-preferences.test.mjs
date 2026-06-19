@@ -5,6 +5,7 @@ import ts from "typescript";
 
 const preferences = loadTsModule("../lib/subscriber-preferences.ts");
 const accountSource = readFileSync(new URL("../components/subscriber-account-client.tsx", import.meta.url), "utf8");
+const appProviderSource = readFileSync(new URL("../components/app-provider.tsx", import.meta.url), "utf8");
 const preferencesSource = readFileSync(new URL("../lib/subscriber-preferences.ts", import.meta.url), "utf8");
 
 test("subscriber preferences keep favorite traders scoped to the signed-in user", () => {
@@ -17,9 +18,25 @@ test("subscriber preferences keep favorite traders scoped to the signed-in user"
   const removed = preferences.toggleFavoriteTrader(favorited, "pullback-architect");
 
   assert.equal(initial.subscriptionStatus, "active");
+  assert.equal(initial.locale, "ko");
   assert.deepEqual(favorited.favoriteTraderIds, ["pullback-architect"]);
   assert.deepEqual(removed.favoriteTraderIds, []);
   assert.equal(favorited.storageKey, "atl:subscriber:operator@example.com");
+});
+
+test("subscriber preferences preserve the account locale for localized AI review requests", () => {
+  const initial = preferences.createSubscriberPreferences({
+    userId: "user_google_1",
+    email: "operator@example.com"
+  });
+  const merged = preferences.mergeStoredSubscriberPreferences(initial, {
+    favoriteTraderIds: ["session-raider"],
+    locale: "ru",
+    telegramSettings: {}
+  });
+
+  assert.equal(merged.locale, "ru");
+  assert.deepEqual(merged.favoriteTraderIds, ["session-raider"]);
 });
 
 test("telegram alert settings normalize unsupported inputs and report delivery readiness", () => {
@@ -106,6 +123,13 @@ test("subscriber preferences are account-backed instead of browser-only localSto
   assert.match(accountPageSource, /loadSubscriberPreferences/, "account page should hydrate initial preferences from server persistence");
   assert.match(syncHookSource, /\/api\/subscriber\/preferences/, "account UI should save preference edits through the account API");
   assert.doesNotMatch(accountSource, /localStorage/, "subscriber preferences should not be browser-only state");
+});
+
+test("app locale hydrates from signed-in subscriber preferences", () => {
+  assert.match(appProviderSource, /useSession/, "app provider should wait for the signed-in user before hydrating account locale");
+  assert.match(appProviderSource, /\/api\/subscriber\/preferences/, "app provider should read the account-backed locale");
+  assert.match(appProviderSource, /atl-locale/, "account locale should update the browser locale cache used by localized API queries");
+  assert.match(preferencesSource, /readonly locale: Locale/, "subscriber preferences should carry the saved account locale");
 });
 
 function loadTsModule(relativePath) {

@@ -1,3 +1,4 @@
+import ast
 import math
 from decimal import Decimal
 from typing import Any, Protocol
@@ -6,7 +7,7 @@ from sqlalchemy.orm import object_session
 
 from app.ai.translation_cache import localized_payload_for_source
 from app.db import LeagueSentimentOpinionRecord, PositionManagementReviewRecord, TradeEventRecord
-from app.locales import AI_TRANSLATION_SOURCE_AI_REVIEW, AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT
+from app.locales import AI_TRANSLATION_SOURCE_AI_REVIEW, AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT, CANONICAL_AI_LOCALE
 from app.repositories import from_json
 from app.subscriber_alert_types import DEFAULT_TELEGRAM_REVIEW_SECTIONS, normalize_review_sections
 
@@ -85,10 +86,11 @@ def compose_management_message(
     trader_name = TRADER_NAMES.get(review.trader_id or "", review.trader_id or "-")
     label = telegram_event_label(telegram_event_type, preferences.locale)
     payload = from_json(review.payload_json)
+    translation_meta: dict[str, Any] = {"status": "canonical"}
     if isinstance(payload, dict):
         session = object_session(review)
         if session is not None and review.id is not None:
-            payload, _ = localized_payload_for_source(
+            payload, translation_meta = localized_payload_for_source(
                 session,
                 source_type=AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
                 source_id=review.id,
@@ -126,7 +128,10 @@ def compose_management_message(
                 *management_position_lines(exposure_payload, metrics_payload, preferences.locale),
             ]
         )
-    lines.extend(management_review_detail_lines(review_payload, sections, preferences.locale, rationale))
+    if should_suppress_unlocalized_management_details(preferences.locale, translation_meta):
+        lines.extend(management_translation_unavailable_lines(sections, preferences.locale))
+    else:
+        lines.extend(management_review_detail_lines(review_payload, sections, preferences.locale, rationale))
     return "\n".join(lines)
 
 
@@ -180,7 +185,7 @@ def management_review_detail_lines(
 
     verdict = text_value(structured.get("verdict"))
     headline = text_value(structured.get("headline"))
-    action = text_value(structured.get("action"))
+    action_lines = text_lines(structured.get("action"), 6)
     manager_note = text_value(structured.get("managerNote"))
     key_reasons = text_list(structured.get("keyReasons"), 3)
     risks = text_list(structured.get("risks"), 3)
@@ -189,8 +194,8 @@ def management_review_detail_lines(
     if "summary" in sections and (verdict or headline):
         summary = " · ".join([part for part in (verdict, headline) if part])
         lines.extend(["", labels["summaryTitle"], f"  {summary}"])
-    if "action" in sections and action:
-        lines.extend(["", translated["action"], f"  {action}"])
+    if "action" in sections and action_lines:
+        lines.extend(["", translated["action"], *[f"  {line}" for line in action_lines]])
     if "key_reasons" in sections and key_reasons:
         lines.extend(["", translated["keyReasons"], f"  {' · '.join(key_reasons)}"])
     if "risks" in sections and risks:
@@ -202,6 +207,31 @@ def management_review_detail_lines(
     if "rationale" in sections:
         lines.extend(["", labels["rationaleTitle"], f"  {fallback_rationale}"])
     return lines
+
+
+def should_suppress_unlocalized_management_details(locale: str, translation_meta: dict[str, Any]) -> bool:
+    if locale == CANONICAL_AI_LOCALE:
+        return False
+    return translation_meta.get("status") not in {"canonical", "ok"}
+
+
+def management_translation_unavailable_lines(sections: list[str], locale: str) -> list[str]:
+    if not any(section in sections for section in ("summary", "action", "key_reasons", "risks", "watch_conditions", "manager_note", "rationale")):
+        return []
+    labels = management_message_labels(locale)
+    copy = management_translation_unavailable_copy(locale)
+    return ["", labels["summaryTitle"], f"  {copy}"]
+
+
+def management_translation_unavailable_copy(locale: str) -> str:
+    copy = {
+        "en": "The translated review is not ready yet. Open Aigentra Trading to read the latest review.",
+        "ko": "리뷰 번역이 아직 준비되지 않았습니다. 앱에서 최신 리뷰를 확인하세요.",
+        "ru": "Перевод обзора еще не готов. Откройте Aigentra Trading, чтобы посмотреть последний обзор.",
+        "pt-BR": "A tradução da revisão ainda não está pronta. Abra o Aigentra Trading para ver a revisão mais recente.",
+        "tr": "İnceleme çevirisi henüz hazır değil. Son incelemeyi okumak için Aigentra Trading'i açın.",
+    }
+    return copy.get(locale, copy["en"])
 
 
 def review_sections_for_preferences(preferences: TelegramPreferences) -> list[str]:
@@ -320,7 +350,7 @@ def entry_review_lines(payload: dict[str, Any], locale: str) -> list[str]:
     lines: list[str] = []
     verdict = text_value(structured.get("verdict")) if structured else None
     headline = text_value(structured.get("headline")) if structured else None
-    action = text_value(structured.get("action")) if structured else None
+    action = " · ".join(text_lines(structured.get("action"), 6)) if structured else None
     manager_note = text_value(structured.get("managerNote")) if structured else None
     key_reasons = text_list(structured.get("keyReasons"), 3) if structured else []
     risks = text_list(structured.get("risks"), 2) if structured else []
@@ -580,6 +610,51 @@ def text_value(value: Any) -> str | None:
 
 
 def text_list(value: Any, limit: int) -> list[str]:
-    if not isinstance(value, list):
+    return text_lines(value, limit) if isinstance(value, (list, str)) else []
+
+
+def text_lines(value: Any, limit: int) -> list[str]:
+    items = literal_string_list(value)
+    if items is None:
+        if isinstance(value, list):
+            items = [item for item in value if isinstance(item, str)]
+        elif isinstance(value, str):
+            items = split_text_lines(value)
+        else:
+            items = []
+    return [clean for item in items if (clean := strip_bullet_prefix(item))][:limit]
+
+
+def literal_string_list(value: Any) -> list[str] | None:
+    if not isinstance(value, str):
+        return None
+    clean = value.strip()
+    if not (clean.startswith("[") and clean.endswith("]")):
+        return None
+    try:
+        parsed = ast.literal_eval(clean)
+    except (SyntaxError, ValueError):
+        return None
+    if not isinstance(parsed, list):
+        return None
+    return [item for item in parsed if isinstance(item, str)]
+
+
+def split_text_lines(value: str) -> list[str]:
+    stripped = value.strip()
+    if not stripped:
         return []
-    return [item.strip() for item in value if isinstance(item, str) and item.strip()][:limit]
+    lines = [line for line in stripped.splitlines() if line.strip()]
+    return lines if len(lines) > 1 else [stripped]
+
+
+def strip_bullet_prefix(value: str) -> str:
+    clean = value.strip()
+    changed = True
+    while changed:
+        changed = False
+        for prefix in ("- ", "• ", "* "):
+            if clean.startswith(prefix):
+                clean = clean[len(prefix) :].strip()
+                changed = True
+    return clean

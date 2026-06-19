@@ -1,3 +1,5 @@
+import type { Locale } from "@/lib/i18n";
+
 export const telegramEventTypes = [
   "pending_entry",
   "position_entry",
@@ -42,6 +44,7 @@ export type SubscriberPreferences = {
   readonly userId: string;
   readonly email: string;
   readonly subscriptionStatus: "active";
+  readonly locale: Locale;
   readonly storageKey: string;
   readonly favoriteTraderIds: readonly string[];
   readonly telegramSettings: TelegramSettings;
@@ -74,6 +77,7 @@ export function createSubscriberPreferences({ userId, email }: SubscriberPrefere
     userId,
     email: normalizedEmail,
     subscriptionStatus: "active",
+    locale: "ko",
     storageKey: `atl:subscriber:${normalizedEmail}`,
     favoriteTraderIds: [],
     telegramSettings: normalizeTelegramSettings({})
@@ -142,9 +146,27 @@ export function mergeStoredSubscriberPreferences(
 
   return {
     ...basePreferences,
+    locale: normalizePreferenceLocale(storedPreferences["locale"], basePreferences.locale),
     favoriteTraderIds: normalizeFavoriteTraderIds(storedPreferences["favoriteTraderIds"]),
     telegramSettings: normalizeTelegramSettings(readTelegramSettings(storedPreferences["telegramSettings"]))
   };
+}
+
+function normalizePreferenceLocale(input: unknown, fallback: Locale): Locale {
+  return isPreferenceLocale(input) ? input : fallback;
+}
+
+function isPreferenceLocale(input: unknown): input is Locale {
+  switch (input) {
+    case "en":
+    case "ko":
+    case "ru":
+    case "pt-BR":
+    case "tr":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function normalizeEventTypes(input: unknown): readonly TelegramEventType[] {

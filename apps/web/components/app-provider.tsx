@@ -1,6 +1,7 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { SessionProvider, useSession } from "next-auth/react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Locale, isSupportedLocale, translate } from "@/lib/i18n";
 import { LEAGUE_QUERY_GC_TIME_MS, LEAGUE_QUERY_STALE_TIME_MS } from "@/lib/api";
@@ -14,8 +15,6 @@ type AppContextValue = {
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
-
-import { SessionProvider } from "next-auth/react";
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -60,11 +59,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <SessionProvider>
+      <LocalePreferenceHydrator onLocaleResolved={setLocaleState} />
       <QueryClientProvider client={queryClient}>
         <AppContext.Provider value={value}>{children}</AppContext.Provider>
       </QueryClientProvider>
     </SessionProvider>
   );
+}
+
+function LocalePreferenceHydrator({ onLocaleResolved }: { readonly onLocaleResolved: (locale: Locale) => void }) {
+  const { data: session, status } = useSession();
+
+  useEffect(() => {
+    if (status !== "authenticated" || !session?.user?.email) return;
+
+    const abortController = new AbortController();
+    const hydrateLocale = async () => {
+      const response = await fetch("/api/subscriber/preferences", {
+        cache: "no-store",
+        signal: abortController.signal
+      });
+      if (!response.ok) return;
+
+      const nextLocale = readPreferenceLocale(await response.json());
+      if (!nextLocale) return;
+
+      onLocaleResolved(nextLocale);
+      window.localStorage.setItem("atl-locale", nextLocale);
+    };
+
+    void hydrateLocale().catch((error: unknown) => {
+      if (isExpectedLocaleHydrationError(error)) return;
+      throw error;
+    });
+
+    return () => {
+      abortController.abort();
+    };
+  }, [onLocaleResolved, session?.user?.email, status]);
+
+  return null;
+}
+
+function readPreferenceLocale(input: unknown): Locale | null {
+  if (!isRecord(input)) return null;
+  const locale = input["locale"];
+  return typeof locale === "string" && isSupportedLocale(locale) ? locale : null;
+}
+
+function isRecord(input: unknown): input is Readonly<Record<string, unknown>> {
+  return typeof input === "object" && input !== null && !Array.isArray(input);
+}
+
+function isExpectedLocaleHydrationError(error: unknown): boolean {
+  return error instanceof DOMException || error instanceof SyntaxError || error instanceof TypeError;
 }
 
 export function useAppContext() {

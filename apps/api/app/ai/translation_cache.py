@@ -7,7 +7,13 @@ from sqlalchemy.orm import Session
 
 from app.ai.translation_provider import AITranslationProvider, translate_json_with_logging
 from app.core.config import Settings
-from app.locales import AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT, CANONICAL_AI_LOCALE, NON_CANONICAL_AI_LOCALES, normalize_locale
+from app.locales import (
+    AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT,
+    AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
+    CANONICAL_AI_LOCALE,
+    NON_CANONICAL_AI_LOCALES,
+    normalize_locale,
+)
 from app.repositories import (
     from_json,
     get_successful_translation_by_hash,
@@ -107,7 +113,8 @@ def localized_payload_for_source(
         return payload, {"status": "missing", "locale": requested_locale, "fallbackLocale": CANONICAL_AI_LOCALE}
     cached_payload = from_json(record.payload_json)
     if isinstance(cached_payload, dict) and record.status == "ok":
-        return scrub_translation_payload_for_source(source_type, cached_payload), {"status": "ok", "locale": requested_locale, "sourceHash": source_hash}
+        localized_payload = merge_translation_overlay(payload, scrub_translation_payload_for_source(source_type, cached_payload))
+        return localized_payload, {"status": "ok", "locale": requested_locale, "sourceHash": source_hash}
     return payload, {
         "status": record.status or "fallback",
         "locale": requested_locale,
@@ -143,7 +150,7 @@ async def fanout_ai_translations(
             source_hash=source_hash,
             locale=locale,
         )
-        if existing is not None and existing.status in {"ok", "fallback"}:
+        if existing is not None and existing.status == "ok":
             continue
         reusable = get_successful_translation_by_hash(db, source_type=source_type, source_hash=source_hash, locale=locale)
         if reusable is not None:
@@ -198,16 +205,17 @@ async def fanout_ai_translations(
             )
             continue
         try:
+            request_payload = translation_request_payload(source_type, payload)
             translated = await translate_json_with_logging(
                 db,
                 settings=settings,
-                payload=payload,
+                payload=request_payload,
                 target_locale=locale,
                 symbol=symbol,
                 trader_id=trader_id,
                 provider=provider,
             )
-            safe_payload = merge_validated_translation(payload, translated)
+            safe_payload = merge_validated_translation(request_payload, translated)
             safe_payload = scrub_translation_payload_for_source(source_type, safe_payload)
             upsert_translation_cache_record(
                 db,
@@ -244,29 +252,72 @@ def merge_validated_translation(original: Any, translated: Any, path: tuple[str,
     if isinstance(original, dict):
         if not isinstance(translated, dict):
             raise TranslationShapeError(f"Expected object at {'.'.join(path) or '<root>'}.")
-        if set(original.keys()) != set(translated.keys()):
-            missing = sorted(set(original.keys()) - set(translated.keys()))
-            extra = sorted(set(translated.keys()) - set(original.keys()))
-            raise TranslationShapeError(f"Translation key mismatch at {'.'.join(path) or '<root>'}: missing={missing}, extra={extra}.")
         return {
-            key: merge_validated_translation(value, translated[key], (*path, str(key)))
+            key: merge_validated_translation(value, translated[key], (*path, str(key))) if key in translated else value
             for key, value in original.items()
         }
     if isinstance(original, list):
         if is_protected_path(path):
             return original
         if not isinstance(translated, list) or len(original) != len(translated):
-            raise TranslationShapeError(f"Translation array mismatch at {'.'.join(path) or '<root>'}.")
-        return [merge_validated_translation(item, translated[index], path) for index, item in enumerate(original)]
+            return original
+        return [merge_validated_translation(item, translated[index], (*path, str(index))) for index, item in enumerate(original)]
     if is_protected_path(path):
         return original
     if isinstance(original, str):
         if not isinstance(translated, str):
+            if is_translatable_string_list_path(path) and is_string_list(translated):
+                return translated
             raise TranslationShapeError(f"Expected string at {'.'.join(path) or '<root>'}.")
         return translated
     if translated != original:
         raise TranslationShapeError(f"Non-string value changed at {'.'.join(path) or '<root>'}.")
     return original
+
+
+def merge_translation_overlay(original: Any, translated: Any, path: tuple[str, ...] = ()) -> Any:
+    if is_protected_path(path):
+        return original
+    if isinstance(original, dict):
+        if not isinstance(translated, dict):
+            return original
+        result = dict(original)
+        for key, value in original.items():
+            if key in translated:
+                result[key] = merge_translation_overlay(value, translated[key], (*path, str(key)))
+        return result
+    if isinstance(original, list):
+        if not isinstance(translated, list) or len(original) != len(translated):
+            return original
+        return [
+            merge_translation_overlay(item, translated[index], (*path, str(index)))
+            for index, item in enumerate(original)
+        ]
+    if isinstance(original, str):
+        if isinstance(translated, str):
+            return translated
+        if is_translatable_string_list_path(path) and is_string_list(translated):
+            return translated
+    return original
+
+
+def is_translatable_string_list_path(path: tuple[str, ...]) -> bool:
+    return len(path) >= 2 and path[-1] == "action" and "structuredReview" in path
+
+
+def is_string_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def translation_request_payload(source_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if source_type != AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT:
+        return payload
+    compact = {
+        key: payload[key]
+        for key in ("event", "review", "appliedActions")
+        if key in payload
+    }
+    return compact or payload
 
 
 def is_protected_path(path: tuple[str, ...]) -> bool:

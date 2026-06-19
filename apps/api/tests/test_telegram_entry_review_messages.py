@@ -1,9 +1,25 @@
 from decimal import Decimal
 
-from app.db import PositionManagementReviewRecord, TradeEventRecord
-from app.repositories import to_json
+import pytest
+
+from app.ai.translation_cache import stable_source_hash
+from app.db import PositionManagementReviewRecord, TradeEventRecord, init_db, reset_db_engine, session_scope
+from app.locales import AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT
+from app.repositories import to_json, upsert_translation_cache_record
 from app.subscribers import SubscriberPreferencesView, TelegramSettingsView
 from app.telegram_messages import compose_event_message, compose_management_message
+
+
+@pytest.fixture()
+def temp_db(tmp_path):
+    db_path = tmp_path / "telegram-message-locale.db"
+    reset_db_engine(f"sqlite:///{db_path}")
+    init_db()
+    try:
+        yield db_path
+    finally:
+        reset_db_engine("sqlite:///:memory:")
+        init_db()
 
 
 def test_entry_alert_uses_ai_review_summary_when_available():
@@ -250,3 +266,153 @@ def test_management_alert_respects_selected_review_sections():
     assert "\n\n핵심 이유\n" not in text
     assert "\n\n다음 확인 조건\n" not in text
     assert "\n\n판단 근거\n" not in text
+
+
+def test_management_alert_uses_cached_locale_translation_and_cleans_bullets(temp_db):
+    preferences = SubscriberPreferencesView(
+        user_id="google-1",
+        email="operator@example.com",
+        subscription_status="active",
+        favorite_trader_ids=["session-raider"],
+        telegram_settings=TelegramSettingsView(
+            enabled=True,
+            chat_id="123456789",
+            event_types=["ai_review_medium"],
+            min_return_pct=0,
+        ),
+        locale="ko",
+    )
+    source_payload = {
+        "event": {"severity": "MEDIUM", "phase": "OPEN_POSITION", "metrics": {"price": 62635.9}},
+        "exposure": {
+            "kind": "position",
+            "side": "SHORT",
+            "entryPrice": 62768.2,
+            "stopLoss": 62768.2,
+            "takeProfit": 62453.3,
+            "leverage": 5,
+            "unrealizedPnl": 28.21,
+        },
+        "review": {
+            "decision": "HOLD",
+            "confidence": 84,
+            "riskLevel": "MEDIUM",
+            "structuredReview": {
+                "verdict": "Hold the short",
+                "headline": "The short is protected but the session edge is fading.",
+                "action": "['- Keep the short open.', '- Do not widen the stop.']",
+                "keyReasons": ["- Stop is already at entry.", "- 1H trend is still bearish."],
+                "risks": ["- Session edge is decaying."],
+                "watchConditions": ["- If a 15m candle closes back above the trigger area, exit."],
+                "managerNote": "Breakeven is already locked.",
+            },
+            "rationale": "Hold the short because it is already protected at breakeven.",
+        },
+    }
+    translated_payload = {
+        **source_payload,
+        "review": {
+            **source_payload["review"],
+            "structuredReview": {
+                "verdict": "유지",
+                "headline": "숏은 보호됐지만 세션 우위가 약해지고 있습니다.",
+                "action": ["- 숏 포지션은 유지하세요.", "- 손절을 넓히지 마세요."],
+                "keyReasons": ["- 손절이 이미 진입가에 있습니다.", "- 1시간 추세는 아직 약세입니다."],
+                "risks": ["- 세션 우위가 약해지고 있습니다."],
+                "watchConditions": ["- 15분 종가가 트리거 구간 위로 돌아오면 종료하세요."],
+                "managerNote": "본전 방어는 이미 잠겨 있습니다.",
+            },
+            "rationale": "본전 손절이 잠겨 있으므로 숏을 유지합니다.",
+        },
+    }
+
+    with session_scope() as db:
+        review = PositionManagementReviewRecord(
+            trader_id="session-raider",
+            symbol="BTCUSDT",
+            status="ok",
+            event_type="session_position_heartbeat",
+            phase="OPEN_POSITION",
+            provider="openai",
+            model="gpt-4.1-mini",
+            decision="HOLD",
+            confidence=84,
+            action_type="HOLD",
+            payload_json=to_json(source_payload),
+        )
+        db.add(review)
+        db.flush()
+        upsert_translation_cache_record(
+            db,
+            source_type=AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
+            source_id=review.id,
+            source_hash=stable_source_hash(source_payload),
+            locale="ko",
+            status="ok",
+            payload=translated_payload,
+            provider="openai",
+            model="gpt-4.1-nano",
+            symbol="BTCUSDT",
+            trader_id="session-raider",
+        )
+
+        text = compose_management_message(preferences, review, "ai_review_medium")
+
+    assert "숏은 보호됐지만 세션 우위가 약해지고 있습니다." in text
+    assert "  숏 포지션은 유지하세요.\n  손절을 넓히지 마세요." in text
+    assert "손절이 이미 진입가에 있습니다. · 1시간 추세는 아직 약세입니다." in text
+    assert "Hold the short" not in text
+    assert "['-" not in text
+    assert "\n  - " not in text
+
+
+def test_management_alert_suppresses_english_detail_when_translation_is_missing(temp_db):
+    preferences = SubscriberPreferencesView(
+        user_id="google-1",
+        email="operator@example.com",
+        subscription_status="active",
+        favorite_trader_ids=["session-raider"],
+        telegram_settings=TelegramSettingsView(
+            enabled=True,
+            chat_id="123456789",
+            event_types=["ai_review_medium"],
+            min_return_pct=0,
+        ),
+        locale="ko",
+    )
+
+    with session_scope() as db:
+        review = PositionManagementReviewRecord(
+            trader_id="session-raider",
+            symbol="BTCUSDT",
+            status="ok",
+            event_type="session_position_heartbeat",
+            phase="OPEN_POSITION",
+            provider="openai",
+            model="gpt-4.1-mini",
+            decision="HOLD",
+            confidence=84,
+            action_type="HOLD",
+            payload_json=to_json(
+                {
+                    "event": {"severity": "MEDIUM", "phase": "OPEN_POSITION", "metrics": {"price": 62635.9}},
+                    "exposure": {"kind": "position", "side": "SHORT", "entryPrice": 62768.2, "leverage": 5},
+                    "review": {
+                        "structuredReview": {
+                            "verdict": "Hold the short",
+                            "headline": "The short is protected but the session edge is fading.",
+                            "action": "Keep the short open.",
+                        },
+                        "rationale": "Hold the short because it is already protected at breakeven.",
+                    },
+                }
+            ),
+        )
+        db.add(review)
+        db.flush()
+
+        text = compose_management_message(preferences, review, "ai_review_medium")
+
+    assert "리뷰 번역이 아직 준비되지 않았습니다." in text
+    assert "Hold the short" not in text
+    assert "Keep the short open" not in text
