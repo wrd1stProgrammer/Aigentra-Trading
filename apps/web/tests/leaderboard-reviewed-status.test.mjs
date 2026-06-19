@@ -8,12 +8,19 @@ const overviewFilter = loadTsModule("../components/leaderboard-overview-filter.t
 const formatSource = readFileSync(new URL("../lib/format.ts", import.meta.url), "utf8");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
 
-test("leaderboard reviewed status uses a compact localized review time", () => {
-  assert.match(i18nSource, /"leaderboard\.status\.reviewedAt": "검토"/, "Korean review-time label should be compact");
-  assert.match(i18nSource, /"leaderboard\.status\.reviewedAt": "Reviewed"/, "English review-time label should be compact");
+test("leaderboard completed status uses entry-ended copy and compact elapsed time", () => {
+  assert.match(i18nSource, /"leaderboard\.status\.reviewed": "진입종료"/, "Korean completed status should read as entry ended");
+  assert.match(i18nSource, /"leaderboard\.status\.reviewed": "Entry ended"/, "English completed status should read as entry ended");
+  assert.match(i18nSource, /"leaderboard\.status\.reviewedAt": "종료"/, "Korean completion-time label should be compact");
+  assert.match(i18nSource, /"leaderboard\.status\.reviewedAt": "Ended"/, "English completion-time label should be compact");
   assert.match(formatSource, /export function formatClockTime/, "format helper should expose HH:mm clock time");
   assert.match(leaderboardSource, /getElapsedTimeString\(summary\?\.updatedAt\)/, "leaderboard should use elapsed time for reviewed rows");
   assert.doesNotMatch(leaderboardSource, /detail: formatDateTime\(summary\?\.updatedAt, locale\)/, "reviewed rows should not show full date/time");
+});
+
+test("leaderboard preview omits the lower current-state block", () => {
+  assert.doesNotMatch(leaderboardSource, /t\("leaderboard\.previewStatus"\)/, "hover preview should not render the lower current-state heading");
+  assert.doesNotMatch(leaderboardSource, /StatusLine/, "hover preview should not keep the removed status-row helper");
 });
 
 test("league overview stream is restricted to AI review records", () => {

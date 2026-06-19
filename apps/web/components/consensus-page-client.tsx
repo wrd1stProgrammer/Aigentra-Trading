@@ -11,7 +11,6 @@ import { ConsensusHourlyOpinion } from "@/components/consensus-hourly-opinion";
 import { 
   getCachedLeaderboardBundle, 
   getRecentTradePlans, 
-  getKlines,
   getLeagueSentimentOpinion,
   LEAGUE_LIVE_REFETCH_INTERVAL_MS, 
   leaderboardBundleQueryOptions,
@@ -259,15 +258,6 @@ export function ConsensusPageClient() {
     }
   });
 
-  // Fetch live BTC price
-  const klinesQuery = useQuery({
-    queryKey: ["market", "klines", "BTCUSDT", "1m", 1],
-    queryFn: () => getKlines("BTCUSDT", "1m", 1),
-    staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
-    refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
-  });
-  const currentPrice = klinesQuery.data?.candles?.[0]?.close ?? null;
-
   const hourlyOpinionQuery = useQuery({
     queryKey: ["league", "sentiment-opinion", "BTCUSDT", locale],
     queryFn: () => getLeagueSentimentOpinion("BTCUSDT", locale),
@@ -300,7 +290,7 @@ export function ConsensusPageClient() {
 
   const bundle = btcQuery.data ?? fallbackBundle;
   const pendingPlans = pendingPlansQuery.data ?? [];
-  const isFetching = btcQuery.isFetching || pendingPlansQuery.isFetching || klinesQuery.isFetching || hourlyOpinionQuery.isFetching;
+  const liveDataRefreshing = btcQuery.isFetching || pendingPlansQuery.isFetching || hourlyOpinionQuery.isFetching;
 
   const traders = bundle.traders?.length ? bundle.traders : (fallbackTraders as unknown as TraderProfile[]);
   const standings = useMemo(() => buildStandings(traders, bundle.summaries ?? []), [bundle.summaries, traders]);
@@ -446,17 +436,6 @@ export function ConsensusPageClient() {
       .filter(t => t.activeState.side === "short")
       .sort(sortActiveTraders);
   }, [activeTraders]);
-  const biasKey =
-    ratioStats.totalCount === 0
-      ? "consensus.neutralBias"
-      : ratioStats.longWeightedPct >= 55
-        ? "consensus.longBias"
-        : ratioStats.shortWeightedPct >= 55
-          ? "consensus.shortBias"
-          : "consensus.neutralBias";
-  const biasTone =
-    biasKey === "consensus.longBias" ? "emerald" : biasKey === "consensus.shortBias" ? "rose" : "zinc";
-
   // Non-active traders are watching
   const watchingTraders = useMemo(() => {
     return tradersWithStates.filter(
@@ -490,7 +469,7 @@ export function ConsensusPageClient() {
           </p>
         </div>
         <div className="flex items-center gap-2.5 shrink-0 self-start md:self-center">
-          {isFetching ? (
+          {liveDataRefreshing ? (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-zinc-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
               <CircleNotch className="animate-spin" size={13} />
               {t("common.loading")}
@@ -506,33 +485,6 @@ export function ConsensusPageClient() {
           )}
         </div>
       </div>
-
-      <section data-testid="consensus-market-strip" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <ConsensusSummaryMetric
-          label={t("consensus.currentPrice")}
-          value={currentPrice ? `$${formatNumber(currentPrice, 1, locale)}` : "-"}
-          detail="BTCUSDT"
-          tone="sky"
-        />
-        <ConsensusSummaryMetric
-          label={t("consensus.activeCount")}
-          value={`${ratioStats.totalCount}`}
-          detail={t("consensus.activeTradersOnly")}
-          tone="emerald"
-        />
-        <ConsensusSummaryMetric
-          label={t("consensus.marketBias")}
-          value={t(biasKey)}
-          detail={`L ${ratioStats.longWeightedPct.toFixed(0)}% / S ${ratioStats.shortWeightedPct.toFixed(0)}%`}
-          tone={biasTone}
-        />
-        <ConsensusSummaryMetric
-          label={t("consensus.liveStatus")}
-          value={isFetching ? t("common.loading") : "LIVE"}
-          detail={error ?? t("chart.liveSource")}
-          tone={error ? "rose" : "emerald"}
-        />
-      </section>
 
       <div data-testid="consensus-hourly-opinion">
         <ConsensusHourlyOpinion
@@ -729,35 +681,6 @@ export function ConsensusPageClient() {
           {error}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function ConsensusSummaryMetric({
-  label,
-  value,
-  detail,
-  tone
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  tone: "emerald" | "rose" | "sky" | "zinc";
-}) {
-  const toneClass =
-    tone === "emerald"
-      ? "border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-600 dark:text-emerald-400"
-      : tone === "rose"
-        ? "border-rose-500/20 bg-rose-500/[0.06] text-rose-600 dark:text-rose-400"
-        : tone === "sky"
-          ? "border-sky-500/20 bg-sky-500/[0.06] text-sky-600 dark:text-sky-400"
-          : "border-zinc-200 bg-white text-zinc-600 dark:border-white/[0.08] dark:bg-white/[0.025] dark:text-zinc-300";
-
-  return (
-    <div className={`min-w-0 rounded-2xl border p-4 ${toneClass}`}>
-      <p className="text-[10px] font-bold uppercase tracking-wider opacity-80">{label}</p>
-      <p className="mt-2 truncate font-mono text-2xl font-semibold tracking-tight text-zinc-950 dark:text-white">{value}</p>
-      <p className="mt-1 line-clamp-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{detail}</p>
     </div>
   );
 }

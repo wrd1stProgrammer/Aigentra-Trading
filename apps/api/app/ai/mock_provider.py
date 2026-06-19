@@ -280,7 +280,6 @@ class MockAIProvider(BaseAIProvider):
             ]
             risks = ["한쪽 방향으로 확실히 쏠리지 않으면 짧은 변동에 해석이 흔들릴 수 있습니다."]
             watch = ["다음 1시간 마감 후 LONG/SHORT 활성 건수가 바뀌는지 확인하세요."]
-            quality = payload.dataQuality or ["백엔드가 집계한 시뮬레이션 포지션, 주문, 리뷰만 사용했습니다."]
         else:
             headline = "Aigentra trader context has been refreshed for the current hour."
             summary = (
@@ -296,7 +295,6 @@ class MockAIProvider(BaseAIProvider):
             ]
             risks = ["If direction remains split, short-term moves can change the read quickly."]
             watch = ["Check whether active LONG/SHORT counts change after the next hourly close."]
-            quality = payload.dataQuality or ["Only backend-counted simulation positions, orders, and reviews were used."]
 
         return self.normalize_league_sentiment_result(
             {
@@ -310,7 +308,6 @@ class MockAIProvider(BaseAIProvider):
                 "watchConditions": watch,
                 "action": action,
                 "longShortContext": context,
-                "dataQuality": quality,
                 "sourceCounts": counts,
             }
         )

@@ -13,12 +13,15 @@ test("AI sentiment page renders a cached hourly Aigentra opinion before dense se
   assert.match(consensusSource, /data-testid="consensus-hourly-opinion"/, "opinion card should be a testable first-class surface");
   assert.match(opinionCardSource, /Aigentra/, "opinion card should be branded as an Aigentra aggregate opinion");
   assert.match(opinionCardSource, /nextRefreshAt/, "opinion card should expose the exact next hourly refresh time");
+  assert.doesNotMatch(opinionCardSource, /opinionDataQuality|dataQuality/, "opinion card should not render the removed data-quality panel");
 });
 
 test("hourly opinion API contract is typed and localized", () => {
   assert.match(apiSource, /export type LeagueSentimentOpinion/, "web API layer should expose a typed opinion payload");
   assert.match(apiSource, /getLeagueSentimentOpinion/, "web API layer should call the opinion endpoint");
   assert.match(apiSource, /\/api\/league\/sentiment\/opinion/, "web API should target the backend hourly opinion endpoint");
+  assert.doesNotMatch(apiSource, /dataQuality/, "web opinion type should not expose dataQuality");
   assert.match(i18nSource, /"consensus\.aigentraOpinion"/, "Korean copy should include the opinion title key");
   assert.match(i18nSource, /"consensus\.nextOpinionRefresh"/, "copy should explain the hourly refresh");
+  assert.doesNotMatch(i18nSource, /"consensus\.opinionDataQuality"/, "data-quality copy should be removed");
 });

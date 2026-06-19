@@ -242,14 +242,6 @@ def build_league_sentiment_payload(
         entry_review_summaries,
         management_review_summaries,
     )
-    quality = data_quality_notes(
-        market=market,
-        active_count=len(active_position_summaries),
-        pending_count=len(pending_order_summaries),
-        entry_review_count=len(entry_review_summaries),
-        management_review_count=len(management_review_summaries),
-        locale=locale,
-    )
     return LeagueSentimentPayload(
         symbol=symbol,
         locale=locale,
@@ -265,7 +257,6 @@ def build_league_sentiment_payload(
         recentEntryReviews=entry_review_summaries[:60],
         recentManagementReviews=management_review_summaries[:60],
         longShortContext=long_short_context(active_position_summaries, pending_order_summaries),
-        dataQuality=quality,
     )
 
 
@@ -555,34 +546,6 @@ def long_short_context(positions: list[dict[str, Any]], orders: list[dict[str, A
     }
 
 
-def data_quality_notes(
-    *,
-    market: dict[str, Any],
-    active_count: int,
-    pending_count: int,
-    entry_review_count: int,
-    management_review_count: int,
-    locale: str,
-) -> list[str]:
-    ko = locale.lower().startswith("ko")
-    notes: list[str] = []
-    if market.get("dataAvailable"):
-        notes.append("최신 시장 스냅샷 포함" if ko else "Latest market snapshot included")
-    else:
-        notes.append("최신 시장 스냅샷 없음" if ko else "Latest market snapshot unavailable")
-    notes.append(
-        f"활성 포지션 {active_count}건, 대기 주문 {pending_count}건 포함"
-        if ko
-        else f"{active_count} active positions and {pending_count} pending orders included"
-    )
-    notes.append(
-        f"최근 진입 리뷰 {entry_review_count}건, 관리 리뷰 {management_review_count}건 반영"
-        if ko
-        else f"{entry_review_count} recent entry reviews and {management_review_count} management reviews included"
-    )
-    return notes
-
-
 def fallback_league_sentiment_opinion(payload: LeagueSentimentPayload) -> LeagueSentimentOpinionResult:
     counts = payload.sourceCounts
     long_count = int(counts.get("activeLongPositions", 0)) + int(counts.get("pendingLongOrders", 0))
@@ -625,7 +588,6 @@ def fallback_league_sentiment_opinion(payload: LeagueSentimentPayload) -> League
         watchConditions=["다음 UTC 정시 갱신 때 활성 방향과 손절/익절 변화 확인" if ko else "Check active direction and TP/SL changes at the next UTC hourly refresh."],
         action="새 포지션보다 기존 활성 셋업의 무효화 조건을 먼저 확인하세요." if ko else "Prioritize invalidation checks on active setups before chasing new direction.",
         longShortContext=f"LONG {long_count} / SHORT {short_count}",
-        dataQuality=payload.dataQuality,
         sourceCounts=dict(counts),
         provider="system",
         model="safe-hourly-fallback",
@@ -650,6 +612,9 @@ def serialize_league_sentiment_record(
         payload=opinion,
         locale=locale,
     )
+    if isinstance(localized_opinion, dict):
+        localized_opinion = dict(localized_opinion)
+        localized_opinion.pop("dataQuality", None)
     return {
         "id": record.id,
         "symbol": record.symbol,

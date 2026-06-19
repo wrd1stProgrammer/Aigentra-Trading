@@ -428,7 +428,6 @@ export type LeagueSentimentOpinion = {
   watchConditions: string[];
   action: string;
   longShortContext: string;
-  dataQuality: string[];
   sourceCounts: Record<string, number>;
   provider: string;
   model: string;

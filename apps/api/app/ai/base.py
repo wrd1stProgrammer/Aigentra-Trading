@@ -188,7 +188,6 @@ class BaseAIProvider:
             watchConditions=self._normalize_limited_string_list(raw.get("watchConditions"), 3),
             action=self._normalize_optional_text(raw.get("action")) or "Wait for the next hourly context refresh.",
             longShortContext=self._normalize_optional_text(raw.get("longShortContext")) or "No active long/short skew.",
-            dataQuality=self._normalize_limited_string_list(raw.get("dataQuality"), 5),
             sourceCounts=normalized_counts,
             provider=self.name,
             model=self.model,
@@ -739,9 +738,9 @@ def management_prompt(payload: PositionManagementPayload) -> str:
 def league_sentiment_prompt(payload: LeagueSentimentPayload) -> str:
     locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
     language_instruction = (
-        "Write headline, summary, keyDrivers, risks, watchConditions, action, longShortContext, and dataQuality in Korean."
+        "Write headline, summary, keyDrivers, risks, watchConditions, action, and longShortContext in Korean."
         if locale == "ko"
-        else "Write headline, summary, keyDrivers, risks, watchConditions, action, longShortContext, and dataQuality in English."
+        else "Write headline, summary, keyDrivers, risks, watchConditions, action, and longShortContext in English."
     )
     try:
         payload_data = payload.model_dump(mode="json")
@@ -750,7 +749,7 @@ def league_sentiment_prompt(payload: LeagueSentimentPayload) -> str:
     return (
         "You are Aigentra's hourly aggregate sentiment analyst for a futures simulation league. "
         "Return only strict JSON with keys bias, confidence, riskLevel, headline, summary, keyDrivers, risks, "
-        "watchConditions, action, longShortContext, dataQuality, sourceCounts. "
+        "watchConditions, action, longShortContext, sourceCounts. "
         "Valid bias values are LONG_BIASED, SHORT_BIASED, NEUTRAL, MIXED, RISK_OFF. "
         "Valid riskLevel values are LOW, MEDIUM, HIGH, EXTREME. Confidence must be an integer from 0 to 100. "
         "This is not financial advice and must not tell users to place real trades. It is a context summary of simulation agents only. "
@@ -759,8 +758,7 @@ def league_sentiment_prompt(payload: LeagueSentimentPayload) -> str:
         "The backend sourceCounts are authoritative; echo them exactly in sourceCounts. "
         "Active positions and pending orders define the current directional skew. Recent take-profit/stop-loss events change risk and confidence, "
         "but they must not automatically flip direction. Entry reviews describe why a setup was accepted or rejected. "
-        "Management reviews describe what changed after entry. Ignore records that are fallback, provider-error, or explicitly failed if they appear in the payload; "
-        "treat them only as dataQuality limitations. "
+        "Management reviews describe what changed after entry. Ignore records that are fallback, provider-error, or explicitly failed if they appear in the payload. "
         "If active/pending data is thin or conflicting, choose NEUTRAL or MIXED and keep confidence at or below 55. "
         "If both long and short exposures are meaningful, choose MIXED unless one side has clearly stronger active notional, confidence, or fresh review quality. "
         "If recent losses cluster, failed reviews dominate, or market risk is unclear, choose RISK_OFF even if one side has more entries. "
@@ -768,7 +766,7 @@ def league_sentiment_prompt(payload: LeagueSentimentPayload) -> str:
         "Do not dump raw indicators without explaining their meaning. "
         "headline: one sentence. summary: two to three sentences. keyDrivers: up to four bullets. risks: up to three bullets. "
         "watchConditions: up to three concrete next-hour checks. action: one practical monitoring instruction for this simulation league. "
-        "longShortContext: one compact sentence comparing LONG and SHORT pressure. dataQuality: up to five source caveats or confirmations. "
+        "longShortContext: one compact sentence comparing LONG and SHORT pressure. "
         f"{language_instruction}\n\n"
         f"Payload:\n{json.dumps(payload_data, ensure_ascii=False)}"
     )

@@ -18,7 +18,6 @@ class LeagueSentimentPayload(BaseModel):
     recentEntryReviews: List[Dict[str, Any]] = Field(default_factory=list)
     recentManagementReviews: List[Dict[str, Any]] = Field(default_factory=list)
     longShortContext: Dict[str, Any] = Field(default_factory=dict)
-    dataQuality: List[str] = Field(default_factory=list)
 
 
 class LeagueSentimentOpinionResult(BaseModel):
@@ -32,7 +31,6 @@ class LeagueSentimentOpinionResult(BaseModel):
     watchConditions: List[str] = Field(default_factory=list)
     action: str
     longShortContext: str
-    dataQuality: List[str] = Field(default_factory=list)
     sourceCounts: Dict[str, int] = Field(default_factory=dict)
     provider: str = "mock"
     model: str = "mock-league-opinion"

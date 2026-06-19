@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -116,7 +117,7 @@ def seed_sentiment_context() -> None:
 
 def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, monkeypatch):
     seed_sentiment_context()
-    calls: list[object] = []
+    calls: list[Any] = []
 
     class FakeProvider:
         name = "mock"
@@ -136,7 +137,6 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
                 watchConditions=["BTC가 64100 위에서 1시간 마감하는지 확인"],
                 action="신규 추격보다 기존 계획의 무효화 조건을 우선하세요.",
                 longShortContext="LONG 1 / SHORT 1",
-                dataQuality=["paper trading 표현은 사용자에게 노출되면 안 됩니다."],
                 sourceCounts={"activePositions": 1, "pendingOrders": 1, "recentClosedPositions": 1},
                 provider="mock",
                 model="mock-league-opinion",
@@ -158,9 +158,11 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
     assert first.json()["nextRefreshAt"] == first.json()["intervalEnd"]
     assert first.json()["opinion"]["bias"] == "MIXED"
     assert first.json()["opinion"]["sourceCounts"]["activePositions"] == 1
+    assert "dataQuality" not in first.json()["opinion"]
     assert "페이퍼 트레이딩" not in str(first.json()["opinion"])
     assert "paper trading" not in str(first.json()["opinion"]).lower()
     assert len(calls) == 1
+    assert "dataQuality" not in calls[0].model_dump()
 
     with session_scope() as db:
       records = db.query(LeagueSentimentOpinionRecord).all()

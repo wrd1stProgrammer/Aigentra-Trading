@@ -2,17 +2,13 @@
 
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState, useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import {
-  ActivityIcon,
   ArrowRight,
   Calendar,
   CaretDown,
   CaretRight,
   CircleNotch,
-  Gauge,
-  ShieldCheck,
-  Trophy
 } from "@phosphor-icons/react";
 import {
   getEquitySnapshots,
@@ -25,7 +21,6 @@ import {
   prefetchTraderDetailBundle,
   type EquitySnapshot,
   type LeaderboardBundle,
-  type ManagementReview,
   type PaperOrder,
   type PaperPosition,
   type TraderStatusFeed,
@@ -36,8 +31,8 @@ import type { Locale } from "@/lib/i18n";
 import { buildStandings, traderVisuals, type LeagueSymbol, type TraderStanding } from "@/lib/league";
 import { EquityAreaChart } from "@/components/leaderboard-sidebar-equity-chart";
 import { fallbackTraders, traderDetailKey, traderShortKey } from "@/lib/traders";
-import { formatClockTime, formatCurrency, formatDateTime, formatNumber, formatRelativeDateTime } from "@/lib/format";
-import { statusLabel, statusTone } from "@/lib/status";
+import { formatCurrency, formatNumber, formatRelativeDateTime } from "@/lib/format";
+import { statusLabel } from "@/lib/status";
 import { activePositionLeverage, appendLeverageSample, formatLeverageBadge, orderLeverage, planLeverage, positionLeverage } from "@/components/leaderboard-leverage";
 import {
   isDisplayableOverviewReview,
@@ -178,7 +173,6 @@ export function LeaderboardPageClient() {
   const openOrders = standings.reduce((sum, item) => sum + item.openOrders, 0);
   const activeTraderCount = standings.filter((item) => item.openPositions || item.openOrders).length;
   const traderNameMap = useMemo(() => new Map(standings.map((item) => [item.id, item.name])), [standings]);
-  const latestReviewByTrader = useMemo(() => buildLatestReviewMap(bundle.managementReviews ?? []), [bundle.managementReviews]);
   const latestStatusFeedByTrader = useMemo(() => buildLatestStatusFeedMap(bundle.statusFeeds ?? []), [bundle.statusFeeds]);
 
   // Fetch pending plans dynamically
@@ -353,7 +347,6 @@ export function LeaderboardPageClient() {
           snapshots={filteredSnapshots}
           snapshotsLoading={activeSnapshotsQuery.isFetching}
           exposure={activeTrader ? exposureByTrader.get(activeTrader.id) : undefined}
-          latestReview={activeTrader ? latestReviewByTrader.get(activeTrader.id) : undefined}
           latestStatusFeed={activeTrader ? latestStatusFeedByTrader.get(activeTrader.id) : undefined}
           onPrefetchTrader={prefetchTrader}
         />
@@ -495,14 +488,13 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, onPrefetch 
   );
 }
 
-function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, latestReview, latestStatusFeed, onPrefetchTrader }: {
+function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, latestStatusFeed, onPrefetchTrader }: {
   trader: TraderStanding | null;
   t: (key: string) => string;
   locale: Locale;
   snapshots: EquitySnapshot[];
   snapshotsLoading: boolean;
   exposure?: TraderExposure;
-  latestReview?: ManagementReview;
   latestStatusFeed?: TraderStatusFeed;
   onPrefetchTrader: (traderId: string) => void;
 }) {
@@ -514,11 +506,8 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
     );
   }
 
-  const summary = trader.summary;
   const progress = traderProgress(trader, exposure, t, locale);
   const state = progress.label;
-  const recentDecision = summary?.lastDecision ?? latestReview?.decision ?? latestReview?.actionType ?? latestReview?.action;
-  const recentDecisionLabel = recentDecision ? statusLabel(recentDecision, t) : t("leaderboard.noTraderReview");
 
   return (
     <aside className="data-card rounded-[22px] border-zinc-200/80 dark:border-white/[0.08] hidden xl:block shadow-sm transition hover:border-emerald-500/20 duration-300 w-full min-w-0 sticky top-[74px] p-5 overflow-hidden">
@@ -564,17 +553,6 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
           </div>
         </section>
 
-        <section>
-          <h4 className="text-sm font-semibold">{t("leaderboard.previewStatus")}</h4>
-          <div className="mt-3 divide-y rounded-lg border bg-[var(--surface)] w-full min-w-0 overflow-hidden" style={{ borderColor: "var(--border)" }}>
-            <StatusLine label={t("leaderboard.progressStatus")} value={progress.detail || state} tone={progress.tone} />
-            <StatusLine label={t("leaderboard.latestPlanStatus")} value={statusLabel(summary?.latestPlanStatus, t)} tone={statusTone(summary?.latestPlanStatus)} />
-            <StatusLine label={t("leaderboard.latestRunStatus")} value={statusLabel(summary?.latestRunStatus, t)} tone={statusTone(summary?.latestRunStatus)} />
-            <StatusLine label={t("agent.phase")} value={statusLabel(summary?.agentPhase, t)} tone={statusTone(summary?.agentPhase)} />
-            <StatusLine label={t("agent.lastDecision")} value={recentDecisionLabel} tone={recentDecision ? statusTone(recentDecision) : "neutral"} />
-          </div>
-        </section>
-
         <Link
           href={`/leaderboard/${trader.id}`}
           onFocus={() => onPrefetchTrader(trader.id)}
@@ -586,20 +564,6 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
         </Link>
       </div>
     </aside>
-  );
-}
-
-function HeroMetric({ icon, label, value, detail, tone }: { icon: ReactNode; label: string; value: string; detail: string; tone: "good" | "bad" | "warn" | "neutral" }) {
-  const toneClass = tone === "good" ? "text-emerald-400" : tone === "bad" ? "text-rose-400" : tone === "warn" ? "text-amber-400" : "text-zinc-400";
-  return (
-    <div className="bg-[#0a0c0b] p-5 hover:bg-[#101311] transition duration-300">
-      <div className={`mb-3 flex items-center gap-2 ${toneClass}`}>
-        {icon}
-        <span className="font-mono text-[10px] uppercase tracking-wider font-bold">{label}</span>
-      </div>
-      <p className="truncate font-mono text-xl font-bold tracking-tight text-white">{value}</p>
-      <p className="text-zinc-400 mt-1 truncate text-xs">{detail}</p>
-    </div>
   );
 }
 
@@ -714,15 +678,6 @@ function StatusPill({ label, tone }: { label: string; tone: "good" | "bad" | "wa
   return <span className={`inline-flex max-w-full items-center rounded-md px-2 py-1 text-xs font-semibold ${toneClass}`}>{label}</span>;
 }
 
-function StatusLine({ label, value, tone }: { label: string; value: string; tone: "good" | "bad" | "warn" | "neutral" }) {
-  return (
-    <div className="flex items-center justify-between gap-3 px-3 py-2.5">
-      <span className="text-soft-app min-w-0 text-xs font-medium">{label}</span>
-      <StatusPill label={value} tone={tone} />
-    </div>
-  );
-}
-
 function MiniCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 rounded-lg bg-[var(--surface)] px-3 py-2 ring-1 ring-[var(--border)]">
@@ -760,19 +715,6 @@ function buildExposureMap(positions: PaperPosition[], orders: PaperOrder[], plan
     const current = map.get(traderId) ?? {};
     if (!current.plan) current.plan = plan;
     map.set(traderId, current);
-  }
-  return map;
-}
-
-function buildLatestReviewMap(reviews: ManagementReview[]) {
-  const map = new Map<string, ManagementReview>();
-  for (const review of reviews) {
-    const traderId = String(review.traderId ?? review.trader_id ?? "");
-    if (!traderId) continue;
-    const current = map.get(traderId);
-    if (!current || timeValue(reviewTime(review)) > timeValue(reviewTime(current))) {
-      map.set(traderId, review);
-    }
   }
   return map;
 }
@@ -906,15 +848,6 @@ function unwrapTradePlans(value: unknown): Array<Record<string, any>> {
   return [];
 }
 
-
-
-function reviewText(review: ManagementReview) {
-  const payload = (review.payload ?? {}) as Record<string, any>;
-  const nested = review.review ?? payload.review ?? {};
-  const event = review.event ?? payload.event ?? {};
-  return String(review.rationale ?? nested.rationale ?? event.reason ?? "-");
-}
-
 function traderName(id: string | null | undefined, t: (key: string) => string, traderNameMap: Map<string, string>) {
   if (!id) return "-";
   const localizationKey = `traders.${id}.name`;
@@ -938,10 +871,6 @@ function planEntryPrice(plan?: Record<string, any>) {
 
 function planTime(plan: Record<string, any>) {
   return plan.createdAt ?? plan.created_at ?? plan.updatedAt ?? plan.updated_at ?? null;
-}
-
-function reviewTime(review: ManagementReview) {
-  return review.createdAt ?? review.created_at ?? review.updatedAt ?? review.updated_at ?? null;
 }
 
 function normalizeSide(value?: string | null): "long" | "short" | undefined {

@@ -35,7 +35,7 @@ class BannedTermTranslationProvider:
     async def translate_json(self, *, payload: dict, target_locale: str) -> dict:
         translated = dict(payload)
         translated["summary"] = "페이퍼 트레이딩 표현이 번역에서 다시 들어오면 안 됩니다."
-        translated["dataQuality"] = ["paper trading wording should be scrubbed."]
+        translated["risks"] = ["paper trading wording should be scrubbed."]
         return translated
 
 
@@ -323,7 +323,7 @@ def test_league_sentiment_translation_scrubs_banned_terms(temp_db):
     payload = {
         "bias": "MIXED",
         "summary": "Use simulation wording only.",
-        "dataQuality": ["Simulation context only."],
+        "risks": ["Simulation context only."],
         "sourceCounts": {"activePositions": 1},
     }
     settings = Settings(

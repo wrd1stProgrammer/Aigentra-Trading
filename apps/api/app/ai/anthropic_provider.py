@@ -188,7 +188,6 @@ def league_sentiment_schema() -> dict[str, Any]:
             "watchConditions": {"type": "array", "items": {"type": "string"}},
             "action": {"type": "string"},
             "longShortContext": {"type": "string"},
-            "dataQuality": {"type": "array", "items": {"type": "string"}},
             "sourceCounts": {"type": "object", "additionalProperties": {"type": "integer"}},
         },
         "required": [
@@ -202,7 +201,6 @@ def league_sentiment_schema() -> dict[str, Any]:
             "watchConditions",
             "action",
             "longShortContext",
-            "dataQuality",
             "sourceCounts",
         ],
         "additionalProperties": False,
