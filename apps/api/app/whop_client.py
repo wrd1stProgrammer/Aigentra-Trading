@@ -55,7 +55,6 @@ def whop_checkout_configuration_payload(
     }
     plan_id = settings.whop_plan_id.strip()
     if plan_id:
-        body["company_id"] = settings.whop_company_id.strip()
         body["plan_id"] = plan_id
     else:
         body["plan"] = whop_plan_payload(settings)

@@ -137,8 +137,8 @@ def test_whop_checkout_uses_existing_plan_id_without_dynamic_plan_prices(temp_db
         source_url="https://app.example.com/account",
     )
 
-    assert request_body["company_id"] == "biz_test"
     assert request_body["plan_id"] == "plan_existing_123"
+    assert "company_id" not in request_body
     assert "plan" not in request_body
 
     def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url):
@@ -167,6 +167,42 @@ def test_whop_checkout_uses_existing_plan_id_without_dynamic_plan_prices(temp_db
     with session_scope() as db:
         record = db.query(WhopCheckoutRecord).filter_by(checkout_id="ch_existing_plan").one()
         assert record.whop_plan_id == "plan_existing_123"
+
+
+def test_whop_checkout_omits_local_callback_urls_for_whop(temp_db, monkeypatch):
+    monkeypatch.setenv("SUBSCRIBER_API_TOKEN", "internal-token")
+    monkeypatch.setenv("WHOP_API_KEY", "whop-api-key")
+    monkeypatch.setenv("WHOP_COMPANY_ID", "biz_test")
+    monkeypatch.setenv("WHOP_PLAN_ID", "plan_existing_123")
+    get_settings.cache_clear()
+    captured = {}
+
+    def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url):
+        captured["redirect_url"] = redirect_url
+        captured["source_url"] = source_url
+        return {
+            "id": "ch_local_url",
+            "purchase_url": "/checkout/plan_existing_123?session=ch_local_url",
+            "metadata": metadata,
+        }
+
+    monkeypatch.setattr("app.whop_service.create_checkout_configuration", fake_create_checkout_configuration)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/billing/whop/checkout",
+        headers={"X-Subscriber-Api-Token": "internal-token"},
+        json={
+            "userId": "google-1",
+            "email": "operator@example.com",
+            "redirectUrl": "http://localhost:3000/account?billing=whop-return",
+            "sourceUrl": "http://localhost:3000/account",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["redirect_url"] == ""
+    assert captured["source_url"] == ""
 
 
 def test_whop_webhook_rejects_invalid_signature(temp_db, monkeypatch):

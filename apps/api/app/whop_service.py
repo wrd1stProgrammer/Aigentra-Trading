@@ -55,8 +55,8 @@ def create_whop_checkout(
     payload = create_checkout_configuration(
         settings=settings,
         metadata=metadata,
-        redirect_url=safe_url(redirect_url),
-        source_url=safe_url(source_url),
+        redirect_url=safe_url(redirect_url, require_https=True),
+        source_url=safe_url(source_url, require_https=True),
     )
     checkout_id = read_string(payload, "id")
     purchase_url = normalize_purchase_url(read_string(payload, "purchase_url"), settings)
@@ -203,9 +203,10 @@ def normalize_purchase_url(purchase_url: str, settings: Settings) -> str:
     return purchase_url
 
 
-def safe_url(value: str) -> str:
+def safe_url(value: str, *, require_https: bool = False) -> str:
     clean_value = value.strip()
     if not clean_value:
         return ""
     parsed = urlparse(clean_value)
-    return clean_value if parsed.scheme in {"http", "https"} and parsed.netloc else ""
+    allowed_schemes = {"https"} if require_https else {"http", "https"}
+    return clean_value if parsed.scheme in allowed_schemes and parsed.netloc else ""
