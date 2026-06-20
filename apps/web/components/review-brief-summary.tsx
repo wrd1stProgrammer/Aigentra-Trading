@@ -17,21 +17,21 @@ export function ReviewBriefSummary({ brief, title, compact = false, t }: ReviewB
   const rationaleItems = [...brief.keyReasons.slice(0, 2), ...brief.risks.slice(0, 1)];
   const watchItems = brief.watchConditions.slice(0, 2);
   return (
-    <div className={`border-l-2 border-emerald-500/70 pl-3 ${compact ? "py-1" : "py-2"}`}>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className={`rounded-xl border border-zinc-200 bg-white/70 p-3 dark:border-zinc-800 dark:bg-zinc-950/35 ${compact ? "space-y-2" : "space-y-3"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="metric-label">{title}</div>
         {brief.verdict ? <StatusBadge tone="neutral">{brief.verdict}</StatusBadge> : null}
       </div>
-      <p className={`${compact ? "mt-1 text-xs leading-5" : "mt-2 text-sm leading-6"} text-zinc-800 dark:text-zinc-100`}>
+      <p className={`${compact ? "text-xs leading-5" : "text-sm leading-6"} text-zinc-800 dark:text-zinc-100`}>
         {headline}
       </p>
       {brief.action && brief.action !== headline ? (
-        <div className="mt-2 flex gap-2 text-xs leading-5 text-zinc-600 dark:text-zinc-300">
-          <CheckCircle className="mt-0.5 shrink-0 text-emerald-500" size={15} />
+        <div className="flex gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs leading-5 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/55 dark:text-zinc-300">
+          <CheckCircle className="mt-0.5 shrink-0 text-zinc-500 dark:text-zinc-400" size={15} />
           <span><span className="font-semibold">{t("aiReview.nextAction")}:</span> {brief.action}</span>
         </div>
       ) : null}
-      <div className="mt-3 space-y-2">
+      <div className="space-y-2">
         <BriefSummaryLine icon={<ListChecks size={15} />} label={t("aiReview.keyReasons")} items={rationaleItems} />
         <BriefSummaryLine icon={<Target size={15} />} label={t("aiReview.watchConditions")} items={watchItems} />
       </div>
@@ -42,7 +42,7 @@ export function ReviewBriefSummary({ brief, title, compact = false, t }: ReviewB
 function BriefSummaryLine({ icon, label, items }: { icon: ReactNode; label: string; items: string[] }) {
   if (!items.length) return null;
   return (
-    <div className="flex flex-col gap-1 rounded-md bg-zinc-100/70 px-3 py-2 text-xs leading-5 text-zinc-600 dark:bg-zinc-900/60 dark:text-zinc-300 sm:flex-row sm:items-start">
+    <div className="flex flex-col gap-1 rounded-lg bg-zinc-100/70 px-3 py-2 text-xs leading-5 text-zinc-600 dark:bg-zinc-900/60 dark:text-zinc-300 sm:flex-row sm:items-start">
       <div className="flex min-w-28 shrink-0 items-center gap-1.5 font-semibold text-zinc-500 dark:text-zinc-400">
         {icon}
         {label}

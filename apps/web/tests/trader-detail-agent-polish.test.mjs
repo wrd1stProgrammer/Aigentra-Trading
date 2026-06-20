@@ -5,6 +5,7 @@ import ts from "typescript";
 
 const dataSource = readFileSync(new URL("../components/trader-profile-detail/data.ts", import.meta.url), "utf8");
 const aiReviewPanelSource = readFileSync(new URL("../components/ai-review-panel.tsx", import.meta.url), "utf8");
+const reviewBriefSummarySource = readFileSync(new URL("../components/review-brief-summary.tsx", import.meta.url), "utf8");
 const timelineSource = readFileSync(new URL("../components/trader-profile-detail/timeline.tsx", import.meta.url), "utf8");
 const modalSource = readFileSync(new URL("../components/trader-profile-detail/scenario-modal.tsx", import.meta.url), "utf8");
 const headerSource = readFileSync(new URL("../components/trader-profile-detail/header.tsx", import.meta.url), "utf8");
@@ -153,6 +154,13 @@ test("review facts replace user summary in visible review UI", () => {
   assert.doesNotMatch(aiReviewPanelSource, /aiReview\.userSummary|사용자 요약|User Summary/);
   assert.doesNotMatch(modalSource, /aiReview\.userSummary|사용자 요약|User Summary/);
   assert.doesNotMatch(i18nSource, /"aiReview\.userSummary"/);
+});
+
+test("scenario modal uses a compact reference-style ratio and neutral rationale card", () => {
+  assert.match(modalSource, /max-w-\[920px\]/, "scenario modal should use a narrower reference-style width");
+  assert.doesNotMatch(modalSource, /max-w-7xl/, "scenario modal should not use an oversized max width");
+  assert.match(modalSource, /height=\{320\}/, "modal chart should use a compact inspection height");
+  assert.doesNotMatch(reviewBriefSummarySource, /border-l-2 border-emerald-500\/70/, "management rationale cards should not use a green side stripe");
 });
 
 test("pullback scale-entry cancellation copy is localized instead of raw template text", () => {

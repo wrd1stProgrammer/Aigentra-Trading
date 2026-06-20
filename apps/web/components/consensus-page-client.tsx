@@ -13,7 +13,6 @@ import {
   getActivePaperPositions,
   getCachedLeaderboardBundle, 
   getPaperOrders,
-  getRecentTradePlans, 
   getLeagueSentimentOpinion,
   LEAGUE_LIVE_REFETCH_INTERVAL_MS, 
   leaderboardBundleQueryOptions,
@@ -54,7 +53,6 @@ const traderFlags: Record<string, string> = {
   "atr-trail-commander": "₿"
 };
 
-const CONSENSUS_PLAN_LIMIT = 40;
 const CONSENSUS_EXPOSURE_LIMIT = 40;
 const CONSENSUS_BUNDLE_OPTIONS: LeaderboardBundleRequestOptions = { includeRelated: false };
 
@@ -108,15 +106,6 @@ function localizedTraderName(trader: { id: string; name: string }, t: (key: stri
   return translatedOrFallback(t, traderNameKey(trader.id), trader.name);
 }
 
-function unwrapTradePlans(value: unknown): Array<Record<string, any>> {
-  if (Array.isArray(value)) return value as Array<Record<string, any>>;
-  if (!value || typeof value !== "object") return [];
-  const record = value as Record<string, any>;
-  if (Array.isArray(record.tradePlans)) return record.tradePlans as Array<Record<string, any>>;
-  if (Array.isArray(record.plans)) return record.plans as Array<Record<string, any>>;
-  return [];
-}
-
 function unwrapPaperPositions(value: { positions?: PaperPosition[] } | PaperPosition[]) {
   if (Array.isArray(value)) return value;
   return Array.isArray(value.positions) ? value.positions : [];
@@ -125,30 +114,6 @@ function unwrapPaperPositions(value: { positions?: PaperPosition[] } | PaperPosi
 function unwrapPaperOrders(value: { orders?: PaperOrder[] } | PaperOrder[]) {
   if (Array.isArray(value)) return value;
   return Array.isArray(value.orders) ? value.orders : [];
-}
-
-function planEntryPrice(plan?: Record<string, any>) {
-  const payload = (plan?.payload ?? {}) as Record<string, any>;
-  const entries = Array.isArray(plan?.entries) ? plan?.entries : Array.isArray(payload.entries) ? payload.entries : [];
-  const firstEntry = entries[0] as Record<string, any> | undefined;
-  return numberValue(firstEntry?.price, plan?.entryPrice, plan?.price, payload.entryPrice, payload.price);
-}
-
-function getTradersNativeSignal(traderId: string): string | null {
-  if (traderId.includes("rsi-divergence")) return "rsi";
-  if (traderId.includes("pullback-architect")) return "ema";
-  if (traderId.includes("volume-breaker")) return "volume";
-  if (traderId.includes("liquidity-reaper")) return "liquidity";
-  if (traderId.includes("volatility-squeezer")) return "squeeze";
-  if (traderId.includes("donchian-breakout")) return "donchian";
-  if (traderId.includes("ichimoku-cloud-pilot")) return "ichimoku";
-  if (traderId.includes("wyckoff-spring")) return "wyckoff";
-  if (traderId.includes("orderflow-sniper")) return "orderflow";
-  if (traderId.includes("leverage-hunter") || traderId.includes("funding-contrarian")) return "funding";
-  if (traderId.includes("bollinger-reversion")) return "rsi";
-  if (traderId.includes("channel-rider")) return "ema";
-  if (traderId.includes("vwap-reclaimer")) return "volume";
-  return null;
 }
 
 type TraderActiveState = {
@@ -170,7 +135,6 @@ function getTraderActiveState(
   summary: TraderPaperSummary | undefined,
   positions: PaperPosition[],
   orders: PaperOrder[],
-  pendingPlans: Array<Record<string, any>>,
   t: (key: string) => string
 ): TraderActiveState {
   // 1. In position (진입 중)
@@ -308,18 +272,6 @@ export function ConsensusPageClient() {
     refetchIntervalInBackground: false,
   });
 
-  // Fetch pending trade plans
-  const pendingPlansQuery = useQuery({
-    queryKey: ["league", "trade-plans", "BTCUSDT", "pending"],
-    queryFn: async () => {
-      const res = await getRecentTradePlans(CONSENSUS_PLAN_LIMIT, "BTCUSDT", undefined, "PAPER_TRADING_PENDING");
-      return unwrapTradePlans(res);
-    },
-    placeholderData: (previousData) => previousData ?? [],
-    staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
-    refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
-  });
-
   const bundle = btcQuery.data ?? fallbackBundle;
   const activePositionsQuery = useQuery({
     queryKey: ["paper", "positions", "active", "BTCUSDT", "consensus"],
@@ -337,14 +289,12 @@ export function ConsensusPageClient() {
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false
   });
-  const pendingPlans = pendingPlansQuery.data ?? [];
   const activePositions = activePositionsQuery.data ?? bundle.positions ?? [];
   const activeOrders = activeOrdersQuery.data ?? bundle.orders ?? [];
   const liveDataRefreshing =
     btcQuery.isFetching ||
     activePositionsQuery.isFetching ||
     activeOrdersQuery.isFetching ||
-    pendingPlansQuery.isFetching ||
     hourlyOpinionQuery.isFetching;
 
   const traders = bundle.traders?.length ? bundle.traders : (fallbackTraders as unknown as TraderProfile[]);
@@ -356,13 +306,12 @@ export function ConsensusPageClient() {
     return standings.map((standing) => {
       const summary = summaryMap.get(standing.id);
       const activeState = getTraderActiveState(
-        standing,
-        summary,
-        activePositions,
-        activeOrders,
-        pendingPlans,
-        t
-      );
+          standing,
+          summary,
+          activePositions,
+          activeOrders,
+          t
+        );
 
       // Extract scenarios
       const traderPositions = activePositions.filter((p) => p.traderId === standing.id);
@@ -397,7 +346,7 @@ export function ConsensusPageClient() {
         rationale
       };
     });
-  }, [standings, bundle, activeOrders, activePositions, pendingPlans, t]);
+  }, [standings, bundle, activeOrders, activePositions, t]);
 
   // Strict Filter: Only inPosition or pendingEntry
   const activeTraders = useMemo(() => {
@@ -498,9 +447,7 @@ export function ConsensusPageClient() {
     );
   }, [tradersWithStates]);
 
-  const initialLoading =
-    (btcQuery.isFetching && (btcQuery.isPending || btcQuery.isPlaceholderData)) ||
-    (hourlyOpinionQuery.isPending && !hourlyOpinionQuery.data);
+  const initialLoading = btcQuery.isFetching && (btcQuery.isPending || btcQuery.isPlaceholderData);
   const error = btcQuery.error ? t("common.liveDataUnavailable") : null;
 
   return (

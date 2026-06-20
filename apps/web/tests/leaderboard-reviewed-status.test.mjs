@@ -110,6 +110,7 @@ test("leaderboard uses the shared full-screen loading overlay", () => {
   assert.match(leaderboardSource, /PageLoadingOverlay/, "leaderboard should render the shared loading overlay");
   assert.match(leaderboardSource, /common\.loadingLeagueData/, "leaderboard overlay should use localized loading copy");
   assert.match(overlaySource, /fixed inset-0/, "loading overlay should cover the viewport");
+  assert.match(overlaySource, /createPortal/, "loading overlay should be portaled outside animated page containers");
   assert.match(overlaySource, /backdrop-blur-\[3px\]/, "loading overlay should blur the existing page");
 });
 

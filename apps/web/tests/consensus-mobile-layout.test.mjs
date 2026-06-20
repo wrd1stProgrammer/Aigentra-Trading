@@ -26,6 +26,9 @@ test("consensus uses a lightweight initial bundle and full-screen loading overla
   assert.match(consensusSource, /CONSENSUS_BUNDLE_OPTIONS: LeaderboardBundleRequestOptions = \{ includeRelated: false \}/, "sentiment page should not pull the full related leaderboard bundle");
   assert.match(consensusSource, /getActivePaperPositions\("BTCUSDT", undefined, CONSENSUS_EXPOSURE_LIMIT\)/, "active positions should load through the narrow exposure API");
   assert.match(consensusSource, /getPaperOrders\(CONSENSUS_EXPOSURE_LIMIT, "BTCUSDT", "open"\)/, "active orders should load through the narrow order API");
+  assert.doesNotMatch(consensusSource, /getRecentTradePlans/, "sentiment page should not fetch full pending trade-plan payloads");
+  assert.doesNotMatch(consensusSource, /hourlyOpinionQuery\.isPending && !hourlyOpinionQuery\.data/, "the full-screen overlay should not wait for hourly AI opinion generation");
   assert.match(consensusSource, /PageLoadingOverlay/, "consensus should use the shared loading overlay");
+  assert.match(overlaySource, /createPortal/, "loading overlay should portal to body instead of living under animated page transforms");
   assert.match(overlaySource, /backdrop-blur-\[3px\]/, "loading overlay should blur the page background");
 });
