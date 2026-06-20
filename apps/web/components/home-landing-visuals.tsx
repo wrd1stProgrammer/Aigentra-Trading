@@ -402,7 +402,7 @@ export function PricingCard({
         </div>
 
         <Link 
-          href={featured ? "/leaderboard" : "/account"} 
+          href={isFree ? "/leaderboard" : "/account"}
           className={`mt-8 inline-flex w-full justify-center rounded-full px-5 py-3.5 text-sm font-bold text-white transition active:scale-[0.99] duration-300 ${
             featured 
               ? "bg-emerald-500 shadow-neon-emerald hover:bg-emerald-400" 

@@ -104,6 +104,7 @@ from app.repositories import (
     update_trader_run_log,
 )
 from app.subscribers_routes import router as subscribers_router
+from app.whop_routes import router as whop_router
 from app.trader_status_feed.records import list_status_feed_payloads
 from app.trader_status_feed.scheduler import create_status_feeds_for_current_states, regenerate_due_status_feeds
 from app.trader_status_feed.service import (
@@ -331,6 +332,7 @@ app.add_middleware(
 )
 
 app.include_router(subscribers_router)
+app.include_router(whop_router)
 
 
 def binance_client() -> MarketDataClient:

@@ -20,11 +20,11 @@ def env_bool(name: str, default: str = "false") -> bool:
 
 
 def env_float(name: str, default: str) -> float:
-    return float(os.getenv(name, default))
+    return float(os.getenv(name) or default)
 
 
 def env_int(name: str, default: str) -> int:
-    return int(os.getenv(name, default))
+    return int(os.getenv(name) or default)
 
 
 def env_list(name: str, default: str) -> List[str]:
@@ -71,6 +71,19 @@ class Settings(BaseModel):
     market_data_warm_intervals: List[str] = Field(default_factory=lambda: env_list("MARKET_DATA_WARM_INTERVALS", "1m,5m,15m,30m,1h,4h,1d,1w"))
     market_data_warm_limit: int = Field(default_factory=lambda: env_int("MARKET_DATA_WARM_LIMIT", "500"))
     subscriber_api_token: str = Field(default_factory=lambda: os.getenv("SUBSCRIBER_API_TOKEN", ""))
+    whop_api_key: str = Field(default_factory=lambda: os.getenv("WHOP_API_KEY", ""))
+    whop_company_id: str = Field(default_factory=lambda: os.getenv("WHOP_COMPANY_ID", ""))
+    whop_webhook_secret: str = Field(default_factory=lambda: os.getenv("WHOP_WEBHOOK_SECRET", ""))
+    whop_api_base_url: str = Field(default_factory=lambda: os.getenv("WHOP_API_BASE_URL", "https://api.whop.com/api/v1"))
+    whop_api_version_date: str = Field(default_factory=lambda: os.getenv("WHOP_API_VERSION_DATE", ""))
+    whop_plan_key: str = Field(default_factory=lambda: os.getenv("WHOP_PLAN_KEY", "aigentra_pro_monthly"))
+    whop_plan_title: str = Field(default_factory=lambda: os.getenv("WHOP_PLAN_TITLE", "Aigentra Pro"))
+    whop_plan_type: str = Field(default_factory=lambda: os.getenv("WHOP_PLAN_TYPE", "renewal").lower())
+    whop_plan_currency: str = Field(default_factory=lambda: os.getenv("WHOP_PLAN_CURRENCY", "usd").lower())
+    whop_plan_initial_price: float = Field(default_factory=lambda: env_float("WHOP_PLAN_INITIAL_PRICE", "0"))
+    whop_plan_renewal_price: float = Field(default_factory=lambda: env_float("WHOP_PLAN_RENEWAL_PRICE", "0"))
+    whop_plan_billing_period_days: int = Field(default_factory=lambda: env_int("WHOP_PLAN_BILLING_PERIOD_DAYS", "30"))
+    whop_checkout_timeout_seconds: float = Field(default_factory=lambda: env_float("WHOP_CHECKOUT_TIMEOUT_SECONDS", "10"))
     ops_api_token: str = Field(default_factory=lambda: os.getenv("OPS_API_TOKEN", ""))
     ops_allow_production_reset: bool = Field(default_factory=lambda: env_bool("OPS_ALLOW_PRODUCTION_RESET", "false"))
     ops_allow_remote_reset: bool = Field(default_factory=lambda: env_bool("OPS_ALLOW_REMOTE_RESET", "false"))

@@ -437,6 +437,51 @@ class SubscriberPreferenceRecord(CommonMixin, Base):
     locale: Mapped[str] = mapped_column(String(8), default="ko", nullable=False)
 
 
+class WhopCheckoutRecord(Base):
+    __tablename__ = "whop_checkouts"
+    __table_args__ = (
+        UniqueConstraint("checkout_id", name="uq_whop_checkouts_checkout_id"),
+        UniqueConstraint("internal_order_id", name="uq_whop_checkouts_internal_order_id"),
+        Index("ix_whop_checkouts_email_created", "email", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)
+    checkout_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    internal_order_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(240), nullable=False, index=True)
+    plan_key: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(60), default="created", nullable=False, index=True)
+    whop_plan_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    whop_payment_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    whop_membership_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    currency: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    purchase_url: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    raw_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class WhopWebhookEventRecord(Base):
+    __tablename__ = "whop_webhook_events"
+    __table_args__ = (UniqueConstraint("webhook_id", name="uq_whop_webhook_events_webhook_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
+    webhook_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    api_version: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    checkout_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    payment_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    membership_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(60), default="processed", nullable=False, index=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class TelegramAlertDeliveryRecord(CommonMixin, Base):
     __tablename__ = "telegram_alert_deliveries"
     __table_args__ = (

@@ -8,6 +8,7 @@ import { TelegramConnectPanel } from "@/components/telegram-connect-panel";
 import { TelegramReviewSectionSettings } from "@/components/telegram-review-section-settings";
 import { TelegramTestButton } from "@/components/telegram-test-button";
 import { useSubscriberPreferenceSync } from "@/components/use-subscriber-preference-sync";
+import { WhopBillingPanel } from "@/components/whop-billing-panel";
 import {
   mergeStoredSubscriberPreferences,
   telegramDeliveryReadiness,
@@ -263,6 +264,8 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
 
         {/* Right Column: Telegram Webhook Configuration */}
         <div className="lg:col-span-5 space-y-6">
+          <WhopBillingPanel />
+
           <div data-testid="telegram-alert-settings" className="panel space-y-5 border-zinc-200/80 p-4 dark:border-white/[0.08] dark:bg-[#0c0f0d] sm:space-y-6 sm:p-6">
             <div>
               <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-white">

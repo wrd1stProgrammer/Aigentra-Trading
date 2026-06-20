@@ -40,6 +40,6 @@ test("marketing copy includes subscription and reference-aligned content for bot
 
 test("pricing plan calls to action route to real product surfaces", () => {
   assert.match(visualSource, /import Link from "next\/link"/, "pricing cards should use Next links, not inert buttons");
-  assert.ok(visualSource.includes('href={featured ? "/leaderboard" : "/account"}'), "pricing CTAs should route to leaderboard and alert settings");
+  assert.ok(visualSource.includes('href={isFree ? "/leaderboard" : "/account"}'), "free pricing CTA should route to leaderboard and paid CTAs should route to account checkout");
   assert.ok(!visualSource.includes("<button className={`mt-9 w-full"), "pricing CTAs should not be inert buttons");
 });
