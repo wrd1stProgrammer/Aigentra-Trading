@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
@@ -14,7 +15,9 @@ from app.whop_settings import (
 
 
 class WhopCheckoutAPIError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, public_detail: str = "whop_checkout_failed") -> None:
+        super().__init__(message)
+        self.public_detail = public_detail
 
 
 def create_checkout_configuration(
@@ -37,7 +40,12 @@ def create_checkout_configuration(
             response.raise_for_status()
             payload = response.json()
     except httpx.HTTPStatusError as exc:
-        raise WhopCheckoutAPIError(f"Whop checkout API rejected the request: {exc.response.status_code}") from exc
+        status_code = exc.response.status_code
+        public_detail = whop_rejection_detail(exc.response)
+        raise WhopCheckoutAPIError(
+            f"Whop checkout API rejected the request: {status_code}",
+            public_detail=public_detail,
+        ) from exc
     except httpx.RequestError as exc:
         raise WhopCheckoutAPIError("Whop checkout API request failed") from exc
     except ValueError as exc:
@@ -105,3 +113,38 @@ def _headers(settings: Settings) -> dict[str, str]:
 def _timeout(settings: Settings) -> httpx.Timeout:
     read_timeout = max(1.0, settings.whop_checkout_timeout_seconds)
     return httpx.Timeout(read=read_timeout, connect=5.0, write=5.0, pool=5.0)
+
+
+def whop_rejection_detail(response: httpx.Response) -> str:
+    status_code = response.status_code
+    message = response_error_message(response)
+    if not message:
+        return f"whop_checkout_rejected_{status_code}"
+    return f"whop_checkout_rejected_{status_code}: {sanitize_error_message(message)}"
+
+
+def response_error_message(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        return response.text
+    if not isinstance(payload, dict):
+        return str(payload)
+    error = payload.get("error")
+    if isinstance(error, dict):
+        for key in ("message", "detail", "type"):
+            value = error.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+    for key in ("message", "detail", "error"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return str(payload)
+
+
+def sanitize_error_message(message: str) -> str:
+    compact = re.sub(r"\s+", " ", message).strip()
+    compact = re.sub(r"(?i)(bearer\s+)[a-z0-9._\-]+", r"\1<redacted>", compact)
+    compact = re.sub(r"(?i)(api[_-]?key[\"':=\s]+)[a-z0-9._\-]+", r"\1<redacted>", compact)
+    return compact[:240]

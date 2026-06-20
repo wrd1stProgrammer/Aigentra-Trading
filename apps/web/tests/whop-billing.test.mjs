@@ -37,5 +37,6 @@ test("billing status route is session-protected and proxied through the backend"
 test("landing pricing paid CTA starts hosted checkout directly", () => {
   assert.match(landingCheckoutButtonSource, /\/api\/billing\/checkout/, "landing paid CTA should create a checkout session");
   assert.match(landingCheckoutButtonSource, /window\.location\.assign\(purchaseUrl\)/, "landing CTA should leave for Whop checkout");
+  assert.match(landingCheckoutButtonSource, /readCheckoutError/, "landing CTA should show the server-provided checkout failure reason");
   assert.doesNotMatch(landingCheckoutButtonSource, /\/account/, "landing paid CTA should not route through account settings");
 });

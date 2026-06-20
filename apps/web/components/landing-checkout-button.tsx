@@ -5,6 +5,7 @@ import { useState, type ReactNode } from "react";
 import { useAppContext } from "@/components/app-provider";
 
 type CheckoutState = "idle" | "loading" | "failed";
+const DEFAULT_CHECKOUT_ERROR = "Checkout could not be created. Please try again shortly.";
 
 type LandingCheckoutButtonProps = {
   readonly children: ReactNode;
@@ -14,9 +15,11 @@ type LandingCheckoutButtonProps = {
 export function LandingCheckoutButton({ children, className }: LandingCheckoutButtonProps) {
   const { locale } = useAppContext();
   const [checkoutState, setCheckoutState] = useState<CheckoutState>("idle");
+  const [checkoutError, setCheckoutError] = useState(DEFAULT_CHECKOUT_ERROR);
 
   async function startCheckout() {
     setCheckoutState("loading");
+    setCheckoutError(DEFAULT_CHECKOUT_ERROR);
     try {
       const response = await fetch("/api/billing/checkout", {
         method: "POST",
@@ -28,11 +31,13 @@ export function LandingCheckoutButton({ children, className }: LandingCheckoutBu
         return;
       }
       if (!response.ok) {
+        setCheckoutError(readCheckoutError(await response.json()));
         setCheckoutState("failed");
         return;
       }
       const purchaseUrl = readPurchaseUrl(await response.json());
       if (!purchaseUrl) {
+        setCheckoutError("Checkout response did not include a purchase URL.");
         setCheckoutState("failed");
         return;
       }
@@ -58,9 +63,9 @@ export function LandingCheckoutButton({ children, className }: LandingCheckoutBu
         <ArrowSquareOut size={15} />
       </button>
       {checkoutState === "failed" ? (
-        <p className="mt-3 flex items-start gap-1.5 break-keep text-[11px] leading-relaxed text-rose-300">
+          <p className="mt-3 flex items-start gap-1.5 break-keep text-[11px] leading-relaxed text-rose-300">
           <WarningCircle size={13} className="mt-0.5 shrink-0" />
-          Checkout could not be created. Please try again shortly.
+          {checkoutError}
         </p>
       ) : null}
     </div>
@@ -70,4 +75,9 @@ export function LandingCheckoutButton({ children, className }: LandingCheckoutBu
 function readPurchaseUrl(input: unknown): string {
   if (typeof input !== "object" || input === null || !("purchaseUrl" in input)) return "";
   return typeof input.purchaseUrl === "string" ? input.purchaseUrl : "";
+}
+
+function readCheckoutError(input: unknown): string {
+  if (typeof input !== "object" || input === null || !("error" in input)) return DEFAULT_CHECKOUT_ERROR;
+  return typeof input.error === "string" && input.error.trim() ? input.error : DEFAULT_CHECKOUT_ERROR;
 }

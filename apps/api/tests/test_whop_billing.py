@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.core.config import get_settings
 from app.db import WhopCheckoutRecord, WhopWebhookEventRecord, init_db, reset_db_engine, session_scope
 from app.main import app
-from app.whop_client import whop_checkout_configuration_payload
+from app.whop_client import WhopCheckoutAPIError, whop_checkout_configuration_payload
 from app.whop_service import validate_checkout_settings
 from app.whop_settings import whop_sandbox_enabled
 
@@ -247,6 +247,32 @@ def test_whop_checkout_uses_sandbox_environment_values(temp_db, monkeypatch):
     assert response.status_code == 200
     assert response.json()["sandbox"] is True
     assert response.json()["purchaseUrl"] == "https://sandbox.whop.com/checkout/plan_sandbox?session=ch_sandbox_plan"
+
+
+def test_whop_checkout_returns_sanitized_provider_rejection(temp_db, monkeypatch):
+    monkeypatch.setenv("SUBSCRIBER_API_TOKEN", "internal-token")
+    monkeypatch.setenv("WHOP_API_KEY", "whop-api-key")
+    monkeypatch.setenv("WHOP_COMPANY_ID", "biz_test")
+    monkeypatch.setenv("WHOP_PLAN_ID", "plan_missing")
+    get_settings.cache_clear()
+
+    def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url):
+        raise WhopCheckoutAPIError(
+            "Whop checkout API rejected the request: 400",
+            public_detail="whop_checkout_rejected_400: plan does not belong to this company",
+        )
+
+    monkeypatch.setattr("app.whop_service.create_checkout_configuration", fake_create_checkout_configuration)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/billing/whop/checkout",
+        headers={"X-Subscriber-Api-Token": "internal-token"},
+        json={"userId": "google-1", "email": "operator@example.com"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "whop_checkout_rejected_400: plan does not belong to this company"
 
 
 def test_whop_subscription_status_reports_latest_active_checkout(temp_db, monkeypatch):

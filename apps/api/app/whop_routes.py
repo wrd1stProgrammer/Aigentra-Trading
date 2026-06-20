@@ -54,7 +54,7 @@ def create_checkout(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except WhopCheckoutAPIError as exc:
-        raise HTTPException(status_code=502, detail="whop_checkout_failed") from exc
+        raise HTTPException(status_code=502, detail=exc.public_detail) from exc
 
 
 @router.get("/status")
