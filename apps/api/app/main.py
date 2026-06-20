@@ -3369,7 +3369,7 @@ async def auto_management_loop() -> None:
             }
         )
         try:
-            await asyncio.to_thread(lambda: asyncio.run(run_management_once()))
+            await run_management_once()
         except Exception as exc:
             AUTO_MANAGEMENT_STATE.update(
                 {
@@ -3443,7 +3443,7 @@ async def auto_scanner_loop() -> None:
             }
         )
         try:
-            await asyncio.to_thread(lambda: asyncio.run(run_scanner_once()))
+            await run_scanner_once()
         except Exception as exc:
             AUTO_SCANNER_STATE.update(
                 {
