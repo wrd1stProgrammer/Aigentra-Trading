@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,7 @@ from app.whop_service import (
     create_whop_checkout,
     process_whop_webhook,
 )
+from app.whop_status import WhopSubscriptionStatusPayload, read_whop_subscription_status
 from app.whop_payload import WhopWebhookPayloadError
 from app.whop_signature import WhopWebhookVerificationError
 
@@ -54,6 +55,24 @@ def create_checkout(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except WhopCheckoutAPIError as exc:
         raise HTTPException(status_code=502, detail="whop_checkout_failed") from exc
+
+
+@router.get("/status")
+def read_status(
+    user_id: str = Query(alias="userId"),
+    email: str = Query(),
+    _: None = Depends(require_subscriber_api_token),
+    db: Session = Depends(get_db),
+) -> WhopSubscriptionStatusPayload:
+    try:
+        return read_whop_subscription_status(
+            db,
+            user_id=user_id,
+            email=email,
+            settings=get_settings(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/webhook")

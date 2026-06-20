@@ -249,6 +249,62 @@ def test_whop_checkout_uses_sandbox_environment_values(temp_db, monkeypatch):
     assert response.json()["purchaseUrl"] == "https://sandbox.whop.com/checkout/plan_sandbox?session=ch_sandbox_plan"
 
 
+def test_whop_subscription_status_reports_latest_active_checkout(temp_db, monkeypatch):
+    monkeypatch.setenv("SUBSCRIBER_API_TOKEN", "internal-token")
+    monkeypatch.setenv("WHOP_MODE", "sandbox")
+    get_settings.cache_clear()
+    with session_scope() as db:
+        db.add(
+            WhopCheckoutRecord(
+                checkout_id="ch_paid",
+                user_id="google-1",
+                email="operator@example.com",
+                plan_key="aigentra_pro_monthly",
+                internal_order_id="atl_paid_order",
+                status="payment_succeeded",
+                whop_plan_id="plan_sandbox",
+                whop_payment_id="pay_sandbox_1",
+                whop_membership_id="mem_sandbox_1",
+                currency="usd",
+                amount=29.0,
+                purchase_url="https://sandbox.whop.com/checkout/plan_sandbox?session=ch_paid",
+            )
+        )
+        db.add(
+            WhopCheckoutRecord(
+                checkout_id="ch_new_attempt",
+                user_id="google-1",
+                email="operator@example.com",
+                plan_key="aigentra_pro_monthly",
+                internal_order_id="atl_new_attempt",
+                status="created",
+                whop_plan_id="plan_sandbox",
+                purchase_url="https://sandbox.whop.com/checkout/plan_sandbox?session=ch_new_attempt",
+            )
+        )
+        db.commit()
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/billing/whop/status?userId=google-1&email=operator@example.com",
+        headers={"X-Subscriber-Api-Token": "internal-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "active",
+        "checkoutStatus": "payment_succeeded",
+        "planKey": "aigentra_pro_monthly",
+        "planId": "plan_sandbox",
+        "checkoutId": "ch_paid",
+        "paymentId": "pay_sandbox_1",
+        "membershipId": "mem_sandbox_1",
+        "currency": "usd",
+        "amount": 29.0,
+        "sandbox": True,
+    }
+
+
 def test_whop_webhook_rejects_invalid_signature(temp_db, monkeypatch):
     monkeypatch.setenv("WHOP_WEBHOOK_SECRET", whsec(b"test-webhook-secret"))
     get_settings.cache_clear()

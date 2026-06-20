@@ -13,8 +13,8 @@ export async function POST(request: Request) {
 
   const origin = checkoutOrigin(request);
   const locale = readLocale(await readJson(request));
-  const redirectUrl = new URL("/account?billing=whop-return", origin).toString();
-  const sourceUrl = new URL("/account", origin).toString();
+  const redirectUrl = new URL("/leaderboard?billing=whop-success", origin).toString();
+  const sourceUrl = new URL("/", origin).toString();
 
   try {
     return NextResponse.json(await createWhopCheckout({ identity, locale, redirectUrl, sourceUrl }));
