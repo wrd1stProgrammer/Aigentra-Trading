@@ -5,6 +5,12 @@ from typing import Any
 import httpx
 
 from app.core.config import Settings
+from app.whop_settings import (
+    active_whop_api_base_url,
+    active_whop_api_key,
+    active_whop_company_id,
+    active_whop_plan_id,
+)
 
 
 class WhopCheckoutAPIError(RuntimeError):
@@ -53,7 +59,7 @@ def whop_checkout_configuration_payload(
         "metadata": metadata,
         "allow_promo_codes": True,
     }
-    plan_id = settings.whop_plan_id.strip()
+    plan_id = active_whop_plan_id(settings)
     if plan_id:
         body["plan_id"] = plan_id
     else:
@@ -67,7 +73,7 @@ def whop_checkout_configuration_payload(
 
 def whop_plan_payload(settings: Settings) -> dict[str, Any]:
     plan: dict[str, Any] = {
-        "company_id": settings.whop_company_id.strip(),
+        "company_id": active_whop_company_id(settings),
         "initial_price": settings.whop_plan_initial_price,
         "plan_type": settings.whop_plan_type.strip().lower(),
         "currency": settings.whop_plan_currency.strip().lower(),
@@ -81,17 +87,13 @@ def whop_plan_payload(settings: Settings) -> dict[str, Any]:
     return plan
 
 
-def whop_sandbox_enabled(settings: Settings) -> bool:
-    return "sandbox-api.whop.com" in settings.whop_api_base_url.strip().lower()
-
-
 def _endpoint(settings: Settings) -> str:
-    return settings.whop_api_base_url.rstrip("/") + "/checkout_configurations"
+    return active_whop_api_base_url(settings).rstrip("/") + "/checkout_configurations"
 
 
 def _headers(settings: Settings) -> dict[str, str]:
     headers = {
-        "Authorization": f"Bearer {settings.whop_api_key.strip()}",
+        "Authorization": f"Bearer {active_whop_api_key(settings)}",
         "Content-Type": "application/json",
     }
     version_date = settings.whop_api_version_date.strip()

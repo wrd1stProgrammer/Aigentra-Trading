@@ -12,6 +12,7 @@ from app.db import WhopCheckoutRecord, WhopWebhookEventRecord, init_db, reset_db
 from app.main import app
 from app.whop_client import whop_checkout_configuration_payload
 from app.whop_service import validate_checkout_settings
+from app.whop_settings import whop_sandbox_enabled
 
 
 @pytest.fixture(autouse=True)
@@ -205,6 +206,49 @@ def test_whop_checkout_omits_local_callback_urls_for_whop(temp_db, monkeypatch):
     assert captured["source_url"] == ""
 
 
+def test_whop_checkout_uses_sandbox_environment_values(temp_db, monkeypatch):
+    monkeypatch.setenv("SUBSCRIBER_API_TOKEN", "internal-token")
+    monkeypatch.setenv("WHOP_MODE", "sandbox")
+    monkeypatch.setenv("WHOP_API_KEY", "production-api-key")
+    monkeypatch.setenv("WHOP_COMPANY_ID", "biz_production")
+    monkeypatch.setenv("WHOP_PLAN_ID", "plan_production")
+    monkeypatch.setenv("WHOP_API_KEY_SANDBOX", "sandbox-api-key")
+    monkeypatch.setenv("WHOP_COMPANY_ID_SANDBOX", "biz_sandbox")
+    monkeypatch.setenv("WHOP_PLAN_ID_SANDBOX", "plan_sandbox")
+    get_settings.cache_clear()
+    settings = get_settings()
+    validate_checkout_settings(settings)
+    request_body = whop_checkout_configuration_payload(
+        settings=settings,
+        metadata={"order_id": "atl_sandbox_plan", "user_id": "google-1"},
+        redirect_url="https://app.example.com/account?billing=whop-return",
+        source_url="https://app.example.com/account",
+    )
+
+    assert request_body["plan_id"] == "plan_sandbox"
+    assert whop_sandbox_enabled(settings) is True
+
+    def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url):
+        return {
+            "id": "ch_sandbox_plan",
+            "purchase_url": "/checkout/plan_sandbox?session=ch_sandbox_plan",
+            "metadata": metadata,
+        }
+
+    monkeypatch.setattr("app.whop_service.create_checkout_configuration", fake_create_checkout_configuration)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/billing/whop/checkout",
+        headers={"X-Subscriber-Api-Token": "internal-token"},
+        json={"userId": "google-1", "email": "operator@example.com"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["sandbox"] is True
+    assert response.json()["purchaseUrl"] == "https://sandbox.whop.com/checkout/plan_sandbox?session=ch_sandbox_plan"
+
+
 def test_whop_webhook_rejects_invalid_signature(temp_db, monkeypatch):
     monkeypatch.setenv("WHOP_WEBHOOK_SECRET", whsec(b"test-webhook-secret"))
     get_settings.cache_clear()
@@ -276,6 +320,51 @@ def test_whop_signed_webhook_updates_checkout_once(temp_db, monkeypatch):
         assert checkout.whop_membership_id == "mem_test_1"
         assert checkout.currency == "usd"
         assert checkout.amount == 28.17
+
+
+def test_whop_webhook_uses_sandbox_secret_when_mode_sandbox(temp_db, monkeypatch):
+    production_secret = whsec(b"production-webhook-secret")
+    sandbox_secret = whsec(b"sandbox-webhook-secret")
+    monkeypatch.setenv("WHOP_MODE", "sandbox")
+    monkeypatch.setenv("WHOP_WEBHOOK_SECRET", production_secret)
+    monkeypatch.setenv("WHOP_WEBHOOK_SECRET_SANDBOX", sandbox_secret)
+    get_settings.cache_clear()
+    order_id = "atl_sandbox_webhook_order"
+    with session_scope() as db:
+        db.add(
+            WhopCheckoutRecord(
+                checkout_id="ch_sandbox_webhook",
+                user_id="google-1",
+                email="operator@example.com",
+                plan_key="aigentra_pro_monthly",
+                internal_order_id=order_id,
+                status="created",
+                purchase_url="https://sandbox.whop.com/checkout/plan_test?session=ch_sandbox_webhook",
+            )
+        )
+
+    event = {
+        "id": "evt_sandbox_payment_1",
+        "type": "payment.succeeded",
+        "api_version": "v1",
+        "data": {
+            "id": "pay_sandbox_1",
+            "currency": "usd",
+            "amount": 29.0,
+            "metadata": {"order_id": order_id},
+        },
+    }
+    body = json.dumps(event, separators=(",", ":"))
+    headers = signed_headers(sandbox_secret, "msg_sandbox_payment_1", body)
+    client = TestClient(app)
+
+    response = client.post("/api/billing/whop/webhook", content=body, headers=headers)
+
+    assert response.status_code == 200
+    with session_scope() as db:
+        checkout = db.query(WhopCheckoutRecord).filter_by(internal_order_id=order_id).one()
+        assert checkout.status == "payment_succeeded"
+        assert checkout.whop_payment_id == "pay_sandbox_1"
 
 
 @pytest.mark.parametrize(
