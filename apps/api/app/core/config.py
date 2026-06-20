@@ -77,6 +77,7 @@ class Settings(BaseModel):
     whop_api_base_url: str = Field(default_factory=lambda: os.getenv("WHOP_API_BASE_URL", "https://api.whop.com/api/v1"))
     whop_api_version_date: str = Field(default_factory=lambda: os.getenv("WHOP_API_VERSION_DATE", ""))
     whop_plan_key: str = Field(default_factory=lambda: os.getenv("WHOP_PLAN_KEY", "aigentra_pro_monthly"))
+    whop_plan_id: str = Field(default_factory=lambda: os.getenv("WHOP_PLAN_ID", ""))
     whop_plan_title: str = Field(default_factory=lambda: os.getenv("WHOP_PLAN_TITLE", "Aigentra Pro"))
     whop_plan_type: str = Field(default_factory=lambda: os.getenv("WHOP_PLAN_TYPE", "renewal").lower())
     whop_plan_currency: str = Field(default_factory=lambda: os.getenv("WHOP_PLAN_CURRENCY", "usd").lower())

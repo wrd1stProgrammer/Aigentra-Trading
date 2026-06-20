@@ -60,7 +60,8 @@ def create_whop_checkout(
     )
     checkout_id = read_string(payload, "id")
     purchase_url = normalize_purchase_url(read_string(payload, "purchase_url"), settings)
-    plan_id = read_nested_string(payload, "plan", "id")
+    configured_plan_id = settings.whop_plan_id.strip()
+    plan_id = read_nested_string(payload, "plan", "id") or read_string(payload, "plan_id") or configured_plan_id
     if not checkout_id or not purchase_url:
         raise WhopCheckoutAPIError("Whop checkout API response is missing checkout data")
 
@@ -134,6 +135,8 @@ def validate_checkout_settings(settings: Settings) -> None:
         raise WhopConfigurationError("whop_not_configured")
     if not settings.whop_plan_key.strip():
         raise WhopConfigurationError("whop_not_configured")
+    if settings.whop_plan_id.strip():
+        return
     plan_type = settings.whop_plan_type.strip().lower()
     if plan_type not in {"one_time", "renewal"}:
         raise WhopConfigurationError("whop_not_configured")

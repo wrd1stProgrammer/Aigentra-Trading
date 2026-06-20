@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 from app.core.config import get_settings
 from app.db import WhopCheckoutRecord, WhopWebhookEventRecord, init_db, reset_db_engine, session_scope
 from app.main import app
+from app.whop_client import whop_checkout_configuration_payload
+from app.whop_service import validate_checkout_settings
 
 
 @pytest.fixture(autouse=True)
@@ -115,6 +117,56 @@ def test_whop_checkout_creates_record_with_safe_metadata(temp_db, monkeypatch):
         assert record.whop_plan_id == "plan_test"
         assert record.purchase_url == "https://sandbox.whop.com/checkout/plan_test?session=ch_test_123"
         assert record.internal_order_id == captured["metadata"]["order_id"]
+
+
+def test_whop_checkout_uses_existing_plan_id_without_dynamic_plan_prices(temp_db, monkeypatch):
+    monkeypatch.setenv("SUBSCRIBER_API_TOKEN", "internal-token")
+    monkeypatch.setenv("WHOP_API_KEY", "whop-api-key")
+    monkeypatch.setenv("WHOP_COMPANY_ID", "biz_test")
+    monkeypatch.setenv("WHOP_PLAN_ID", "plan_existing_123")
+    monkeypatch.setenv("WHOP_API_BASE_URL", "https://sandbox-api.whop.com/api/v1")
+    monkeypatch.delenv("WHOP_PLAN_INITIAL_PRICE", raising=False)
+    monkeypatch.delenv("WHOP_PLAN_RENEWAL_PRICE", raising=False)
+    get_settings.cache_clear()
+    settings = get_settings()
+    validate_checkout_settings(settings)
+    request_body = whop_checkout_configuration_payload(
+        settings=settings,
+        metadata={"order_id": "atl_existing_plan", "user_id": "google-1"},
+        redirect_url="https://app.example.com/account?billing=whop-return",
+        source_url="https://app.example.com/account",
+    )
+
+    assert request_body["company_id"] == "biz_test"
+    assert request_body["plan_id"] == "plan_existing_123"
+    assert "plan" not in request_body
+
+    def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url):
+        return {
+            "id": "ch_existing_plan",
+            "purchase_url": "/checkout/plan_existing_123?session=ch_existing_plan",
+            "metadata": metadata,
+        }
+
+    monkeypatch.setattr("app.whop_service.create_checkout_configuration", fake_create_checkout_configuration)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/billing/whop/checkout",
+        headers={"X-Subscriber-Api-Token": "internal-token"},
+        json={
+            "userId": "google-1",
+            "email": "operator@example.com",
+            "redirectUrl": "https://app.example.com/account?billing=whop-return",
+            "sourceUrl": "https://app.example.com/account",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["planId"] == "plan_existing_123"
+    with session_scope() as db:
+        record = db.query(WhopCheckoutRecord).filter_by(checkout_id="ch_existing_plan").one()
+        assert record.whop_plan_id == "plan_existing_123"
 
 
 def test_whop_webhook_rejects_invalid_signature(temp_db, monkeypatch):

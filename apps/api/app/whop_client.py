@@ -18,16 +18,12 @@ def create_checkout_configuration(
     redirect_url: str,
     source_url: str,
 ) -> dict[str, Any]:
-    body: dict[str, Any] = {
-        "mode": "payment",
-        "plan": whop_plan_payload(settings),
-        "metadata": metadata,
-        "allow_promo_codes": True,
-    }
-    if redirect_url:
-        body["redirect_url"] = redirect_url
-    if source_url:
-        body["source_url"] = source_url
+    body = whop_checkout_configuration_payload(
+        settings=settings,
+        metadata=metadata,
+        redirect_url=redirect_url,
+        source_url=source_url,
+    )
 
     try:
         with httpx.Client(timeout=_timeout(settings), follow_redirects=True) as client:
@@ -43,6 +39,31 @@ def create_checkout_configuration(
     if not isinstance(payload, dict):
         raise WhopCheckoutAPIError("Whop checkout API returned an invalid payload")
     return payload
+
+
+def whop_checkout_configuration_payload(
+    *,
+    settings: Settings,
+    metadata: dict[str, str],
+    redirect_url: str,
+    source_url: str,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "mode": "payment",
+        "metadata": metadata,
+        "allow_promo_codes": True,
+    }
+    plan_id = settings.whop_plan_id.strip()
+    if plan_id:
+        body["company_id"] = settings.whop_company_id.strip()
+        body["plan_id"] = plan_id
+    else:
+        body["plan"] = whop_plan_payload(settings)
+    if redirect_url:
+        body["redirect_url"] = redirect_url
+    if source_url:
+        body["source_url"] = source_url
+    return body
 
 
 def whop_plan_payload(settings: Settings) -> dict[str, Any]:
