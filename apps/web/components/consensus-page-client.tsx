@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleNotch } from "@phosphor-icons/react";
 import { useAppContext } from "@/components/app-provider";
 import { ConsensusAveragePrices } from "@/components/consensus-average-prices";
@@ -238,7 +238,9 @@ function formatProviderName(provider: string) {
 
 export function ConsensusPageClient() {
   const { locale, t } = useAppContext();
+  const queryClient = useQueryClient();
   const [cacheReady, setCacheReady] = useState(false);
+  const opinionRefreshRef = useRef<string | null>(null);
 
   const fallbackBundle = useMemo<LeaderboardBundle>(() => ({
     symbol: "BTCUSDT",
@@ -264,13 +266,40 @@ export function ConsensusPageClient() {
     }
   });
 
+  const hourlyOpinionQueryKey = useMemo(
+    () => ["league", "sentiment-opinion", "BTCUSDT", locale] as const,
+    [locale]
+  );
   const hourlyOpinionQuery = useQuery({
-    queryKey: ["league", "sentiment-opinion", "BTCUSDT", locale],
-    queryFn: () => getLeagueSentimentOpinion("BTCUSDT", locale),
+    queryKey: hourlyOpinionQueryKey,
+    queryFn: () => getLeagueSentimentOpinion("BTCUSDT", locale, { preferCached: true }),
+    placeholderData: (previousData) => previousData,
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
   });
+
+  useEffect(() => {
+    const opinion = hourlyOpinionQuery.data;
+    if (!opinion?.stale) return;
+    const refreshKey = `${locale}:${opinion.nextRefreshAt}`;
+    if (opinionRefreshRef.current === refreshKey) return;
+    let active = true;
+    opinionRefreshRef.current = refreshKey;
+    getLeagueSentimentOpinion("BTCUSDT", locale)
+      .then((freshOpinion) => {
+        if (active) queryClient.setQueryData(hourlyOpinionQueryKey, freshOpinion);
+      })
+      .catch((error: unknown) => {
+        console.error("Failed to refresh hourly Aigentra opinion:", error);
+      })
+      .finally(() => {
+        if (opinionRefreshRef.current === refreshKey) opinionRefreshRef.current = null;
+      });
+    return () => {
+      active = false;
+    };
+  }, [hourlyOpinionQuery.data, hourlyOpinionQueryKey, locale, queryClient]);
 
   const bundle = btcQuery.data ?? fallbackBundle;
   const activePositionsQuery = useQuery({

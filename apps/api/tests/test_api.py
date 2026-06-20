@@ -413,3 +413,60 @@ def test_league_overview_reviews_returns_one_slim_combined_page(temp_api_db):
     assert len(second_data["reviews"]) == 10
     assert second_data["nextOffset"] == 30
     assert second_data["hasMore"] is False
+
+
+def test_league_overview_reviews_filters_hidden_reviews_before_pagination(temp_api_db):
+    now = datetime(2026, 6, 19, 12, 0, tzinfo=timezone.utc)
+    with session_scope() as db:
+        db.add_all(
+            [
+                AIReviewRecord(
+                    trader_id="session-raider",
+                    symbol="BTCUSDT",
+                    status="ok",
+                    decision="REJECT",
+                    payload_json=to_json({"approvalReason": "rejected setup"}),
+                    created_at=now,
+                ),
+                PositionManagementReviewRecord(
+                    trader_id="range-maker",
+                    symbol="BTCUSDT",
+                    status="error",
+                    decision="NEEDS_MORE_DATA",
+                    action_type="NEEDS_MORE_DATA",
+                    fallback=True,
+                    payload_json=to_json(
+                        {
+                            "event": {"reason": "Position management provider failed."},
+                            "review": {"rationale": "Position management provider failed."},
+                        }
+                    ),
+                    created_at=now - timedelta(minutes=1),
+                ),
+                AIReviewRecord(
+                    trader_id="session-raider",
+                    symbol="BTCUSDT",
+                    status="ok",
+                    decision="ADJUST_AND_APPROVE",
+                    payload_json=to_json({"approvalReason": "approved setup"}),
+                    created_at=now - timedelta(minutes=2),
+                ),
+                PositionManagementReviewRecord(
+                    trader_id="range-maker",
+                    symbol="BTCUSDT",
+                    status="ok",
+                    decision="HOLD",
+                    action_type="HOLD",
+                    payload_json=to_json({"review": {"rationale": "hold open position"}}),
+                    created_at=now - timedelta(minutes=3),
+                ),
+            ]
+        )
+
+    response = client.get("/api/league/overview-reviews?limit=20&offset=0&locale=ko")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["hasMore"] is False
+    assert data["nextOffset"] == 2
+    assert [review["decision"] for review in data["reviews"]] == ["ADJUST_AND_APPROVE", "HOLD"]

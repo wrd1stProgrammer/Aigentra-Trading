@@ -449,6 +449,7 @@ export type LeagueSentimentOpinionResponse = {
   createdAt?: string | null;
   updatedAt?: string | null;
   cacheHit: boolean;
+  stale?: boolean;
   opinion: LeagueSentimentOpinion;
 };
 
@@ -765,8 +766,14 @@ export function getLeaderboardBundle(symbol: string, locale: Locale = "en", opti
   });
 }
 
-export function getLeagueSentimentOpinion(symbol: string, locale: Locale) {
+export function getLeagueSentimentOpinion(
+  symbol: string,
+  locale: Locale,
+  options?: { readonly preferCached?: boolean; readonly refresh?: boolean }
+) {
   const params = new URLSearchParams({ symbol, locale });
+  if (options?.preferCached) params.set("preferCached", "true");
+  if (options?.refresh) params.set("refresh", "true");
   return request<LeagueSentimentOpinionResponse>(`/api/league/sentiment/opinion?${params.toString()}`);
 }
 

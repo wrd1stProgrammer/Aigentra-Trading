@@ -87,6 +87,7 @@ async def get_or_create_league_sentiment_opinion(
     locale: str,
     settings: Settings,
     force: bool = False,
+    prefer_cached: bool = False,
     now: Optional[datetime] = None,
 ) -> dict[str, Any]:
     requested_locale = normalize_locale(locale)
@@ -95,6 +96,17 @@ async def get_or_create_league_sentiment_opinion(
         existing = latest_hourly_opinion(db, symbol, CANONICAL_AI_LOCALE, interval_start)
         if existing is not None:
             return serialize_league_sentiment_record(db, existing, cache_hit=True, locale=requested_locale)
+        if prefer_cached:
+            previous = latest_previous_opinion(db, symbol, CANONICAL_AI_LOCALE, interval_start)
+            if previous is not None:
+                return serialize_league_sentiment_record(
+                    db,
+                    previous,
+                    cache_hit=True,
+                    locale=requested_locale,
+                    stale=True,
+                    next_refresh_at=interval_start,
+                )
 
     payload = build_league_sentiment_payload(
         db,
@@ -205,6 +217,24 @@ def latest_hourly_opinion(
             LeagueSentimentOpinionRecord.interval_start == interval_start,
         )
         .order_by(desc(LeagueSentimentOpinionRecord.id))
+    ).scalar_one_or_none()
+
+
+def latest_previous_opinion(
+    db: Session,
+    symbol: str,
+    locale: str,
+    before_interval_start: datetime,
+) -> Optional[LeagueSentimentOpinionRecord]:
+    return db.execute(
+        select(LeagueSentimentOpinionRecord)
+        .where(
+            LeagueSentimentOpinionRecord.symbol == symbol,
+            LeagueSentimentOpinionRecord.locale == locale,
+            LeagueSentimentOpinionRecord.interval_start < before_interval_start,
+        )
+        .order_by(desc(LeagueSentimentOpinionRecord.interval_start), desc(LeagueSentimentOpinionRecord.id))
+        .limit(1)
     ).scalar_one_or_none()
 
 
@@ -601,6 +631,8 @@ def serialize_league_sentiment_record(
     *,
     cache_hit: bool,
     locale: str,
+    stale: bool = False,
+    next_refresh_at: Optional[datetime] = None,
 ) -> dict[str, Any]:
     opinion = from_json(record.payload_json) if record.payload_json else {}
     if not isinstance(opinion, dict):
@@ -623,10 +655,11 @@ def serialize_league_sentiment_record(
         "status": record.status,
         "intervalStart": iso_utc(record.interval_start),
         "intervalEnd": iso_utc(record.interval_end),
-        "nextRefreshAt": iso_utc(record.interval_end),
         "createdAt": iso_utc(record.created_at),
         "updatedAt": iso_utc(record.updated_at),
         "cacheHit": cache_hit,
+        "stale": stale,
+        "nextRefreshAt": iso_utc(next_refresh_at or record.interval_end),
         "translation": translation_meta,
         "opinion": localized_opinion,
     }

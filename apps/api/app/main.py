@@ -11,7 +11,7 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, load_only, object_session
 
@@ -411,6 +411,25 @@ def normalize_provider(provider: Optional[str]) -> str:
 
 
 SLIM_EXCLUDED_COLUMNS = {"payload_json", "raw_json"}
+OVERVIEW_OK_STATUSES = ("ok", "success", "completed")
+OVERVIEW_ENTRY_DECISIONS = ("APPROVE", "ADJUST_AND_APPROVE", "APPROVED")
+OVERVIEW_MANAGEMENT_DECISIONS = (
+    "HOLD",
+    "LET_PROFIT_RUN",
+    "MOVE_STOP",
+    "MOVE_STOP_TO_BREAKEVEN",
+    "TRAIL_STOP",
+    "TAKE_PARTIAL_PROFIT",
+    "PARTIAL_TAKE_PROFIT",
+    "REDUCE_RISK",
+    "REDUCE_SIZE",
+    "CLOSE_POSITION",
+    "CANCEL_PENDING_ORDER",
+    "CANCEL_REMAINING_ORDERS",
+    "ADJUST_PENDING_ORDER",
+    "ADD_TO_POSITION",
+    "PYRAMID_POSITION",
+)
 
 
 def slim_load_columns(model) -> list[Any]:
@@ -419,6 +438,22 @@ def slim_load_columns(model) -> list[Any]:
 
 def slim_select(model):
     return select(model).options(load_only(*slim_load_columns(model)))
+
+
+def overview_filtered_select(source: str, model):
+    stmt = slim_select(model).where(
+        func.lower(model.status).in_(OVERVIEW_OK_STATUSES),
+        model.fallback.is_(False),
+        model.error_message.is_(None),
+    )
+    if source == "entry_review":
+        return stmt.where(func.upper(model.decision).in_(OVERVIEW_ENTRY_DECISIONS))
+    return stmt.where(
+        or_(
+            func.upper(model.decision).in_(OVERVIEW_MANAGEMENT_DECISIONS),
+            func.upper(model.action_type).in_(OVERVIEW_MANAGEMENT_DECISIONS),
+        )
+    )
 
 
 def snake_to_camel(value: str) -> str:
@@ -1556,7 +1591,7 @@ def list_overview_review_records(
         ("entry_review", AIReviewRecord),
         ("management_review", PositionManagementReviewRecord),
     ):
-        stmt = slim_select(model)
+        stmt = overview_filtered_select(source, model)
         if clean_symbol:
             stmt = stmt.where(model.symbol == clean_symbol)
         if trader_id:
@@ -4197,6 +4232,7 @@ async def league_sentiment_opinion(
     symbol: str = Query("BTCUSDT"),
     locale: str = Query("ko"),
     refresh: bool = Query(False),
+    prefer_cached: bool = Query(False, alias="preferCached"),
     db: Session = Depends(get_db),
 ):
     clean_symbol = normalize_symbol(symbol)
@@ -4208,6 +4244,7 @@ async def league_sentiment_opinion(
         locale=clean_locale,
         settings=settings,
         force=refresh,
+        prefer_cached=prefer_cached,
     )
 
 

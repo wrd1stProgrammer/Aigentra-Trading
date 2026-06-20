@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -18,6 +18,7 @@ from app.db import (
     session_scope,
 )
 from app.main import app
+from app.repositories import to_json
 
 
 @pytest.fixture()
@@ -171,6 +172,68 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
       assert records[0].interval_start.isoformat() == first.json()["intervalStart"]
       assert "페이퍼 트레이딩" not in str(records[0].payload_json)
       assert "paper trading" not in str(records[0].payload_json).lower()
+
+
+def test_league_sentiment_opinion_can_return_previous_hour_without_blocking(temp_db, monkeypatch):
+    seed_sentiment_context()
+    current_hour = datetime(2026, 6, 18, 9, 0, tzinfo=timezone.utc)
+    previous_hour = current_hour - timedelta(hours=1)
+    payload = {
+        "bias": "MIXED",
+        "confidence": 68,
+        "riskLevel": "MEDIUM",
+        "headline": "직전 시간대 의견입니다.",
+        "summary": "새 시간대 생성 중에도 먼저 보여줄 수 있는 최근 의견입니다.",
+        "keyDrivers": ["최근 의견"],
+        "risks": ["새 데이터는 아직 생성 중"],
+        "watchConditions": ["다음 갱신 확인"],
+        "action": "기존 의견을 참고하세요.",
+        "longShortContext": "LONG 1 / SHORT 1",
+        "sourceCounts": {"activePositions": 1},
+        "provider": "mock",
+        "model": "mock-league-opinion",
+        "fallback": False,
+    }
+    with session_scope() as db:
+        db.add(
+            LeagueSentimentOpinionRecord(
+                symbol="BTCUSDT",
+                trader_id="aigentra-opinion",
+                status="ok",
+                locale="en",
+                interval_start=previous_hour,
+                interval_end=current_hour,
+                provider="mock",
+                model="mock-league-opinion",
+                bias="MIXED",
+                confidence=68,
+                risk_level="MEDIUM",
+                fallback=False,
+                payload_json=to_json(payload),
+            )
+        )
+
+    class FailingProvider:
+        name = "anthropic"
+        model = "claude-haiku-4-5"
+        fallback = False
+
+        async def review_league_sentiment(self, payload):
+            raise AssertionError("preferCached should not block on provider generation")
+
+    monkeypatch.setattr("app.league_sentiment.utc_now", lambda: current_hour)
+    monkeypatch.setattr("app.league_sentiment.get_ai_provider", lambda settings, provider_name=None: FailingProvider())
+
+    client = TestClient(app)
+    response = client.get("/api/league/sentiment/opinion?symbol=BTCUSDT&locale=ko&preferCached=true")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["cacheHit"] is True
+    assert data["stale"] is True
+    assert data["intervalStart"] == previous_hour.isoformat()
+    assert data["nextRefreshAt"] == current_hour.isoformat()
+    assert data["opinion"]["headline"] == "직전 시간대 의견입니다."
 
 
 def test_league_sentiment_opinion_uses_safe_fallback_when_provider_fails(temp_db, monkeypatch):
