@@ -245,7 +245,8 @@ def test_trade_plan_allows_larger_risk_for_high_confidence_high_rr_setup():
     plan = trade_plan_from_review("BTCUSDT", candidate, review)
 
     assert plan.status == "PAPER_TRADING_PENDING"
-    assert plan.riskPercent == pytest.approx(1.575)
+    assert plan.riskPercent > 1.575
+    assert plan.riskPercent == pytest.approx(1.81125)
 
 
 def test_public_trader_profiles_have_beginner_readable_concepts():
@@ -428,7 +429,7 @@ def test_review_policies_have_trader_specific_post_loss_discipline():
     assert len(set(disciplines)) == len(disciplines)
 
 
-def test_btc_specialist_profiles_are_differentiated_with_local_score_overrides():
+def test_btc_specialist_profiles_are_differentiated_with_concrete_evaluators():
     traders = list_traders()
     btc_specialists = traders[10:]
     assert [trader.id for trader in btc_specialists] == [
@@ -448,9 +449,16 @@ def test_btc_specialist_profiles_are_differentiated_with_local_score_overrides()
         for trader in btc_specialists
     }
     assert len(signatures) == len(btc_specialists)
-    for trader_id in ["session-raider", "momentum-ignition", "bollinger-reversion", "atr-trail-commander"]:
+    for trader_id in [trader.id for trader in btc_specialists]:
         strategy = get_strategy(trader_id)
-        assert "_score" in type(strategy).__dict__, trader_id
+        assert "evaluate" in type(strategy).__dict__, trader_id
+
+
+def test_trader_execution_profiles_are_rebalanced_across_horizons():
+    profiles = [trader.holdingProfile for trader in list_traders()]
+    assert profiles.count("micro") in {3, 4}
+    assert profiles.count("tactical") + profiles.count("intraday") in {8, 9, 10}
+    assert profiles.count("swing") + profiles.count("trend") in {6, 7, 8}
 
 
 def test_ai_prompts_include_context_and_non_conservative_management_options():

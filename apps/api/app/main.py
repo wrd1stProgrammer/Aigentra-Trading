@@ -90,7 +90,9 @@ from app.repositories import (
     create_ai_review,
     create_api_call_log,
     create_candidate_trade,
+    create_first_stage_audit_report,
     create_market_snapshot,
+    create_observation_candidate,
     create_position_management_review,
     create_trade_plan,
     create_trader_run_log,
@@ -103,6 +105,7 @@ from app.repositories import (
     upsert_trader_agent_state,
     update_trader_run_log,
 )
+from app.scanner_audit_routes import router as scanner_audit_router
 from app.subscribers_routes import router as subscribers_router
 from app.whop_routes import router as whop_router
 from app.trader_status_feed.records import list_status_feed_payloads
@@ -134,6 +137,7 @@ AI_COOLDOWN_DECISIONS = {"REJECT", "DEFER", "NEEDS_MORE_DATA"}
 PRICE_SHOCK_EVENT_TYPE = "common_price_shock"
 MIN_FINAL_PAPER_LEVERAGE = 5.0
 POSITION_MANAGEMENT_HEARTBEAT_LOOKAHEAD_SECONDS = 30
+OBSERVATION_SETUP_SCORE_FLOOR = 50
 
 
 class PaperEngineRunRequest(BaseModel):
@@ -333,6 +337,7 @@ app.add_middleware(
 
 app.include_router(subscribers_router)
 app.include_router(whop_router)
+app.include_router(scanner_audit_router)
 
 
 def binance_client() -> MarketDataClient:
@@ -401,6 +406,16 @@ def trade_plan_from_review(symbol: str, candidate, review) -> TradePlan:
         riskPercent=0.0,
         notes=[counter_thesis] + review_adjustments,
     )
+
+
+def first_stage_observation_type(candidate: TradeCandidate, review_decision: Optional[str] = None) -> str:
+    if review_decision in {"REJECT", "DEFER", "NEEDS_MORE_DATA"}:
+        return "AI_REJECTED"
+    if candidate.created:
+        return "CANDIDATE_READY"
+    if int(candidate.setupScore or 0) >= OBSERVATION_SETUP_SCORE_FLOOR:
+        return "OBSERVE_ONLY"
+    return "NO_TRADE"
 
 
 def normalize_provider(provider: Optional[str]) -> str:
@@ -3139,6 +3154,43 @@ async def run_scanner_once(
     duration_breakdown["leaderboardRefreshScheduleMs"] = int((time.perf_counter() - leaderboard_started) * 1000)
 
     finished_at = datetime.now(timezone.utc)
+    audit_report_ids: dict[str, int] = {}
+    for symbol in clean_symbols:
+        try:
+            snapshot = snapshots.get(symbol) or {}
+            regime = str((snapshot.get("marketRegime") or {}).get("primary") or "unknown")
+            symbol_results = [result for result in results if result.get("symbol") == symbol]
+            with session_scope() as db:
+                report = create_first_stage_audit_report(
+                    db,
+                    symbol=symbol,
+                    scanner_started_at=started_at,
+                    scanner_finished_at=finished_at,
+                    market_regime=regime,
+                    counts=symbol_breakdown.get(symbol, {}),
+                    results=symbol_results,
+                    status="ok" if counts["errors"] == 0 else "partial_error",
+                )
+                audit_report_ids[symbol] = report.id
+        except Exception as exc:
+            counts["errors"] += 1
+            symbol_breakdown[symbol]["errors"] += 1
+            results.append(
+                {
+                    "traderId": "first-stage-audit",
+                    "trader": "First Stage Audit",
+                    "symbol": symbol,
+                    "status": "ERROR",
+                    "candidateCreated": False,
+                    "candidateReason": sanitize_error_message(str(exc)),
+                    "setupScore": None,
+                    "aiDecision": None,
+                    "provider": requested_provider,
+                    "openOrders": 0,
+                    "openPositions": 0,
+                    "managementReviews": 0,
+                }
+            )
     payload = {
         "status": "ok" if counts["errors"] == 0 else "partial_error",
         "mode": "paper",
@@ -3152,6 +3204,7 @@ async def run_scanner_once(
         "durationBreakdownMs": duration_breakdown,
         "symbolBreakdown": symbol_breakdown,
         "counts": counts,
+        "firstStageAuditReportIds": audit_report_ids,
         "priceShock": AUTO_SCANNER_STATE.get("priceShock", {}),
         "results": results,
     }
@@ -3753,6 +3806,19 @@ async def run_trader_cycle(
             payload={"requestedProvider": requested_provider, "locale": clean_locale},
         )
         candidate_record = create_candidate_trade(db, run_record.id, clean_symbol, strategy.profile.id, candidate)
+        if first_stage_observation_type(candidate) == "OBSERVE_ONLY":
+            create_observation_candidate(
+                db,
+                symbol=clean_symbol,
+                trader_id=strategy.profile.id,
+                candidate=candidate,
+                observation_type="OBSERVE_ONLY",
+                run_id=run_record.id,
+                candidate_trade_id=candidate_record.id,
+                decision=None,
+                status="observe_only",
+                payload={"source": "run_trader_cycle", "reason": candidate.reason},
+            )
         record_ids = {
             "marketSnapshotId": snapshot_record.id,
             "runId": run_record.id,
@@ -3781,6 +3847,19 @@ async def run_trader_cycle(
                     )
                     review = await run_review_with_logging(db, review_payload, requested_provider, settings=settings)
                     review_record = create_ai_review(db, record_ids["runId"], clean_symbol, strategy.profile.id, review)
+                    create_observation_candidate(
+                        db,
+                        symbol=clean_symbol,
+                        trader_id=strategy.profile.id,
+                        candidate=candidate,
+                        observation_type=first_stage_observation_type(candidate, review.decision),
+                        run_id=record_ids["runId"],
+                        candidate_trade_id=record_ids["candidateTradeId"],
+                        ai_review_id=review_record.id,
+                        decision=review.decision,
+                        status="approved" if review.decision in {"APPROVE", "ADJUST_AND_APPROVE"} else "ai_rejected",
+                        payload={"source": "second_stage_review", "confidence": review.confidence, "riskLevel": review.riskLevel},
+                    )
                     await fanout_ai_translations(
                         db,
                         settings=settings,

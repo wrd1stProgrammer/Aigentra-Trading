@@ -12,7 +12,9 @@ from app.db import (
     AITranslationCacheRecord,
     APICallLogRecord,
     CandidateTradeRecord,
+    FirstStageAuditReportRecord,
     MarketSnapshotRecord,
+    ObservationCandidateRecord,
     PositionManagementReviewRecord,
     ProviderCallLogRecord,
     TradePlanRecord,
@@ -77,6 +79,33 @@ def compact_candidate_payload(payload: Optional[dict]) -> Optional[dict]:
         compact["entryCount"] = len(payload.get("entries") or [])
     if payload.get("takeProfits"):
         compact["takeProfitCount"] = len(payload.get("takeProfits") or [])
+    return compact
+
+
+def compact_observation_payload(payload: Optional[dict]) -> Optional[dict]:
+    if payload is None:
+        return None
+    compact = pick_existing(
+        payload,
+        (
+            "created",
+            "reason",
+            "side",
+            "setupType",
+            "setupScore",
+            "observationType",
+            "holdingProfile",
+            "timeHorizon",
+            "riskPercent",
+        ),
+    )
+    if payload.get("audit"):
+        audit = payload.get("audit") or {}
+        compact["audit"] = {
+            "reasonCode": audit.get("reasonCode"),
+            "gateScores": audit.get("gateScores") or {},
+            "executionProfile": audit.get("executionProfile") or {},
+        }
     return compact
 
 
@@ -156,6 +185,14 @@ def json_safe(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: json_safe(item) for key, item in value.items()}
     return value
+
+
+def _as_decimal(value: Any, default: Decimal) -> Decimal:
+    try:
+        parsed = Decimal(str(value))
+    except Exception:
+        return default
+    return parsed if parsed.is_finite() else default
 
 
 def serialize_record(record) -> dict:
@@ -240,6 +277,169 @@ def create_candidate_trade(db: Session, run_id: int, symbol: str, trader_id: str
         raw_json=None,
     )
     db.add(record)
+    db.flush()
+    return record
+
+
+def create_first_stage_audit_report(
+    db: Session,
+    *,
+    symbol: str,
+    scanner_started_at: Optional[datetime],
+    scanner_finished_at: Optional[datetime],
+    market_regime: Optional[str],
+    counts: dict,
+    results: list[dict],
+    status: str = "ok",
+) -> FirstStageAuditReportRecord:
+    compact_results = []
+    for result in results:
+        if result.get("symbol") != symbol:
+            continue
+        compact_results.append(
+            pick_existing(
+                result,
+                (
+                    "traderId",
+                    "status",
+                    "candidateCreated",
+                    "candidateReason",
+                    "setupScore",
+                    "aiDecision",
+                    "openOrders",
+                    "openPositions",
+                ),
+            )
+        )
+    candidate_ready_count = sum(
+        1
+        for row in compact_results
+        if row.get("status") in {"CANDIDATE_READY", "PAPER_TRADING_PENDING"}
+        or row.get("aiDecision") in {"APPROVE", "ADJUST_AND_APPROVE", "APPROVED"}
+    )
+    observe_only_count = sum(
+        1
+        for row in compact_results
+        if row.get("candidateCreated") is False and int(row.get("setupScore") or 0) >= 50
+    )
+    no_trade_count = sum(1 for row in compact_results if row.get("status") == "NO_CANDIDATE")
+    ai_rejected_count = sum(1 for row in compact_results if row.get("aiDecision") in {"REJECT", "DEFER", "NEEDS_MORE_DATA"})
+    cooldown_count = sum(1 for row in compact_results if str(row.get("status") or "").endswith("_COOLDOWN"))
+    active_exposure_count = sum(1 for row in compact_results if row.get("status") == "ACTIVE_PAPER_EXPOSURE")
+    payload = {
+        "storagePolicy": "compact_first_stage_audit_v1",
+        "counts": counts,
+        "results": compact_results,
+    }
+    record = FirstStageAuditReportRecord(
+        symbol=symbol,
+        status=status,
+        scanner_started_at=scanner_started_at,
+        scanner_finished_at=scanner_finished_at,
+        market_regime=market_regime,
+        total_traders=len(compact_results),
+        candidate_ready_count=candidate_ready_count,
+        observe_only_count=observe_only_count,
+        no_trade_count=no_trade_count,
+        ai_rejected_count=ai_rejected_count,
+        cooldown_count=cooldown_count,
+        active_exposure_count=active_exposure_count,
+        payload_json=to_json(payload),
+        raw_json=None,
+    )
+    db.add(record)
+    db.flush()
+    return record
+
+
+def create_observation_candidate(
+    db: Session,
+    *,
+    symbol: str,
+    trader_id: str,
+    candidate: Any,
+    observation_type: str,
+    run_id: Optional[int] = None,
+    candidate_trade_id: Optional[int] = None,
+    ai_review_id: Optional[int] = None,
+    decision: Optional[str] = None,
+    status: str = "observing",
+    payload: Optional[dict] = None,
+) -> ObservationCandidateRecord:
+    candidate_payload = model_payload(candidate)
+    entries = candidate_payload.get("entries") or []
+    take_profits = candidate_payload.get("takeProfits") or []
+    record = ObservationCandidateRecord(
+        run_id=run_id,
+        candidate_trade_id=candidate_trade_id,
+        ai_review_id=ai_review_id,
+        symbol=symbol,
+        trader_id=trader_id,
+        status=status,
+        error_message=sanitize_error_message(candidate_payload.get("reason")),
+        observation_type=observation_type,
+        side=candidate_payload.get("side"),
+        setup_type=candidate_payload.get("setupType"),
+        setup_score=candidate_payload.get("setupScore"),
+        decision=decision,
+        entry_price=entries[0].get("price") if entries and isinstance(entries[0], dict) else None,
+        stop_loss=candidate_payload.get("stopLoss"),
+        first_take_profit=take_profits[0].get("price") if take_profits and isinstance(take_profits[0], dict) else None,
+        outcome_status="pending",
+        payload_json=to_json(
+            {
+                "candidate": compact_observation_payload(candidate_payload),
+                "context": payload or {},
+            }
+        ),
+        raw_json=None,
+    )
+    db.add(record)
+    db.flush()
+    return record
+
+
+def update_observation_candidate_outcome_for_position(db: Session, position: Any, close_reason: str, exit_price: Any) -> Optional[ObservationCandidateRecord]:
+    payload = from_json(getattr(position, "payload_json", None)) or {}
+    run_id = payload.get("runId")
+    ai_review_id = payload.get("aiReviewId")
+    if run_id is None and ai_review_id is None:
+        return None
+
+    stmt = select(ObservationCandidateRecord).where(
+        ObservationCandidateRecord.trader_id == getattr(position, "trader_id", None),
+        ObservationCandidateRecord.symbol == getattr(position, "symbol", None),
+    )
+    if ai_review_id is not None:
+        stmt = stmt.where(ObservationCandidateRecord.ai_review_id == int(ai_review_id))
+    elif run_id is not None:
+        stmt = stmt.where(ObservationCandidateRecord.run_id == int(run_id))
+    record = db.execute(
+        stmt.order_by(desc(ObservationCandidateRecord.created_at), desc(ObservationCandidateRecord.id)).limit(1)
+    ).scalar_one_or_none()
+    if record is None:
+        return None
+
+    entry_price = _as_decimal(getattr(position, "entry_price", None), Decimal("0"))
+    stop_loss = _as_decimal(getattr(position, "stop_loss_price", None), Decimal("0"))
+    exit_value = _as_decimal(exit_price, Decimal("0"))
+    risk = abs(entry_price - stop_loss)
+    if risk > 0 and exit_value > 0:
+        if str(getattr(position, "side", "") or "").lower() == "short":
+            outcome_r = (entry_price - exit_value) / risk
+        else:
+            outcome_r = (exit_value - entry_price) / risk
+        record.outcome_r = float(outcome_r)
+    record.outcome_status = close_reason or "closed"
+    record.outcome_recorded_at = utc_now()
+    context = from_json(record.payload_json) or {}
+    context["outcome"] = {
+        "status": record.outcome_status,
+        "r": record.outcome_r,
+        "positionId": getattr(position, "id", None),
+        "closeReason": close_reason,
+    }
+    record.payload_json = to_json(context)
     db.flush()
     return record
 

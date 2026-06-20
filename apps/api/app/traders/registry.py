@@ -20,15 +20,30 @@ from app.traders.models import TraderProfile, TradeCandidate
 from app.traders.orderflow_sniper import OrderflowSniper
 from app.traders.pullback_architect import PullbackArchitect
 from app.traders.range_maker import RangeMaker
-from app.traders.strategy_base import TraderStrategy
+from app.traders.strategy_base import TraderStrategy, apply_execution_profile, candidate_with_audit
 from app.traders.trend_sentinel import TrendSentinel
 from app.traders.volume_breaker import VolumeBreaker
 from app.traders.volatility_squeezer import VolatilitySqueezer
 
 
+def _with_execution_profile(strategy: TraderStrategy) -> TraderStrategy:
+    strategy.profile = apply_execution_profile(strategy.profile)
+    original_evaluate = strategy.evaluate
+
+    def evaluate_with_execution_profile(snapshot: dict) -> TradeCandidate:
+        candidate = original_evaluate(snapshot)
+        audit = candidate.audit or {}
+        if audit.get("executionProfile"):
+            return candidate
+        return candidate_with_audit(candidate, trader_id=strategy.profile.id)
+
+    strategy.evaluate = evaluate_with_execution_profile  # type: ignore[method-assign]
+    return strategy
+
+
 TRADER_STRATEGIES: Dict[str, TraderStrategy] = {
     strategy.profile.id: strategy
-    for strategy in [
+    for raw_strategy in [
         ChannelRider(),
         VolumeBreaker(),
         PullbackArchitect(),
@@ -50,6 +65,7 @@ TRADER_STRATEGIES: Dict[str, TraderStrategy] = {
         BollingerReversion(),
         AtrTrailCommander(),
     ]
+    for strategy in [_with_execution_profile(raw_strategy)]
 }
 
 

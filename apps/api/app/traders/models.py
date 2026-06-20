@@ -15,6 +15,9 @@ class TraderProfile(BaseModel):
     concept: str
     baseRiskPercent: float
     riskLevel: str
+    holdingProfile: str = "intraday"
+    primaryTimeframe: str = "1h"
+    expectedHoldMinutes: int = 240
     longConditions: List[str]
     shortConditions: List[str]
     entryRules: List[str]
@@ -67,6 +70,10 @@ class TradeCandidate(BaseModel):
     side: Optional[Side] = None
     setupType: Optional[str] = None
     setupScore: int = 0
+    observationType: str = "NO_TRADE"
+    holdingProfile: Optional[str] = None
+    timeHorizon: Optional[str] = None
+    audit: Dict[str, Any] = Field(default_factory=dict)
     entries: List[EntryPlan] = Field(default_factory=list)
     stopLoss: Optional[float] = None
     takeProfits: List[TakeProfitPlan] = Field(default_factory=list)

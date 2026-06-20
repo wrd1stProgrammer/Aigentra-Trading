@@ -154,6 +154,48 @@ class CandidateTradeRecord(CommonMixin, Base):
     setup_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
 
+class FirstStageAuditReportRecord(CommonMixin, Base):
+    __tablename__ = "first_stage_audit_reports"
+    __table_args__ = (
+        Index("ix_first_stage_audit_reports_symbol_created", "symbol", "created_at"),
+        Index("ix_first_stage_audit_reports_symbol_status", "symbol", "status", "created_at"),
+    )
+
+    scanner_started_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime(), nullable=True, index=True)
+    scanner_finished_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime(), nullable=True, index=True)
+    market_regime: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
+    total_traders: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    candidate_ready_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    observe_only_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    no_trade_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    ai_rejected_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cooldown_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    active_exposure_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class ObservationCandidateRecord(CommonMixin, Base):
+    __tablename__ = "observation_candidates"
+    __table_args__ = (
+        Index("ix_observation_candidates_symbol_trader_created", "symbol", "trader_id", "created_at"),
+        Index("ix_observation_candidates_type_created", "observation_type", "created_at"),
+    )
+
+    run_id: Mapped[Optional[int]] = mapped_column(ForeignKey("trader_run_logs.id"), nullable=True, index=True)
+    candidate_trade_id: Mapped[Optional[int]] = mapped_column(ForeignKey("candidate_trades.id"), nullable=True, index=True)
+    ai_review_id: Mapped[Optional[int]] = mapped_column(ForeignKey("ai_reviews.id"), nullable=True, index=True)
+    observation_type: Mapped[str] = mapped_column(String(80), default="OBSERVE_ONLY", nullable=False, index=True)
+    side: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    setup_type: Mapped[Optional[str]] = mapped_column(String(140), nullable=True, index=True)
+    setup_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    decision: Mapped[Optional[str]] = mapped_column(String(60), nullable=True, index=True)
+    entry_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    stop_loss: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    first_take_profit: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    outcome_status: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
+    outcome_r: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    outcome_recorded_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime(), nullable=True, index=True)
+
+
 class AIReviewRecord(CommonMixin, Base):
     __tablename__ = "ai_reviews"
     run_id: Mapped[Optional[int]] = mapped_column(ForeignKey("trader_run_logs.id"), nullable=True, index=True)

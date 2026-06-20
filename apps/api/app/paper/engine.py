@@ -22,7 +22,7 @@ from app.paper.repositories import (
     to_decimal,
 )
 from app.paper.review_payload import review_payload_subset
-from app.repositories import from_json, to_json
+from app.repositories import from_json, to_json, update_observation_candidate_outcome_for_position
 
 
 @dataclass(frozen=True)
@@ -799,6 +799,7 @@ def _close_position(
         },
     )
     result.events.append(event)
+    update_observation_candidate_outcome_for_position(db, position, reason, exit_price)
 
     # Cancel any remaining open orders for the same trade plan
     try:

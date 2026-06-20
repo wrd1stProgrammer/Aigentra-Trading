@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from app.traders.models import EntryPlan, TakeProfitPlan, TradeCandidate, TraderProfile
 from app.traders.strategy_base import (
     TraderStrategy,
     candidate_geometry_errors,
+    candidate_with_audit,
     candle_body_ratio,
     default_leverage_plan,
     default_order_intent,
@@ -28,561 +29,701 @@ def _mock_performance() -> Dict[str, Any]:
     return {"return7d": 0.0, "return30d": 0.0, "winRate": 0.0, "maxDrawdown": 0.0, "currentEquity": 10000.0}
 
 
-SPECIALIST_CONFIGS: List[Dict[str, Any]] = [
-    {
-        "id": "donchian-breakout",
-        "name": "Donchian Breakout Boss",
-        "description": "Trades BTC range expansion after recent swing highs or lows break with volume.",
-        "concept": "Turtle/Donchian style breakout with 15m confirmation, OI expansion, and ATR-based trailing.",
-        "risk": 0.62,
-        "riskLevel": "MEDIUM_HIGH",
-        "mode": "breakout",
-        "setupLong": "DONCHIAN_RANGE_EXPANSION_LONG",
-        "setupShort": "DONCHIAN_RANGE_EXPANSION_SHORT",
-        "leverage": 7,
-        "maxLeverage": 9,
-        "riskMult": 1.0,
-        "targets": (1.6, 3.2),
-        "order": "BREAKOUT_CLOSE_OR_RETEST",
-        "entry": "hybrid",
-        "currentPlan": "Waiting for BTC to break a recent Donchian boundary with real participation.",
-        "long": ["15m/1H close above recent swing high", "Volume z-score or OI confirms expansion", "4H trend is not bearish", "ATR stop can support at least 1.45R"],
-        "short": ["15m/1H close below recent swing low", "Volume z-score or OI confirms expansion", "4H trend is not bullish", "ATR stop can support at least 1.45R"],
-        "entryRules": ["60% on breakout close", "40% on first retest that holds outside the range"],
-        "tpRules": ["TP1 at 1.6R", "TP2 trails toward 3.2R or next swing liquidity"],
-        "slRules": ["Behind broken Donchian boundary", "Cancel retest entry if price closes back inside range"],
-        "aiChecklist": ["Is this a clean range expansion or a fakeout?", "Is the retest entry reachable without chasing?", "Should the second entry be cancelled if momentum runs?", "Does OI expansion support new trend participation?"],
-    },
-    {
-        "id": "ichimoku-cloud-pilot",
-        "name": "Cloud Pilot",
-        "description": "Uses a cloud-style trend proxy to ride BTC continuation only while trend, momentum, and funding stay healthy.",
-        "concept": "Ichimoku-inspired trend filter: price above/below cloud proxy, momentum health, delayed confirmation.",
-        "risk": 0.58,
-        "riskLevel": "MEDIUM",
-        "mode": "trend",
-        "setupLong": "CLOUD_CONTINUATION_LONG",
-        "setupShort": "CLOUD_CONTINUATION_SHORT",
-        "leverage": 6,
-        "maxLeverage": 8,
-        "riskMult": 1.25,
-        "targets": (1.8, 3.8),
-        "order": "CLOUD_PULLBACK_CONTINUATION",
-        "entry": "staged",
-        "currentPlan": "Waiting for BTC to hold the trend cloud proxy after a controlled pullback.",
-        "long": ["4H trend bullish", "1H close holds above EMA20/EMA50 cloud proxy", "RSI remains constructive but not euphoric", "Funding is not extreme"],
-        "short": ["4H trend bearish", "1H close holds below EMA20/EMA50 cloud proxy", "RSI remains weak but not capitulated", "Funding is not extreme"],
-        "entryRules": ["40% near cloud edge", "60% after continuation candle confirms"],
-        "tpRules": ["TP1 near prior swing", "TP2 uses wider trend extension"],
-        "slRules": ["Outside cloud proxy", "Exit if 1H closes through the opposite cloud side"],
-        "aiChecklist": ["Is the cloud proxy actually trending or flat?", "Is the pullback healthy rather than reversal?", "Should the agent trail instead of taking quick profit?", "Is funding too crowded for continuation?"],
-    },
-    {
-        "id": "vwap-reclaimer",
-        "name": "VWAP Reclaim Crew",
-        "description": "Trades reclaim or rejection around BTC intraday fair value after price stretches too far and then proves acceptance.",
-        "concept": "VWAP-like mean reclaim using EMA20 proxy, volume response, and rejection of unfair price.",
-        "risk": 0.5,
-        "riskLevel": "MEDIUM",
-        "mode": "reclaim",
-        "setupLong": "VWAP_RECLAIM_LONG",
-        "setupShort": "VWAP_REJECT_SHORT",
-        "leverage": 6,
-        "maxLeverage": 8,
-        "riskMult": 0.85,
-        "targets": (1.35, 2.4),
-        "order": "VWAP_RECLAIM_THEN_LIMIT",
-        "entry": "hybrid",
-        "currentPlan": "Waiting for BTC to reclaim or reject intraday fair value with volume confirmation.",
-        "long": ["Price stretched below fair value then reclaims EMA20/VWAP proxy", "15m close confirms reclaim", "Seller volume fades", "OI does not expand against the reclaim"],
-        "short": ["Price stretched above fair value then fails EMA20/VWAP proxy", "15m close confirms rejection", "Buyer volume fades", "OI does not expand against the rejection"],
-        "entryRules": ["50% on reclaim/fail close", "50% on shallow retest of fair value"],
-        "tpRules": ["TP1 at nearest swing midpoint", "TP2 at opposite intraday liquidity"],
-        "slRules": ["Beyond failed reclaim candle", "Cancel if price accepts back through fair value"],
-        "aiChecklist": ["Is this real reclaim or a dead-cat bounce?", "Is current price too close to target?", "Should size be smaller because mean trades decay quickly?", "Is taker flow confirming the reclaim/fail?"],
-    },
-    {
-        "id": "wyckoff-spring",
-        "name": "Wyckoff Springboard",
-        "description": "Looks for BTC spring or upthrust traps around range extremes where a sweep quickly snaps back inside the range.",
-        "concept": "Wyckoff spring/upthrust: sweep outside range, reclaim/failure close, volume spike, and fast invalidation.",
-        "risk": 0.56,
-        "riskLevel": "HIGH",
-        "mode": "reversal",
-        "setupLong": "WYCKOFF_SPRING_LONG",
-        "setupShort": "WYCKOFF_UPTHRUST_SHORT",
-        "leverage": 7,
-        "maxLeverage": 9,
-        "riskMult": 0.8,
-        "targets": (1.5, 2.9),
-        "order": "SPRING_RECLAIM_CONFIRMATION",
-        "entry": "hybrid",
-        "currentPlan": "Waiting for BTC to sweep a range extreme and quickly reclaim or fail it.",
-        "long": ["Price sweeps range low", "Lower wick is meaningful", "15m closes back inside range", "Volume spike shows stop run participation"],
-        "short": ["Price sweeps range high", "Upper wick is meaningful", "15m closes back inside range", "Volume spike shows stop run participation"],
-        "entryRules": ["60% on reclaim/failure candle", "40% on retest of swept level"],
-        "tpRules": ["TP1 at range midpoint", "TP2 near opposite liquidity pocket"],
-        "slRules": ["Outside wick extreme", "Exit if swept level is accepted again"],
-        "aiChecklist": ["Is this a spring/upthrust or real breakout?", "Is wick plus volume enough?", "Is stop outside the actual sweep?", "Should this be a fast partial-profit trade?"],
-    },
-    {
-        "id": "rsi-divergence-scout",
-        "name": "RSI Divergence Scout",
-        "description": "Scans BTC momentum divergence, then waits for structure reclaim or failure before treating exhaustion as tradable.",
-        "concept": "RSI divergence proxy with swing structure, exhaustion, and confirmation candle.",
-        "risk": 0.48,
-        "riskLevel": "MEDIUM",
-        "mode": "divergence",
-        "setupLong": "BULLISH_RSI_DIVERGENCE_RECLAIM",
-        "setupShort": "BEARISH_RSI_DIVERGENCE_FAILURE",
-        "leverage": 5,
-        "maxLeverage": 7,
-        "riskMult": 0.9,
-        "targets": (1.4, 2.6),
-        "order": "DIVERGENCE_CONFIRMATION",
-        "entry": "staged",
-        "currentPlan": "Waiting for BTC exhaustion divergence plus a structure confirmation candle.",
-        "long": ["15m/1H RSI below neutral but improving", "Price stops making clean downside progress", "15m reclaim candle appears", "Funding/crowding do not fight the reversal"],
-        "short": ["15m/1H RSI above neutral but weakening", "Price stops making clean upside progress", "15m failure candle appears", "Funding/crowding do not fight the reversal"],
-        "entryRules": ["35% on confirmation", "65% on retest of reclaim/failure level"],
-        "tpRules": ["TP1 near mean reversion target", "TP2 near prior swing"],
-        "slRules": ["Beyond divergence invalidation swing", "Exit if RSI thrust accelerates against thesis"],
-        "aiChecklist": ["Is divergence real or just weak momentum in trend?", "Does structure confirm before entry?", "Should the trade be skipped if HTF trend is too strong?", "Is RR still valid after fee buffer?"],
-    },
-    {
-        "id": "session-raider",
-        "name": "Session Raider",
-        "description": "Trades BTC session-range breaks around Asia/London/New York transition windows.",
-        "concept": "Session breakout: time-of-day window, intraday range boundary, impulse candle, and fast stale-order expiry.",
-        "risk": 0.52,
-        "riskLevel": "MEDIUM_HIGH",
-        "mode": "session",
-        "setupLong": "SESSION_RANGE_BREAK_LONG",
-        "setupShort": "SESSION_RANGE_BREAK_SHORT",
-        "leverage": 7,
-        "maxLeverage": 9,
-        "riskMult": 0.75,
-        "targets": (1.25, 2.2),
-        "order": "SESSION_BREAKOUT_FAST",
-        "entry": "single",
-        "currentPlan": "Waiting for BTC to break a session range during a high-liquidity transition window.",
-        "long": ["Session transition window is active", "15m candle breaks above local range", "Volume or body expansion appears", "No immediate 4H bearish conflict"],
-        "short": ["Session transition window is active", "15m candle breaks below local range", "Volume or body expansion appears", "No immediate 4H bullish conflict"],
-        "entryRules": ["Single entry on confirmed session break", "Expire quickly if not filled"],
-        "tpRules": ["TP1 fast liquidity target", "TP2 only if momentum persists"],
-        "slRules": ["Behind session break candle", "Close if price re-enters session range"],
-        "aiChecklist": ["Is this a real session expansion or thin-liquidity wick?", "Should order expire quickly?", "Is spread/fee buffer worth the scalp-like target?", "Does higher timeframe block the direction?"],
-    },
-    {
-        "id": "imbalance-hunter",
-        "name": "Imbalance Hunter",
-        "description": "Uses BTC displacement candles and imbalance-style pullbacks when a strong move leaves a clean retest zone.",
-        "concept": "Smart-money inspired displacement: strong body, imbalance midpoint retest, structure continuation.",
-        "risk": 0.57,
-        "riskLevel": "MEDIUM_HIGH",
-        "mode": "imbalance",
-        "setupLong": "BULLISH_IMBALANCE_RETEST",
-        "setupShort": "BEARISH_IMBALANCE_RETEST",
-        "leverage": 6,
-        "maxLeverage": 8,
-        "riskMult": 0.95,
-        "targets": (1.55, 3.0),
-        "order": "DISPLACEMENT_MIDPOINT_RETEST",
-        "entry": "staged",
-        "currentPlan": "Waiting for BTC displacement to leave an imbalance and retest it cleanly.",
-        "long": ["15m displacement body is strong", "Price holds above EMA20/structure", "Retest into imbalance midpoint is possible", "OI/volume support continuation"],
-        "short": ["15m displacement body is strong", "Price holds below EMA20/structure", "Retest into imbalance midpoint is possible", "OI/volume support continuation"],
-        "entryRules": ["70% at imbalance midpoint", "30% after continuation resumes"],
-        "tpRules": ["TP1 at displacement extension", "TP2 at next liquidity pool"],
-        "slRules": ["Beyond imbalance origin", "Cancel if midpoint is sliced through"],
-        "aiChecklist": ["Is the imbalance meaningful or just a normal candle?", "Is retest entry on the correct side?", "Does continuation room justify holding?", "Should later scale be cancelled if price runs?"],
-    },
-    {
-        "id": "momentum-ignition",
-        "name": "Momentum Igniter",
-        "description": "Takes BTC momentum only when trend, RSI, volume, open interest, and taker pressure align in the same direction.",
-        "concept": "Momentum ignition: EMA stack, RSI thrust, OI increase, taker share confirmation.",
-        "risk": 0.6,
-        "riskLevel": "HIGH",
-        "mode": "momentum",
-        "setupLong": "MOMENTUM_IGNITION_LONG",
-        "setupShort": "MOMENTUM_IGNITION_SHORT",
-        "leverage": 8,
-        "maxLeverage": 10,
-        "riskMult": 0.85,
-        "targets": (1.4, 2.8),
-        "order": "IGNITION_PARTICIPATION",
-        "entry": "single",
-        "currentPlan": "Waiting for BTC momentum, OI, and taker pressure to ignite in the same direction.",
-        "long": ["1H EMA20 > EMA50", "RSI thrust is constructive", "Taker buy share and OI confirm", "Price is not already overextended to TP"],
-        "short": ["1H EMA20 < EMA50", "RSI thrust is weak", "Taker sell pressure and OI confirm", "Price is not already overextended to TP"],
-        "entryRules": ["Single aggressive entry on ignition", "No averaging down"],
-        "tpRules": ["TP1 before momentum stalls", "TP2 only if OI/flow persist"],
-        "slRules": ["Behind ignition candle", "Reduce fast if flow flips"],
-        "aiChecklist": ["Is this ignition or late chase?", "Does taker flow agree with OI?", "Should leverage be capped by volatility?", "Is there enough room after fees?"],
-    },
-    {
-        "id": "bollinger-reversion",
-        "name": "Bollinger Boomerang",
-        "description": "Fades BTC statistical overextension only when trend strength is weak enough.",
-        "concept": "Bollinger/RSI mean reversion with range filter, volume exhaustion, and midpoint exits.",
-        "risk": 0.42,
-        "riskLevel": "LOW_MEDIUM",
-        "mode": "mean",
-        "setupLong": "LOW_BAND_MEAN_REVERSION_LONG",
-        "setupShort": "UPPER_BAND_MEAN_REVERSION_SHORT",
-        "leverage": 5,
-        "maxLeverage": 7,
-        "riskMult": 0.7,
-        "targets": (1.15, 1.9),
-        "order": "STATISTICAL_REVERSION_LIMIT",
-        "entry": "staged",
-        "currentPlan": "Waiting for BTC to stretch statistically while trend strength stays contained.",
-        "long": ["RSI is depressed", "Price is below lower statistical band/proxy", "Trend regime is not strong bearish", "Volume does not show breakout continuation"],
-        "short": ["RSI is elevated", "Price is above upper statistical band/proxy", "Trend regime is not strong bullish", "Volume does not show breakout continuation"],
-        "entryRules": ["50% at stretch", "50% deeper into band extension"],
-        "tpRules": ["TP1 at mean", "TP2 near opposite half-band only if reversion persists"],
-        "slRules": ["Outside statistical extension", "Exit if band walk begins"],
-        "aiChecklist": ["Is this range reversion or a strong band walk?", "Should size be cut if trend regime is strong?", "Is TP close enough for mean reversion?", "Is funding/crowding worsening the fade?"],
-    },
-    {
-        "id": "atr-trail-commander",
-        "name": "ATR Trail Boss",
-        "description": "Lets BTC trend winners breathe using ATR stops and slower management when the higher-timeframe trend remains intact.",
-        "concept": "ATR continuation system: higher timeframe trend, volatility-adjusted stop, pyramiding only after profit cushion.",
-        "risk": 0.55,
-        "riskLevel": "MEDIUM",
-        "mode": "trend",
-        "setupLong": "ATR_TREND_TRAIL_LONG",
-        "setupShort": "ATR_TREND_TRAIL_SHORT",
-        "leverage": 6,
-        "maxLeverage": 8,
-        "riskMult": 1.55,
-        "targets": (2.0, 4.2),
-        "order": "ATR_TREND_PULLBACK",
-        "entry": "staged",
-        "currentPlan": "Waiting for BTC trend continuation where ATR stop gives enough room to hold.",
-        "long": ["4H trend bullish", "Price stays above 1H EMA50", "ATR stop remains structurally valid", "Momentum is not blow-off"],
-        "short": ["4H trend bearish", "Price stays below 1H EMA50", "ATR stop remains structurally valid", "Momentum is not capitulation exhaustion"],
-        "entryRules": ["40% on trend pullback", "60% after continuation resumes"],
-        "tpRules": ["TP1 after 2R", "TP2 trails using ATR rather than fixed scalp target"],
-        "slRules": ["ATR stop outside structure", "Trail only after profit cushion"],
-        "aiChecklist": ["Should this winner be allowed to run?", "Is ATR stop too wide for account risk?", "Is adding/pyramiding justified after profit cushion?", "Has the trend actually ended or only pulled back?"],
-    },
-]
+def _profile(
+    *,
+    trader_id: str,
+    name: str,
+    description: str,
+    concept: str,
+    base_risk: float,
+    risk_level: str,
+    long_conditions: list[str],
+    short_conditions: list[str],
+    entry_rules: list[str],
+    take_profit_rules: list[str],
+    stop_loss_rules: list[str],
+    checklist: list[str],
+    current_plan: str,
+) -> TraderProfile:
+    return TraderProfile(
+        id=trader_id,
+        name=name,
+        description=description,
+        concept=concept,
+        baseRiskPercent=base_risk,
+        riskLevel=risk_level,
+        longConditions=long_conditions,
+        shortConditions=short_conditions,
+        entryRules=entry_rules,
+        takeProfitRules=take_profit_rules,
+        stopLossRules=stop_loss_rules,
+        aiReviewChecklist=checklist,
+        mockPerformance=_mock_performance(),
+        currentPlan=current_plan,
+    )
 
 
-class BtcSpecialistStrategy(TraderStrategy):
-    def __init__(self, config: Dict[str, Any]) -> None:
-        self.config = config
-        self.profile = TraderProfile(
-            id=config["id"],
-            name=config["name"],
-            description=config["description"],
-            concept=config["concept"],
-            baseRiskPercent=config["risk"],
-            riskLevel=config["riskLevel"],
-            longConditions=config["long"],
-            shortConditions=config["short"],
-            entryRules=config["entryRules"],
-            takeProfitRules=config["tpRules"],
-            stopLossRules=config["slRules"],
-            aiReviewChecklist=config["aiChecklist"],
-            mockPerformance=_mock_performance(),
-            currentPlan=config["currentPlan"],
+def _gate_common(snapshot: Dict[str, Any]) -> dict[str, float | str]:
+    price = fvalue(snapshot.get("price"))
+    one_hour = timeframe(snapshot, "1h")
+    four_hour = timeframe(snapshot, "4h")
+    fifteen = timeframe(snapshot, "15m")
+    candle = latest_candle(fifteen)
+    channel = four_hour.get("channel") or one_hour.get("channel") or {}
+    body = candle_body_ratio(candle)
+    upper_wick, lower_wick = wick_ratios(candle)
+    return {
+        "price": price,
+        "trend1h": trend_for(snapshot, "1h"),
+        "trend4h": trend_for(snapshot, "4h"),
+        "rsi1h": fvalue(one_hour.get("rsi14"), 50.0),
+        "rsi15m": fvalue(fifteen.get("rsi14"), 50.0),
+        "ema20_1h": fvalue(one_hour.get("ema20"), price),
+        "ema50_1h": fvalue(one_hour.get("ema50"), price),
+        "ema20_4h": fvalue(four_hour.get("ema20"), price),
+        "ema50_4h": fvalue(four_hour.get("ema50"), price),
+        "atr1h": max(fvalue(one_hour.get("atr14"), price * 0.008), price * 0.003),
+        "atr4h": max(fvalue(four_hour.get("atr14"), price * 0.012), price * 0.006),
+        "volumeZ15m": fvalue(fifteen.get("volumeZscore"), 0.0),
+        "oi30m": open_interest_change(snapshot),
+        "fundingPercentile": funding_abs_percentile(snapshot),
+        "takerBuyShare": taker_buy_share(snapshot),
+        "channelPosition": fvalue(channel.get("position"), 0.5),
+        "candleBody": body,
+        "upperWick": upper_wick,
+        "lowerWick": lower_wick,
+        "regime": market_regime(snapshot),
+        "close15m": fvalue(candle.get("close"), price),
+        "open15m": fvalue(candle.get("open"), price),
+        "high15m": fvalue(candle.get("high"), price),
+        "low15m": fvalue(candle.get("low"), price),
+        "openTime15m": fvalue(candle.get("openTime"), 0),
+    }
+
+
+def _entries(side: str, price: float, risk_distance: float, style: str) -> List[EntryPlan]:
+    if style == "single":
+        return [EntryPlan(price=round_price(price), weight=1.0, reason="Confirmed BTC setup participation")]
+    if style == "wide_staged":
+        first_weight, pullback = 0.35, 0.50
+    elif style == "deep_retest":
+        first_weight, pullback = 0.40, 0.62
+    else:
+        first_weight, pullback = 0.55, 0.30
+    second_weight = round(1.0 - first_weight, 2)
+    if side == "LONG":
+        planned = [
+            EntryPlan(price=round_price(price), weight=first_weight, reason="Confirmation entry"),
+            EntryPlan(price=round_price(price - risk_distance * pullback), weight=second_weight, reason="Planned retest entry"),
+        ]
+    else:
+        planned = [
+            EntryPlan(price=round_price(price), weight=first_weight, reason="Confirmation entry"),
+            EntryPlan(price=round_price(price + risk_distance * pullback), weight=second_weight, reason="Planned retest entry"),
+        ]
+    return normalize_entries_for_side(side, price, planned)
+
+
+def _take_profits(side: str, price: float, risk_distance: float, target_rs: tuple[float, float]) -> List[TakeProfitPlan]:
+    first_r, second_r = target_rs
+    if side == "LONG":
+        return [
+            TakeProfitPlan(price=round_price(price + risk_distance * first_r), weight=0.40, reason="First BTC liquidity target"),
+            TakeProfitPlan(price=round_price(price + risk_distance * second_r), weight=0.60, reason="Extended thesis target"),
+        ]
+    return [
+        TakeProfitPlan(price=round_price(price - risk_distance * first_r), weight=0.40, reason="First BTC liquidity target"),
+        TakeProfitPlan(price=round_price(price - risk_distance * second_r), weight=0.60, reason="Extended thesis target"),
+    ]
+
+
+def _candidate(
+    *,
+    profile: TraderProfile,
+    snapshot: Dict[str, Any],
+    side: str,
+    setup_type: str,
+    score: int,
+    risk_distance: float,
+    target_rs: tuple[float, float],
+    leverage: int,
+    max_leverage: int,
+    entry_style: str,
+    order_execution: str,
+    reason_code: str,
+    gate_scores: dict[str, Any],
+    sizing_note: str,
+    min_rr: float = 1.15,
+) -> TradeCandidate:
+    if score < 58:
+        return candidate_with_audit(
+            TradeCandidate(
+                created=False,
+                reason=f"{profile.name} score {score} is below the first-stage entry threshold.",
+                setupScore=score,
+            ),
+            trader_id=profile.id,
+            gate_scores=gate_scores,
+            reason_code="score_below_entry_threshold",
+            observation_type="OBSERVE_ONLY" if score >= 50 else "NO_TRADE",
         )
-
-    def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
-        price = float(snapshot["price"])
-        one_hour = timeframe(snapshot, "1h")
-        four_hour = timeframe(snapshot, "4h")
-        fifteen = timeframe(snapshot, "15m")
-        candle = latest_candle(fifteen)
-        atr = max(fvalue(one_hour.get("atr14"), price * 0.008), price * 0.003)
-        side = self._choose_side(snapshot)
-        if side is None:
-            return TradeCandidate(created=False, reason=f"{self.profile.name} 1차 조건이 아직 충분히 겹치지 않았습니다.", setupScore=self._score(snapshot))
-
-        score = self._score(snapshot)
-        if score < 58:
-            return TradeCandidate(created=False, reason=f"{self.profile.name} score {score} is below entry threshold.", setupScore=score)
-
-        risk_distance = max(atr * float(self.config["riskMult"]), price * 0.004)
-        entries = self._entries(side, price, risk_distance)
-        stop = round_price(price - risk_distance if side == "LONG" else price + risk_distance)
-        tp1_r, tp2_r = self.config["targets"]
-        take_profits = self._take_profits(side, price, risk_distance, float(tp1_r), float(tp2_r))
-        risk_reward = estimate_risk_reward(side, entries, stop, take_profits, fee_buffer_percent=0.09)
-        errors = candidate_geometry_errors(side, price, entries, stop, take_profits, min_risk_reward=1.15, fee_buffer_percent=0.09)
-        if errors:
-            return TradeCandidate(created=False, reason=f"{self.profile.name} geometry gate failed: " + "; ".join(errors), setupScore=score)
-
-        setup_type = self.config["setupLong"] if side == "LONG" else self.config["setupShort"]
-        return TradeCandidate(
+    price = fvalue(snapshot.get("price"))
+    entries = _entries(side, price, risk_distance, entry_style)
+    stop = round_price(price - risk_distance if side == "LONG" else price + risk_distance)
+    take_profits = _take_profits(side, price, risk_distance, target_rs)
+    risk_reward = estimate_risk_reward(side, entries, stop, take_profits, fee_buffer_percent=0.09)
+    errors = candidate_geometry_errors(side, price, entries, stop, take_profits, min_risk_reward=min_rr, fee_buffer_percent=0.09)
+    if errors:
+        return candidate_with_audit(
+            TradeCandidate(
+                created=False,
+                reason=f"{profile.name} geometry gate failed: " + "; ".join(errors),
+                setupScore=score,
+            ),
+            trader_id=profile.id,
+            gate_scores=gate_scores,
+            reason_code="geometry_gate_failed",
+            observation_type="OBSERVE_ONLY" if score >= 50 else "NO_TRADE",
+        )
+    return candidate_with_audit(
+        TradeCandidate(
             created=True,
             side=side,
             setupType=setup_type,
-            setupScore=min(score, 92),
+            setupScore=min(score, 94),
             entries=entries,
             stopLoss=stop,
             takeProfits=take_profits,
-            riskPercent=self.profile.baseRiskPercent,
-            orderIntent=default_order_intent(str(self.config["order"]), post_only=self.config["entry"] != "single"),
+            riskPercent=profile.baseRiskPercent,
+            orderIntent=default_order_intent(order_execution, post_only=entry_style != "single"),
             leveragePlan=default_leverage_plan(
-                suggested=int(self.config["leverage"]),
-                maximum=int(self.config["maxLeverage"]),
-                reason=f"{self.profile.name} uses {self.config['leverage']}x only when its BTC-specific first-stage filters and AI review agree.",
+                suggested=leverage,
+                maximum=max_leverage,
+                reason=f"{profile.name} uses {leverage}x only after its BTC-specific first-stage filters and second-stage AI review agree.",
             ),
             riskPlan=default_risk_plan(
-                risk_percent=self.profile.baseRiskPercent,
+                risk_percent=profile.baseRiskPercent,
                 risk_reward=risk_reward,
-                sizing_note=f"{self.profile.name}: BTC-only sizing, cancel stale entries quickly and let AI manage add/reduce decisions after fill.",
-                min_risk_reward=1.15,
+                sizing_note=sizing_note,
+                min_risk_reward=min_rr,
                 fee_buffer_percent=0.09,
             ),
             earlyExitRules=[
-                "Exit or reduce if a 15m close invalidates the setup trigger.",
-                "Cancel unfilled scale entries when the market reaches TP1 before fill.",
+                "Exit or reduce if a 15m close invalidates the trigger level.",
+                "Cancel unfilled scale entries when price reaches TP1 before the scale fills.",
             ],
             managementNotes=[
-                "Position agent may add, pyramid, reduce, or trail only when recent reviews and current market structure agree.",
-                f"Mode: {self.config['mode']}; order style: {self.config['entry']}.",
+                "Position manager may reduce, trail, or let the trade run according to this trader's holding profile.",
+                f"First-stage reason code: {reason_code}.",
             ],
-            invalidation="Invalidate on a 15m close through the trigger level or if fee-adjusted RR drops below 1.15.",
-            notes=self._notes(snapshot),
+            invalidation="Invalidate on a 15m close through the trigger level or if fee-adjusted RR drops below the minimum.",
+            notes=_notes(snapshot, reason_code),
+        ),
+        trader_id=profile.id,
+        gate_scores=gate_scores,
+        reason_code=reason_code,
+    )
+
+
+def _rejection(profile: TraderProfile, reason: str, score: int, gate_scores: dict[str, Any], reason_code: str) -> TradeCandidate:
+    return candidate_with_audit(
+        TradeCandidate(created=False, reason=reason, setupScore=score),
+        trader_id=profile.id,
+        gate_scores=gate_scores,
+        reason_code=reason_code,
+        observation_type="OBSERVE_ONLY" if score >= 50 else "NO_TRADE",
+    )
+
+
+def _notes(snapshot: Dict[str, Any], reason_code: str) -> list[str]:
+    gates = _gate_common(snapshot)
+    return [
+        f"Reason code: {reason_code}.",
+        f"1H RSI {float(gates['rsi1h']):.1f}, 15m volume z-score {float(gates['volumeZ15m']):.2f}.",
+        f"Regime {gates['regime']}, OI 30m change {float(gates['oi30m']):.2f}%, funding percentile {float(gates['fundingPercentile']):.0f}.",
+    ]
+
+
+class DonchianBreakout(TraderStrategy):
+    profile = _profile(
+        trader_id="donchian-breakout",
+        name="Donchian Breakout Boss",
+        description="Breaks BTC out of recent 1H/4H ranges only when participation expands enough to make a false break less likely.",
+        concept="Range expansion system using Donchian-style boundaries, volume/OI confirmation, wider ATR stop, and slower profit protection than a scalp.",
+        base_risk=0.62,
+        risk_level="MEDIUM_HIGH",
+        long_conditions=["1H/4H structure is not bearish", "Price closes through the upper range boundary", "Volume or OI confirms fresh participation", "ATR stop still leaves at least 1.15R"],
+        short_conditions=["1H/4H structure is not bullish", "Price closes through the lower range boundary", "Volume or OI confirms fresh participation", "ATR stop still leaves at least 1.15R"],
+        entry_rules=["Enter a confirmation slice on the break", "Hold a second slice for the first controlled retest outside the old range"],
+        take_profit_rules=["Take partial near the first expansion leg", "Let the rest work toward wider swing liquidity if structure holds"],
+        stop_loss_rules=["Stop outside the broken range plus ATR buffer", "Cancel retest if price accepts back inside the old range"],
+        checklist=["Is this a clean expansion or a stop-run fakeout?", "Is participation expanding rather than drying up?", "Does the wider stop still fit account risk?", "Should the retest slice be cancelled if price runs?"],
+        current_plan="Waiting for BTC to leave a recent range with real participation, not just a thin wick.",
+    )
+
+    def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
+        g = _gate_common(snapshot)
+        score = 48 + int(max(0.0, float(g["volumeZ15m"]) + 0.3) * 7) + int(abs(float(g["oi30m"])) * 4)
+        score += 9 if g["regime"] in {"trend", "squeeze"} else 0
+        score += 7 if float(g["candleBody"]) >= 0.45 else 0
+        price = float(g["price"])
+        high_break = price >= max(float(g["ema20_1h"]), float(g["ema50_1h"])) and g["trend4h"] != "bearish"
+        low_break = price <= min(float(g["ema20_1h"]), float(g["ema50_1h"])) and g["trend4h"] != "bullish"
+        participation = float(g["volumeZ15m"]) > -0.15 or abs(float(g["oi30m"])) >= 0.2
+        if high_break and participation:
+            side, setup = "LONG", "DONCHIAN_RANGE_EXPANSION_LONG"
+        elif low_break and participation:
+            side, setup = "SHORT", "DONCHIAN_RANGE_EXPANSION_SHORT"
+        else:
+            return _rejection(self.profile, "Donchian boundary or participation confirmation is not strong enough yet.", score, g, "donchian_no_breakout")
+        risk_distance = max(float(g["atr1h"]) * 1.20, float(g["atr4h"]) * 0.34, price * 0.006)
+        return _candidate(
+            profile=self.profile,
+            snapshot=snapshot,
+            side=side,
+            setup_type=setup,
+            score=score,
+            risk_distance=risk_distance,
+            target_rs=(1.75, 3.60),
+            leverage=6,
+            max_leverage=8,
+            entry_style="wide_staged",
+            order_execution="BREAKOUT_CLOSE_OR_RETEST",
+            reason_code="donchian_expansion",
+            gate_scores=g,
+            sizing_note="Wider swing breakout: risk can expand only when AI confirms participation and fakeout risk is acceptable.",
         )
 
-    def _choose_side(self, snapshot: Dict[str, Any]) -> Optional[str]:
-        price = float(snapshot["price"])
-        one_hour = timeframe(snapshot, "1h")
-        four_hour = timeframe(snapshot, "4h")
-        fifteen = timeframe(snapshot, "15m")
-        candle = latest_candle(fifteen)
-        mode = str(self.config["mode"])
-        trend_4h = trend_for(snapshot, "4h")
-        ema20 = fvalue(one_hour.get("ema20"), price)
-        ema50 = fvalue(one_hour.get("ema50"), price)
-        rsi = fvalue(one_hour.get("rsi14"), 50.0)
-        close = fvalue(candle.get("close"), price)
-        open_ = fvalue(candle.get("open"), close)
-        high = fvalue(candle.get("high"), price)
-        low = fvalue(candle.get("low"), price)
-        volume_z = fvalue(fifteen.get("volumeZscore"), 0.0)
-        channel = four_hour.get("channel") or one_hour.get("channel") or {}
-        position = fvalue(channel.get("position"), 0.5)
-        body = candle_body_ratio(candle)
-        upper_wick, lower_wick = wick_ratios(candle)
-        taker_share = taker_buy_share(snapshot)
 
-        if mode in {"breakout", "session", "imbalance"}:
-            if close >= max(open_, ema20) and trend_4h != "bearish" and (volume_z > -0.35 or body > 0.42):
-                return "LONG"
-            if close <= min(open_, ema20) and trend_4h != "bullish" and (volume_z > -0.35 or body > 0.42):
-                return "SHORT"
-        if mode == "trend":
-            if trend_4h == "bullish" and price >= ema50 and ema20 >= ema50:
-                return "LONG"
-            if trend_4h == "bearish" and price <= ema50 and ema20 <= ema50:
-                return "SHORT"
-        if mode == "reclaim":
-            if close > ema20 and low < ema20 and taker_share >= 0.48:
-                return "LONG"
-            if close < ema20 and high > ema20 and taker_share <= 0.52:
-                return "SHORT"
-        if mode == "reversal":
-            if position <= 0.25 and lower_wick >= 0.32 and trend_4h != "bearish":
-                return "LONG"
-            if position >= 0.75 and upper_wick >= 0.32 and trend_4h != "bullish":
-                return "SHORT"
-        if mode == "divergence":
-            if rsi <= 44 and close > open_ and trend_4h != "bearish":
-                return "LONG"
-            if rsi >= 56 and close < open_ and trend_4h != "bullish":
-                return "SHORT"
-        if mode == "momentum":
-            if ema20 > ema50 and rsi >= 52 and taker_share >= 0.52:
-                return "LONG"
-            if ema20 < ema50 and rsi <= 48 and taker_share <= 0.48:
-                return "SHORT"
-        if mode == "mean":
-            if rsi <= 38 or position <= 0.18:
-                return "LONG"
-            if rsi >= 62 or position >= 0.82:
-                return "SHORT"
-        return None
+class IchimokuCloudPilot(TraderStrategy):
+    profile = _profile(
+        trader_id="ichimoku-cloud-pilot",
+        name="Cloud Pilot",
+        description="Rides BTC continuation when price holds a cloud-like trend zone instead of chasing every candle.",
+        concept="Ichimoku-inspired continuation using 4H direction, 1H EMA cloud proxy, healthy RSI, funding sanity, and delayed trailing.",
+        base_risk=0.58,
+        risk_level="MEDIUM",
+        long_conditions=["4H trend is bullish", "1H price holds above the EMA20/EMA50 cloud proxy", "RSI is constructive but not euphoric", "Funding is not one-sided"],
+        short_conditions=["4H trend is bearish", "1H price holds below the EMA20/EMA50 cloud proxy", "RSI is weak but not capitulated", "Funding is not one-sided"],
+        entry_rules=["Probe near the cloud edge", "Add only after a continuation candle confirms"],
+        take_profit_rules=["Partial near the prior swing", "Hold remainder toward trend extension while the cloud remains valid"],
+        stop_loss_rules=["Stop outside the cloud proxy", "Exit if 1H closes through the opposite side of the cloud"],
+        checklist=["Is the cloud proxy trending or flat?", "Is the pullback healthy?", "Can this be held longer than a scalp?", "Is funding too crowded?"],
+        current_plan="Waiting for BTC to pull back into the trend cloud and prove continuation.",
+    )
 
-    def _score(self, snapshot: Dict[str, Any]) -> int:
-        price = float(snapshot["price"])
-        one_hour = timeframe(snapshot, "1h")
-        fifteen = timeframe(snapshot, "15m")
-        candle = latest_candle(fifteen)
-        volume_z = fvalue(fifteen.get("volumeZscore"), 0.0)
-        rsi = fvalue(one_hour.get("rsi14"), 50.0)
-        oi_change = open_interest_change(snapshot)
-        funding_percentile = funding_abs_percentile(snapshot)
-        regime = market_regime(snapshot)
-        body = candle_body_ratio(candle)
-        score = 52
-        score += min(12, max(0, int((volume_z + 0.5) * 5)))
-        score += min(10, abs(int(oi_change * 3)))
-        score += 7 if regime in {"trend", "squeeze"} and self.config["mode"] in {"breakout", "trend", "momentum", "imbalance"} else 0
-        score += 7 if regime in {"range", "mixed"} and self.config["mode"] in {"mean", "reversal", "reclaim"} else 0
-        score += 6 if body >= 0.42 else 0
-        score += 5 if 38 <= rsi <= 64 else 0
-        score -= 6 if funding_percentile >= 95 else 0
-        score -= 10 if price <= 0 else 0
-        return max(0, min(95, score))
-
-    def _entries(self, side: str, price: float, risk_distance: float) -> List[EntryPlan]:
-        style = str(self.config["entry"])
-        if style == "single":
-            return [EntryPlan(price=round_price(price), weight=1.0, reason="Confirmed BTC setup participation")]
-        pullback = risk_distance * (0.28 if style == "hybrid" else 0.45)
-        if side == "LONG":
-            entries = [
-                EntryPlan(price=round_price(price), weight=0.45 if style == "hybrid" else 0.35, reason="Confirmation entry"),
-                EntryPlan(price=round_price(price - pullback), weight=0.55 if style == "hybrid" else 0.65, reason="Planned BTC retest/scale entry"),
-            ]
+    def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
+        g = _gate_common(snapshot)
+        score = 50 + (10 if g["trend4h"] in {"bullish", "bearish"} else 0) + (7 if 36 <= float(g["rsi1h"]) <= 64 else 0)
+        score += 6 if float(g["fundingPercentile"]) < 90 else -8
+        price = float(g["price"])
+        if g["trend4h"] == "bullish" and price >= float(g["ema50_1h"]) and float(g["ema20_1h"]) >= float(g["ema50_1h"]):
+            side, setup = "LONG", "CLOUD_CONTINUATION_LONG"
+        elif g["trend4h"] == "bearish" and price <= float(g["ema50_1h"]) and float(g["ema20_1h"]) <= float(g["ema50_1h"]):
+            side, setup = "SHORT", "CLOUD_CONTINUATION_SHORT"
         else:
-            entries = [
-                EntryPlan(price=round_price(price), weight=0.45 if style == "hybrid" else 0.35, reason="Confirmation entry"),
-                EntryPlan(price=round_price(price + pullback), weight=0.55 if style == "hybrid" else 0.65, reason="Planned BTC retest/scale entry"),
-            ]
-        return normalize_entries_for_side(side, price, entries)
-
-    def _take_profits(self, side: str, price: float, risk_distance: float, tp1_r: float, tp2_r: float) -> List[TakeProfitPlan]:
-        if side == "LONG":
-            return [
-                TakeProfitPlan(price=round_price(price + risk_distance * tp1_r), weight=0.45, reason="First BTC liquidity target"),
-                TakeProfitPlan(price=round_price(price + risk_distance * tp2_r), weight=0.55, reason="Extended BTC thesis target"),
-            ]
-        return [
-            TakeProfitPlan(price=round_price(price - risk_distance * tp1_r), weight=0.45, reason="First BTC liquidity target"),
-            TakeProfitPlan(price=round_price(price - risk_distance * tp2_r), weight=0.55, reason="Extended BTC thesis target"),
-        ]
-
-    def _notes(self, snapshot: Dict[str, Any]) -> List[str]:
-        one_hour = timeframe(snapshot, "1h")
-        fifteen = timeframe(snapshot, "15m")
-        return [
-            f"BTC specialist mode: {self.config['mode']}.",
-            f"1H RSI {fvalue(one_hour.get('rsi14'), 50.0):.1f}, 15m volume z-score {fvalue(fifteen.get('volumeZscore'), 0.0):.2f}.",
-            f"Regime {market_regime(snapshot)}, OI 30m change {open_interest_change(snapshot):.2f}%, funding percentile {funding_abs_percentile(snapshot):.0f}.",
-        ]
+            return _rejection(self.profile, "Cloud proxy is flat or price is not holding the trend zone.", score, g, "cloud_proxy_not_confirmed")
+        risk_distance = max(float(g["atr1h"]) * 1.35, float(g["atr4h"]) * 0.38, price * 0.007)
+        return _candidate(
+            profile=self.profile,
+            snapshot=snapshot,
+            side=side,
+            setup_type=setup,
+            score=score,
+            risk_distance=risk_distance,
+            target_rs=(1.90, 4.00),
+            leverage=5,
+            max_leverage=7,
+            entry_style="deep_retest",
+            order_execution="CLOUD_PULLBACK_CONTINUATION",
+            reason_code="cloud_continuation",
+            gate_scores=g,
+            sizing_note="Trend-cloud setup: size expands only when the second-stage review agrees the pullback is healthy.",
+        )
 
 
-class DonchianBreakout(BtcSpecialistStrategy):
-    def __init__(self) -> None:
-        super().__init__(SPECIALIST_CONFIGS[0])
+class VwapReclaimer(TraderStrategy):
+    profile = _profile(
+        trader_id="vwap-reclaimer",
+        name="VWAP Reclaim Crew",
+        description="Trades BTC intraday fair-value reclaim or rejection after an overextension snaps back with acceptance.",
+        concept="VWAP-like reclaim using EMA20 proxy, faded taker pressure, and fast invalidation around fair value.",
+        base_risk=0.50,
+        risk_level="MEDIUM",
+        long_conditions=["Price stretched below fair value", "15m candle reclaims EMA20 proxy", "Seller pressure fades", "OI is not expanding against the reclaim"],
+        short_conditions=["Price stretched above fair value", "15m candle rejects EMA20 proxy", "Buyer pressure fades", "OI is not expanding against the rejection"],
+        entry_rules=["Enter on reclaim/rejection close", "Use shallow retest for the second slice only if price stays accepted"],
+        take_profit_rules=["First target at intraday midpoint", "Second target at opposite short-term liquidity"],
+        stop_loss_rules=["Stop beyond failed reclaim candle", "Exit if price accepts through fair value the wrong way"],
+        checklist=["Is this reclaim real or only noise?", "Is the target too close after fees?", "Did taker flow actually fade?", "Should the second slice be cancelled quickly?"],
+        current_plan="Waiting for BTC to reclaim or reject intraday fair value with enough proof.",
+    )
+
+    def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
+        g = _gate_common(snapshot)
+        reclaim_long = float(g["low15m"]) < float(g["ema20_1h"]) < float(g["close15m"]) and float(g["takerBuyShare"]) >= 0.48
+        reject_short = float(g["high15m"]) > float(g["ema20_1h"]) > float(g["close15m"]) and float(g["takerBuyShare"]) <= 0.52
+        score = 49 + (12 if reclaim_long or reject_short else 0) + (6 if abs(float(g["oi30m"])) < 0.8 else 0)
+        score += 6 if float(g["volumeZ15m"]) > -0.6 else -5
+        if reclaim_long:
+            side, setup = "LONG", "VWAP_RECLAIM_LONG"
+        elif reject_short:
+            side, setup = "SHORT", "VWAP_REJECT_SHORT"
+        else:
+            return _rejection(self.profile, "Fair-value reclaim/rejection has not been accepted by the 15m candle.", score, g, "vwap_not_reclaimed")
+        risk_distance = max(float(g["atr1h"]) * 0.85, float(g["price"]) * 0.0045)
+        return _candidate(
+            profile=self.profile,
+            snapshot=snapshot,
+            side=side,
+            setup_type=setup,
+            score=score,
+            risk_distance=risk_distance,
+            target_rs=(1.35, 2.45),
+            leverage=5,
+            max_leverage=7,
+            entry_style="confirm_retest",
+            order_execution="VWAP_RECLAIM_THEN_LIMIT",
+            reason_code="fair_value_reclaim",
+            gate_scores=g,
+            sizing_note="Intraday fair-value setup: keep sizing moderate because reclaim trades decay quickly.",
+        )
 
 
-class IchimokuCloudPilot(BtcSpecialistStrategy):
-    def __init__(self) -> None:
-        super().__init__(SPECIALIST_CONFIGS[1])
+class WyckoffSpring(TraderStrategy):
+    profile = _profile(
+        trader_id="wyckoff-spring",
+        name="Wyckoff Springboard",
+        description="Finds BTC spring/upthrust traps where price sweeps a range edge and quickly fails back inside.",
+        concept="Trap reversal around range extremes using wick quality, channel position, snapback close, and fast invalidation.",
+        base_risk=0.56,
+        risk_level="HIGH",
+        long_conditions=["Price sweeps below range support", "Lower wick is meaningful", "15m close reclaims inside the range", "Volume suggests stop-run participation"],
+        short_conditions=["Price sweeps above range resistance", "Upper wick is meaningful", "15m close fails back inside the range", "Volume suggests stop-run participation"],
+        entry_rules=["Enter on reclaim/failure candle", "Use a second slice on retest of swept level"],
+        take_profit_rules=["First target near range midpoint", "Second target near opposite liquidity pocket"],
+        stop_loss_rules=["Stop beyond the sweep wick", "Exit if the swept level is accepted again"],
+        checklist=["Is this a trap or real breakout?", "Is wick quality strong enough?", "Is stop outside the actual sweep?", "Should profit be protected early?"],
+        current_plan="Waiting for a BTC stop-run trap to snap back inside the range.",
+    )
+
+    def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
+        g = _gate_common(snapshot)
+        spring_long = float(g["channelPosition"]) <= 0.28 and float(g["lowerWick"]) >= 0.30 and g["trend4h"] != "bearish"
+        upthrust_short = float(g["channelPosition"]) >= 0.72 and float(g["upperWick"]) >= 0.30 and g["trend4h"] != "bullish"
+        score = 50 + (12 if spring_long or upthrust_short else 0) + (8 if float(g["volumeZ15m"]) >= -0.25 else 0)
+        score += 5 if g["regime"] in {"range", "mixed"} else -4
+        if spring_long:
+            side, setup = "LONG", "WYCKOFF_SPRING_LONG"
+        elif upthrust_short:
+            side, setup = "SHORT", "WYCKOFF_UPTHRUST_SHORT"
+        else:
+            return _rejection(self.profile, "Range sweep and snapback quality are not strong enough for a Wyckoff trap.", score, g, "spring_not_confirmed")
+        risk_distance = max(float(g["atr1h"]) * 0.90, float(g["price"]) * 0.0048)
+        return _candidate(
+            profile=self.profile,
+            snapshot=snapshot,
+            side=side,
+            setup_type=setup,
+            score=score,
+            risk_distance=risk_distance,
+            target_rs=(1.55, 2.90),
+            leverage=5,
+            max_leverage=7,
+            entry_style="confirm_retest",
+            order_execution="SPRING_RECLAIM_CONFIRMATION",
+            reason_code="wyckoff_trap_reversal",
+            gate_scores=g,
+            sizing_note="Trap reversal: allow tactical size only when snapback is visible and invalidation remains close.",
+        )
 
 
-class VwapReclaimer(BtcSpecialistStrategy):
-    def __init__(self) -> None:
-        super().__init__(SPECIALIST_CONFIGS[2])
+class RsiDivergenceScout(TraderStrategy):
+    profile = _profile(
+        trader_id="rsi-divergence-scout",
+        name="RSI Divergence Scout",
+        description="Looks for BTC exhaustion where RSI stops confirming price and structure begins to turn.",
+        concept="Momentum divergence plus structure confirmation; avoids fading strong trends without a reclaim/failure candle.",
+        base_risk=0.48,
+        risk_level="MEDIUM",
+        long_conditions=["1H RSI is weak but improving", "Price stops making clean downside progress", "15m closes back above structure", "Crowding does not fight the reversal"],
+        short_conditions=["1H RSI is strong but weakening", "Price stops making clean upside progress", "15m fails below structure", "Crowding does not fight the reversal"],
+        entry_rules=["Small confirmation slice first", "Larger slice on retest of reclaimed/failed structure"],
+        take_profit_rules=["First target at mean reversion zone", "Second target at prior swing if momentum keeps rotating"],
+        stop_loss_rules=["Stop beyond divergence invalidation swing", "Exit if momentum re-accelerates against the thesis"],
+        checklist=["Is divergence real or just trend continuation?", "Did structure confirm?", "Is HTF trend too strong to fade?", "Is fee-adjusted RR still valid?"],
+        current_plan="Waiting for BTC momentum exhaustion to be confirmed by structure, not just RSI alone.",
+    )
+
+    def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
+        g = _gate_common(snapshot)
+        bullish = float(g["rsi1h"]) <= 44 and float(g["close15m"]) > float(g["open15m"]) and g["trend4h"] != "bearish"
+        bearish = float(g["rsi1h"]) >= 56 and float(g["close15m"]) < float(g["open15m"]) and g["trend4h"] != "bullish"
+        score = 47 + (14 if bullish or bearish else 0) + (6 if float(g["candleBody"]) >= 0.30 else 0)
+        score += 5 if g["regime"] in {"range", "mixed"} else 0
+        if bullish:
+            side, setup = "LONG", "BULLISH_RSI_DIVERGENCE_RECLAIM"
+        elif bearish:
+            side, setup = "SHORT", "BEARISH_RSI_DIVERGENCE_FAILURE"
+        else:
+            return _rejection(self.profile, "RSI exhaustion has not been confirmed by structure.", score, g, "divergence_needs_structure")
+        risk_distance = max(float(g["atr1h"]) * 1.00, float(g["price"]) * 0.0052)
+        return _candidate(
+            profile=self.profile,
+            snapshot=snapshot,
+            side=side,
+            setup_type=setup,
+            score=score,
+            risk_distance=risk_distance,
+            target_rs=(1.45, 2.75),
+            leverage=5,
+            max_leverage=7,
+            entry_style="wide_staged",
+            order_execution="DIVERGENCE_CONFIRMATION",
+            reason_code="rsi_divergence_reclaim",
+            gate_scores=g,
+            sizing_note="Divergence reversal: no aggressive sizing until price confirms exhaustion with structure.",
+        )
 
 
-class WyckoffSpring(BtcSpecialistStrategy):
-    def __init__(self) -> None:
-        super().__init__(SPECIALIST_CONFIGS[3])
+class SessionRaider(TraderStrategy):
+    profile = _profile(
+        trader_id="session-raider",
+        name="Session Raider",
+        description="Targets BTC range breaks around high-liquidity session handoffs, then manages quickly because the edge decays.",
+        concept="Session breakout with time window, impulse candle, range boundary, strict TTL, and no repeated revenge entries after failures.",
+        base_risk=0.52,
+        risk_level="MEDIUM_HIGH",
+        long_conditions=["Asia/London/New York transition window is active", "15m candle breaks above local range", "Body or volume expands", "4H trend is not a hard bearish block"],
+        short_conditions=["Asia/London/New York transition window is active", "15m candle breaks below local range", "Body or volume expands", "4H trend is not a hard bullish block"],
+        entry_rules=["Single confirmed session-break order", "Expire quickly if not filled"],
+        take_profit_rules=["First target at nearby session liquidity", "Second target only if momentum keeps expanding"],
+        stop_loss_rules=["Stop behind the session break candle", "Exit if price re-enters the session range"],
+        checklist=["Is the session window actually active?", "Is this impulse or a thin wick?", "Should stale orders expire immediately?", "Has this session already failed repeatedly?"],
+        current_plan="Waiting for BTC to break a session range during a real liquidity window.",
+    )
 
-
-class RsiDivergenceScout(BtcSpecialistStrategy):
-    def __init__(self) -> None:
-        super().__init__(SPECIALIST_CONFIGS[4])
-
-
-class SessionRaider(BtcSpecialistStrategy):
-    def __init__(self) -> None:
-        super().__init__(SPECIALIST_CONFIGS[5])
-
-    def _score(self, snapshot: Dict[str, Any]) -> int:
-        base = super()._score(snapshot)
-        candle = latest_candle(timeframe(snapshot, "15m"))
-        open_time = int(fvalue(candle.get("openTime"), 0))
+    def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
+        g = _gate_common(snapshot)
+        open_time = int(float(g["openTime15m"]) or 0)
         hour = datetime.fromtimestamp(open_time / 1000, timezone.utc).hour if open_time else datetime.now(timezone.utc).hour
-        session_bonus = 8 if hour in {0, 1, 7, 8, 13, 14, 15} else -4
-        return max(0, min(95, base + session_bonus))
+        active_window = hour in {0, 1, 7, 8, 13, 14, 15}
+        long_break = float(g["close15m"]) > max(float(g["open15m"]), float(g["ema20_1h"])) and g["trend4h"] != "bearish"
+        short_break = float(g["close15m"]) < min(float(g["open15m"]), float(g["ema20_1h"])) and g["trend4h"] != "bullish"
+        impulse = float(g["candleBody"]) >= 0.40 or float(g["volumeZ15m"]) > -0.20
+        score = 44 + (12 if active_window else -6) + (10 if impulse else 0) + (7 if long_break or short_break else 0)
+        if active_window and impulse and long_break:
+            side, setup = "LONG", "SESSION_RANGE_BREAK_LONG"
+        elif active_window and impulse and short_break:
+            side, setup = "SHORT", "SESSION_RANGE_BREAK_SHORT"
+        else:
+            return _rejection(self.profile, "Session window or impulse confirmation is not ready.", score, g, "session_break_not_ready")
+        risk_distance = max(float(g["atr1h"]) * 0.80, float(g["price"]) * 0.0045)
+        return _candidate(
+            profile=self.profile,
+            snapshot=snapshot,
+            side=side,
+            setup_type=setup,
+            score=score,
+            risk_distance=risk_distance,
+            target_rs=(1.30, 2.20),
+            leverage=5,
+            max_leverage=7,
+            entry_style="single",
+            order_execution="SESSION_BREAKOUT_FAST",
+            reason_code="session_range_break",
+            gate_scores=g,
+            sizing_note="Session strategy: keep risk capped because repeated attempts and stale fills decay quickly.",
+        )
 
 
-class ImbalanceHunter(BtcSpecialistStrategy):
-    def __init__(self) -> None:
-        super().__init__(SPECIALIST_CONFIGS[6])
+class ImbalanceHunter(TraderStrategy):
+    profile = _profile(
+        trader_id="imbalance-hunter",
+        name="Imbalance Hunter",
+        description="Waits for BTC displacement to leave a retestable imbalance zone instead of chasing the full candle.",
+        concept="Displacement and midpoint retest: strong body, structure hold, OI/volume support, and clean invalidation at imbalance origin.",
+        base_risk=0.57,
+        risk_level="MEDIUM_HIGH",
+        long_conditions=["15m bullish displacement body is strong", "Price remains above structure", "Midpoint retest is reachable", "OI/volume support continuation"],
+        short_conditions=["15m bearish displacement body is strong", "Price remains below structure", "Midpoint retest is reachable", "OI/volume support continuation"],
+        entry_rules=["Main order at imbalance midpoint", "Confirmation add only if continuation resumes"],
+        take_profit_rules=["First target at displacement extension", "Second target at next liquidity pool"],
+        stop_loss_rules=["Stop beyond imbalance origin", "Cancel if midpoint is sliced through"],
+        checklist=["Is the candle a real displacement?", "Is retest geometry correct?", "Does continuation room justify holding?", "Should unfilled adds be cancelled?"],
+        current_plan="Waiting for a BTC displacement candle to leave a clean retest zone.",
+    )
+
+    def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
+        g = _gate_common(snapshot)
+        bullish = float(g["candleBody"]) >= 0.50 and float(g["close15m"]) > float(g["open15m"]) and float(g["price"]) >= float(g["ema20_1h"])
+        bearish = float(g["candleBody"]) >= 0.50 and float(g["close15m"]) < float(g["open15m"]) and float(g["price"]) <= float(g["ema20_1h"])
+        score = 48 + (14 if bullish or bearish else 0) + (7 if float(g["volumeZ15m"]) >= -0.15 else 0) + (5 if abs(float(g["oi30m"])) >= 0.15 else 0)
+        if bullish and g["trend4h"] != "bearish":
+            side, setup = "LONG", "BULLISH_IMBALANCE_RETEST"
+        elif bearish and g["trend4h"] != "bullish":
+            side, setup = "SHORT", "BEARISH_IMBALANCE_RETEST"
+        else:
+            return _rejection(self.profile, "Displacement body or structure alignment is not strong enough.", score, g, "imbalance_not_clean")
+        risk_distance = max(float(g["atr1h"]) * 1.05, float(g["price"]) * 0.0058)
+        return _candidate(
+            profile=self.profile,
+            snapshot=snapshot,
+            side=side,
+            setup_type=setup,
+            score=score,
+            risk_distance=risk_distance,
+            target_rs=(1.65, 3.10),
+            leverage=5,
+            max_leverage=7,
+            entry_style="deep_retest",
+            order_execution="DISPLACEMENT_MIDPOINT_RETEST",
+            reason_code="imbalance_midpoint_retest",
+            gate_scores=g,
+            sizing_note="Imbalance retest: tactical sizing can grow only when midpoint remains respected.",
+        )
 
 
-class MomentumIgnition(BtcSpecialistStrategy):
-    def __init__(self) -> None:
-        super().__init__(SPECIALIST_CONFIGS[7])
+class MomentumIgnition(TraderStrategy):
+    profile = _profile(
+        trader_id="momentum-ignition",
+        name="Momentum Igniter",
+        description="Only joins BTC momentum when trend, RSI, OI, and taker pressure line up together.",
+        concept="Flow-confirmed ignition system with no averaging down and quick de-risking when flow flips.",
+        base_risk=0.60,
+        risk_level="HIGH",
+        long_conditions=["1H EMA20 is above EMA50", "RSI thrust supports upside", "Taker buy share and OI confirm", "Price is not already at the target"],
+        short_conditions=["1H EMA20 is below EMA50", "RSI thrust supports downside", "Taker sell share and OI confirm", "Price is not already at the target"],
+        entry_rules=["Single participation entry on ignition", "No averaging down"],
+        take_profit_rules=["Take partial before momentum stalls", "Hold only if OI and flow keep confirming"],
+        stop_loss_rules=["Stop behind ignition candle", "Reduce fast if taker flow flips"],
+        checklist=["Is this ignition or late chase?", "Does OI agree with taker flow?", "Is leverage capped by volatility?", "Is there enough room after fees?"],
+        current_plan="Waiting for BTC momentum, OI, and taker pressure to ignite in one direction.",
+    )
 
-    def _score(self, snapshot: Dict[str, Any]) -> int:
-        base = super()._score(snapshot)
-        one_hour = timeframe(snapshot, "1h")
-        fifteen = timeframe(snapshot, "15m")
-        candle = latest_candle(fifteen)
-        rsi = fvalue(one_hour.get("rsi14"), 50.0)
-        body = candle_body_ratio(candle)
-        oi_change = open_interest_change(snapshot)
-        taker_share = taker_buy_share(snapshot)
-        direction_bonus = 0
-        if rsi >= 56 and taker_share >= 0.54 and oi_change > 0:
-            direction_bonus += 8
-        if rsi <= 44 and taker_share <= 0.46 and oi_change > 0:
-            direction_bonus += 8
-        if body >= 0.55:
-            direction_bonus += 5
-        if 47 < rsi < 53 or abs(oi_change) < 0.15:
-            direction_bonus -= 8
-        return max(0, min(95, base + direction_bonus))
+    def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
+        g = _gate_common(snapshot)
+        long_flow = float(g["ema20_1h"]) > float(g["ema50_1h"]) and float(g["rsi1h"]) >= 53 and float(g["takerBuyShare"]) >= 0.53 and float(g["oi30m"]) >= 0
+        short_flow = float(g["ema20_1h"]) < float(g["ema50_1h"]) and float(g["rsi1h"]) <= 47 and float(g["takerBuyShare"]) <= 0.47 and float(g["oi30m"]) >= 0
+        score = 46 + (16 if long_flow or short_flow else 0) + (8 if float(g["candleBody"]) >= 0.48 else 0)
+        score += 5 if float(g["volumeZ15m"]) > -0.1 else -4
+        if long_flow and g["trend4h"] != "bearish":
+            side, setup = "LONG", "MOMENTUM_IGNITION_LONG"
+        elif short_flow and g["trend4h"] != "bullish":
+            side, setup = "SHORT", "MOMENTUM_IGNITION_SHORT"
+        else:
+            return _rejection(self.profile, "Momentum inputs are not aligned enough to justify participation.", score, g, "momentum_not_aligned")
+        risk_distance = max(float(g["atr1h"]) * 0.95, float(g["price"]) * 0.005)
+        return _candidate(
+            profile=self.profile,
+            snapshot=snapshot,
+            side=side,
+            setup_type=setup,
+            score=score,
+            risk_distance=risk_distance,
+            target_rs=(1.45, 2.85),
+            leverage=5,
+            max_leverage=8,
+            entry_style="single",
+            order_execution="IGNITION_PARTICIPATION",
+            reason_code="momentum_ignition",
+            gate_scores=g,
+            sizing_note="Momentum ignition: high leverage is not automatic; size depends on AI confirming clean flow alignment.",
+        )
 
 
-class BollingerReversion(BtcSpecialistStrategy):
-    def __init__(self) -> None:
-        super().__init__(SPECIALIST_CONFIGS[8])
+class BollingerReversion(TraderStrategy):
+    profile = _profile(
+        trader_id="bollinger-reversion",
+        name="Bollinger Boomerang",
+        description="Fades BTC statistical overextension only when the market is ranging enough for mean reversion to make sense.",
+        concept="Band/RSI mean reversion with trend-strength filter, exhaustion confirmation, and midpoint-focused exits.",
+        base_risk=0.42,
+        risk_level="LOW_MEDIUM",
+        long_conditions=["Price is near lower statistical band or channel extreme", "RSI is depressed", "Trend regime is not strongly bearish", "Volume does not confirm breakdown continuation"],
+        short_conditions=["Price is near upper statistical band or channel extreme", "RSI is elevated", "Trend regime is not strongly bullish", "Volume does not confirm breakout continuation"],
+        entry_rules=["Enter first slice at extension", "Use second slice only if deeper extension remains orderly"],
+        take_profit_rules=["First target at mean", "Second target only if reversion keeps improving"],
+        stop_loss_rules=["Stop outside statistical extension", "Exit if band-walk behavior starts"],
+        checklist=["Is this reversion or a band walk?", "Is trend strength too high?", "Is target close enough for mean reversion?", "Is crowding worsening the fade?"],
+        current_plan="Waiting for BTC to stretch statistically while trend strength stays contained.",
+    )
 
-    def _score(self, snapshot: Dict[str, Any]) -> int:
-        base = super()._score(snapshot)
-        one_hour = timeframe(snapshot, "1h")
-        channel = timeframe(snapshot, "4h").get("channel") or one_hour.get("channel") or {}
-        position = fvalue(channel.get("position"), 0.5)
-        rsi = fvalue(one_hour.get("rsi14"), 50.0)
-        regime = market_regime(snapshot)
-        adjustment = 0
-        if regime in {"range", "mixed"}:
-            adjustment += 8
-        if rsi <= 36 or rsi >= 64:
-            adjustment += 7
-        if position <= 0.15 or position >= 0.85:
-            adjustment += 5
-        if regime in {"trend", "squeeze"} and 42 <= rsi <= 58:
-            adjustment -= 12
-        return max(0, min(95, base + adjustment))
+    def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
+        g = _gate_common(snapshot)
+        lower_fade = (float(g["rsi1h"]) <= 38 or float(g["channelPosition"]) <= 0.18) and g["trend4h"] != "bearish"
+        upper_fade = (float(g["rsi1h"]) >= 62 or float(g["channelPosition"]) >= 0.82) and g["trend4h"] != "bullish"
+        score = 50 + (12 if lower_fade or upper_fade else 0) + (8 if g["regime"] in {"range", "mixed"} else -8)
+        if lower_fade:
+            side, setup = "LONG", "LOW_BAND_MEAN_REVERSION_LONG"
+        elif upper_fade:
+            side, setup = "SHORT", "UPPER_BAND_MEAN_REVERSION_SHORT"
+        else:
+            return _rejection(self.profile, "Band extension is not extreme enough, or trend is too strong to fade.", score, g, "band_reversion_not_ready")
+        risk_distance = max(float(g["atr1h"]) * 0.85, float(g["price"]) * 0.0046)
+        return _candidate(
+            profile=self.profile,
+            snapshot=snapshot,
+            side=side,
+            setup_type=setup,
+            score=score,
+            risk_distance=risk_distance,
+            target_rs=(1.25, 2.05),
+            leverage=5,
+            max_leverage=7,
+            entry_style="wide_staged",
+            order_execution="STATISTICAL_REVERSION_LIMIT",
+            reason_code="band_mean_reversion",
+            gate_scores=g,
+            sizing_note="Mean reversion: keep risk lower unless AI confirms the market is ranging, not trending.",
+        )
 
 
-class AtrTrailCommander(BtcSpecialistStrategy):
-    def __init__(self) -> None:
-        super().__init__(SPECIALIST_CONFIGS[9])
+class AtrTrailCommander(TraderStrategy):
+    profile = _profile(
+        trader_id="atr-trail-commander",
+        name="ATR Trail Boss",
+        description="Gives BTC trend trades wider ATR room and tries to hold winners instead of clipping every move.",
+        concept="Higher-timeframe ATR continuation system with volatility-adjusted stops and delayed trailing after profit cushion.",
+        base_risk=0.55,
+        risk_level="MEDIUM",
+        long_conditions=["4H trend is bullish", "Price remains above 1H/4H support proxy", "ATR stop sits outside normal noise", "Momentum is not blow-off"],
+        short_conditions=["4H trend is bearish", "Price remains below 1H/4H resistance proxy", "ATR stop sits outside normal noise", "Momentum is not capitulation exhaustion"],
+        entry_rules=["Enter partial on trend pullback", "Add after continuation resumes, not before"],
+        take_profit_rules=["First target only after a wider 2R move", "Remainder trails by ATR and structure"],
+        stop_loss_rules=["Stop outside ATR structure", "Trail only after enough profit cushion exists"],
+        checklist=["Should this winner be allowed to run?", "Is ATR stop too wide for account risk?", "Is adding justified after cushion?", "Has trend really ended or only pulled back?"],
+        current_plan="Waiting for a BTC trend continuation where the ATR stop gives enough room to hold.",
+    )
 
-    def _score(self, snapshot: Dict[str, Any]) -> int:
-        base = super()._score(snapshot)
-        price = float(snapshot["price"])
-        one_hour = timeframe(snapshot, "1h")
-        four_hour = timeframe(snapshot, "4h")
-        trend = trend_for(snapshot, "4h")
-        ema20 = fvalue(four_hour.get("ema20"), price)
-        ema50 = fvalue(four_hour.get("ema50"), price)
-        atr = fvalue(one_hour.get("atr14"), price * 0.008)
-        atr_percent = atr / price if price > 0 else 0
-        adjustment = 0
-        if trend == "bullish" and ema20 >= ema50:
-            adjustment += 7
-        if trend == "bearish" and ema20 <= ema50:
-            adjustment += 7
-        if 0.006 <= atr_percent <= 0.022:
-            adjustment += 6
-        if atr_percent > 0.035 or trend == "sideways":
-            adjustment -= 10
-        return max(0, min(95, base + adjustment))
+    def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
+        g = _gate_common(snapshot)
+        atr_percent = float(g["atr1h"]) / float(g["price"]) if float(g["price"]) > 0 else 0.0
+        long_trend = g["trend4h"] == "bullish" and float(g["price"]) >= float(g["ema50_1h"]) and float(g["ema20_4h"]) >= float(g["ema50_4h"])
+        short_trend = g["trend4h"] == "bearish" and float(g["price"]) <= float(g["ema50_1h"]) and float(g["ema20_4h"]) <= float(g["ema50_4h"])
+        volatility_ok = 0.004 <= atr_percent <= 0.035
+        score = 50 + (14 if long_trend or short_trend else 0) + (7 if volatility_ok else -8)
+        score += 5 if float(g["fundingPercentile"]) < 92 else -5
+        if long_trend and volatility_ok:
+            side, setup = "LONG", "ATR_TREND_TRAIL_LONG"
+        elif short_trend and volatility_ok:
+            side, setup = "SHORT", "ATR_TREND_TRAIL_SHORT"
+        else:
+            return _rejection(self.profile, "Trend or ATR condition is not durable enough for a trailing setup.", score, g, "atr_trend_not_ready")
+        risk_distance = max(float(g["atr1h"]) * 1.80, float(g["atr4h"]) * 0.45, float(g["price"]) * 0.009)
+        return _candidate(
+            profile=self.profile,
+            snapshot=snapshot,
+            side=side,
+            setup_type=setup,
+            score=score,
+            risk_distance=risk_distance,
+            target_rs=(2.25, 4.70),
+            leverage=5,
+            max_leverage=7,
+            entry_style="deep_retest",
+            order_execution="ATR_TREND_PULLBACK",
+            reason_code="atr_trend_trail",
+            gate_scores=g,
+            sizing_note="Trend follower: risk can widen only for high-confidence, wider-horizon setups with clean ATR geometry.",
+        )

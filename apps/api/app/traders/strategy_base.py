@@ -10,6 +10,7 @@ from app.traders.models import (
     TraderProfile,
     TradeCandidate,
 )
+from app.paper.holding_policy import trader_execution_profile_payload
 
 
 class TraderStrategy(ABC):
@@ -35,6 +36,42 @@ def choose_side_by_trend(snapshot: Dict[str, Any]) -> str:
 
 def make_rejection(reason: str, score: int = 0) -> TradeCandidate:
     return TradeCandidate(created=False, reason=reason, setupScore=score)
+
+
+def apply_execution_profile(profile: TraderProfile) -> TraderProfile:
+    execution_profile = trader_execution_profile_payload(profile.id)
+    return profile.model_copy(
+        update={
+            "holdingProfile": str(execution_profile["holdingProfile"]),
+            "primaryTimeframe": str(execution_profile["primaryTimeframe"]),
+            "expectedHoldMinutes": int(execution_profile["expectedHoldMinutes"]),
+        }
+    )
+
+
+def candidate_with_audit(
+    candidate: TradeCandidate,
+    *,
+    trader_id: str,
+    gate_scores: Optional[dict[str, Any]] = None,
+    reason_code: Optional[str] = None,
+    observation_type: Optional[str] = None,
+) -> TradeCandidate:
+    execution_profile = trader_execution_profile_payload(trader_id)
+    audit = {
+        **(candidate.audit or {}),
+        "reasonCode": reason_code or ("candidate_ready" if candidate.created else "no_trade"),
+        "gateScores": gate_scores or {},
+        "executionProfile": execution_profile,
+    }
+    return candidate.model_copy(
+        update={
+            "observationType": observation_type or ("CANDIDATE_READY" if candidate.created else "NO_TRADE"),
+            "holdingProfile": str(execution_profile["holdingProfile"]),
+            "timeHorizon": str(execution_profile["policyName"]),
+            "audit": audit,
+        }
+    )
 
 
 def timeframe(snapshot: Dict[str, Any], interval: str) -> Dict[str, Any]:

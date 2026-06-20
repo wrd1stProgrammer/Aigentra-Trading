@@ -17,18 +17,19 @@ def final_trade_risk_percent(candidate: Any, review: Any) -> float:
 
     multiplier = 1.25
     absolute_cap = 1.5
+    horizon_multiplier = _horizon_risk_multiplier(candidate)
     if confidence >= 82 and risk_reward >= 1.5 and setup_score >= 58:
-        multiplier = 1.75
-        absolute_cap = 2.25
+        multiplier = Decimal("1.75") * horizon_multiplier
+        absolute_cap = float(Decimal("2.25") * horizon_multiplier)
         if getattr(review, "riskPercentOverride", None) is None:
             requested = max(requested, base_risk * 1.25)
     if confidence >= 90 and risk_reward >= 2.0 and setup_score >= 65:
-        multiplier = 2.25
-        absolute_cap = 3.0
+        multiplier = Decimal("2.25") * horizon_multiplier
+        absolute_cap = float(Decimal("3.0") * horizon_multiplier)
         if getattr(review, "riskPercentOverride", None) is None:
             requested = max(requested, base_risk * 1.5)
 
-    cap = min(absolute_cap, max(base_risk, base_risk * multiplier))
+    cap = min(absolute_cap, max(base_risk, base_risk * float(multiplier)))
     return max(0.1, min(requested, cap))
 
 
@@ -40,10 +41,11 @@ def adjusted_margin_deployment_percent(base_deployment: Decimal, candidate: Any,
     risk_reward = estimated_risk_reward(candidate)
     setup_score = _as_float(getattr(candidate, "setupScore", None), 0.0)
     uplift = Decimal("0")
+    horizon_multiplier = _horizon_risk_multiplier(candidate)
     if confidence >= 90 and risk_reward >= 2.0 and setup_score >= 65:
-        uplift = Decimal("14")
+        uplift = Decimal("14") * horizon_multiplier
     elif confidence >= 82 and risk_reward >= 1.5 and setup_score >= 58:
-        uplift = Decimal("8")
+        uplift = Decimal("8") * horizon_multiplier
     elif confidence >= 76 and getattr(review, "riskPercentOverride", None) is not None and setup_score >= 60:
         uplift = Decimal("5")
 
@@ -110,3 +112,20 @@ def _as_decimal(value: Any, default: Decimal) -> Decimal:
     except (InvalidOperation, ValueError):
         return default
     return parsed if parsed.is_finite() else default
+
+
+def _horizon_risk_multiplier(candidate: Any) -> Decimal:
+    profile = str(getattr(candidate, "holdingProfile", "") or "").lower()
+    audit = getattr(candidate, "audit", None)
+    if isinstance(audit, dict):
+        execution_profile = audit.get("executionProfile") or {}
+        configured = _as_decimal(execution_profile.get("riskUpliftMultiplier"), Decimal("0"))
+        if configured > 0:
+            return min(Decimal("1.25"), max(Decimal("0.70"), configured))
+    if profile in {"trend", "swing"}:
+        return Decimal("1.15")
+    if profile == "micro":
+        return Decimal("0.80")
+    if profile == "intraday":
+        return Decimal("0.95")
+    return Decimal("1.00")
