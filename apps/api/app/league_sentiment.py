@@ -95,10 +95,22 @@ async def get_or_create_league_sentiment_opinion(
     if not force:
         existing = latest_hourly_opinion(db, symbol, CANONICAL_AI_LOCALE, interval_start)
         if existing is not None:
+            await ensure_league_sentiment_translation(
+                db,
+                record=existing,
+                locale=requested_locale,
+                settings=settings,
+            )
             return serialize_league_sentiment_record(db, existing, cache_hit=True, locale=requested_locale)
         if prefer_cached:
             previous = latest_previous_opinion(db, symbol, CANONICAL_AI_LOCALE, interval_start)
             if previous is not None:
+                await ensure_league_sentiment_translation(
+                    db,
+                    record=previous,
+                    locale=requested_locale,
+                    settings=settings,
+                )
                 return serialize_league_sentiment_record(
                     db,
                     previous,
@@ -189,6 +201,7 @@ async def get_or_create_league_sentiment_opinion(
             payload=opinion.model_dump(),
             symbol=symbol,
             trader_id="aigentra-opinion",
+            target_locales=league_sentiment_translation_locales(settings, requested_locale),
         )
         from app.subscribers import notify_subscribers_for_league_sentiment_opinion
 
@@ -198,9 +211,65 @@ async def get_or_create_league_sentiment_opinion(
         db.rollback()
         existing = latest_hourly_opinion(db, symbol, CANONICAL_AI_LOCALE, interval_start)
         if existing is not None:
+            await ensure_league_sentiment_translation(
+                db,
+                record=existing,
+                locale=requested_locale,
+                settings=settings,
+            )
             return serialize_league_sentiment_record(db, existing, cache_hit=True, locale=requested_locale)
         raise
     return serialize_league_sentiment_record(db, record, cache_hit=False, locale=requested_locale)
+
+
+async def ensure_league_sentiment_translation(
+    db: Session,
+    *,
+    record: LeagueSentimentOpinionRecord,
+    locale: str,
+    settings: Settings,
+) -> None:
+    requested_locale = normalize_locale(locale)
+    if requested_locale == CANONICAL_AI_LOCALE or record.id is None:
+        return
+    opinion = from_json(record.payload_json) if record.payload_json else {}
+    if not isinstance(opinion, dict):
+        return
+
+    _, translation_meta = localized_payload_for_source(
+        db,
+        source_type=AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT,
+        source_id=record.id,
+        payload=opinion,
+        locale=requested_locale,
+    )
+    if translation_meta.get("status") == "ok":
+        return
+
+    await fanout_ai_translations(
+        db,
+        settings=settings,
+        source_type=AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT,
+        source_id=record.id,
+        payload=opinion,
+        symbol=record.symbol,
+        trader_id="aigentra-opinion",
+        target_locales=(requested_locale,),
+    )
+    db.flush()
+    db.commit()
+
+
+def league_sentiment_translation_locales(settings: Settings, requested_locale: str) -> tuple[str, ...]:
+    locales: list[str] = []
+    for item in getattr(settings, "ai_translation_target_locales", []):
+        locale = normalize_locale(item)
+        if locale != CANONICAL_AI_LOCALE and locale not in locales:
+            locales.append(locale)
+    normalized_requested_locale = normalize_locale(requested_locale)
+    if normalized_requested_locale != CANONICAL_AI_LOCALE and normalized_requested_locale not in locales:
+        locales.append(normalized_requested_locale)
+    return tuple(locales)
 
 
 def latest_hourly_opinion(

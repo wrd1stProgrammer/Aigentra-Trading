@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -133,13 +134,15 @@ async def fanout_ai_translations(
     symbol: str | None = None,
     trader_id: str | None = None,
     provider: AITranslationProvider | None = None,
+    target_locales: Sequence[str] | None = None,
 ) -> None:
     if source_id is None:
         return
     source_hash = stable_source_hash(payload)
+    raw_locales = target_locales if target_locales is not None else getattr(settings, "ai_translation_target_locales", NON_CANONICAL_AI_LOCALES)
     locales = tuple(
         locale
-        for locale in (normalize_locale(item) for item in getattr(settings, "ai_translation_target_locales", NON_CANONICAL_AI_LOCALES))
+        for locale in (normalize_locale(item) for item in raw_locales)
         if locale != CANONICAL_AI_LOCALE
     )
     for locale in locales or NON_CANONICAL_AI_LOCALES:

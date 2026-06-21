@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.ai.league_sentiment_models import LeagueSentimentOpinionResult
 from app.db import (
     AIReviewRecord,
+    AITranslationCacheRecord,
     LeagueSentimentOpinionRecord,
     PaperOrderRecord,
     PaperPositionRecord,
@@ -172,6 +173,82 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
       assert records[0].interval_start.isoformat() == first.json()["intervalStart"]
       assert "페이퍼 트레이딩" not in str(records[0].payload_json)
       assert "paper trading" not in str(records[0].payload_json).lower()
+
+
+def test_existing_league_sentiment_opinion_hydrates_requested_locale_translation(temp_db, monkeypatch):
+    interval_start = datetime(2026, 6, 18, 9, 0, tzinfo=timezone.utc)
+    payload = {
+        "bias": "MIXED",
+        "confidence": 74,
+        "riskLevel": "MEDIUM",
+        "headline": "Mixed BTC positioning needs confirmation.",
+        "summary": "Long and short plans are both active, so the next hourly close matters.",
+        "keyDrivers": ["One active LONG", "One pending SHORT"],
+        "risks": ["Signals are split."],
+        "watchConditions": ["Watch the next 1H close."],
+        "action": "Avoid chasing until direction clears.",
+        "longShortContext": "LONG 1 / SHORT 1",
+        "sourceCounts": {"activePositions": 1, "pendingOrders": 1},
+        "provider": "mock",
+        "model": "mock-league-opinion",
+        "fallback": False,
+    }
+
+    with session_scope() as db:
+        db.add(
+            LeagueSentimentOpinionRecord(
+                symbol="BTCUSDT",
+                trader_id="aigentra-opinion",
+                status="ok",
+                locale="en",
+                interval_start=interval_start,
+                interval_end=interval_start + timedelta(hours=1),
+                provider="mock",
+                model="mock-league-opinion",
+                bias="MIXED",
+                confidence=74,
+                risk_level="MEDIUM",
+                fallback=False,
+                payload_json=to_json(payload),
+            )
+        )
+
+    async def fake_translate_json_with_logging(db, *, settings, payload, target_locale, symbol, trader_id, provider=None):
+        assert target_locale == "ko"
+        return {
+            **payload,
+            "headline": "BTC 포지션이 엇갈려 확인이 필요합니다.",
+            "summary": "롱과 숏 계획이 모두 살아 있어 다음 1시간 종가가 중요합니다.",
+            "keyDrivers": ["진입 중 LONG 1건", "진입대기 SHORT 1건"],
+            "risks": ["신호가 갈려 있습니다."],
+            "watchConditions": ["다음 1시간 종가를 확인하세요."],
+            "action": "방향이 정리될 때까지 추격 진입은 피하세요.",
+            "longShortContext": "LONG 1 / SHORT 1",
+        }
+
+    monkeypatch.setattr("app.league_sentiment.utc_now", lambda: interval_start + timedelta(minutes=12))
+    monkeypatch.setattr("app.ai.translation_cache.translate_json_with_logging", fake_translate_json_with_logging)
+    monkeypatch.setattr("app.main.settings.openai_api_key", "test-key")
+    monkeypatch.setattr("app.main.settings.ai_translation_enabled", True)
+    monkeypatch.setattr("app.main.settings.ai_translation_target_locales", ["ko"])
+
+    client = TestClient(app)
+    response = client.get("/api/league/sentiment/opinion?symbol=BTCUSDT&locale=ko")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["cacheHit"] is True
+    assert data["locale"] == "ko"
+    assert data["sourceLocale"] == "en"
+    assert data["translation"]["status"] == "ok"
+    assert data["opinion"]["headline"] == "BTC 포지션이 엇갈려 확인이 필요합니다."
+    assert data["opinion"]["summary"] == "롱과 숏 계획이 모두 살아 있어 다음 1시간 종가가 중요합니다."
+
+    with session_scope() as db:
+        translations = db.query(AITranslationCacheRecord).all()
+        assert len(translations) == 1
+        assert translations[0].locale == "ko"
+        assert translations[0].status == "ok"
 
 
 def test_league_sentiment_opinion_can_return_previous_hour_without_blocking(temp_db, monkeypatch):
