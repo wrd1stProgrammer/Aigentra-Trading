@@ -82,6 +82,7 @@ from app.paper.planner import (
     list_active_paper_exposure_map,
 )
 from app.paper.plan_state import latest_active_trade_plan, list_active_trade_plans
+from app.paper.reduction_policy import build_reduction_decision
 from app.paper.repositories import ensure_trader_state
 from app.paper.settings import sync_default_paper_settings
 from app.paper.sizing import final_trade_risk_percent
@@ -1127,21 +1128,28 @@ def apply_management_actions(
                 if new_stop is not None:
                     record = update_position_stop(db, position, new_stop, reason, result)
             elif action_type in {"TAKE_PARTIAL_PROFIT", "REDUCE_RISK", "REDUCE_SIZE"}:
-                raw_fraction = action.quantityFraction
-                if raw_fraction is None:
-                    # AI가 quantityFraction을 주지 않은 경우:
-                    # decision=CLOSE_POSITION이거나 reason에 전량 종료 의도가 있으면 전량 청산
-                    _full_close_keywords = ("전량", "전부", "완전히", "all", "full", "entire", "close all", "close position")
-                    _reason_lower = (reason or "").lower()
-                    _is_full_close = (
-                        review.decision == "CLOSE_POSITION"
-                        or any(kw in (reason or "") for kw in _full_close_keywords[:3])
-                        or any(kw in _reason_lower for kw in _full_close_keywords[3:])
-                    )
-                    raw_fraction = 1.0 if _is_full_close else 0.25
-                fraction = Decimal(str(raw_fraction))
-                # reduce_position_by_management 내부에서 fraction>=0.999이면 close_position_by_management 호출
-                record = reduce_position_by_management(db, state, position, mark_price, fraction, candle, reason, result)
+                reduction = build_reduction_decision(
+                    db,
+                    position=position,
+                    action_type=action_type,
+                    requested_fraction=action.quantityFraction,
+                    review_decision=review.decision,
+                    reason=reason,
+                )
+                reason = reduction.reason
+                if not reduction.should_apply or reduction.quantity_fraction is None:
+                    applied.append({"type": action_type, "applied": False, "reason": reduction.reason, "guarded": True})
+                    continue
+                record = reduce_position_by_management(
+                    db,
+                    state,
+                    position,
+                    mark_price,
+                    reduction.quantity_fraction,
+                    candle,
+                    reason,
+                    result,
+                )
             elif action_type in {"ADD_TO_POSITION", "PYRAMID_POSITION"}:
                 record = create_position_add_order(
                     db,
