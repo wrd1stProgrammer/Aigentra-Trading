@@ -484,35 +484,35 @@ export function LandingFooter({ copy }: { readonly copy: LandingCopy }) {
         </div>
         
         <div>
-          <h3 className="font-semibold text-sm text-zinc-800 uppercase tracking-wider">Product</h3>
+          <h3 className="font-semibold text-sm text-zinc-800 uppercase tracking-wider">{copy.footerLabels.product}</h3>
           <div className="mt-4 grid gap-3 text-sm text-zinc-500">
-            <Link href="/" className="hover:text-zinc-900 transition">How it works</Link>
-            <Link href="/login" className="hover:text-zinc-900 transition">Pricing</Link>
-            <Link href="/login" className="hover:text-zinc-900 transition">Testimonials</Link>
-            <Link href="/login" className="hover:text-zinc-900 transition">FAQ</Link>
+            <Link href="/" className="hover:text-zinc-900 transition">{copy.footerLabels.howItWorks}</Link>
+            <Link href="/login" className="hover:text-zinc-900 transition">{copy.footerLabels.pricing}</Link>
+            <Link href="/login" className="hover:text-zinc-900 transition">{copy.footerLabels.operatorNotes}</Link>
+            <Link href="/login" className="hover:text-zinc-900 transition">{copy.footerLabels.faq}</Link>
           </div>
         </div>
 
         <div>
-          <h3 className="font-semibold text-sm text-zinc-800 uppercase tracking-wider">Company</h3>
+          <h3 className="font-semibold text-sm text-zinc-800 uppercase tracking-wider">{copy.footerLabels.company}</h3>
           <div className="mt-4 grid gap-3 text-sm text-zinc-500">
-            <a href="mailto:support@aigentra.trading" className="hover:text-zinc-900 transition">Contact</a>
+            <a href="mailto:support@aigentra.trading" className="hover:text-zinc-900 transition">{copy.footerLabels.contact}</a>
           </div>
         </div>
 
         <div>
           <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-sm text-zinc-800 uppercase tracking-wider">Legal</h3>
+            <h3 className="font-semibold text-sm text-zinc-800 uppercase tracking-wider">{copy.footerLabels.legal}</h3>
             <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-zinc-900 transition md:hidden">
               <InstagramLogo size={20} />
             </a>
           </div>
           <div className="mt-4 grid gap-3 text-sm text-zinc-500">
-            <Link href="/terms" className="hover:text-zinc-900 transition">Terms of Service</Link>
-            <Link href="/disclaimer" className="hover:text-zinc-900 transition">Disclaimer</Link>
-            <Link href="/legal-notices" className="hover:text-zinc-900 transition">Legal Notices</Link>
-            <Link href="/privacy-policy" className="hover:text-zinc-900 transition">Privacy Policy</Link>
-            <Link href="/risk-disclosure" className="hover:text-zinc-900 transition">Risk Disclosure</Link>
+            <Link href="/terms" className="hover:text-zinc-900 transition">{copy.footerLabels.terms}</Link>
+            <Link href="/disclaimer" className="hover:text-zinc-900 transition">{copy.footerLabels.disclaimer}</Link>
+            <Link href="/legal-notices" className="hover:text-zinc-900 transition">{copy.footerLabels.legalNotices}</Link>
+            <Link href="/privacy-policy" className="hover:text-zinc-900 transition">{copy.footerLabels.privacyPolicy}</Link>
+            <Link href="/risk-disclosure" className="hover:text-zinc-900 transition">{copy.footerLabels.riskDisclosure}</Link>
           </div>
         </div>
 
@@ -527,25 +527,23 @@ export function LandingFooter({ copy }: { readonly copy: LandingCopy }) {
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between font-medium">
           <p>© 2026 Aigentra Trading. All rights reserved.</p>
           <div className="flex flex-wrap items-center text-zinc-500 gap-y-2">
-            <Link href="/terms" className="hover:text-zinc-900 transition mr-4 md:mr-6">Terms of Service</Link>
-            <Link href="/disclaimer" className="hover:text-zinc-900 transition mr-4 md:mr-6">Disclaimer</Link>
-            <Link href="/legal-notices" className="hover:text-zinc-900 transition mr-4 md:mr-6">Legal Notices</Link>
-            <Link href="/privacy-policy" className="hover:text-zinc-900 transition mr-4 md:mr-6">Privacy Policy</Link>
-            <Link href="/risk-disclosure" className="hover:text-zinc-900 transition">Risk Disclosure</Link>
+            <Link href="/terms" className="hover:text-zinc-900 transition mr-4 md:mr-6">{copy.footerLabels.terms}</Link>
+            <Link href="/disclaimer" className="hover:text-zinc-900 transition mr-4 md:mr-6">{copy.footerLabels.disclaimer}</Link>
+            <Link href="/legal-notices" className="hover:text-zinc-900 transition mr-4 md:mr-6">{copy.footerLabels.legalNotices}</Link>
+            <Link href="/privacy-policy" className="hover:text-zinc-900 transition mr-4 md:mr-6">{copy.footerLabels.privacyPolicy}</Link>
+            <Link href="/risk-disclosure" className="hover:text-zinc-900 transition">{copy.footerLabels.riskDisclosure}</Link>
           </div>
-          <p className="text-zinc-400">Made by <span className="font-semibold text-zinc-800">SERN</span></p>
+          <p className="text-zinc-400">{copy.footerLabels.madeBy} <span className="font-semibold text-zinc-800">SERN</span></p>
         </div>
-        <div className="mt-6 text-[10px] leading-5 text-zinc-400/80 border-t border-zinc-100/60 pt-6 space-y-2 text-left">
-          <p>{copy.disclaimer}</p>
-          <p className="text-[9px] text-zinc-400/60">
-            Aigentra Trading is an AI-powered chart analysis tool for educational purposes only. Nothing on this site constitutes financial advice, investment advice, or a solicitation to buy or sell any financial instrument. Not Financial Advice (NFA). Do Your Own Research (DYOR). Trading involves significant risk of loss. Past performance is not indicative of future results. Results are not typical and may vary.
-          </p>
-          <div className="flex gap-3 text-[9px] text-zinc-400/50">
-            <Link href="/privacy-policy" className="hover:underline">Privacy Policy</Link>
+        <div className="mt-6 space-y-3 border-t border-zinc-100/60 pt-6 text-left text-xs leading-6 text-zinc-500">
+          <p className="font-medium text-zinc-500">{copy.disclaimer}</p>
+          <p className="max-w-[112ch] text-zinc-400">{copy.footerRiskNotice}</p>
+          <div className="flex flex-wrap gap-3 text-[11px] leading-5 text-zinc-400">
+            <Link href="/privacy-policy" className="hover:underline">{copy.footerLabels.privacyPolicy}</Link>
             <span>|</span>
-            <Link href="/disclaimer" className="hover:underline">Disclaimer</Link>
+            <Link href="/disclaimer" className="hover:underline">{copy.footerLabels.disclaimer}</Link>
             <span>|</span>
-            <Link href="/risk-disclosure" className="hover:underline">Risk Disclosure</Link>
+            <Link href="/risk-disclosure" className="hover:underline">{copy.footerLabels.riskDisclosure}</Link>
           </div>
         </div>
       </div>

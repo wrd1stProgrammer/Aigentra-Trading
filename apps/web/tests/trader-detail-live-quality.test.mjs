@@ -8,6 +8,7 @@ const journalSource = readFileSync(new URL("../components/trader-profile-detail/
 const chartSource = readFileSync(new URL("../components/live-candle-chart.tsx", import.meta.url), "utf8");
 const pageSource = readFileSync(new URL("../components/trader-profile-page-client.tsx", import.meta.url), "utf8");
 const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
+const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
 
 test("management review scenarios use event-aware titles instead of repeated generic labels", () => {
   assert.match(dataSource, /managementReviewScenarioTitle/, "review scenarios need a dedicated semantic title helper");
@@ -51,4 +52,13 @@ test("detail bundle uses cached placeholder data without blocking live fetch", (
   assert.match(apiSource, /getCachedTraderDetailBundle[\s\S]*TRADER_DETAIL_BROWSER_CACHE_MS/, "detail cache reader should use the short trading-state TTL");
   assert.doesNotMatch(pageSource, /initialData/, "placeholder/fallback data must not be treated as fresh live data");
   assert.match(pageSource, /placeholderData[\s\S]*getCachedTraderDetailBundle/, "detail page should use browser cache only as placeholder data");
+});
+
+test("trader detail shows centered loading affordances for review and chart data", () => {
+  assert.match(pageSource, /PageLoadingOverlay/, "trader detail should use the shared centered loading overlay");
+  assert.match(pageSource, /detailQuery\.isFetching && \(detailQuery\.isPending \|\| detailQuery\.isPlaceholderData\)/, "detail overlay should stay active while placeholder AI review and chart context are syncing");
+  assert.match(pageSource, /common\.loadingTraderDetailData/, "detail loading copy should be localized");
+  assert.match(chartSource, /showInitialChartSpinner/, "live chart should expose an initial candle-loading spinner state");
+  assert.match(chartSource, /CircleNotch/, "chart loading UI should use a visible spinner instead of only skeleton pulses");
+  assert.match(i18nSource, /"common\.loadingTraderDetailData"/, "trader-detail loading copy should exist in the dictionary");
 });

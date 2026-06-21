@@ -43,6 +43,7 @@ import {
   TradingJournal
 } from "@/components/trader-profile-detail/panels";
 import { StatusFeedThread } from "@/components/trader-profile-detail/status-feed-thread";
+import { PageLoadingOverlay } from "@/components/page-loading-overlay";
 import { SYMBOLS, type TradeHistoryItem } from "@/components/trader-profile-detail/types";
 import { traderVisuals } from "@/lib/league";
 import { CaretLeft, CaretRight, Clock } from "@phosphor-icons/react";
@@ -427,6 +428,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, [detailQuery.data, fallback]);
 
   const loading = detailQuery.isPending && !detailQuery.data;
+  const initialLoading = detailQuery.isFetching && (detailQuery.isPending || detailQuery.isPlaceholderData);
   const error = detailQuery.error ? (detailQuery.error instanceof Error ? detailQuery.error.message : String(detailQuery.error)) : null;
 
   const prefetchSymbol = useCallback((nextSymbol: LeagueSymbol) => {
@@ -629,11 +631,28 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, [historyHasMore, loadHistory, loadingMoreHistory]);
 
   if (!trader || !standing) {
-    return <div className="rounded-xl border border-zinc-200 bg-white p-8 dark:border-zinc-800 dark:bg-zinc-950">{t("common.loading")}</div>;
+    return (
+      <div className="relative min-h-[52vh] rounded-2xl border border-zinc-200 bg-white p-8 dark:border-zinc-800 dark:bg-zinc-950">
+        <PageLoadingOverlay
+          active
+          label={t("common.loadingTraderDetailData")}
+          detail={t("common.loadingLiveDataDetail")}
+        />
+        <div className="flex min-h-[40vh] items-center justify-center text-sm text-zinc-500 dark:text-zinc-400">
+          {t("common.loading")}
+        </div>
+      </div>
+    );
   }
 
   return (
     <div data-testid="trader-detail-monitoring-shell" className="min-w-0 pb-8">
+      <PageLoadingOverlay
+        active={initialLoading}
+        label={t("common.loadingTraderDetailData")}
+        detail={t("common.loadingLiveDataDetail")}
+      />
+
       <HeroHeader
         trader={trader}
         standing={standing}
@@ -875,7 +894,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       </section>
 
       {error ? <div className="mt-4 rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200">{error}</div> : null}
-      {loading ? <div className="mt-4 rounded-xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">{t("common.loading")}</div> : null}
+      {loading && !initialLoading ? <div className="mt-4 rounded-xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">{t("common.loading")}</div> : null}
 
       {liveAlert ? (
         <div

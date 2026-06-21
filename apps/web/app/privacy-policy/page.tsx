@@ -108,6 +108,8 @@ export default function PrivacyPolicyPage() {
                 <p><strong>3.1 직접 제공하는 정보</strong></p>
                 <ul className="list-disc pl-5 space-y-1">
                   <li>회원가입 정보: 성명, 이메일 주소, 사용자 ID</li>
+                  <li>Google 로그인으로 제공되는 기본 프로필 정보: 이메일 주소, 이름, 프로필 이미지, Google OAuth 식별자</li>
+                  <li>Telegram 알림 연결 정보: Telegram Chat ID, 사용자명, 연결 상태, 알림 수신 설정</li>
                   <li>Whop.com을 통해 처리되는 결제 내역 (당사는 직접 신용카드 번호 등 결제 정보를 저장하지 않습니다)</li>
                   <li>고객 지원 문의 메일, 지원 티켓 내용 또는 당사로 전송된 메시지</li>
                 </ul>
@@ -120,7 +122,9 @@ export default function PrivacyPolicyPage() {
                 </ul>
                 <p><strong>3.3 제3자로부터 수집하는 정보</strong></p>
                 <ul className="list-disc pl-5 space-y-1">
+                  <li>Google OAuth로부터 제공받는 로그인 확인 데이터 및 기본 계정 프로필</li>
                   <li>Whop.com으로부터 제공받는 결제 데이터 (거래 확인 번호, 구독 활성화 상태 등)</li>
+                  <li>Telegram Bot API로부터 제공받는 Chat ID, 봇 대화 시작 여부, 사용자명 등 연결 확인 데이터</li>
                   <li>Meta Pixel 및 기타 광고 플랫폼으로부터 제공받는 광고/마케팅 분석 데이터 (제6조 참고)</li>
                 </ul>
               </section>
@@ -130,7 +134,9 @@ export default function PrivacyPolicyPage() {
                 <p>수집된 개인정보는 다음 목적을 위해 사용됩니다:</p>
                 <ul className="list-disc pl-5 space-y-1.5">
                   <li>서비스 제공, 계정 유지 및 관리</li>
+                  <li>Google 로그인을 통한 본인 인증 및 계정 식별</li>
                   <li>Whop을 통한 정기 구독권 관리 및 결제 내역 처리</li>
+                  <li>Telegram 알림 연결, Chat ID 확인, 사용자가 선택한 트레이더 및 이벤트 알림 발송</li>
                   <li>거래성 안내(영수증, 계정 상태 변경 알림 등) 발송</li>
                   <li>마케팅 및 홍보성 안내 발송 (사용자의 수신 동의가 있는 경우)</li>
                   <li>이용 분석을 통한 서비스 고도화 및 품질 개선</li>
@@ -173,16 +179,19 @@ export default function PrivacyPolicyPage() {
                 <p>
                   메타의 데이터 수집 동의 철회는 <a href="https://www.facebook.com/help/568137493302217" target="_blank" rel="noopener noreferrer" className="text-emerald-500 hover:underline">여기</a>를 방문하거나 페이스북 광고 선호도 설정을 통해 가능합니다.
                 </p>
-                <p><strong>6.3 기타 분석 툴</strong></p>
-                <p>당사는 구글 애널리틱스 등 기타 트래픽 분석 툴을 함께 활용하여 비식별화된 플랫폼 이용 통계를 수집하고 개선할 수 있으며, 이는 각 업체의 자체 개인정보 보호 정책을 따릅니다.</p>
+                <p><strong>6.3 Google Analytics 및 기타 분석 툴</strong></p>
+                <p>당사는 Google Analytics 등 기타 트래픽 분석 툴을 함께 활용하여 비식별화된 플랫폼 이용 통계를 수집하고 개선할 수 있으며, 이는 각 업체의 자체 개인정보 보호 정책을 따릅니다.</p>
               </section>
 
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">7. 개인정보의 공유 및 제3자 제공</h2>
                 <p>당사는 사용자의 개인정보를 판매하지 않습니다. 당사는 서비스의 원활한 운영을 위해 다음 신뢰할 수 있는 수탁자에게 개인정보 처리를 위탁하고 있습니다:</p>
                 <ul className="list-disc pl-5 space-y-1.5">
+                  <li><strong>Google LLC:</strong> Google 로그인 및 기본 프로필 인증</li>
                   <li><strong>Whop.com:</strong> 결제 처리 및 구독권 관리 서비스</li>
+                  <li><strong>Telegram Messenger Inc. 및 Telegram Bot API:</strong> 사용자가 연결한 채팅으로 알림 전송 및 Chat ID 확인</li>
                   <li><strong>Meta Platforms, Inc.:</strong> Meta Pixel을 통한 타겟 광고 및 마케팅 성과 추적</li>
+                  <li><strong>Google Analytics:</strong> 서비스 이용 통계 및 품질 개선 분석</li>
                   <li><strong>호스팅 및 인프라 공급업체:</strong> 안전한 데이터 저장 및 클라우드 호스팅 서비스 제공</li>
                   <li><strong>사법 당국:</strong> 관련 법률, 법원의 명령 또는 수사 기관의 적법한 요구가 있을 경우</li>
                   <li><strong>승계인:</strong> 인수합병, 영업 양도 등의 경영상 변화가 발생할 경우</li>
@@ -199,7 +208,7 @@ export default function PrivacyPolicyPage() {
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">9. 개인정보의 보유 및 파기</h2>
                 <p>
-                  당사는 목적이 달성된 개인정보를 지체 없이 파기합니다. 회원 정보는 서비스 구독 기간 동안 보유되며, 서비스 탈퇴 후 세무 기록 보관, 분쟁 해결 및 법적 요구 사항의 준수를 위해 회원 가입 및 결제 이력 정보는 탈퇴일로부터 최대 3년간 별도 보관될 수 있습니다.
+                  당사는 목적이 달성된 개인정보를 지체 없이 파기합니다. 회원 정보는 서비스 구독 기간 동안 보유되며, Telegram Chat ID 및 알림 설정은 사용자가 연결을 해제하거나 계정을 삭제할 때까지 보관됩니다. 서비스 탈퇴 후 세무 기록 보관, 분쟁 해결 및 법적 요구 사항의 준수를 위해 회원 가입 및 결제 이력 정보는 탈퇴일로부터 최대 3년간 별도 보관될 수 있습니다.
                 </p>
               </section>
 
@@ -284,6 +293,8 @@ export default function PrivacyPolicyPage() {
                 <p><strong>3.1 Data You Provide Directly</strong></p>
                 <ul className="list-disc pl-5 space-y-1">
                   <li>Account registration data: name, email address, username;</li>
+                  <li>Basic profile data provided through Google sign-in: email address, name, profile image, and Google OAuth identifier;</li>
+                  <li>Telegram alert connection data: Telegram Chat ID, username, connection state, and notification preferences;</li>
                   <li>Payment information processed by Whop.com (we do not store payment card details);</li>
                   <li>Communications: emails, support tickets, or messages sent to us.</li>
                 </ul>
@@ -296,7 +307,9 @@ export default function PrivacyPolicyPage() {
                 </ul>
                 <p><strong>3.3 Data from Third Parties</strong></p>
                 <ul className="list-disc pl-5 space-y-1">
+                  <li>Google OAuth login confirmation and basic account profile data;</li>
                   <li>Payment data from Whop.com (transaction confirmation, subscription status);</li>
+                  <li>Telegram Bot API connection data, including Chat ID, bot conversation state, and username where available;</li>
                   <li>Advertising data from Meta Pixel and other advertising platforms (see Section 6).</li>
                 </ul>
               </section>
@@ -306,7 +319,9 @@ export default function PrivacyPolicyPage() {
                 <p>We use personal data to:</p>
                 <ul className="list-disc pl-5 space-y-1.5">
                   <li>Provide and maintain the Service and your account;</li>
+                  <li>Authenticate and identify your account through Google sign-in;</li>
                   <li>Process payments and manage subscriptions;</li>
+                  <li>Connect Telegram alerts, verify Chat ID ownership, and send the trader or event alerts you select;</li>
                   <li>Send transactional communications (receipts, account notifications);</li>
                   <li>Send marketing communications (where you have provided consent);</li>
                   <li>Analyze Platform usage to improve our services;</li>
@@ -347,7 +362,7 @@ export default function PrivacyPolicyPage() {
                 <p>
                   You may opt out of Meta's data collection by visiting: <a href="https://www.facebook.com/help/568137493302217" target="_blank" rel="noopener noreferrer" className="text-emerald-500 hover:underline">Meta Opt Out Guide</a> or through your Meta ad preferences.
                 </p>
-                <p><strong>6.3 Other Analytics Tools</strong></p>
+                <p><strong>6.3 Google Analytics and Other Analytics Tools</strong></p>
                 <p>We may use Google Analytics or similar tools for traffic analysis. These tools collect anonymized usage data governed by their respective privacy policies.</p>
               </section>
 
@@ -355,8 +370,11 @@ export default function PrivacyPolicyPage() {
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">7. Data Sharing</h2>
                 <p>We do not sell your personal data. We may share data with:</p>
                 <ul className="list-disc pl-5 space-y-1.5">
+                  <li>Google LLC: Google sign-in and basic profile authentication;</li>
                   <li>Whop.com: our payment and subscription management platform;</li>
+                  <li>Telegram Messenger Inc. and Telegram Bot API: delivery of alerts to the chat you connect and Chat ID verification;</li>
                   <li>Meta Platforms, Inc.: for advertising via Meta Pixel;</li>
+                  <li>Google Analytics: product usage analytics and service improvement;</li>
                   <li>Hosting & infrastructure providers: for Platform operation;</li>
                   <li>Legal authorities: where required by law or court order;</li>
                   <li>Successors: in the event of a merger, acquisition, or asset sale.</li>
@@ -373,7 +391,7 @@ export default function PrivacyPolicyPage() {
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">9. Data Retention</h2>
                 <p>
-                  We retain personal data for as long as necessary to provide the Service and comply with legal obligations. Account data is retained for the duration of your subscription plus a maximum of three (3) years thereafter for legal and compliance purposes.
+                  We retain personal data for as long as necessary to provide the Service and comply with legal obligations. Telegram Chat ID and alert preferences are retained until you disconnect Telegram or delete your account. Account data is retained for the duration of your subscription plus a maximum of three (3) years thereafter for legal and compliance purposes.
                 </p>
               </section>
 

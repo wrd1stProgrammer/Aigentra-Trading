@@ -15,7 +15,8 @@ import {
   Ruler,
   Minus,
   Eye,
-  EyeSlash
+  EyeSlash,
+  CircleNotch
 } from "@phosphor-icons/react";
 import {
   CandlestickSeries,
@@ -347,6 +348,7 @@ export function LiveCandleChart({
     [locale]
   );
   const marketPrice = latestPrice ?? indicatorCandles.at(-1)?.close ?? null;
+  const showInitialChartSpinner = loading && indicatorCandles.length === 0;
   const dayChangePct =
     marketPrice !== null && dailyReferencePrice !== null && dailyReferencePrice > 0
       ? ((marketPrice - dailyReferencePrice) / dailyReferencePrice) * 100
@@ -1778,6 +1780,14 @@ export function LiveCandleChart({
           {/* Candlestick Main Frame */}
           <div className="relative w-full overflow-hidden">
             <div ref={containerRef} className="w-full rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950/70" style={{ height: chartHeight }} />
+            {showInitialChartSpinner ? (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-50/70 backdrop-blur-[2px] dark:bg-zinc-950/55" role="status" aria-live="polite">
+                <div className="flex flex-col items-center gap-2 rounded-2xl border border-zinc-200 bg-white/90 px-5 py-4 text-center text-zinc-700 shadow-lg shadow-zinc-950/10 dark:border-zinc-800 dark:bg-[#080b0a]/90 dark:text-zinc-200">
+                  <CircleNotch className="animate-spin text-emerald-500 dark:text-emerald-300" size={28} weight="bold" />
+                  <span className="text-xs font-bold">{t("chart.loadingHistory")}</span>
+                </div>
+              </div>
+            ) : null}
             
             {/* Transparent overlay drawing canvas */}
             <canvas

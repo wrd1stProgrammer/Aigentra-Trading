@@ -28,6 +28,7 @@ test("subscriber-only screens are blurred behind the subscription gate", () => {
   assert.match(accountSource, /access\.accountLockedTitle/, "account lock copy should be localized");
   assert.match(consensusSource, /ProtectedContentGate/, "AI sentiment should be protected");
   assert.match(consensusSource, /access\.consensusLockedTitle/, "sentiment lock copy should be localized");
+  assert.match(consensusSource, /lockPlacement="viewport"/, "AI sentiment lock affordance should stay fixed in the viewport center");
 });
 
 test("AI review timeline uses coupon unlocks instead of leaking modal content", () => {
@@ -38,6 +39,9 @@ test("AI review timeline uses coupon unlocks instead of leaking modal content", 
 
 test("locked content uses a click-through blur with a charge confirmation dialog", () => {
   assert.match(accessGateSource, /blur-\[3px\]/, "locked content should remain visible enough to create curiosity");
+  assert.match(accessGateSource, /access\.reviewInlineLocked/, "coupon rows should use a compact inline locked label instead of a large repeated card");
+  assert.match(accessGateSource, /lockPlacement === "viewport"/, "long locked content should support a viewport-centered affordance");
+  assert.match(accessGateSource, /fixed left-1\/2 top-1\/2/, "viewport locks should be fixed in the visual center");
   assert.match(accessGateSource, /access\.useCouponDescription/, "coupon mode should explain the charge before unlocking");
   assert.match(accessGateSource, /unlockProtectedSource/, "coupon unlocks should call the server before revealing content");
   assert.match(accessGateSource, /review_coupon_limit_reached/, "coupon exhaustion should produce a specific localized state");

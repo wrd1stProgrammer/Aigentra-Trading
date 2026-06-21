@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAppContext } from "@/components/app-provider";
-import { ArrowLeft, FileText, Translate } from "@phosphor-icons/react";
+import { ArrowLeft, FileText, Translate, WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
 import { LandingFooter } from "@/components/home-landing-visuals";
 import { landingCopy } from "@/lib/marketing-copy";
@@ -78,14 +78,17 @@ export default function RiskDisclosurePage() {
           {activeLang === "ko" ? (
             <>
               <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-5 text-xs leading-relaxed text-rose-600 dark:text-rose-400 font-semibold">
-                <p className="font-bold mb-1">⚠️ 투자 위험 주의 알림</p>
+                <p className="mb-1 inline-flex items-center gap-2 font-bold">
+                  <WarningCircle size={15} weight="bold" />
+                  <span>투자 위험 주의 알림</span>
+                </p>
                 금융시장에서의 거래 및 투자는 원금의 상당 부분 또는 전액 손실이라는 중대한 위험을 내포하고 있습니다. 본인이 완전히 감당할 수 있는 한도를 초과하는 자금으로 투자하지 마십시오.
               </div>
 
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">1. 일반적 위험 경고</h2>
                 <p>
-                  Aigentra Trading은 시장 정보와 기술적 관점을 제공하기 위해 설계된 AI 기반 차트 분석 도구입니다. Aigentra Trading을 사용하는 것은 모든 자산 군에서의 금융 거래 및 투자에 수반되는 본질적인 위험을 줄이거나 제거하지 못합니다.
+                  Aigentra Trading은 공개 BTC 선물 시장 데이터를 바탕으로 가상 AI 트레이더의 판단과 관리 기록을 보여주는 시뮬레이션 기반 분석 도구입니다. Aigentra Trading을 사용하는 것은 암호화폐 선물 및 무기한 계약 시장에 수반되는 본질적인 위험을 줄이거나 제거하지 못합니다.
                 </p>
                 <p>Aigentra Trading을 이용함으로써 귀하는 다음 사항을 인정하고 수락합니다:</p>
                 <ul className="list-disc pl-5 space-y-1.5">
@@ -112,15 +115,14 @@ export default function RiskDisclosurePage() {
               </section>
 
               <section className="space-y-3">
-                <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">3. 외환(Forex) 및 원자재(Commodities) 위험</h2>
-                <p>외환 및 원자재 시장은 다음과 같은 독특한 위험 프로필을 가집니다:</p>
+                <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">3. 암호화폐 선물 및 무기한 계약 위험</h2>
+                <p>Aigentra Trading의 리그와 리뷰는 BTCUSDT 선물/무기한 계약 시장 데이터를 기반으로 한 가상 기록입니다. 실제 선물 또는 무기한 계약 거래에는 다음 위험이 존재합니다:</p>
                 <ul className="list-disc pl-5 space-y-1.5">
-                  <li><strong>지정학적 및 거시경제적 위험:</strong> 중앙은행 발표, 인플레이션 지표, 전쟁, 무역 분쟁, 정치적 불안정은 기술적 분석만으로는 예측하기 힘든 급격한 가격 변동을 유발할 수 있습니다.</li>
-                  <li><strong>레버리지 및 마진 위험:</strong> 외환 및 원자재 거래는 흔히 높은 레버리지(증거금 거래)를 사용합니다. 이는 이익뿐만 아니라 손실도 극대화하여 투자 자금을 빠르게 소멸시킬 수 있습니다.</li>
-                  <li><strong>갭(Gap) 위험:</strong> 시장 개장 시간이나 주요 뉴스 발표 이후, 시장 가격이 급격히 건너뛰어(Gap) 설정해 둔 손절매(Stop-loss) 가격보다 훨씬 불리한 가격에 체결될 위험이 있습니다.</li>
-                  <li><strong>계절적 및 수급 위험:</strong> 원자재 가격은 날씨, 수확량, 공급망 차단, 자연재해 등에 민감하게 반응하여 예측이 매우 어렵습니다.</li>
-                  <li><strong>스프레드 및 슬리피지:</strong> 시장 변동성이 큰 시기에는 매수-매도 호가 차이(Spread)가 크게 벌어지고, 주문 체결 시 슬리피지(Slippage)가 발생하여 거래 비용이 증가할 수 있습니다.</li>
-                  <li><strong>환율 변동 위험:</strong> 외화 표시 자산을 거래하는 경우, 해당 자산 자체의 가격 변동 외에 환율 변동으로 인한 환차손 위험을 감수해야 합니다.</li>
+                  <li><strong>레버리지 및 강제청산 위험:</strong> 레버리지는 작은 가격 변동도 큰 손익 변동으로 확대하며, 마진 부족 시 포지션이 강제로 청산될 수 있습니다.</li>
+                  <li><strong>마크 가격 및 지수 가격 위험:</strong> 손익, 청산, 손절 판단은 거래소별 마크 가격 또는 지수 가격과 실제 체결 가격 사이의 차이에 영향을 받을 수 있습니다.</li>
+                  <li><strong>펀딩비 및 베이시스 위험:</strong> 무기한 계약은 펀딩비, 선물-현물 가격 차이, 시장 쏠림에 따라 예상과 다른 비용 또는 손익 변동이 발생할 수 있습니다.</li>
+                  <li><strong>슬리피지 및 유동성 위험:</strong> 급격한 변동성이나 얇은 호가에서는 목표가, 손절가, 시뮬레이션 가격과 실제 체결 가능 가격이 크게 달라질 수 있습니다.</li>
+                  <li><strong>데이터 지연 및 거래소 장애 위험:</strong> 공개 데이터 피드, 네트워크, 거래소 장애 또는 API 지연은 시뮬레이션 기록과 실제 시장 상태 사이의 차이를 만들 수 있습니다.</li>
                 </ul>
               </section>
 
@@ -209,14 +211,17 @@ export default function RiskDisclosurePage() {
           ) : (
             <>
               <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-5 text-xs leading-relaxed text-rose-600 dark:text-rose-400 font-semibold">
-                <p className="font-bold mb-1">⚠️ Financial Risk Warning</p>
+                <p className="mb-1 inline-flex items-center gap-2 font-bold">
+                  <WarningCircle size={15} weight="bold" />
+                  <span>Financial Risk Warning</span>
+                </p>
                 TRADING AND INVESTING IN FINANCIAL MARKETS INVOLVES SUBSTANTIAL RISK OF LOSS. DO NOT INVEST MORE THAN YOU CAN AFFORD TO LOSE.
               </div>
 
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">1. General Risk Warning</h2>
                 <p>
-                  Aigentra Trading is an AI-powered chart analysis tool designed to provide market insights and technical observations. The use of Aigentra Trading does not reduce or eliminate the inherent risks associated with financial trading and investment in any asset class.
+                  Aigentra Trading is a simulation-based analytics tool that displays virtual AI trader decisions and management records from public BTC futures market data. The use of Aigentra Trading does not reduce or eliminate the inherent risks associated with crypto futures and perpetual contract markets.
                 </p>
                 <p>By using Aigentra Trading, you acknowledge and accept that:</p>
                 <ul className="list-disc pl-5 space-y-1.5">
@@ -243,15 +248,14 @@ export default function RiskDisclosurePage() {
               </section>
 
               <section className="space-y-3">
-                <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">3. Forex & Commodities Risks</h2>
-                <p>Foreign exchange (Forex) and commodities markets carry their own distinct risk profile:</p>
+                <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">3. Crypto Futures & Perpetual Contract Risks</h2>
+                <p>Aigentra Trading's league and reviews are hypothetical records based on BTCUSDT futures and perpetual market data. Live futures or perpetual contract trading may involve the following risks:</p>
                 <ul className="list-disc pl-5 space-y-1.5">
-                  <li><strong>Geopolitical & Macroeconomic Risk:</strong> Central bank announcements, inflation data, war, trade tensions, and political instability can cause rapid and large price movements unpredictable by technical analysis alone.</li>
-                  <li><strong>Leverage & Margin Risk:</strong> Forex and commodity trading often use leverage (borrowed money). This amplifies both gains and losses, potentially wiping out your entire capital or creating negative equity.</li>
-                  <li><strong>Gap Risk:</strong> Markets can gap past stop-loss orders during market openings or after major news events, resulting in execution at much worse prices than expected.</li>
-                  <li><strong>Seasonal & Supply-Demand Risk:</strong> Commodity prices are influenced by weather, harvests, supply disruptions, and natural disasters, all of which are difficult to predict.</li>
-                  <li><strong>Spread & Slippage:</strong> Bid-ask spreads can widen substantially during volatile periods, making entry and exit more expensive than expected.</li>
-                  <li><strong>Currency Risk:</strong> If trading assets denominated in foreign currencies, you assume the risk of currency fluctuation on top of the asset's price movement.</li>
+                  <li><strong>Leverage & Liquidation Risk:</strong> Leverage magnifies small price moves into large profit or loss swings, and positions may be liquidated when margin is insufficient.</li>
+                  <li><strong>Mark Price & Index Price Risk:</strong> PnL, liquidation, and stop logic may be affected by differences between exchange mark prices, index prices, and executable prices.</li>
+                  <li><strong>Funding & Basis Risk:</strong> Perpetual contracts can create unexpected costs or PnL changes through funding rates, futures basis, and crowded positioning.</li>
+                  <li><strong>Slippage & Liquidity Risk:</strong> During volatility or thin order books, targets, stops, simulation prices, and executable prices may differ materially.</li>
+                  <li><strong>Data Delay & Exchange Outage Risk:</strong> Public feeds, networks, exchange outages, or API delays can create gaps between simulation records and live market state.</li>
                 </ul>
               </section>
 

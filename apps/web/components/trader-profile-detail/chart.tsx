@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { CircleNotch } from "@phosphor-icons/react";
 import type { ManagementReview, PaperOrder, PaperPosition, PaperTradeEvent } from "@/lib/api";
 import type { LeagueSymbol, TraderScenario } from "@/lib/league";
 import { BinancePositionPanel } from "@/components/trader-profile-detail/binance-position-panel";
@@ -81,7 +82,11 @@ function ChartLoadingPanel() {
         </div>
         <div className="h-8 w-28 animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-900" />
       </div>
-      <div className="h-[420px] w-full animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-900" />
+      <div className="grid h-[420px] w-full place-items-center rounded-xl bg-zinc-100 dark:bg-zinc-900">
+        <div className="flex items-center justify-center text-zinc-500 dark:text-zinc-400" aria-hidden="true">
+          <CircleNotch className="animate-spin text-emerald-500 dark:text-emerald-300" size={30} weight="bold" />
+        </div>
+      </div>
     </section>
   );
 }

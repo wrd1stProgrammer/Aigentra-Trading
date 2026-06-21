@@ -49,6 +49,23 @@ export type LandingCopy = {
   readonly aboutPoints: readonly string[];
   readonly footerTagline: string;
   readonly disclaimer: string;
+  readonly footerRiskNotice: string;
+  readonly footerLabels: {
+    readonly product: string;
+    readonly howItWorks: string;
+    readonly pricing: string;
+    readonly operatorNotes: string;
+    readonly faq: string;
+    readonly company: string;
+    readonly contact: string;
+    readonly legal: string;
+    readonly terms: string;
+    readonly disclaimer: string;
+    readonly legalNotices: string;
+    readonly privacyPolicy: string;
+    readonly riskDisclosure: string;
+    readonly madeBy: string;
+  };
 };
 
 const copy = {
@@ -128,8 +145,8 @@ const copy = {
     ],
     testimonialsTitle: "운영자가 원하는 것은 더 많은 신호가 아니라, 추적 가능한 판단입니다.",
     testimonials: [
-      { quote: "리그 순위와 최근 판단이 같이 보여서 어떤 AI 트레이더를 지켜볼지 빠르게 좁힐 수 있습니다.", author: "Min Park", role: "paper-trading operator" },
-      { quote: "Telegram 알림이 관심 트레이더 중심이라 시장 소음과 실제 관리 이벤트를 분리하기 좋습니다.", author: "J. Kim", role: "strategy reviewer" }
+      { quote: "리그 순위와 최근 판단이 같이 보여서 어떤 AI 트레이더를 지켜볼지 빠르게 좁힐 수 있습니다.", author: "운영 예시", role: "제품 사용 흐름" },
+      { quote: "Telegram 알림이 관심 트레이더 중심이라 시장 소음과 실제 관리 이벤트를 분리하기 좋습니다.", author: "검토 예시", role: "알림 설정 흐름" }
     ],
     trustTitle: "라이브 거래소 주문이 아닌 시뮬레이션 검증 서비스입니다.",
     trustBody: "실제 자금 집행보다 먼저 전략 판단과 관리 과정을 읽기 쉽게 보관하는 데 초점을 둡니다.",
@@ -149,8 +166,26 @@ const copy = {
       "결과적으로 **Aigentra Trading**은 **선물 시뮬레이션 거래**의 판단, 노출, 리스크 변화를 한 곳에서 추적하기 위한 분석 기록 도구입니다. 상승/하락 시나리오, 리스크 메모, 관리 업데이트를 투자 조언이 아닌 참고용 데이터로 제공합니다."
     ],
     aboutPoints: ["실제 계좌 키를 요구하지 않음", "BTCUSDT 전문 감시", "구독자별 Telegram 설정"],
-    footerTagline: "Virtual AI traders, simulated positions, real-time Telegram action alerts.",
-    disclaimer: "이 서비스는 교육과 시뮬레이션 목적의 정보 화면입니다. 투자 조언이나 매수·매도 권유가 아닙니다."
+    footerTagline: "가상 AI 트레이더 기록, BTC 선물 시장 맥락, Telegram 알림.",
+    disclaimer: "이 서비스는 교육과 시뮬레이션 목적의 정보 화면입니다. 투자 조언이나 매수·매도 권유가 아닙니다.",
+    footerRiskNotice:
+      "Aigentra Trading은 실제 거래소 주문을 실행하거나 고객 자금을 보관하지 않는 시뮬레이션 기반 분석 서비스입니다. 모든 리그 성과, AI 리뷰, 목표가, 손절가, 알림은 공개 시장 데이터를 바탕으로 한 가상 기록이며 실제 투자 결과를 보장하지 않습니다. 암호화폐 선물과 무기한 계약은 높은 변동성, 레버리지, 강제청산, 유동성 부족, 데이터 지연 위험이 있으며 원금 전액 손실이 발생할 수 있습니다. 최종 판단은 사용자 본인의 책임이며, 필요한 경우 자격을 갖춘 전문가와 상담하십시오.",
+    footerLabels: {
+      product: "제품",
+      howItWorks: "작동 방식",
+      pricing: "요금제",
+      operatorNotes: "운영 예시",
+      faq: "자주 묻는 질문",
+      company: "회사",
+      contact: "문의",
+      legal: "법적 고지",
+      terms: "서비스 이용약관",
+      disclaimer: "면책조항",
+      legalNotices: "법적 고지",
+      privacyPolicy: "개인정보 처리방침",
+      riskDisclosure: "위험 고지",
+      madeBy: "제작"
+    }
   },
   en: {
     heroEyebrow: "AI trader league for simulated futures",
@@ -228,8 +263,8 @@ const copy = {
     ],
     testimonialsTitle: "Operators need traceable decisions, not more signal noise.",
     testimonials: [
-      { quote: "The leaderboard and latest rationale make it clear which AI traders are worth watching before I subscribe.", author: "Min Park", role: "paper-trading operator" },
-      { quote: "Telegram alerts stay tied to favorite traders, so market noise is easier to separate from actual management events.", author: "J. Kim", role: "strategy reviewer" }
+      { quote: "The leaderboard and latest rationale make it clear which AI traders are worth watching before I subscribe.", author: "Operator note", role: "illustrative product flow" },
+      { quote: "Telegram alerts stay tied to favorite traders, so market noise is easier to separate from actual management events.", author: "Review note", role: "illustrative alert flow" }
     ],
     trustTitle: "This is simulated validation, not live exchange execution.",
     trustBody: "The product stores strategy decisions and management context before any real capital workflow.",
@@ -249,8 +284,26 @@ const copy = {
       "Ultimately, **Aigentra Trading** is built to track **simulated futures trading** with clarity and discipline. It presents bullish and bearish scenarios, risk notes, and management updates as an analytical record, not financial advice. The goal is to help users understand strategy behavior, exposure, and market risk more clearly."
     ],
     aboutPoints: ["No exchange keys required", "Focused on BTCUSDT", "Account-scoped Telegram settings"],
-    footerTagline: "Virtual AI traders, simulated positions, real-time Telegram action alerts.",
-    disclaimer: "This product is for education and simulation. It is not investment advice or a recommendation to buy or sell."
+    footerTagline: "Virtual AI trader records, BTC futures context, and Telegram alerts.",
+    disclaimer: "This product is for education and simulation. It is not investment advice or a recommendation to buy or sell.",
+    footerRiskNotice:
+      "Aigentra Trading is a simulation-based analytics service. It does not execute exchange orders, custody customer funds, or provide personalized financial advice. League performance, AI reviews, targets, stops, and alerts are hypothetical records derived from public market data and do not guarantee actual investment results. Crypto futures and perpetual contracts involve high volatility, leverage, liquidation, liquidity, slippage, and data-delay risk, including possible total loss of capital. You remain responsible for every financial decision and should consult a qualified professional when needed.",
+    footerLabels: {
+      product: "Product",
+      howItWorks: "How it works",
+      pricing: "Pricing",
+      operatorNotes: "Operator notes",
+      faq: "FAQ",
+      company: "Company",
+      contact: "Contact",
+      legal: "Legal",
+      terms: "Terms of Service",
+      disclaimer: "Disclaimer",
+      legalNotices: "Legal Notices",
+      privacyPolicy: "Privacy Policy",
+      riskDisclosure: "Risk Disclosure",
+      madeBy: "Made by"
+    }
   }
 } as const satisfies Record<"ko" | "en", LandingCopy>;
 

@@ -518,6 +518,7 @@ export function ConsensusPageClient() {
 
       <ProtectedContentGate
         mode="subscription"
+        lockPlacement="viewport"
         title={t("access.consensusLockedTitle")}
         description={t("access.consensusLockedDescription")}
         className="space-y-4 md:space-y-6"

@@ -19,6 +19,7 @@ type ProtectedMode = "subscription" | "coupon";
 
 type ProtectedContentGateProps = {
   readonly mode: ProtectedMode;
+  readonly lockPlacement?: "content" | "viewport";
   readonly sourceKey?: string;
   readonly sourceType?: "scenario" | "review" | "trader_detail";
   readonly traderId?: string;
@@ -32,6 +33,7 @@ type ProtectedContentGateProps = {
 
 export function ProtectedContentGate({
   mode,
+  lockPlacement = "content",
   sourceKey,
   sourceType = "scenario",
   traderId,
@@ -90,19 +92,37 @@ export function ProtectedContentGate({
     }
   };
 
+  const lockContentClass =
+    lockPlacement === "viewport"
+      ? "fixed left-1/2 top-1/2 z-20 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2"
+      : "absolute left-1/2 top-1/2 w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2";
+
   return (
-    <div className={`relative overflow-hidden rounded-2xl ${className}`}>
-      <div className="pointer-events-none select-none blur-[3px]">{children}</div>
+    <div className={`relative rounded-2xl ${className}`}>
+      <div className="pointer-events-none select-none overflow-hidden rounded-2xl">
+        <div className="blur-[3px]">{children}</div>
+      </div>
       <button
         type="button"
-        className="focus-ring absolute inset-0 flex flex-col items-center justify-start gap-2 bg-zinc-950/75 px-5 py-8 text-center text-white sm:justify-center"
+        className={`focus-ring absolute inset-0 z-10 block rounded-2xl text-center text-white ${
+          isCouponMode ? "bg-zinc-950/[0.56]" : "bg-zinc-950/[0.76]"
+        }`}
         onClick={() => setDialogOpen(true)}
       >
-        <span className="grid size-10 place-items-center rounded-xl border border-emerald-400/30 bg-emerald-400/10 text-emerald-200">
-          {isCouponMode ? <Ticket size={19} weight="bold" /> : <LockKey size={19} weight="bold" />}
-        </span>
-        <span className="text-sm font-bold text-pretty">{lockTitle}</span>
-        <span className="max-w-[34ch] text-xs leading-5 text-zinc-300 text-pretty">{lockDescription}</span>
+        {isCouponMode ? (
+          <span className="absolute left-1/2 top-1/2 inline-flex max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full border border-emerald-400/25 bg-black/45 px-3.5 py-2 text-xs font-bold text-emerald-100 shadow-lg shadow-black/25">
+            <Ticket size={15} weight="bold" className="shrink-0" />
+            <span className="truncate">{t("access.reviewInlineLocked")}</span>
+          </span>
+        ) : (
+          <span className={`${lockContentClass} flex flex-col items-center justify-center gap-2 px-5 py-4`}>
+            <span className="grid size-10 place-items-center rounded-xl border border-emerald-400/30 bg-emerald-400/10 text-emerald-200">
+              <LockKey size={19} weight="bold" />
+            </span>
+            <span className="text-sm font-bold text-pretty">{lockTitle}</span>
+            <span className="max-w-[34ch] text-xs leading-5 text-zinc-300 text-pretty">{lockDescription}</span>
+          </span>
+        )}
       </button>
       {dialogOpen ? (
         <AccessDialog

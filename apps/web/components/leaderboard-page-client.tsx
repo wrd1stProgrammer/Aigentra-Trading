@@ -445,13 +445,14 @@ function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, 
 
 function LeaderboardLockedRows({ count, t }: { readonly count: number; readonly t: (key: string) => string }) {
   return (
-    <div className="border-t border-white/10 bg-zinc-950/30 px-4 py-4 md:px-6">
+    <div className="border-t border-white/10 bg-zinc-950/30 px-4 pb-6 pt-5 md:px-6">
       <ProtectedContentGate
         mode="subscription"
         title={t("access.leaderboardPreviewTitle")}
         description={t("access.leaderboardPreviewBody")}
+        className="min-h-[156px]"
       >
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <div className="flex min-h-[156px] items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <div className="min-w-0">
             <p className="text-sm font-bold text-white">{t("access.hiddenTraders")}</p>
             <p className="mt-1 text-xs leading-5 text-zinc-400 text-pretty">{t("access.leaderboardPreviewBody")}</p>
