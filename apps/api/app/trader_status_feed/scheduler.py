@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.db import TraderStatusFeedRecord
-from app.trader_status_feed.constants import QUALIFYING_STATUS_STATES
+from app.trader_status_feed.constants import SCHEDULED_REFRESH_STATUS_STATES
 from app.trader_status_feed.context import aware_utc
 from app.trader_status_feed.models import TraderStatusFeedGenerator
 from app.trader_status_feed.records import latest_status_feed_record
@@ -27,7 +27,7 @@ async def regenerate_due_status_feeds(
     generated: list[TraderStatusFeedRecord] = []
     for trader_id in sorted(set(trader_ids or [trader.id for trader in list_traders()])):
         latest = latest_status_feed_record(db, trader_id=trader_id, symbol=symbol)
-        if latest is None or latest.state_key not in QUALIFYING_STATUS_STATES:
+        if latest is None or latest.state_key not in SCHEDULED_REFRESH_STATUS_STATES:
             continue
         candidate = current_status_feed_candidate(db, trader_id=trader_id, symbol=symbol)
         if candidate is None or candidate.get("stateKey") != latest.state_key:
@@ -42,7 +42,7 @@ async def regenerate_due_status_feeds(
                 trader_id=trader_id,
                 symbol=symbol,
                 state_key=latest.state_key,
-                event_type=f"{latest.event_type}_refresh",
+                event_type=f"{candidate['eventType']}_refresh",
                 source_type="trader_status_feed",
                 source_id=latest.id,
                 trigger_payload={
