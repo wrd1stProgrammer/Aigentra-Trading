@@ -6,9 +6,10 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { 
   ChartLineUp, SignIn, Translate, Trophy, UserCircle,
-  X, User, Users, FileText, InstagramLogo, ThreadsLogo, ChatCircleText, SignOut
+  X, User, Users, FileText, InstagramLogo, ThreadsLogo, ChatCircleText, SignOut, Ticket, ShieldCheck
 } from "@phosphor-icons/react";
 import { useAppContext } from "@/components/app-provider";
+import { useSubscriberAccess } from "@/components/use-subscriber-access";
 import { Locale, LOCALE_OPTIONS } from "@/lib/i18n";
 
 const links = [
@@ -49,6 +50,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { locale, setLocale, t } = useAppContext();
   const { data: session } = useSession();
+  const accessQuery = useSubscriberAccess();
+  const access = accessQuery.data;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
 
@@ -63,11 +66,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isLegalNoticesPage = pathname === "/legal-notices";
   const isPrivacyPolicyPage = pathname === "/privacy-policy";
   const isRiskDisclosurePage = pathname === "/risk-disclosure";
+  const showAppChrome =
+    !isLandingPage &&
+    !isLoginPage &&
+    !isTermsPage &&
+    !isDisclaimerPage &&
+    !isLegalNoticesPage &&
+    !isPrivacyPolicyPage &&
+    !isRiskDisclosurePage;
+  const shellLinks = links.filter((link) => {
+    if (link.href === "/login") return !session?.user;
+    if (link.href === "/account") return Boolean(session?.user);
+    return true;
+  });
+  const currentLink = shellLinks.find((link) => link.href === "/" ? pathname === "/" : pathname.startsWith(link.href));
 
   return (
     <div className="min-h-[100dvh] transition-colors">
-      {!isLandingPage && (
-        (!isLoginPage && !isTermsPage && !isDisclaimerPage && !isLegalNoticesPage && !isPrivacyPolicyPage && !isRiskDisclosurePage) ? (
+      {showAppChrome ? (
           <header
             className="sticky top-0 z-20 border-b border-white/10 bg-[#070908]/90 backdrop-blur-xl text-white relative overflow-hidden"
             style={{
@@ -76,7 +92,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               backgroundSize: "64px 64px, 64px 64px, auto"
             }}
           >
-            <div className={`${APP_SHELL_CONTAINER_CLASS} relative flex min-w-0 items-center justify-between gap-2 py-3 sm:gap-3`}>
+            <div className={`${APP_SHELL_CONTAINER_CLASS} relative flex min-w-0 items-center justify-between gap-2 py-2.5 md:py-3 sm:gap-3`}>
               {/* Vertical grid lines aligning with the page grids */}
               <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
               <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
@@ -91,14 +107,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-emerald-400/35 bg-emerald-400/10 font-mono text-xs text-emerald-300">
                   AT
                 </span>
-                <span className="hidden min-w-0 sm:block">
+                <span className="min-w-0">
                   <span className="block truncate text-sm font-bold tracking-tight text-white">Aigentra Trading</span>
-                  <span className="text-zinc-500 block text-[10px] font-mono uppercase tracking-wider">{t("common.paperOnly")}</span>
+                  <span className="block text-[10px] font-mono uppercase tracking-wider text-zinc-500 md:hidden">
+                    {currentLink ? navLabel(locale, currentLink.key, t) : t("common.paperOnly")}
+                  </span>
+                  <span className="hidden text-[10px] font-mono uppercase tracking-wider text-zinc-500 md:block">{t("common.paperOnly")}</span>
                 </span>
               </Link>
-              <nav className="z-10 flex min-w-0 max-w-[calc(100vw-9rem)] items-center gap-1 overflow-x-auto rounded-full border border-white/10 bg-white/[0.04] p-1 backdrop-blur-md scrollbar-none sm:max-w-none">
-                {links
-                  .filter((link) => !(link.href === "/login" && session?.user))
+              <nav className="z-10 hidden min-w-0 items-center gap-1 overflow-x-auto rounded-full border border-white/10 bg-white/[0.04] p-1 backdrop-blur-md scrollbar-none md:flex">
+                {shellLinks
                   .map((link) => {
                     const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
                     const Icon = link.icon;
@@ -157,7 +175,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <button
                     type="button"
                     onClick={() => setIsDrawerOpen(true)}
-                    className="focus-ring shrink-0 size-9 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 border border-white/10 flex items-center justify-center text-xs font-bold text-white hover:scale-105 transition active:scale-[0.96] overflow-hidden"
+                    className="focus-ring shrink-0 size-9 rounded-full border border-emerald-400/25 bg-emerald-400/12 flex items-center justify-center text-xs font-bold text-emerald-100 hover:scale-105 transition active:scale-[0.96] overflow-hidden"
                     aria-label={t("shell.accountMenu")}
                   >
                     {session.user.image ? (
@@ -178,9 +196,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           </header>
-        ) : null
-      )}
-      <main className={isLoginPage ? "py-0 px-0 w-full max-w-none" : (isLandingPage ? "py-0" : `${APP_SHELL_CONTAINER_CLASS} py-5 md:py-7`)}>{children}</main>
+      ) : null}
+      <main className={isLoginPage ? "py-0 px-0 w-full max-w-none" : (isLandingPage ? "py-0" : `${APP_SHELL_CONTAINER_CLASS} py-4 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:py-7 md:pb-7`)}>{children}</main>
+
+      {showAppChrome ? (
+        <nav className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 rounded-2xl border border-white/10 bg-[#0a0d0c]/94 p-1.5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl md:hidden">
+          <div className="grid grid-cols-4 gap-1">
+            {shellLinks.map((link) => {
+              const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
+              const Icon = link.icon;
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  aria-label={navLabel(locale, link.key, t)}
+                  className={`focus-ring flex min-h-[52px] flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-bold transition ${
+                    active
+                      ? "bg-white text-zinc-950 shadow-sm"
+                      : "text-zinc-400 hover:bg-white/[0.06] hover:text-white"
+                  }`}
+                >
+                  <Icon size={17} weight={active ? "bold" : "regular"} />
+                  <span className="max-w-full truncate">{navLabel(locale, link.key, t)}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      ) : null}
 
       {/* Profile Drawer Backdrop */}
       <div 
@@ -201,7 +244,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {/* Header / Profile Card */}
             <div className="flex items-start justify-between border-b border-white/[0.05] pb-6 relative">
               <div className="flex items-center gap-3.5">
-                <div className="shrink-0 size-12 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 border border-white/10 flex items-center justify-center text-xs font-bold text-white shadow-lg overflow-hidden">
+                <div className="shrink-0 size-12 rounded-full border border-emerald-400/25 bg-emerald-400/12 flex items-center justify-center text-xs font-bold text-emerald-100 shadow-lg overflow-hidden">
                   {session?.user?.image ? (
                     <img src={session.user.image} alt={avatarText} width={48} height={48} referrerPolicy="no-referrer" className="size-full object-cover" />
                   ) : (
@@ -240,6 +283,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <X size={16} />
               </button>
             </div>
+
+            {session?.user ? (
+              <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="flex items-start gap-3">
+                  <span className={`grid size-10 shrink-0 place-items-center rounded-xl border ${
+                    access?.isSubscribed
+                      ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+                      : "border-amber-400/25 bg-amber-400/10 text-amber-200"
+                  }`}>
+                    {access?.isSubscribed ? <ShieldCheck size={18} weight="bold" /> : <Ticket size={18} weight="bold" />}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-white">
+                      {access?.isSubscribed ? t("access.proActive") : t("access.drawerCouponLabel")}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-zinc-400 text-pretty">
+                      {access?.isSubscribed ? t("access.proDetail") : t("access.drawerCouponDetail")}
+                    </p>
+                    {!access?.isSubscribed ? (
+                      <p className="mt-3 font-mono text-lg font-semibold text-emerald-200">
+                        {access?.couponsRemaining ?? 0}/{access?.couponLimit ?? 3}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             {/* Menu List */}
             <div className="py-8 flex flex-col gap-5">

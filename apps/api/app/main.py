@@ -80,10 +80,10 @@ from app.paper.planner import (
     create_paper_orders_from_plan,
     list_active_paper_exposure,
     list_active_paper_exposure_map,
-    sync_default_paper_settings,
 )
 from app.paper.plan_state import latest_active_trade_plan, list_active_trade_plans
 from app.paper.repositories import ensure_trader_state
+from app.paper.settings import sync_default_paper_settings
 from app.paper.sizing import final_trade_risk_percent
 from app.ops.trader_history_reset import RESET_CONFIRMATION_TEXT, reset_trader_history
 from app.repositories import (

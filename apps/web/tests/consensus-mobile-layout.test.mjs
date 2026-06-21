@@ -8,7 +8,7 @@ const overlaySource = readFileSync(new URL("../components/page-loading-overlay.t
 
 test("consensus average prices use mobile cards before the wide desktop table", () => {
   assert.match(consensusSource, /ConsensusAveragePrices/, "consensus page should delegate dense average-price UI");
-  assert.match(consensusSource, /grid min-w-0 gap-6 md:grid-cols-2/, "top consensus grid should not force mobile viewport expansion");
+  assert.match(consensusSource, /grid min-w-0 gap-3 md:grid-cols-2 md:gap-6/, "top consensus grid should not force mobile viewport expansion");
   assert.match(consensusSource, /data-testid="consensus-command-header"/, "consensus page should expose a command-style header");
   assert.doesNotMatch(consensusSource, /data-testid="consensus-market-strip"/, "removed market summary boxes should not render before the opinion card");
   assert.match(averagePricesSource, /data-testid="consensus-average-mobile-cards"/, "mobile average cards should be testable");

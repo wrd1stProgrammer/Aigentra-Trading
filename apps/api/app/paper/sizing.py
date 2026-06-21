@@ -1,8 +1,9 @@
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Final
 
 
-SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT = Decimal("100")
+SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT: Final = Decimal("10")
+SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT: Final = Decimal("100")
 
 
 def final_trade_risk_percent(candidate: Any, review: Any) -> float:
@@ -54,6 +55,56 @@ def adjusted_margin_deployment_percent(base_deployment: Decimal, candidate: Any,
         max(Decimal("0"), _as_decimal(getattr(settings, "paper_max_margin_deployment_percent", 100), Decimal("100"))),
     )
     return min(maximum, base_deployment + uplift)
+
+
+def minimum_margin_deployment_percent(settings: Any) -> Decimal:
+    configured_minimum = _as_decimal(getattr(settings, "paper_min_margin_deployment_percent", 10), Decimal("10"))
+    return max(
+        SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT,
+        _clamp_decimal(configured_minimum, Decimal("0"), SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT),
+    )
+
+
+def target_margin_deployment_percent(candidate: Any, settings: Any) -> Decimal:
+    minimum = minimum_margin_deployment_percent(settings)
+    configured_max = _clamp_decimal(
+        _as_decimal(getattr(settings, "paper_max_margin_deployment_percent", 100), Decimal("100")),
+        Decimal("0"),
+        SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT,
+    )
+    maximum = max(minimum, configured_max)
+    score = _clamp_decimal(_as_decimal(getattr(candidate, "setupScore", 0), Decimal("0")), Decimal("0"), Decimal("100"))
+    if score <= Decimal("50"):
+        target = minimum
+    else:
+        target = minimum + ((score - Decimal("50")) / Decimal("50")) * (maximum - minimum)
+    return _clamp_decimal(target, minimum, maximum)
+
+
+def planned_entry_margin_budgets(
+    *,
+    entries: list[Any],
+    target_margin_budget: Decimal,
+    total_weight: Decimal,
+    first_entry_floor_budget: Decimal,
+) -> list[Decimal]:
+    if target_margin_budget <= 0 or total_weight <= 0:
+        return [Decimal("0") for _ in entries]
+
+    weights = [_entry_weight(entry) / total_weight for entry in entries]
+    budgets = [target_margin_budget * weight for weight in weights]
+    if len(budgets) <= 1:
+        return budgets
+
+    floor = min(target_margin_budget, max(Decimal("0"), first_entry_floor_budget))
+    if floor <= 0 or budgets[0] >= floor:
+        return budgets
+
+    remaining_budget = target_margin_budget - floor
+    remaining_weight = sum(weights[1:], Decimal("0"))
+    if remaining_budget <= 0 or remaining_weight <= 0:
+        return [floor] + [Decimal("0") for _ in budgets[1:]]
+    return [floor] + [remaining_budget * (weight / remaining_weight) for weight in weights[1:]]
 
 
 def estimated_risk_reward(candidate: Any) -> float:
@@ -112,6 +163,14 @@ def _as_decimal(value: Any, default: Decimal) -> Decimal:
     except (InvalidOperation, ValueError):
         return default
     return parsed if parsed.is_finite() else default
+
+
+def _clamp_decimal(value: Decimal, minimum: Decimal, maximum: Decimal) -> Decimal:
+    return max(minimum, min(value, maximum))
+
+
+def _entry_weight(entry: Any) -> Decimal:
+    return max(_as_decimal(getattr(entry, "weight", 0), Decimal("0")), Decimal("0"))
 
 
 def _horizon_risk_multiplier(candidate: Any) -> Decimal:

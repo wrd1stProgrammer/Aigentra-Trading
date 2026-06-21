@@ -37,28 +37,28 @@ const copy: Record<"ko" | "en", {
   googleMissing: string;
 }> = {
   ko: {
-    signinTitle: "Sign in",
-    signinSubtitle: "Sign in to access AI Trader League",
-    googleCta: "Continue with Google",
-    emailLabel: "Email",
-    passwordLabel: "Password",
-    forgotCta: "Forgot password?",
-    signinSubmit: "Sign in",
-    noAccount: "Don't have an account?",
-    signupLink: "Sign up",
+    signinTitle: "로그인",
+    signinSubtitle: "AI Trader League 알림과 리그 데이터를 확인합니다.",
+    googleCta: "Google로 계속하기",
+    emailLabel: "이메일",
+    passwordLabel: "비밀번호",
+    forgotCta: "비밀번호를 잊으셨나요?",
+    signinSubmit: "로그인",
+    noAccount: "아직 계정이 없나요?",
+    signupLink: "계정 만들기",
     
-    signupTitle: "Create an account",
-    nameLabel: "Name",
-    confirmPasswordLabel: "Confirm password",
+    signupTitle: "계정 만들기",
+    nameLabel: "이름",
+    confirmPasswordLabel: "비밀번호 확인",
     termsAccept: "이용약관, 면책조항, 법적 고지 및 개인정보 처리방침에 동의합니다.",
-    signupSubmit: "Create my account",
-    hasAccount: "Already have an account?",
-    signinLink: "Sign in",
+    signupSubmit: "계정 만들기",
+    hasAccount: "이미 계정이 있나요?",
+    signinLink: "로그인",
 
-    forgotTitle: "Forgot password",
-    forgotSubtitle: "Enter your email address and we'll send you a link to reset your password.",
-    forgotSubmit: "Send link",
-    rememberPassword: "Remember your password?",
+    forgotTitle: "비밀번호 재설정",
+    forgotSubtitle: "이메일 주소를 입력하면 재설정 안내를 보내드립니다.",
+    forgotSubmit: "재설정 링크 보내기",
+    rememberPassword: "비밀번호가 기억나셨나요?",
 
     demoNotice: "데모 모드: 실제 이메일 로그인은 데모 단계입니다. Google 로그인을 이용해 주세요.",
     googleMissing: "Google OAuth 설정 필요"
@@ -131,7 +131,7 @@ export function LoginPageClient({ nextPath, googleConfigured }: LoginPageClientP
           className="focus-ring inline-flex max-w-full items-center gap-1.5 rounded-lg border border-white/[0.05] bg-white/[0.02] px-3.5 py-2 text-xs font-semibold text-zinc-500 transition duration-200 hover:bg-white/[0.06] hover:text-zinc-300"
         >
           <ArrowLeft size={13} weight="bold" />
-          <span className="truncate">Back to Aigentra Trading</span>
+          <span className="truncate">{locale === "ko" ? "Aigentra Trading으로 돌아가기" : "Back to Aigentra Trading"}</span>
         </Link>
       </div>
 
@@ -166,7 +166,7 @@ export function LoginPageClient({ nextPath, googleConfigured }: LoginPageClientP
               {/* Divider */}
               <div className="mt-6 flex items-center justify-between gap-4">
                 <div className="h-px w-full bg-zinc-800/60" />
-                <span className="font-mono text-[9px] tracking-widest text-zinc-600 uppercase">OR</span>
+                <span className="font-mono text-[9px] tracking-widest text-zinc-600 uppercase">{locale === "ko" ? "또는" : "OR"}</span>
                 <div className="h-px w-full bg-zinc-800/60" />
               </div>
 
@@ -205,7 +205,7 @@ export function LoginPageClient({ nextPath, googleConfigured }: LoginPageClientP
                       id="password"
                       type={showPassword ? "text" : "password"}
                       required
-                      placeholder="Your password"
+                    placeholder={locale === "ko" ? "비밀번호" : "Your password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="focus-ring w-full rounded-lg border border-zinc-800 bg-[#121313] pl-3.5 pr-11 py-2.5 text-sm text-white placeholder-zinc-700 focus:border-emerald-500/80 focus:ring-1 focus:ring-emerald-500/80 transition duration-200"
@@ -263,7 +263,7 @@ export function LoginPageClient({ nextPath, googleConfigured }: LoginPageClientP
               {/* Divider */}
               <div className="mt-6 flex items-center justify-between gap-4">
                 <div className="h-px w-full bg-zinc-800/60" />
-                <span className="font-mono text-[9px] tracking-widest text-zinc-600 uppercase">OR</span>
+                <span className="font-mono text-[9px] tracking-widest text-zinc-600 uppercase">{locale === "ko" ? "또는" : "OR"}</span>
                 <div className="h-px w-full bg-zinc-800/60" />
               </div>
 
@@ -277,7 +277,7 @@ export function LoginPageClient({ nextPath, googleConfigured }: LoginPageClientP
                     id="signup-name"
                     type="text"
                     required
-                    placeholder="Your name"
+                    placeholder={locale === "ko" ? "이름" : "Your name"}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     className="focus-ring w-full rounded-lg border border-zinc-800 bg-[#121313] px-3.5 py-2.5 text-sm text-white placeholder-zinc-700 focus:border-emerald-500/80 focus:ring-1 focus:ring-emerald-500/80 transition duration-200"
@@ -308,7 +308,7 @@ export function LoginPageClient({ nextPath, googleConfigured }: LoginPageClientP
                       id="signup-password"
                       type={showPassword ? "text" : "password"}
                       required
-                      placeholder="Minimum 8 characters"
+                      placeholder={locale === "ko" ? "8자 이상" : "Minimum 8 characters"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="focus-ring w-full rounded-lg border border-zinc-800 bg-[#121313] pl-3.5 pr-11 py-2.5 text-sm text-white placeholder-zinc-700 focus:border-emerald-500/80 focus:ring-1 focus:ring-emerald-500/80 transition duration-200"
@@ -332,7 +332,7 @@ export function LoginPageClient({ nextPath, googleConfigured }: LoginPageClientP
                       id="signup-confirm"
                       type={showConfirmPassword ? "text" : "password"}
                       required
-                      placeholder="Repeat your password"
+                      placeholder={locale === "ko" ? "비밀번호를 한 번 더 입력" : "Repeat your password"}
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       className="focus-ring w-full rounded-lg border border-zinc-800 bg-[#121313] pl-3.5 pr-11 py-2.5 text-sm text-white placeholder-zinc-700 focus:border-emerald-500/80 focus:ring-1 focus:ring-emerald-500/80 transition duration-200"

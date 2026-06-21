@@ -524,6 +524,21 @@ class WhopWebhookEventRecord(Base):
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class ReviewUnlockRecord(CommonMixin, Base):
+    __tablename__ = "review_unlocks"
+    __table_args__ = (
+        UniqueConstraint("email", "source_key", name="uq_review_unlocks_email_source_key"),
+        Index("ix_review_unlocks_email_created", "email", "created_at"),
+        Index("ix_review_unlocks_user_created", "user_id", "created_at"),
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(240), nullable=False, index=True)
+    source_key: Mapped[str] = mapped_column(String(520), nullable=False, index=True)
+    source_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+
+
 class TelegramAlertDeliveryRecord(CommonMixin, Base):
     __tablename__ = "telegram_alert_deliveries"
     __table_args__ = (

@@ -31,6 +31,8 @@ import type { Locale } from "@/lib/i18n";
 import { buildStandings, traderVisuals, type LeagueSymbol, type TraderStanding } from "@/lib/league";
 import { EquityAreaChart } from "@/components/leaderboard-sidebar-equity-chart";
 import { PageLoadingOverlay } from "@/components/page-loading-overlay";
+import { ProtectedContentGate } from "@/components/access-gate";
+import { FREE_LEADERBOARD_LIMIT, useSubscriberAccess } from "@/components/use-subscriber-access";
 import { fallbackTraders, traderDetailKey, traderNameKey, traderShortKey } from "@/lib/traders";
 import { formatCurrency, formatNumber, formatRelativeDateTime } from "@/lib/format";
 import { statusLabel } from "@/lib/status";
@@ -128,6 +130,7 @@ function periodLabel(locale: Locale, period: keyof typeof periodLabels.en) {
 export function LeaderboardPageClient() {
   const { locale, t } = useAppContext();
   const queryClient = useQueryClient();
+  const { data: access } = useSubscriberAccess();
   
   // Custom filter state
   const [activeTab, setActiveTab] = useState<"BTC">("BTC");
@@ -167,14 +170,20 @@ export function LeaderboardPageClient() {
 
   const traders = bundle.traders?.length ? bundle.traders : (fallbackTraders as unknown as TraderProfile[]);
   const standings = useMemo(() => buildStandings(traders, bundle.summaries ?? []), [bundle.summaries, traders]);
-  const activeTrader = standings.find((item) => item.id === activeTraderId) ?? standings[0] ?? null;
-  const leader = standings[0] ?? null;
-  const totalEquity = standings.reduce((sum, item) => sum + item.equity, 0);
-  const totalPnl = standings.reduce((sum, item) => sum + item.totalPnl, 0);
-  const openPositions = standings.reduce((sum, item) => sum + item.openPositions, 0);
-  const openOrders = standings.reduce((sum, item) => sum + item.openOrders, 0);
-  const activeTraderCount = standings.filter((item) => item.openPositions || item.openOrders).length;
-  const traderNameMap = useMemo(() => new Map(standings.map((item) => [item.id, item.name])), [standings]);
+  const isSubscribed = Boolean(access?.isSubscribed);
+  const visibleStandings = useMemo(
+    () => (isSubscribed ? standings : standings.slice(0, FREE_LEADERBOARD_LIMIT)),
+    [isSubscribed, standings]
+  );
+  const hiddenTraderCount = Math.max(0, standings.length - visibleStandings.length);
+  const activeTrader = visibleStandings.find((item) => item.id === activeTraderId) ?? visibleStandings[0] ?? null;
+  const leader = visibleStandings[0] ?? null;
+  const totalEquity = visibleStandings.reduce((sum, item) => sum + item.equity, 0);
+  const totalPnl = visibleStandings.reduce((sum, item) => sum + item.totalPnl, 0);
+  const openPositions = visibleStandings.reduce((sum, item) => sum + item.openPositions, 0);
+  const openOrders = visibleStandings.reduce((sum, item) => sum + item.openOrders, 0);
+  const activeTraderCount = visibleStandings.filter((item) => item.openPositions || item.openOrders).length;
+  const traderNameMap = useMemo(() => new Map(visibleStandings.map((item) => [item.id, item.name])), [visibleStandings]);
   const latestStatusFeedByTrader = useMemo(() => buildLatestStatusFeedMap(bundle.statusFeeds ?? []), [bundle.statusFeeds]);
 
   // Fetch pending plans dynamically
@@ -238,7 +247,7 @@ export function LeaderboardPageClient() {
   }, [prefetchTrader]);
 
   return (
-    <div className="grid gap-4 pb-8">
+    <div className="grid gap-3 pb-[calc(5rem+env(safe-area-inset-bottom))] md:gap-4 md:pb-8">
       <PageLoadingOverlay
         active={initialLoading}
         label={t("common.loadingLeagueData")}
@@ -246,7 +255,7 @@ export function LeaderboardPageClient() {
       />
 
       <section 
-        className="relative overflow-hidden border border-white/10 bg-[#070908] text-white rounded-[22px] shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)]"
+        className="order-2 relative overflow-hidden rounded-2xl border border-white/10 bg-[#070908] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] md:order-none md:rounded-[22px]"
         style={{
           backgroundImage: "linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px), radial-gradient(circle at 50% 25%, rgba(16,185,129,0.12), transparent 40%)",
           backgroundSize: "96px 96px, 96px 96px, auto"
@@ -258,23 +267,30 @@ export function LeaderboardPageClient() {
         <div className="absolute bottom-0 left-0 h-3.5 w-[3px] bg-emerald-500 animate-pulse" />
         <div className="absolute bottom-0 right-0 h-3.5 w-[3px] bg-emerald-500 animate-pulse" />
 
-        <div className="flex flex-col gap-4 border-b border-white/10 px-6 py-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-2 border-b border-white/10 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-6 md:py-4">
           <div>
-            <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">[ LEAGUE OVERVIEW ]</p>
+            <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-emerald-400 md:text-xs">[ LEAGUE OVERVIEW ]</p>
+            <p className="mt-1 text-xs text-zinc-500 md:hidden">{t("leaderboard.latestActivity")}</p>
           </div>
         </div>
 
 
 
-        <OptionActivityStream
-          locale={locale}
-          traderNameMap={traderNameMap}
-        />
+        <ProtectedContentGate
+          mode="subscription"
+          title={t("access.subscriptionLockedTitle")}
+          description={t("access.subscriptionLockedDescription")}
+        >
+          <OptionActivityStream
+            locale={locale}
+            traderNameMap={traderNameMap}
+          />
+        </ProtectedContentGate>
       </section>
 
-      <section className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,400px)] w-full">
+      <section className="order-1 grid w-full items-start gap-3 md:order-none md:gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
         <div className="data-card rounded-[22px] border-zinc-200/80 dark:border-white/[0.08] w-full min-w-0 overflow-hidden shadow-sm transition hover:border-emerald-500/20 duration-300">
-            <div className="flex flex-col gap-3 border-b px-5 py-4 md:px-6 md:flex-row md:items-center md:justify-between" style={{ borderColor: "var(--border)" }}>
+            <div className="flex flex-row items-center justify-between gap-3 border-b px-4 py-3 md:px-6 md:py-4" style={{ borderColor: "var(--border)" }}>
               {/* Left side: Horizontal Toggle Tabs */}
               <div className="inline-flex w-fit rounded-full border border-white/10 p-1 bg-white/[0.02] backdrop-blur-md">
                 {(["BTC"] as const).map((tab) => {
@@ -285,7 +301,7 @@ export function LeaderboardPageClient() {
                       key={tab}
                       type="button"
                       onClick={() => setActiveTab(tab)}
-                      className={`focus-ring rounded-full px-5 py-2 text-xs font-bold transition duration-200 ${
+                      className={`focus-ring rounded-full px-4 py-2 text-xs font-bold transition duration-200 md:px-5 ${
                         active
                           ? "bg-white text-zinc-950 shadow-sm"
                           : "text-zinc-400 hover:text-white"
@@ -298,9 +314,9 @@ export function LeaderboardPageClient() {
               </div>
 
               {/* Right side: visual period selection dropdown */}
-              <div className="flex items-center gap-3">
+              <div className="flex min-w-0 items-center gap-2 md:gap-3">
                 {isFetching ? (
-                  <span className="inline-flex items-center gap-2 rounded-lg bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-zinc-400">
+                  <span className="hidden items-center gap-2 rounded-lg bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-zinc-400 sm:inline-flex">
                     <CircleNotch className="animate-spin animate-duration-1000" size={14} />
                     {t("common.loading")}
                   </span>
@@ -310,7 +326,7 @@ export function LeaderboardPageClient() {
                   <button
                     type="button"
                     onClick={() => setIsPeriodOpen(!isPeriodOpen)}
-                    className="focus-ring inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs font-semibold hover:bg-white/[0.06] transition"
+                    className="focus-ring inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-1.5 text-xs font-semibold hover:bg-white/[0.06] transition md:px-3"
                   >
                     <Calendar size={14} className="text-emerald-400" />
                     <span>{periodLabel(locale, selectedPeriod)}</span>
@@ -344,8 +360,11 @@ export function LeaderboardPageClient() {
               </div>
             </div>
 
-          <RankingTable standings={standings} exposureByTrader={exposureByTrader} activeTraderId={activeTrader?.id ?? null} t={t} locale={locale} onActivate={activateTrader} />
-          <MobileRankingList standings={standings} exposureByTrader={exposureByTrader} t={t} locale={locale} onPrefetch={prefetchTrader} />
+          <RankingTable standings={visibleStandings} exposureByTrader={exposureByTrader} activeTraderId={activeTrader?.id ?? null} t={t} locale={locale} onActivate={activateTrader} />
+          <MobileRankingList standings={visibleStandings} exposureByTrader={exposureByTrader} t={t} locale={locale} onPrefetch={prefetchTrader} />
+          {!isSubscribed && hiddenTraderCount > 0 ? (
+            <LeaderboardLockedRows count={hiddenTraderCount} t={t} />
+          ) : null}
         </div>
 
         <TraderPreviewPanel
@@ -424,6 +443,26 @@ function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, 
   );
 }
 
+function LeaderboardLockedRows({ count, t }: { readonly count: number; readonly t: (key: string) => string }) {
+  return (
+    <div className="border-t border-white/10 bg-zinc-950/30 px-4 py-4 md:px-6">
+      <ProtectedContentGate
+        mode="subscription"
+        title={t("access.leaderboardPreviewTitle")}
+        description={t("access.leaderboardPreviewBody")}
+      >
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-white">{t("access.hiddenTraders")}</p>
+            <p className="mt-1 text-xs leading-5 text-zinc-400 text-pretty">{t("access.leaderboardPreviewBody")}</p>
+          </div>
+          <span className="font-mono text-xl font-bold text-zinc-200">+{count}</span>
+        </div>
+      </ProtectedContentGate>
+    </div>
+  );
+}
+
 function MobileRankingList({ standings, exposureByTrader, t, locale, onPrefetch }: {
   standings: TraderStanding[];
   exposureByTrader: Map<string, TraderExposure>;
@@ -432,67 +471,68 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, onPrefetch 
   onPrefetch: (traderId: string) => void;
 }) {
   return (
-    <div className="divide-y lg:hidden" style={{ borderColor: "var(--border)" }}>
-      {standings.map((trader) => (
-        (() => {
-          const progress = traderProgress(trader, exposureByTrader.get(trader.id), t, locale);
-          const displayName = localizedTraderName(trader, t);
-          const isNew = [
-            "donchian-breakout",
-            "ichimoku-cloud-pilot",
-            "vwap-reclaimer",
-            "wyckoff-spring",
-            "rsi-divergence-scout",
-            "session-raider",
-            "imbalance-hunter",
-            "momentum-ignition",
-            "bollinger-reversion",
-            "atr-trail-commander"
-          ].includes(trader.id);
-          return (
-            <Link
-              key={trader.id}
-              href={`/leaderboard/${trader.id}`}
-              onFocus={() => onPrefetch(trader.id)}
-              onMouseEnter={() => onPrefetch(trader.id)}
-              className="focus-ring block px-5 py-4 transition hover:bg-white/[0.02]"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <RankBadge rank={trader.rank} compact />
+    <div className="lg:hidden">
+      <div className="grid grid-cols-[38px_minmax(0,1fr)_88px] items-center gap-2 border-b px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-500" style={{ borderColor: "var(--border)" }}>
+        <span>{t("leaderboard.rank")}</span>
+        <span>{t("leaderboard.trader")}</span>
+        <span className="text-right">{t("leaderboard.cumulativeReturn")}</span>
+      </div>
+      <div className="divide-y" style={{ borderColor: "var(--border)" }}>
+        {standings.map((trader) => {
+            const progress = traderProgress(trader, exposureByTrader.get(trader.id), t, locale);
+            const displayName = localizedTraderName(trader, t);
+            const isNew = [
+              "donchian-breakout",
+              "ichimoku-cloud-pilot",
+              "vwap-reclaimer",
+              "wyckoff-spring",
+              "rsi-divergence-scout",
+              "session-raider",
+              "imbalance-hunter",
+              "momentum-ignition",
+              "bollinger-reversion",
+              "atr-trail-commander"
+            ].includes(trader.id);
+            return (
+              <Link
+                key={trader.id}
+                href={`/leaderboard/${trader.id}`}
+                onFocus={() => onPrefetch(trader.id)}
+                onMouseEnter={() => onPrefetch(trader.id)}
+                className="focus-ring grid grid-cols-[38px_minmax(0,1fr)_88px] items-center gap-2 px-3 py-3.5 transition hover:bg-white/[0.02]"
+              >
+                <RankBadge rank={trader.rank} compact />
+                <div className="flex min-w-0 items-center gap-2.5">
                   <TraderMark trader={trader} compact />
                   <div className="min-w-0">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <p className="truncate text-sm font-bold text-white flex items-center gap-1.5">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <p className="truncate text-[15px] font-bold text-white">
                         {displayName}
-                        {isNew && (
-                          <span className="inline-flex shrink-0 items-center rounded-sm bg-emerald-500/20 text-emerald-400 px-1 py-0.5 text-[9px] font-extrabold uppercase tracking-wide leading-none border border-emerald-500/30">
-                            NEW
-                          </span>
-                        )}
-                        <span className="text-xs shrink-0">{traderFlags[trader.id] || "🇰🇷"}</span>
                       </p>
+                      {isNew ? (
+                        <span className="inline-flex shrink-0 items-center rounded-sm border border-emerald-500/30 bg-emerald-500/20 px-1 py-0.5 text-[9px] font-extrabold uppercase leading-none tracking-wide text-emerald-400">
+                          NEW
+                        </span>
+                      ) : null}
+                      <span className="shrink-0 text-xs">{traderFlags[trader.id] || "🇰🇷"}</span>
+                    </div>
+                    <p className="mt-0.5 truncate text-xs text-zinc-500">{t(traderShortKey(trader.id))}</p>
+                    <div className="mt-1.5 flex min-w-0 items-center gap-1.5">
+                      <StatusPill label={progress.label} tone={progress.tone} />
                       <SideBadge progress={progress} />
                       <LeverageBadge progress={progress} />
                     </div>
-                    <p className="text-zinc-500 mt-1 truncate text-xs font-mono">{t(traderShortKey(trader.id))}</p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className={`font-mono text-sm font-semibold ${trader.returnPct >= 0 ? "value-good" : "value-bad"}`}>{formatSignedPercent(trader.returnPct)}</p>
-                  <p className="text-zinc-500 mt-1 font-mono text-xs">{formatCurrency(trader.equity, locale)}</p>
+                <div className="min-w-0 text-right">
+                  <p className={`font-mono text-[15px] font-bold ${trader.returnPct >= 0 ? "value-good" : "value-bad"}`}>{formatSignedPercent(trader.returnPct)}</p>
+                  <p className="mt-0.5 truncate font-mono text-[11px] text-zinc-500">{formatCurrency(trader.equity, locale)}</p>
+                  {progress.detail ? <p className="mt-0.5 truncate text-[11px] font-semibold text-zinc-400">{progress.detail}</p> : null}
                 </div>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <MiniCell label={t("leaderboard.progressStatus")} value={progress.detail || progress.label} />
-                <MiniCell label={t("common.return7d")} value={formatSignedPercent(trader.monthlyReturn)} />
-                <MiniCell label={t("leaderboard.mdd")} value={formatDrawdown(trader.maxDrawdown)} />
-                <MiniCell label={t("common.winRate")} value={formatNullablePercent(trader.winRate)} />
-              </div>
-            </Link>
-          );
-        })()
-      ))}
+              </Link>
+            );
+          })}
+      </div>
     </div>
   );
 }
@@ -1253,11 +1293,11 @@ function OptionActivityStream({
   }, [reviewsList, traderNameMap, locale, t]);
 
   return (
-    <div className="overflow-hidden rounded-b-[22px] p-4 text-left sm:p-6">
-      <div className="flex flex-col justify-between rounded-xl border border-white/5 bg-black/60 p-3 font-mono text-xs text-zinc-300 shadow-inner sm:p-4">
+    <div className="overflow-hidden rounded-b-2xl p-3 text-left md:rounded-b-[22px] md:p-6">
+      <div className="flex flex-col justify-between rounded-xl border border-white/5 bg-black/60 p-3 font-mono text-xs text-zinc-300 shadow-inner md:p-4">
         <div 
           ref={containerRef}
-          className="max-h-[220px] overflow-y-auto space-y-2 pr-2 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent scroll-smooth"
+          className="max-h-[132px] space-y-2 overflow-y-auto pr-2 scroll-smooth scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10 md:max-h-[220px]"
         >
           {logItems.map((log) => {
             let dotColor = "bg-emerald-400";
@@ -1288,7 +1328,7 @@ function OptionActivityStream({
                   <span className={`inline-block size-1.5 rounded-full ${dotColor} animate-pulse`} />
                   <span className="text-zinc-400 transition-colors group-hover:text-emerald-400">{log.trader}</span>
                 </span>
-                <span className="line-clamp-2 flex-1 break-keep font-sans text-zinc-300 transition-colors group-hover:text-white sm:truncate">{log.text}</span>
+                <span className="line-clamp-2 flex-1 break-keep font-sans text-zinc-300 transition-colors group-hover:text-white md:truncate">{log.text}</span>
                 <span className="hidden shrink-0 self-center font-mono text-[10px] text-zinc-500 opacity-0 transition-opacity group-hover:opacity-100 sm:inline">
                   {t("leaderboard.viewArrow")} →
                 </span>
@@ -1313,7 +1353,7 @@ function OptionActivityStream({
           )}
         </div>
         
-        <div className="flex items-center gap-2 mt-4 pt-2 border-t border-white/[0.04] text-[10px] text-emerald-400 font-mono select-none">
+        <div className="mt-3 flex items-center gap-2 border-t border-white/[0.04] pt-2 font-mono text-[10px] text-emerald-400 select-none md:mt-4">
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>

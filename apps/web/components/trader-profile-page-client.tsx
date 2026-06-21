@@ -46,6 +46,13 @@ import { StatusFeedThread } from "@/components/trader-profile-detail/status-feed
 import { SYMBOLS, type TradeHistoryItem } from "@/components/trader-profile-detail/types";
 import { traderVisuals } from "@/lib/league";
 import { CaretLeft, CaretRight, Clock } from "@phosphor-icons/react";
+import { ProtectedContentGate } from "@/components/access-gate";
+import {
+  guestSubscriberAccess,
+  isProtectedSourceUnlocked,
+  protectedScenarioSourceKey,
+  useSubscriberAccess
+} from "@/components/use-subscriber-access";
 
 const DETAIL_INITIAL_REVIEWS_LIMIT = 20;
 const DETAIL_INITIAL_EVENTS_LIMIT = 20;
@@ -258,6 +265,7 @@ function mapMergedItemToHistoryItem(
 export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const { locale, t } = useAppContext();
   const queryClient = useQueryClient();
+  const { data: access } = useSubscriberAccess();
   const fallback = useMemo(
     () => fallbackTraders.find((item) => item.id === traderId) as unknown as TraderProfile | undefined,
     [traderId]
@@ -459,6 +467,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const filteredTimelineItems = useMemo(() => {
     return timelineItemsForUtcDate(scenarioTimelineItems, selectedDate, selectedScenarioVisibleCount);
   }, [scenarioTimelineItems, selectedDate, selectedScenarioVisibleCount]);
+  const accessState = access ?? guestSubscriberAccess;
   const holdingItems = useMemo(
     () => buildHoldingItems({ standing, positions, orders, latestPlan, symbol, locale, t }),
     [latestPlan, locale, orders, positions, standing, symbol, t]
@@ -585,9 +594,14 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
 
   const openLiveAlert = useCallback(() => {
     const scenario = liveAlert?.item.scenario;
-    if (scenario) setSelectedScenario(scenario);
+    if (scenario) {
+      const sourceKey = protectedScenarioSourceKey(traderId, symbol, scenario.id);
+      if (isProtectedSourceUnlocked(accessState, sourceKey)) {
+        setSelectedScenario(scenario);
+      }
+    }
     setLiveAlert(null);
-  }, [liveAlert]);
+  }, [accessState, liveAlert, symbol, traderId]);
 
   const loadMoreSelectedScenarios = useCallback(() => {
     const loadedForDate = loadedScenarioCountByDate.get(selectedDate) ?? 0;
@@ -629,7 +643,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
         prefetchLeaderboard={prefetchLeaderboard}
       />
 
-      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-4 flex flex-col gap-2 sm:mt-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="grid w-full grid-cols-3 rounded-xl bg-white p-1 ring-1 ring-zinc-200 sm:inline-flex sm:w-auto dark:bg-zinc-950 dark:ring-zinc-800">
           <TabButton active label={t("detail.monitoring")} />
           <TabButton label={t("detail.analysis")} />
@@ -655,7 +669,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
         </div>
       </div>
 
-      <section data-testid="top-chart-panel" className="mt-4 grid min-w-0 gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(300px,1fr)]">
+      <section data-testid="top-chart-panel" className="mt-3 grid min-w-0 gap-3 sm:mt-4 xl:grid-cols-[minmax(0,3fr)_minmax(300px,1fr)] xl:gap-5">
         <div className="min-w-0 overflow-hidden rounded-2xl bg-white ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800">
           <DetailChart
             symbol={symbol}
@@ -664,7 +678,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
             paperOrders={orders}
             paperEvents={events}
             managementReviews={reviews}
-            height={340}
+            height={320}
             compact
             showPositionPanel={false}
             scenarios={scenarios}
@@ -673,7 +687,9 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
             onOpenScenario={setSelectedScenario}
           />
         </div>
-        <StatusFeedThread feeds={statusFeeds} locale={locale} t={t} />
+        <div className="hidden xl:block">
+          <StatusFeedThread feeds={statusFeeds} locale={locale} t={t} />
+        </div>
       </section>
 
       <div data-testid="detail-full-width-position-panel" className="mt-2 min-w-0">
@@ -687,10 +703,13 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
           onOpenScenario={setSelectedScenario}
         />
       </div>
+      <div className="mt-3 xl:hidden">
+        <StatusFeedThread feeds={statusFeeds} locale={locale} t={t} />
+      </div>
 
-      <section className="mt-5 grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="min-w-0 space-y-5">
-          <section className="rounded-2xl bg-white px-5 py-6 ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800">
+      <section className="mt-4 grid min-w-0 gap-4 xl:mt-5 xl:grid-cols-[minmax(0,1fr)_420px] xl:gap-5">
+        <div className="min-w-0 space-y-4 xl:space-y-5">
+          <section className="rounded-2xl bg-white px-4 py-5 ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800 sm:px-5 sm:py-6">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold tracking-tight">{t("detail.scenarios")}</h2>
@@ -776,19 +795,41 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
               </div>
             </div>
 
-            <div data-testid="scenario-timeline" className="relative mt-8 max-h-[700px] overflow-y-auto pr-2" onScroll={handleScenarioScroll}>
+            <div data-testid="scenario-timeline" className="relative mt-6 max-h-[620px] overflow-y-auto pr-1 sm:mt-8 sm:max-h-[700px] sm:pr-2" onScroll={handleScenarioScroll}>
               {filteredTimelineItems.length > 0 ? (
                 <div className="timelineRail absolute left-[13px] top-3 h-[calc(100%-1.5rem)] w-px bg-zinc-200 dark:bg-zinc-800" />
               ) : null}
               <div className="space-y-7">
-                {filteredTimelineItems.map((item, index) => (
-                  <TimelineRow
-                    key={item.id}
-                    item={item}
-                    index={index}
-                    onClick={item.scenario ? () => setSelectedScenario(item.scenario ?? null) : undefined}
-                  />
-                ))}
+                {filteredTimelineItems.map((item, index) => {
+                  if (!item.scenario) {
+                    return (
+                      <TimelineRow
+                        key={item.id}
+                        item={item}
+                        index={index}
+                      />
+                    );
+                  }
+                  const sourceKey = protectedScenarioSourceKey(traderId, symbol, item.scenario.id);
+                  const scenarioUnlocked = isProtectedSourceUnlocked(accessState, sourceKey);
+                  return (
+                    <ProtectedContentGate
+                      key={item.id}
+                      mode="coupon"
+                      sourceKey={sourceKey}
+                      sourceType="scenario"
+                      traderId={traderId}
+                      symbol={symbol}
+                      onUnlocked={() => setSelectedScenario(item.scenario ?? null)}
+                    >
+                      <TimelineRow
+                        item={item}
+                        index={index}
+                        onClick={scenarioUnlocked ? () => setSelectedScenario(item.scenario ?? null) : undefined}
+                      />
+                    </ProtectedContentGate>
+                  );
+                })}
                 {!filteredTimelineItems.length ? (
                   <div className="rounded-xl border border-dashed border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
                     {t("detail.noScenariosOnDate")}

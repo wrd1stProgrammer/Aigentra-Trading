@@ -93,9 +93,11 @@ function MobilePositionCard({
   const pnl = positionPnl(position, liveMarkPrice);
   const roe = margin !== null && margin > 0 && pnl !== null ? (pnl / margin) * 100 : null;
   const expectedProfit = expectedPositionProfitAtTarget(position);
+  const stopLoss = firstFiniteNumber(position.stopLoss, position.stopLossPrice, position.stop_loss, position.stop_loss_price);
+  const takeProfit = firstFiniteNumber(position.takeProfit, position.takeProfitPrice, position.take_profit_price);
 
   return (
-    <article className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-white/10 dark:bg-[#0c1117]">
+    <article className="rounded-xl border border-zinc-200 bg-white p-3.5 dark:border-white/10 dark:bg-[#0c1117]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -113,10 +115,14 @@ function MobilePositionCard({
           <p className={`mt-0.5 font-mono text-xs ${pnlToneClass(pnl)}`}>{formatCurrency(pnl, locale)} · {formatPercentNumber(roe)}</p>
         </div>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="mt-3 grid grid-cols-3 gap-2">
         <MobileMetric label={t("detail.positionEntryPrice")} value={formatNumber(entryPrice, 1, locale)} />
         <MobileMetric label={t("detail.positionMarkPrice")} value={formatNumber(markPrice, 1, locale)} />
         <MobileMetric label={t("detail.positionMargin")} value={formatCurrency(margin, locale)} />
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <MobileMetric label={t("chart.stopLoss")} value={formatNumber(stopLoss, 1, locale)} tone="bad" />
+        <MobileMetric label={t("chart.takeProfit")} value={formatNumber(takeProfit, 1, locale)} tone="good" />
         <MobileMetric label={t("detail.positionLiqPrice")} value={formatNumber(firstFiniteNumber(position.liquidationPrice, position.liquidation_price), 1, locale)} />
         <MobileMetric label={t("detail.positionExpectedProfit")} value={formatCurrency(expectedProfit, locale)} />
       </div>
@@ -144,9 +150,11 @@ function MobileOrderCard({
   const notional = firstFiniteNumber(payload?.plannedNotional, quantity !== null && price !== null ? Math.abs(quantity * price) : null);
   const margin = firstNonZeroFiniteNumber(payload?.actualPlannedMargin, payload?.plannedMargin, order.margin, derivedMargin(quantity, price, leverage));
   const orderTime = firstString(order.updatedAt, order.updated_at, order.createdAt, order.created_at);
+  const stopLoss = firstFiniteNumber(order.stopLossPrice, order.stop_loss_price);
+  const takeProfit = firstFiniteNumber(order.takeProfitPrice, order.take_profit_price);
 
   return (
-    <article className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-white/10 dark:bg-[#0c1117]">
+    <article className="rounded-xl border border-zinc-200 bg-white p-3.5 dark:border-white/10 dark:bg-[#0c1117]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate font-mono text-sm font-bold text-zinc-950 dark:text-zinc-100">{order.symbol}</p>
@@ -160,6 +168,8 @@ function MobileOrderCard({
       <div className="mt-3 grid grid-cols-2 gap-2">
         <MobileMetric label={t("detail.positionSize")} value={`${formatNumber(quantity, 4, locale)} ${baseAsset(order.symbol)}`} />
         <MobileMetric label={t("detail.orderPrice")} value={formatNumber(price, 1, locale)} />
+        <MobileMetric label={t("chart.stopLoss")} value={formatNumber(stopLoss, 1, locale)} tone="bad" />
+        <MobileMetric label={t("chart.takeProfit")} value={formatNumber(takeProfit, 1, locale)} tone="good" />
         <MobileMetric label={t("detail.positionMargin")} value={formatCurrency(margin, locale)} />
         <MobileMetric label={t("detail.exposure")} value={formatCurrency(notional, locale)} />
       </div>
@@ -168,11 +178,17 @@ function MobileOrderCard({
   );
 }
 
-function MobileMetric({ label, value }: { readonly label: string; readonly value: string }) {
+function MobileMetric({ label, value, tone = "neutral" }: { readonly label: string; readonly value: string; readonly tone?: "good" | "bad" | "neutral" }) {
+  const valueClass =
+    tone === "good"
+      ? "text-emerald-600 dark:text-emerald-300"
+      : tone === "bad"
+        ? "text-rose-600 dark:text-rose-300"
+        : "text-zinc-950 dark:text-zinc-100";
   return (
     <div className="min-w-0 rounded-lg bg-zinc-50 px-2.5 py-2 dark:bg-white/[0.04]">
       <p className="truncate text-[11px] font-medium text-zinc-400">{label}</p>
-      <p className="mt-0.5 truncate font-mono text-xs font-semibold text-zinc-950 dark:text-zinc-100">{value}</p>
+      <p className={`mt-0.5 truncate font-mono text-xs font-semibold ${valueClass}`}>{value}</p>
     </div>
   );
 }

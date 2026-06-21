@@ -9,6 +9,8 @@ import { TelegramReviewSectionSettings } from "@/components/telegram-review-sect
 import { TelegramTestButton } from "@/components/telegram-test-button";
 import { useSubscriberPreferenceSync } from "@/components/use-subscriber-preference-sync";
 import { WhopBillingPanel } from "@/components/whop-billing-panel";
+import { ProtectedContentGate } from "@/components/access-gate";
+import { useSubscriberAccess } from "@/components/use-subscriber-access";
 import {
   mergeStoredSubscriberPreferences,
   telegramDeliveryReadiness,
@@ -34,6 +36,8 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
   const resolvedLocale = locale ?? appContext.locale;
   const copy = SUBSCRIBER_ACCOUNT_COPY[resolvedLocale];
   const [preferences, setPreferences] = useState<SubscriberPreferences>(initialPreferences);
+  const accessQuery = useSubscriberAccess();
+  const access = accessQuery.data;
   const readiness = telegramDeliveryReadiness(preferences.telegramSettings, { botTokenConfigured });
   const { savedAt, saveState } = useSubscriberPreferenceSync(preferences, resolvedLocale);
   const selectedTraderCount = preferences.favoriteTraderIds.length || fallbackTraders.length;
@@ -98,7 +102,7 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
             </h1>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              {copy.active}
+              {access?.isSubscribed ? copy.active : appContext.t("access.freePlan")}
             </span>
           </div>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 text-sm max-w-2xl break-keep leading-relaxed">
@@ -148,31 +152,42 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
         </div>
       </header>
 
-      <section data-testid="subscriber-command-summary" className="grid gap-3 sm:grid-cols-3">
-        <AccountSummaryMetric
-          label={copy.monitoredScope}
-          value={`${selectedTraderCount}/${fallbackTraders.length}`}
-          detail={preferences.favoriteTraderIds.length === 0 ? copy.allTradersActive : copy.activeTradersActive}
-          tone="emerald"
-        />
-        <AccountSummaryMetric
-          label={copy.eventChannels}
-          value={`${eventTypeCount}/${telegramEventTypes.length}`}
-          detail={preferences.telegramSettings.enabled ? copy.enabled : copy.disabled}
-          tone={preferences.telegramSettings.enabled ? "sky" : "zinc"}
-        />
-        <AccountSummaryMetric
-          label={copy.reviewContent}
-          value={`${reviewSectionCount}/9`}
-          detail={readiness.canSend ? copy.statusConnected : copy.statusDisconnected}
-          tone={readiness.canSend ? "emerald" : "amber"}
-        />
-      </section>
+      <ProtectedContentGate
+        mode="subscription"
+        title={appContext.t("access.accountLockedTitle")}
+        description={appContext.t("access.accountLockedDescription")}
+      >
+        <section data-testid="subscriber-command-summary" className="grid gap-3 sm:grid-cols-3">
+          <AccountSummaryMetric
+            label={copy.monitoredScope}
+            value={`${selectedTraderCount}/${fallbackTraders.length}`}
+            detail={preferences.favoriteTraderIds.length === 0 ? copy.allTradersActive : copy.activeTradersActive}
+            tone="emerald"
+          />
+          <AccountSummaryMetric
+            label={copy.eventChannels}
+            value={`${eventTypeCount}/${telegramEventTypes.length}`}
+            detail={preferences.telegramSettings.enabled ? copy.enabled : copy.disabled}
+            tone={preferences.telegramSettings.enabled ? "sky" : "zinc"}
+          />
+          <AccountSummaryMetric
+            label={copy.reviewContent}
+            value={`${reviewSectionCount}/9`}
+            detail={readiness.canSend ? copy.statusConnected : copy.statusDisconnected}
+            tone={readiness.canSend ? "emerald" : "amber"}
+          />
+        </section>
+      </ProtectedContentGate>
 
       {/* Main Grid Layout */}
       <div className="grid gap-5 lg:grid-cols-12 lg:gap-8">
         {/* Left Column: Monitored AI Traders */}
         <div className="lg:col-span-7 space-y-6">
+          <ProtectedContentGate
+            mode="subscription"
+            title={appContext.t("access.accountLockedTitle")}
+            description={appContext.t("access.accountLockedDescription")}
+          >
           <div data-testid="subscriber-favorites" className="panel border-zinc-200/80 p-4 dark:border-white/[0.08] dark:bg-[#0c0f0d] sm:p-6">
             <div className="mb-6">
               <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-white">
@@ -260,12 +275,18 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
               })}
             </div>
           </div>
+          </ProtectedContentGate>
         </div>
 
         {/* Right Column: Telegram Webhook Configuration */}
         <div className="lg:col-span-5 space-y-6">
           <WhopBillingPanel />
 
+          <ProtectedContentGate
+            mode="subscription"
+            title={appContext.t("access.accountLockedTitle")}
+            description={appContext.t("access.accountLockedDescription")}
+          >
           <div data-testid="telegram-alert-settings" className="panel space-y-5 border-zinc-200/80 p-4 dark:border-white/[0.08] dark:bg-[#0c0f0d] sm:space-y-6 sm:p-6">
             <div>
               <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-white">
@@ -427,6 +448,7 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
               </div>
             </div>
           </div>
+          </ProtectedContentGate>
         </div>
       </div>
     </div>

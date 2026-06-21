@@ -13,6 +13,7 @@ from app.subscribers import (
     preferences_payload,
     upsert_subscriber_preferences,
 )
+from app.subscriber_access import access_payload, read_subscriber_access_state, unlock_payload, unlock_review_source
 from app.telegram_client import get_telegram_bot_username, send_telegram_message
 from app.telegram_linking import connect_telegram_chat, create_telegram_start_link
 
@@ -39,6 +40,15 @@ class SubscriberPreferencesPayload(BaseModel):
 class TelegramLinkPayload(BaseModel):
     userId: str
     email: str
+
+
+class SubscriberAccessUnlockPayload(BaseModel):
+    userId: str
+    email: str
+    sourceKey: str
+    sourceType: str = "scenario"
+    traderId: str | None = None
+    symbol: str | None = None
 
 
 def require_subscriber_api_token(x_subscriber_api_token: str = Header(default="")) -> None:
@@ -128,6 +138,45 @@ def read_subscriber_preferences(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return preferences_payload(preferences)
+
+
+@router.get("/access")
+def read_subscriber_access(
+    user_id: str = Query(alias="userId"),
+    email: str = Query(),
+    _: None = Depends(require_subscriber_api_token),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        state = read_subscriber_access_state(db, user_id=user_id, email=email, settings=get_settings())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return access_payload(state)
+
+
+@router.post("/access/unlock")
+def unlock_subscriber_review_source(
+    payload: SubscriberAccessUnlockPayload,
+    _: None = Depends(require_subscriber_api_token),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        result = unlock_review_source(
+            db,
+            user_id=payload.userId,
+            email=payload.email,
+            source_key=payload.sourceKey,
+            source_type=payload.sourceType,
+            trader_id=payload.traderId,
+            symbol=payload.symbol,
+            settings=get_settings(),
+        )
+        db.commit()
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 402 if detail == "review_coupon_limit_reached" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return unlock_payload(result)
 
 
 @router.post("/telegram/link")

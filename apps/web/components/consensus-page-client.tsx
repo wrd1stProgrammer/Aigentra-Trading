@@ -9,6 +9,7 @@ import { useAppContext } from "@/components/app-provider";
 import { ConsensusAveragePrices } from "@/components/consensus-average-prices";
 import { ConsensusHourlyOpinion } from "@/components/consensus-hourly-opinion";
 import { PageLoadingOverlay } from "@/components/page-loading-overlay";
+import { ProtectedContentGate } from "@/components/access-gate";
 import { 
   getActivePaperPositions,
   getCachedLeaderboardBundle, 
@@ -480,7 +481,7 @@ export function ConsensusPageClient() {
   const error = btcQuery.error ? t("common.liveDataUnavailable") : null;
 
   return (
-    <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 py-8 animate-rise grid gap-6 md:gap-8">
+    <div className="mx-auto grid w-full max-w-6xl gap-4 py-2 md:gap-6 md:px-6 md:py-8 lg:px-8">
       <PageLoadingOverlay
         active={initialLoading}
         label={t("common.loadingSentimentData")}
@@ -488,7 +489,7 @@ export function ConsensusPageClient() {
       />
 
       {/* Title Header Row */}
-      <div data-testid="consensus-command-header" className="flex flex-col gap-4 border-b border-zinc-200/80 pb-6 dark:border-white/[0.08] md:flex-row md:items-center md:justify-between">
+      <div data-testid="consensus-command-header" className="flex flex-col gap-3 border-b border-zinc-200/80 pb-4 dark:border-white/[0.08] md:flex-row md:items-center md:justify-between md:pb-6">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-950 dark:text-white md:text-3xl break-keep">
             {t("consensus.title")}
@@ -509,12 +510,18 @@ export function ConsensusPageClient() {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              LIVE MONITORING
+              {t("consensus.liveMonitoring")}
             </span>
           )}
         </div>
       </div>
 
+      <ProtectedContentGate
+        mode="subscription"
+        title={t("access.consensusLockedTitle")}
+        description={t("access.consensusLockedDescription")}
+        className="space-y-4 md:space-y-6"
+      >
       <div data-testid="consensus-hourly-opinion">
         <ConsensusHourlyOpinion
           data={hourlyOpinionQuery.data}
@@ -525,7 +532,7 @@ export function ConsensusPageClient() {
       </div>
 
       {/* Top Ratio and Averages Panel */}
-      <div className="grid min-w-0 gap-6 md:grid-cols-2">
+      <div className="grid min-w-0 gap-3 md:grid-cols-2 md:gap-6">
         {/* Left Side: Long/Short Ratio Panel */}
         <div className="min-w-0 rounded-2xl border border-zinc-200 bg-white p-4 flex flex-col justify-between shadow-sm dark:border-white/[0.08] dark:bg-white/[0.025] sm:p-6">
           <div>
@@ -539,7 +546,7 @@ export function ConsensusPageClient() {
             {ratioStats.totalCount === 0 ? (
               <p className="text-zinc-500 text-xs py-10 text-center">{t("consensus.noActivePositions")}</p>
             ) : (
-              <div className="mt-6 space-y-6">
+              <div className="mt-5 space-y-5 md:mt-6 md:space-y-6">
                 {/* Trader Count Split */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs font-semibold text-zinc-500 dark:text-zinc-400">
@@ -588,7 +595,7 @@ export function ConsensusPageClient() {
       </div>
 
       {/* Split Column Board for Active Perspectives */}
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 md:gap-6">
         {/* Active Long Column */}
         <div className="space-y-4">
           <div className="flex items-center justify-between border-b border-emerald-500/20 pb-2">
@@ -641,7 +648,7 @@ export function ConsensusPageClient() {
       </div>
 
       {/* Watchlist Section */}
-      <section className="space-y-4 pt-4">
+      <section className="space-y-3 pt-2 md:space-y-4 md:pt-4">
         <div className="flex items-center justify-between border-b border-zinc-200 pb-2 dark:border-white/10">
           <h2 className="text-sm font-bold text-zinc-600 flex items-center gap-2 dark:text-zinc-400">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-zinc-500" />
@@ -688,7 +695,7 @@ export function ConsensusPageClient() {
 
                 <div className="mt-3 border-t border-zinc-100 pt-2 flex items-center justify-between dark:border-white/[0.04]">
                   <div className="flex items-center gap-1.5 text-[10px]">
-                    <span className="text-zinc-500 font-medium">30D Return</span>
+                    <span className="text-zinc-500 font-medium">{t("common.return30d")}</span>
                     <span className={`font-mono font-bold ${trader.returnPct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                       {trader.returnPct >= 0 ? "+" : ""}{trader.returnPct.toFixed(1)}%
                     </span>
@@ -705,6 +712,7 @@ export function ConsensusPageClient() {
           })}
         </div>
       </section>
+      </ProtectedContentGate>
 
       {error ? (
         <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-200">
@@ -782,13 +790,13 @@ function ActiveTraderRow({ trader, locale, t }: { trader: ConsensusTrader; local
               </p>
             </div>
             <div>
-              <p className="text-emerald-500/80 uppercase font-semibold">Target TP</p>
+              <p className="text-emerald-500/80 uppercase font-semibold">{t("detail.takeProfit")}</p>
               <p className="mt-0.5 font-bold text-emerald-400">
                 {activeState.takeProfit ? `$${formatNumber(activeState.takeProfit, 0, locale)}` : "-"}
               </p>
             </div>
             <div>
-              <p className="text-rose-500/80 uppercase font-semibold">Stop Loss</p>
+              <p className="text-rose-500/80 uppercase font-semibold">{t("detail.stopLoss")}</p>
               <p className="mt-0.5 font-bold text-rose-400">
                 {activeState.stopLoss ? `$${formatNumber(activeState.stopLoss, 0, locale)}` : "-"}
               </p>
@@ -807,7 +815,7 @@ function ActiveTraderRow({ trader, locale, t }: { trader: ConsensusTrader; local
               <div className="mt-1.5 flex items-center justify-between text-[9px] text-zinc-500 font-mono">
                 <span>{formatProviderName(trader.activeScenario.provider || "System")}</span>
                 {trader.activeScenario.confidence && (
-                  <span className="font-bold text-zinc-400">Confidence: {trader.activeScenario.confidence}%</span>
+                  <span className="font-bold text-zinc-400">{t("consensus.opinionConfidence")}: {trader.activeScenario.confidence}%</span>
                 )}
               </div>
             )}

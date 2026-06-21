@@ -12,14 +12,17 @@ test("app shell gives leaderboard and detail pages reference-style horizontal gu
 
 test("app shell lets the root landing page own its reference-style header", () => {
   assert.ok(source.includes('const isLandingPage = pathname === "/"'), "root landing should be detected explicitly");
-  assert.ok(source.includes("!isLandingPage && ("), "global app header should not render above the landing hero");
-  assert.ok(source.includes('isLandingPage ? "py-0" : `${APP_SHELL_CONTAINER_CLASS} py-5 md:py-7`'), "root landing should not be wrapped in dashboard gutters");
+  assert.ok(source.includes("const showAppChrome ="), "global chrome visibility should be explicit");
+  assert.ok(source.includes("!isLandingPage &&"), "global app header should not render above the landing hero");
+  assert.ok(source.includes('isLandingPage ? "py-0" : `${APP_SHELL_CONTAINER_CLASS} py-4 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:py-7 md:pb-7`'), "root landing should not be wrapped in dashboard gutters");
 });
 
-test("app shell mobile nav keeps labels from wrapping inside trader detail", () => {
+test("app shell mobile nav uses a bottom tab bar without forcing body overflow", () => {
   assert.match(source, /aria-label=\{navLabel\(locale, link\.key, t\)\}/, "icon-only mobile links still need accessible labels");
-  assert.match(source, /overflow-x-auto/, "mobile nav should scroll instead of forcing body overflow");
-  assert.match(source, /max-w-\[calc\(100vw-9rem\)\]/, "mobile nav should reserve room for language and account controls");
+  assert.match(source, /hidden min-w-0 items-center gap-1 overflow-x-auto/, "desktop nav should stay scroll-safe at intermediate widths");
+  assert.match(source, /fixed inset-x-3 bottom-\[max\(0\.75rem,env\(safe-area-inset-bottom\)\)\]/, "mobile nav should live in a thumb-reachable bottom bar");
+  assert.match(source, /grid grid-cols-4 gap-1/, "mobile nav should reserve stable tap targets for the primary routes");
+  assert.match(source, /md:hidden/, "mobile bottom nav should not appear on desktop");
   assert.match(source, /whitespace-nowrap/, "nav links should not wrap Korean labels one glyph per line");
   assert.match(source, /hidden md:inline/, "visual nav labels should wait for medium viewports");
 });

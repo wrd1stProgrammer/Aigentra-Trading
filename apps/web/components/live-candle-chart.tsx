@@ -1594,18 +1594,18 @@ export function LiveCandleChart({
   return (
     <section className={`panel overflow-hidden ${compact ? "p-4" : "p-5"}`}>
       {/* Top Header Section */}
-      <div className={`${compact ? "mb-3" : "mb-4"} flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between`}>
+      <div className={`${compact ? "mb-2 sm:mb-3" : "mb-3 sm:mb-4"} flex flex-col gap-2 sm:gap-3 xl:flex-row xl:items-start xl:justify-between`}>
         <div>
           <div className="mb-2 flex items-center gap-2">
             <ActivityIcon size={18} />
             <h2 className="text-lg font-semibold">{t("chart.title")}</h2>
           </div>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="hidden text-sm text-zinc-500 dark:text-zinc-400 sm:block">
             {symbol} · {interval} · {t("chart.liveSource")}
           </p>
         </div>
         <div data-testid="chart-market-status" className="flex flex-wrap justify-start gap-2 xl:justify-end">
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/70">
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-950/70 sm:px-3">
             <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{t("chart.marketPrice")}</p>
             <div className="mt-0.5 flex items-baseline gap-2">
               <span className="font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50">
@@ -1635,16 +1635,16 @@ export function LiveCandleChart({
       </div>
 
       {/* Top Chart Toolbar (Indicators, Tools, Navigation) */}
-      <div className="mb-3 flex flex-col gap-2 border-b border-zinc-200/50 pb-3 dark:border-zinc-800/50 lg:flex-row lg:items-center lg:justify-between">
+      <div className="mb-3 flex min-w-0 items-center gap-2 overflow-x-auto border-b border-zinc-200/50 pb-3 scrollbar-none dark:border-zinc-800/50 lg:flex-row lg:justify-between lg:overflow-visible">
         
         {/* Timeframe & Indicators */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 scrollbar-none lg:flex-wrap lg:overflow-visible lg:pb-0">
           {/* Timeframes */}
-          <div className="flex flex-wrap gap-0.5 rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 dark:border-zinc-800 dark:bg-zinc-950/60">
+          <div className="flex shrink-0 gap-0.5 rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 dark:border-zinc-800 dark:bg-zinc-950/60">
             {TIMEFRAMES.map((item) => (
               <button
                 key={item}
-                className={`rounded px-2.5 py-1 text-[11px] font-bold uppercase transition ${
+                className={`shrink-0 rounded px-2.5 py-1 text-[11px] font-bold uppercase transition ${
                   interval === item
                     ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950"
                     : "text-zinc-500 hover:bg-white dark:text-zinc-400 dark:hover:bg-zinc-800/80"
@@ -1660,7 +1660,7 @@ export function LiveCandleChart({
           <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 mx-1 hidden sm:block" />
 
           {/* Indicators dropdown buttons */}
-          <div className="flex flex-wrap gap-1">
+          <div className="hidden shrink-0 gap-1 sm:flex lg:flex-wrap">
             <IndicatorToggle active={showEma20} onClick={() => setShowEma20(p => !p)} label="EMA 20" />
             <IndicatorToggle active={showEma50} onClick={() => setShowEma50(p => !p)} label="EMA 50" />
             <IndicatorToggle active={showEma200} onClick={() => setShowEma200(p => !p)} label="EMA 200" />
@@ -1671,7 +1671,7 @@ export function LiveCandleChart({
         </div>
 
         {/* Tools and navigation */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 pb-1 lg:flex-wrap lg:justify-end lg:pb-0">
           <button
             type="button"
             data-testid="chart-tool-toggle"
@@ -1688,10 +1688,10 @@ export function LiveCandleChart({
             {showDrawingTools ? t("chart.hideTools") : t("chart.showTools")}
           </button>
 
-          <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 mx-1" />
+          <div className="h-4 w-px shrink-0 bg-zinc-200 dark:bg-zinc-800 mx-1" />
 
           {/* Standard Navigation Toggles */}
-          <div className="flex gap-0.5">
+          <div className="flex shrink-0 gap-0.5">
             <ChartButton label={t("chart.panLeft")} onClick={() => pan(24)}>
               <CaretLeft size={14} />
             </ChartButton>
@@ -1712,14 +1712,14 @@ export function LiveCandleChart({
       </div>
 
       {/* Main Workspace: Optional tools + Canvas / Chart sync boxes */}
-      <div className="flex gap-3 min-w-0">
+      <div className="flex min-w-0 gap-2 sm:gap-3">
         
         {showDrawingTools ? (
         <div
           id="chart-drawing-toolbar"
           data-testid="chart-drawing-toolbar"
           aria-label={t("chart.drawingTools")}
-          className="flex flex-col gap-1 rounded-xl border border-zinc-200 bg-zinc-50/50 p-1.5 dark:border-zinc-800/80 dark:bg-zinc-950/60 self-start shadow-sm shrink-0"
+          className="flex shrink-0 flex-col gap-1 self-start rounded-xl border border-zinc-200 bg-zinc-50/50 p-1.5 shadow-sm dark:border-zinc-800/80 dark:bg-zinc-950/60"
         >
           <SidebarButton
             active={activeTool === "cursor"}
@@ -1815,7 +1815,7 @@ export function LiveCandleChart({
       </div>
 
       {/* Legend & hints */}
-      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+      <div className="mt-3 flex max-h-16 flex-wrap gap-x-4 gap-y-1.5 overflow-y-auto pr-1 text-xs text-zinc-500 dark:text-zinc-400 sm:max-h-none sm:overflow-visible">
         <Legend color="bg-amber-400" label={t("chart.entry")} />
         <Legend color="bg-sky-400" label={t("chart.averageEntry")} />
         <Legend color="bg-violet-400" label={t("chart.order")} />

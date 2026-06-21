@@ -1,4 +1,4 @@
-from decimal import Decimal, InvalidOperation, ROUND_DOWN
+from decimal import Decimal, ROUND_DOWN
 from collections import defaultdict
 from typing import Any, Optional
 
@@ -7,73 +7,25 @@ from sqlalchemy.orm import Session
 
 from app.db import PaperOrderRecord, PaperPositionRecord
 from app.paper.engine import place_paper_order
-from app.paper.repositories import create_trade_event, ensure_trader_state, upsert_risk_settings
+from app.paper.repositories import create_trade_event
 from app.paper.review_payload import review_payload_fields
-from app.paper.sizing import adjusted_margin_deployment_percent
+from app.paper.settings import sync_default_paper_settings
+from app.paper.sizing import (
+    adjusted_margin_deployment_percent,
+    minimum_margin_deployment_percent,
+    planned_entry_margin_budgets,
+    target_margin_deployment_percent,
+)
 from app.repositories import serialize_record
 from app.traders.models import TradeCandidate, TradePlan, TradeReviewResult
 
 
 MIN_PAPER_QUANTITY = Decimal("0.001")
 QUANTITY_STEP = Decimal("0.001")
-MIN_SERVICE_MARGIN_DEPLOYMENT_PERCENT = Decimal("10")
-MAX_SERVICE_MARGIN_DEPLOYMENT_PERCENT = Decimal("100")
-
-
-def decimal_or_none(value: Any) -> Optional[Decimal]:
-    if value is None:
-        return None
-    try:
-        decimal = Decimal(str(value))
-    except (InvalidOperation, ValueError):
-        return None
-    return decimal if decimal.is_finite() else None
 
 
 def quantize_quantity(quantity: Decimal) -> Decimal:
     return quantity.quantize(QUANTITY_STEP, rounding=ROUND_DOWN)
-
-
-def decimal_setting(settings: Any, name: str, default: str) -> Decimal:
-    return Decimal(str(getattr(settings, name, default)))
-
-
-def clamp_decimal(value: Decimal, minimum: Decimal, maximum: Decimal) -> Decimal:
-    return max(minimum, min(value, maximum))
-
-
-def target_margin_deployment_percent(candidate: TradeCandidate, settings: Any) -> Decimal:
-    configured_minimum = decimal_setting(settings, "paper_min_margin_deployment_percent", "10")
-    minimum = max(
-        MIN_SERVICE_MARGIN_DEPLOYMENT_PERCENT,
-        clamp_decimal(configured_minimum, Decimal("0"), MAX_SERVICE_MARGIN_DEPLOYMENT_PERCENT),
-    )
-    configured_max = clamp_decimal(
-        decimal_setting(settings, "paper_max_margin_deployment_percent", "100"),
-        Decimal("0"),
-        MAX_SERVICE_MARGIN_DEPLOYMENT_PERCENT,
-    )
-    maximum = max(minimum, configured_max)
-    score = clamp_decimal(Decimal(str(candidate.setupScore or 0)), Decimal("0"), Decimal("100"))
-    if score <= Decimal("50"):
-        target = minimum
-    else:
-        target = minimum + ((score - Decimal("50")) / Decimal("50")) * (maximum - minimum)
-    return clamp_decimal(target, minimum, maximum)
-
-
-def sync_default_paper_settings(db: Session, trader_id: str, symbol: str, settings: Any):
-    risk_settings = upsert_risk_settings(
-        db,
-        trader_id=trader_id,
-        symbol=symbol,
-        initial_equity=Decimal(str(settings.paper_default_equity)),
-        max_leverage=Decimal(str(settings.paper_max_leverage)),
-        maker_fee_rate=Decimal(str(settings.paper_maker_fee_rate)),
-        taker_fee_rate=Decimal(str(settings.paper_taker_fee_rate)),
-    )
-    state = ensure_trader_state(db, trader_id, risk_settings.initial_equity)
-    return state, risk_settings
 
 
 def list_active_paper_exposure(db: Session, trader_id: str, symbol: str) -> dict:
@@ -192,6 +144,14 @@ def create_paper_orders_from_plan(
         else Decimal("0")
     )
     target_margin_budget = min(target_margin_budget, cash_budget_cap)
+    minimum_first_entry_percent = min(deployment_percent, minimum_margin_deployment_percent(settings))
+    first_entry_floor_budget = equity * (minimum_first_entry_percent / Decimal("100"))
+    planned_margins = planned_entry_margin_budgets(
+        entries=plan.entries,
+        target_margin_budget=target_margin_budget,
+        total_weight=total_weight,
+        first_entry_floor_budget=first_entry_floor_budget,
+    )
     slippage_rate = Decimal(str(settings.paper_slippage_rate))
     created: list[dict] = []
     skipped: list[str] = []
@@ -205,7 +165,8 @@ def create_paper_orders_from_plan(
             continue
 
         weight = Decimal(str(max(entry.weight, 0.0))) / total_weight
-        planned_margin = target_margin_budget * weight
+        planned_margin = planned_margins[index]
+        effective_weight = planned_margin / target_margin_budget if target_margin_budget > 0 else Decimal("0")
         planned_notional = planned_margin * leverage
         quantity = quantize_quantity(planned_notional / entry_price)
         if quantity < MIN_PAPER_QUANTITY:
@@ -228,12 +189,14 @@ def create_paper_orders_from_plan(
             "tradePlanId": trade_plan_id,
             "entryIndex": index,
             "entryWeight": float(weight),
+            "effectiveEntryWeight": float(effective_weight),
             "entryReason": entry.reason,
             "plannedEntryPrice": float(entry_price),
             "plannedStopLoss": float(stop_loss),
             "riskPercent": float(risk_percent),
             "baseMarginDeploymentPercent": float(base_deployment_percent),
             "marginDeploymentPercent": float(deployment_percent),
+            "minimumFirstEntryMarginPercent": float(minimum_first_entry_percent),
             "plannedMargin": float(planned_margin),
             "plannedNotional": float(planned_notional),
             "actualPlannedMargin": float(actual_margin),

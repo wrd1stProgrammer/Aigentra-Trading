@@ -39,10 +39,10 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, locale, t }: 
                 <Sparkle size={13} weight="fill" />
                 Aigentra
               </p>
-              <h2 className="mt-2 text-xl font-bold tracking-tight text-zinc-950 dark:text-white sm:text-2xl">
+              <h2 className="mt-1.5 text-lg font-bold tracking-tight text-zinc-950 dark:text-white sm:mt-2 sm:text-2xl">
                 {t("consensus.aigentraOpinion")}
               </h2>
-              <p className="mt-1.5 max-w-2xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+              <p className="mt-1 max-w-2xl text-xs leading-5 text-zinc-600 dark:text-zinc-400 sm:mt-1.5 sm:text-sm sm:leading-6">
                 {t("consensus.aigentraOpinionSubtitle")}
               </p>
             </div>
@@ -58,13 +58,13 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, locale, t }: 
             </div>
           </div>
 
-          <div className="mt-5 border-t border-zinc-200 pt-5 dark:border-white/[0.08]">
+          <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-white/[0.08] sm:mt-5 sm:pt-5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-lg font-bold leading-7 text-zinc-950 dark:text-white">
+              <p className="text-base font-bold leading-6 text-zinc-950 dark:text-white sm:text-lg sm:leading-7">
                 {opinion?.headline ?? t("consensus.opinionLoadingHeadline")}
               </p>
               {data?.cacheHit && (
-                <span className="shrink-0 rounded-full bg-zinc-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-600 dark:bg-white/10 dark:text-zinc-300">
+                <span className="shrink-0 self-start rounded-full bg-zinc-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-600 dark:bg-white/10 dark:text-zinc-300">
                   cached
                 </span>
               )}
@@ -73,13 +73,13 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, locale, t }: 
               {opinion?.summary ?? t("consensus.opinionLoadingSummary")}
             </p>
             {opinion?.action && (
-              <p className="mt-4 border-l-2 border-emerald-500 pl-3 text-sm font-semibold leading-6 text-zinc-800 dark:text-zinc-200">
+              <p className="mt-3 border-l-2 border-emerald-500 pl-3 text-sm font-semibold leading-6 text-zinc-800 dark:text-zinc-200 sm:mt-4">
                 {opinion.action}
               </p>
             )}
           </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <div className="mt-3 grid gap-2 md:grid-cols-3 md:gap-3">
             <OpinionList tone="good" title={t("consensus.opinionDrivers")} items={opinion?.keyDrivers} empty={t("consensus.opinionNoDrivers")} />
             <OpinionList tone="warn" title={t("consensus.opinionRisks")} items={opinion?.risks} empty={t("consensus.opinionNoRisks")} />
             <OpinionList tone="neutral" title={t("consensus.opinionWatch")} items={opinion?.watchConditions} empty={t("consensus.opinionNoWatch")} />
@@ -90,7 +90,7 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, locale, t }: 
           <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
             {t("consensus.aigentraOpinion")}
           </p>
-          <div className="mt-4 divide-y divide-zinc-200 dark:divide-white/[0.08]">
+          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 divide-y-0 sm:mt-4 sm:block sm:divide-y sm:divide-zinc-200 sm:dark:divide-white/[0.08]">
             <Metric label={t("consensus.opinionRisk")} value={opinion?.riskLevel ?? "-"} />
             <Metric label={t("consensus.opinionActiveSources")} value={String(activeCount)} />
             <Metric label={t("consensus.opinionLongShort")} value={opinion?.longShortContext ?? "-"} compact />
@@ -150,7 +150,7 @@ function Metric({
   compact?: boolean;
 }) {
   return (
-    <div className="min-w-0 py-3 first:pt-0 last:pb-0">
+    <div className="min-w-0 py-2 first:pt-0 last:pb-0 sm:py-3">
       <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
         {icon}
         {label}
