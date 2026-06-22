@@ -152,7 +152,7 @@ const baseDictionaries = {
     "leaderboard.fees": "수수료",
     "leaderboard.biggestWin": "최대 이익",
     "leaderboard.biggestLoss": "최대 손실",
-    "leaderboard.sharpe": "Sharpe",
+    "leaderboard.sharpe": "위험조정",
     "leaderboard.trades": "거래 수",
     "leaderboard.exposure": "노출 상태",
     "leaderboard.agentFeed": "AI Agent 최근 판단",

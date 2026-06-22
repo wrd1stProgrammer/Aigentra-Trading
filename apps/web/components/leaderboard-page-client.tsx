@@ -7,7 +7,6 @@ import {
   ArrowRight,
   Calendar,
   CaretDown,
-  CaretRight,
   CircleNotch,
 } from "@phosphor-icons/react";
 import {
@@ -45,7 +44,7 @@ import {
 import { LatestStatusFeedNote } from "@/components/trader-profile-detail/status-feed-thread";
 
 const SYMBOLS: LeagueSymbol[] = ["BTCUSDT"];
-const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_100px_90px_60px_80px_65px_24px] gap-3";
+const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_100px_90px_60px_80px_65px] gap-3";
 const OVERVIEW_INITIAL_LIMIT = 20;
 const OVERVIEW_PAGE_LIMIT = 10;
 const OVERVIEW_CACHE_TTL_MS = 60_000;
@@ -83,29 +82,6 @@ type TraderProgress = {
   side?: "long" | "short";
   sideDetail?: string;
   leverage?: number | null;
-};
-
-const traderFlags: Record<string, string> = {
-  "channel-rider": "🇰🇷",
-  "volume-breaker": "🇰🇷",
-  "pullback-architect": "🇰🇷",
-  "leverage-hunter": "🇰🇷",
-  "liquidity-reaper": "🇺🇸",
-  "volatility-squeezer": "🇰🇷",
-  "trend-sentinel": "🇺🇸",
-  "range-maker": "🇰🇷",
-  "funding-contrarian": "🇰🇷",
-  "orderflow-sniper": "🇺🇸",
-  "donchian-breakout": "₿",
-  "ichimoku-cloud-pilot": "₿",
-  "vwap-reclaimer": "₿",
-  "wyckoff-spring": "₿",
-  "rsi-divergence-scout": "₿",
-  "session-raider": "₿",
-  "imbalance-hunter": "₿",
-  "momentum-ignition": "₿",
-  "bollinger-reversion": "₿",
-  "atr-trail-commander": "₿"
 };
 
 const periodLabels = {
@@ -402,7 +378,6 @@ function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, 
           <div className="text-right whitespace-nowrap">{t("leaderboard.mdd")}</div>
           <div className="text-right whitespace-nowrap">{t("common.winRate")}</div>
           <div className="text-right whitespace-nowrap">{t("leaderboard.sharpe")}</div>
-          <div className="text-right" />
         </div>
         <div className="divide-y divide-[var(--border)]">
           {standings.map((trader) => {
@@ -431,9 +406,6 @@ function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, 
                 <MetricValue value={formatDrawdown(trader.maxDrawdown)} />
                 <MetricValue value={formatNullablePercent(trader.winRate)} />
                 <MetricValue value={formatNumber(trader.sharpe, 2, locale)} tone={trader.sharpe > 2 ? "good" : trader.sharpe < 0 ? "bad" : "neutral"} />
-                <div className="flex justify-end text-zinc-500 transition-colors group-hover:text-emerald-400">
-                  <CaretRight size={18} />
-                </div>
               </Link>
             );
           })}
@@ -482,18 +454,6 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, onPrefetch 
         {standings.map((trader) => {
             const progress = traderProgress(trader, exposureByTrader.get(trader.id), t, locale);
             const displayName = localizedTraderName(trader, t);
-            const isNew = [
-              "donchian-breakout",
-              "ichimoku-cloud-pilot",
-              "vwap-reclaimer",
-              "wyckoff-spring",
-              "rsi-divergence-scout",
-              "session-raider",
-              "imbalance-hunter",
-              "momentum-ignition",
-              "bollinger-reversion",
-              "atr-trail-commander"
-            ].includes(trader.id);
             return (
               <Link
                 key={trader.id}
@@ -510,12 +470,6 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, onPrefetch 
                       <p className="truncate text-[15px] font-bold text-white">
                         {displayName}
                       </p>
-                      {isNew ? (
-                        <span className="inline-flex shrink-0 items-center rounded-sm border border-emerald-500/30 bg-emerald-500/20 px-1 py-0.5 text-[9px] font-extrabold uppercase leading-none tracking-wide text-emerald-400">
-                          NEW
-                        </span>
-                      ) : null}
-                      <span className="shrink-0 text-xs">{traderFlags[trader.id] || "🇰🇷"}</span>
                     </div>
                     <p className="mt-0.5 truncate text-xs text-zinc-500">{t(traderShortKey(trader.id))}</p>
                     <div className="mt-1.5 flex min-w-0 items-center gap-1.5">
@@ -567,9 +521,8 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <p className="text-zinc-500 text-xs uppercase tracking-wider font-bold">{t("leaderboard.previewTitle")}</p>
-              <h3 className="mt-1 truncate text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+              <h3 className="mt-1 truncate text-2xl font-bold tracking-tight text-white">
                 {displayName}
-                <span className="text-lg shrink-0">{traderFlags[trader.id] || "🇰🇷"}</span>
               </h3>
               <p className="text-zinc-400 mt-2 text-xs leading-relaxed font-sans break-keep">{t(traderDetailKey(trader.id))}</p>
               <LatestStatusFeedNote feed={latestStatusFeed} locale={locale} t={t} />
@@ -644,33 +597,14 @@ function TraderMark({ trader, compact = false }: { trader: TraderStanding; compa
 }
 
 function TraderIdentity({ trader, progress, t }: { trader: TraderStanding; progress: TraderProgress; t: (key: string) => string }) {
-  const flag = traderFlags[trader.id] || "🇰🇷";
   const displayName = localizedTraderName(trader, t);
-  const isNew = [
-    "donchian-breakout",
-    "ichimoku-cloud-pilot",
-    "vwap-reclaimer",
-    "wyckoff-spring",
-    "rsi-divergence-scout",
-    "session-raider",
-    "imbalance-hunter",
-    "momentum-ignition",
-    "bollinger-reversion",
-    "atr-trail-commander"
-  ].includes(trader.id);
   return (
     <div className="flex min-w-0 items-center gap-3">
       <TraderMark trader={trader} />
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <p className="truncate text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
+          <p className="truncate text-sm font-bold tracking-tight text-white">
             {displayName}
-            {isNew && (
-              <span className="inline-flex shrink-0 items-center rounded-sm bg-emerald-500/20 text-emerald-400 px-1 py-0.5 text-[9px] font-extrabold uppercase tracking-wide leading-none border border-emerald-500/30">
-                NEW
-              </span>
-            )}
-            <span className="text-sm shrink-0" title={flag === "🇰🇷" ? "South Korea" : "USA"}>{flag}</span>
           </p>
           <SideBadge progress={progress} />
           <LeverageBadge progress={progress} />
