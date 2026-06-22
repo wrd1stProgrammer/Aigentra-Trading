@@ -1421,7 +1421,7 @@ async def run_management_reviews(
             else None
         )
         events = [shock_event] if shock_event else order_management_events(trader_id, order, snapshot)
-        if not events and should_run_heartbeat(
+        if not events and not positions and should_run_heartbeat(
             db,
             trader_id=trader_id,
             symbol=symbol,
@@ -1489,7 +1489,7 @@ async def run_management_reviews(
             db,
             trader_id=trader_id,
             symbol=symbol,
-            orders=orders,
+            orders=[] if positions else orders,
             positions=positions,
         )
         if next_review_at is None:

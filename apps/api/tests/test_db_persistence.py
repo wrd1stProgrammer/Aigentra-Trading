@@ -995,6 +995,72 @@ async def test_run_cycle_heartbeat_reviews_active_position_without_event(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_open_position_suppresses_passive_pending_order_heartbeat(monkeypatch, temp_db):
+    snapshot = sample_snapshot()
+    snapshot["price"] = 68100.0
+    snapshot["timeframes"]["1m"] = {"open": 68100.0, "high": 68120.0, "low": 68020.0, "close": 68100.0, "volume": 180.0}
+    snapshot["timeframes"]["15m"]["close"] = 68100.0
+    snapshot["timeframes"]["1h"]["channel"] = {
+        "slope": 18.0,
+        "lower": 67500.0,
+        "mid": 68400.0,
+        "upper": 69300.0,
+        "position": 0.4,
+    }
+
+    async def fake_snapshot(client, symbol):
+        return snapshot
+
+    monkeypatch.setattr("app.main.build_market_snapshot", fake_snapshot)
+
+    with session_scope() as db:
+        place_paper_order(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="market",
+            quantity=0.01,
+            leverage=2,
+            take_profit_price=70000,
+            stop_loss_price=66800,
+        )
+        process_candle(db, "channel-rider", "BTCUSDT", {"open": 68000, "high": 68120, "low": 67980, "close": 68100})
+        position = db.query(PaperPositionRecord).filter_by(trader_id="channel-rider", symbol="BTCUSDT", status="open").one()
+        pending_order = place_paper_order(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=67500,
+            quantity=0.01,
+            leverage=2,
+            take_profit_price=70000,
+            stop_loss_price=66800,
+        )
+        old = datetime.now(timezone.utc) - timedelta(seconds=360)
+        position.created_at = old
+        position.updated_at = old
+        pending_order.created_at = old
+        pending_order.submitted_at = old
+        pending_order.updated_at = old
+
+    result = await run_trader_cycle("channel-rider", "BTCUSDT", provider_override="mock")
+
+    review_event_types = [review["eventType"] for review in result.managementReviews]
+    assert review_event_types == ["channel_rider_position_heartbeat"]
+
+    with session_scope() as db:
+        pending_reviews = db.query(PositionManagementReviewRecord).filter_by(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            event_type="channel_rider_pending_heartbeat",
+        ).all()
+        assert pending_reviews == []
+
+
+@pytest.mark.asyncio
 async def test_heartbeat_reviews_each_pending_order_independently(monkeypatch, temp_db):
     snapshot = sample_snapshot()
     snapshot["price"] = 68000.0

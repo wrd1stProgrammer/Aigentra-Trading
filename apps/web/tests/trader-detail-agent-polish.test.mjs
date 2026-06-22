@@ -142,6 +142,49 @@ test("latest scenario timeline keeps distinct review ids even inside the same mi
   assert.deepEqual(deduped.map((scenario) => scenario.id), ["review-101", "review-102"]);
 });
 
+test("latest scenario timeline hides passive pending heartbeat paired with position heartbeat", () => {
+  const scenarios = [
+    {
+      id: "review-202",
+      source: "review",
+      createdAt: "2026-06-22T05:27:49Z",
+      phase: "OPEN_POSITION",
+      eventType: "imbalance_hunter_position_heartbeat",
+      action: "HOLD",
+      status: "HOLD",
+      side: "SHORT",
+      price: 64184.2
+    },
+    {
+      id: "review-201",
+      source: "review",
+      createdAt: "2026-06-22T05:26:57Z",
+      phase: "PENDING_ORDER",
+      eventType: "imbalance_hunter_pending_heartbeat",
+      action: "HOLD",
+      status: "HOLD",
+      side: "SHORT",
+      price: 64184.2
+    },
+    {
+      id: "review-200",
+      source: "review",
+      createdAt: "2026-06-22T05:25:57Z",
+      phase: "PENDING_ORDER",
+      eventType: "imbalance_hunter_pending_invalid",
+      action: "CANCEL_PENDING_ORDER",
+      status: "CANCEL_PENDING_ORDER",
+      side: "SHORT",
+      price: 64184.2
+    }
+  ];
+
+  assert.deepEqual(
+    scenarioDedupe.dedupeScenarioTimelineScenarios(scenarios).map((scenario) => scenario.id),
+    ["review-202", "review-200"]
+  );
+});
+
 test("review facts replace user summary in visible review UI", () => {
   assert.match(aiReviewPanelSource, /reviewFacts/, "AI review panel should render structured review facts");
   assert.match(apiSource, /reviewFacts/, "API types should expose structured review facts");
