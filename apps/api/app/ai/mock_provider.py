@@ -94,12 +94,12 @@ class MockAIProvider(BaseAIProvider):
             {"code": "risk_plan_checked", "labelKey": "reviewFact.riskPlanChecked", "severity": "info"},
             {"code": "fee_buffer_checked", "labelKey": "reviewFact.feeBufferChecked", "severity": "info"},
         ]
-        if payload.lossDiscipline:
+        if payload.lossDiscipline or payload.recentLossReviews:
             facts.append(
                 {
                     "code": "loss_discipline_checked",
                     "labelKey": "reviewFact.lossDisciplineChecked",
-                    "severity": "warn" if payload.lossDiscipline.get("active") else "info",
+                    "severity": "warn" if payload.lossDiscipline.get("active") or payload.recentLossReviews else "info",
                 }
             )
         return self.normalize_result(

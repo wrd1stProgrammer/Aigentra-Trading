@@ -98,6 +98,7 @@ class TradeReviewPayload(BaseModel):
     activeExposure: Dict[str, Any] = Field(default_factory=dict)
     recentTradeEvents: List[Dict[str, Any]] = Field(default_factory=list)
     lossDiscipline: Dict[str, Any] = Field(default_factory=dict)
+    recentLossReviews: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class ReviewFact(BaseModel):

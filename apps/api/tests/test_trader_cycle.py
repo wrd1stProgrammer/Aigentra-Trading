@@ -533,6 +533,14 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
             candidate=candidate,
             locale="en",
             lossDiscipline={"active": True, "remainingSeconds": 480, "closeReason": "stop_loss"},
+            recentLossReviews=[
+                {
+                    "closeReason": "stop_loss",
+                    "realizedPnl": -42.5,
+                    "side": "long",
+                    "summary": "Previous long hit the planned stop after reclaim failed.",
+                }
+            ],
         )
     )
     management = position_management_review_prompt(
@@ -565,10 +573,14 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "exactly one second-pass review for the whole candidate" in entry_contract
     assert "higher leverage should require progressively stronger confirmation" in entry_contract
     assert "Use recentAiReviews as context, not as an independent veto" in entry_contract
+    assert "recentLossReviews" in entry
+    assert "not an automatic rejection" in entry_contract
+    assert "apply the trader's postLossDiscipline strictly" not in entry_contract
     assert "For reversal, mean-reversion, divergence, or fade strategies" in entry_contract
     assert "reviewCode" in management
     assert "reviewFacts" in management
     assert "structuredReview" in management
+    assert "early_failure_adverse_r is a review-warning signal only" in management
     assert "rationale is a legacy compatibility field" in management
 
 

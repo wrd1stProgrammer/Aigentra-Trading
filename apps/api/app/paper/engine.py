@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db import PaperOrderRecord, PaperPositionRecord, TraderStateRecord, utc_now
 from app.paper.holding_policy import trader_holding_policy
+from app.paper.loss_discipline import close_review_context
 from app.paper.repositories import (
     create_equity_snapshot_if_needed,
     create_paper_order,
@@ -673,13 +674,6 @@ def _risk_distance(position: PaperPositionRecord) -> Optional[Decimal]:
 
 def _management_exit_signal(position: PaperPositionRecord, candle: Candle) -> tuple[Optional[Decimal], Optional[str]]:
     policy = trader_holding_policy(position.trader_id or "")
-    risk_distance = _risk_distance(position)
-    if risk_distance is not None:
-        if position.side == "long" and candle.close <= position.entry_price - risk_distance * policy.early_failure_adverse_r:
-            return candle.close, "early_thesis_failure"
-        if position.side == "short" and candle.close >= position.entry_price + risk_distance * policy.early_failure_adverse_r:
-            return candle.close, "early_thesis_failure"
-
     if position.take_profit_price is None:
         return None, None
     target_distance = abs(position.take_profit_price - position.entry_price)
@@ -767,6 +761,7 @@ def _close_position(
     position.close_reason = reason
     position.closed_at = candle.timestamp or utc_now()
     position.updated_at = utc_now()
+    close_review = close_review_context(position, reason, exit_price)
 
     state.cash_balance += position.margin + gross_pnl - exit_fee
     state.realized_pnl += net_pnl
@@ -795,6 +790,9 @@ def _close_position(
             "stopLossPrice": position.stop_loss_price,
             "takeProfitPrice": position.take_profit_price,
             "grossPnl": gross_pnl,
+            "closeReasonSummary": close_review["summary"],
+            "closeReview": close_review,
+            "lossReview": close_review if close_review["outcome"] == "loss" else None,
             "paperOnly": True,
         },
     )

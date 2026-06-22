@@ -593,6 +593,7 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "activeExposure": payload.activeExposure,
         "recentTradeEvents": payload.recentTradeEvents,
         "lossDiscipline": payload.lossDiscipline,
+        "recentLossReviews": payload.recentLossReviews[:3],
         "marketSnapshot": {
             "symbol": payload.marketSnapshot.get("symbol"),
             "price": payload.marketSnapshot.get("price"),
@@ -609,7 +610,10 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "Treat paper-trading status as execution context only; do not use it as approval evidence. "
         "Use the strategyReviewerPolicy to calibrate your judgment: do not be blindly conservative, "
         "but do not approve inconsistent geometry, missing stops, unsupported leverage, or thesis conflicts. "
-        "When lossDiscipline.active is true or recentTradeEvents show stop-loss or thesis-failure loss, apply the trader's postLossDiscipline strictly. "
+        "Use recentLossReviews as compact post-loss memory, not an automatic rejection. "
+        "Compare the new candidate with the last few losing trades: if it repeats the same failed side, invalidation, weak confirmation, or over-tight geometry, "
+        "prefer DEFER, REJECT, or ADJUST_AND_APPROVE with smaller risk, lower allowed leverage, cancelled scale entries, or clearer stop discipline. "
+        "If the fresh setup is materially different from the recent losses, explain that difference briefly in structuredReview.managerNote or approvalReason. "
         "Use recentAiReviews as context, not as an independent veto; do not reject primarily because prior reviews rejected or deferred. "
         "Let fresh market evidence, changed price geometry, and the trader-specific thesis decide whether the new candidate deserves approval. "
         "Prefer ADJUST_AND_APPROVE when the edge is real and the flaw is fixable by calibrated size, lower or higher bounded leverage, "
@@ -638,7 +642,7 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "do not use leverage below 5 as an approval workaround; contain or expand risk with riskPercentOverride, scale-entry changes, or early exits, "
         "6) orderIntent must be compatible with pending paper entries and must not imply a real order, "
         "7) fees/slippage buffer must be included in the risk review, "
-        "8) earlyExitRules and invalidation must be specific enough to stop the trade before the full stop when thesis fails. "
+        "8) earlyExitRules and invalidation must be specific enough for the manager to recognize thesis failure, but do not require closing before the original hard stop unless the review explicitly recommends management action later. "
         "structuredReview is the primary user-facing explanation. It must be an object with verdict, headline, action, keyReasons, risks, watchConditions, managerNote. "
         "Keep it simple and direct for a beginner who understands LONG/SHORT but not every indicator: verdict is a short label, headline is one plain-language decision sentence, "
         "action is one sentence only and never a list, keyReasons has up to 2 short bullets, risks has up to 1 bullet, watchConditions has up to 2 exact price/time/indicator triggers, "
@@ -718,6 +722,8 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "The nested holdingPolicy is mandatory: do not move stops to breakeven, take partial profit, or trail earlier than that policy "
         "unless the event is a hard invalidation or fast-market risk event. Slow trend/channel/pullback traders should be allowed to hold "
         "through normal pullbacks; scalp/orderflow traders can protect faster. "
+        "holdingPolicy.early_failure_adverse_r is a review-warning signal only, not a standalone close rule; prefer the original hard stop unless "
+        "current market evidence clearly invalidates the thesis or your action explicitly closes/reduces with a concrete reason. "
         "structuredReview is the primary user-facing explanation. It must be an object with verdict, headline, action, keyReasons, risks, watchConditions, managerNote. "
         "Keep it simple and direct for a beginner: verdict is a short label, headline is one sentence about the current state, "
         "action is one sentence only and never a list, keyReasons has up to 2 short bullets, risks has up to 1 bullet, watchConditions has up to 2 exact triggers, "

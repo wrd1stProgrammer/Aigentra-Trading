@@ -67,7 +67,6 @@ from app.paper.engine import (
     update_position_stop,
 )
 from app.paper.management_actions import create_position_add_order
-from app.paper.loss_discipline import latest_post_loss_cooldown, latest_post_loss_cooldown_map
 from app.paper.management import (
     managed_exposure_from_order,
     managed_exposure_from_position,
@@ -2881,12 +2880,6 @@ async def run_scanner_once(
         with session_scope() as db:
             exposure_map = list_active_paper_exposure_map(db, trader_ids, symbol)
             cooldown_map = latest_ai_review_cooldown_map(db, trader_ids, symbol)
-            post_loss_cooldown_map = latest_post_loss_cooldown_map(
-                db,
-                trader_ids,
-                symbol,
-                cooldown_seconds=max(0, int(settings.paper_reentry_cooldown_seconds or 0)),
-            )
         prefilter_ms = int((time.perf_counter() - prefilter_started) * 1000)
         duration_breakdown["prefilterDbMs"] += prefilter_ms
         symbol_breakdown[symbol]["prefilterDbMs"] = prefilter_ms
@@ -2899,30 +2892,7 @@ async def run_scanner_once(
                     trader.id,
                     {"openOrders": [], "openPositions": [], "hasExposure": False},
                 )
-                loss_cooldown = None if active_exposure["hasExposure"] else post_loss_cooldown_map.get(trader.id)
                 cooldown = None if active_exposure["hasExposure"] else cooldown_map.get(trader.id)
-
-                if loss_cooldown:
-                    counts["cooldowns"] += 1
-                    counts["noCandidate"] += 1
-                    results.append(
-                        {
-                            "traderId": trader.id,
-                            "trader": trader.name,
-                            "symbol": symbol,
-                            "runId": None,
-                            "status": "POST_LOSS_COOLDOWN",
-                            "candidateCreated": False,
-                            "candidateReason": f"Recent stop-loss cooldown: {loss_cooldown['remainingSeconds']}s remaining.",
-                            "setupScore": 0,
-                            "aiDecision": None,
-                            "provider": requested_provider,
-                            "openOrders": 0,
-                            "openPositions": 0,
-                            "managementReviews": 0,
-                        }
-                    )
-                    continue
 
                 if cooldown:
                     counts["cooldowns"] += 1
@@ -3076,8 +3046,6 @@ async def run_scanner_once(
         if trade_plan_status == "ACTIVE_PAPER_EXPOSURE":
             counts["activeExposure"] += 1
         if trade_plan_status == "AI_REVIEW_COOLDOWN":
-            counts["cooldowns"] += 1
-        if trade_plan_status == "POST_LOSS_COOLDOWN":
             counts["cooldowns"] += 1
         counts["openOrders"] += open_orders
         counts["openPositions"] += open_positions
@@ -3613,99 +3581,6 @@ async def run_trader_cycle(
             paperOrder=paper_before_candidate["after"]["openOrders"][0] if paper_before_candidate["after"]["openOrders"] else None,
             paperPositions=paper_before_candidate["after"]["openPositions"],
             paperPosition=paper_before_candidate["after"]["openPositions"][0] if paper_before_candidate["after"]["openPositions"] else None,
-            tradeEvents=paper_before_candidate["engine"]["events"],
-            equitySnapshot=paper_before_candidate["engine"]["equitySnapshot"],
-            managementReviews=paper_before_candidate.get("managementReviews", []),
-        )
-
-    with session_scope() as db:
-        loss_cooldown = latest_post_loss_cooldown(
-            db,
-            strategy.profile.id,
-            clean_symbol,
-            cooldown_seconds=max(0, int(settings.paper_reentry_cooldown_seconds or 0)),
-        )
-
-    if loss_cooldown:
-        remaining = loss_cooldown["remainingSeconds"]
-        reason = (
-            f"Recent stop-loss closed this trader's previous paper trade. "
-            f"New entry review is paused for {remaining} more seconds."
-        )
-        no_candidate = TradeCandidate(
-            created=False,
-            reason=reason,
-            setupScore=0,
-            notes=[
-                "Post-loss cooldown prevents immediate re-entry after a losing stop or thesis-failure close.",
-            ],
-        )
-        plan = TradePlan(
-            status="POST_LOSS_COOLDOWN",
-            symbol=clean_symbol,
-            notes=[reason],
-            managementNotes=[
-                "A fresh first-stage setup and stricter AI review are required after cooldown expires.",
-            ],
-        )
-        with session_scope() as db:
-            snapshot_record = create_market_snapshot(db, clean_symbol, snapshot)
-            run_record = create_trader_run_log(
-                db,
-                symbol=clean_symbol,
-                trader_id=strategy.profile.id,
-                provider=requested_provider,
-                status="post_loss_cooldown",
-                payload={"requestedProvider": requested_provider, "locale": clean_locale, "cooldown": loss_cooldown},
-            )
-            candidate_record = create_candidate_trade(db, run_record.id, clean_symbol, strategy.profile.id, no_candidate)
-            update_trader_run_log(
-                db,
-                run_record,
-                status="post_loss_cooldown",
-                payload={
-                    "trader": strategy.profile.name,
-                    "symbol": clean_symbol,
-                    "candidate": no_candidate.model_dump(),
-                    "aiReview": None,
-                    "tradePlan": plan.model_dump(),
-                    "paper": paper_before_candidate,
-                    "cooldown": loss_cooldown,
-                },
-                market_snapshot_id=snapshot_record.id,
-                candidate_trade_id=candidate_record.id,
-            )
-            record_ids = {
-                "marketSnapshotId": snapshot_record.id,
-                "runId": run_record.id,
-                "candidateTradeId": candidate_record.id,
-                "aiReviewId": None,
-                "tradePlanId": None,
-                "paperOrderIds": [],
-                "paperPositionIds": [],
-                "positionManagementReviewIds": [
-                    review["id"] for review in paper_before_candidate.get("managementReviews", [])
-                ],
-            }
-            if refresh_leaderboard:
-                refresh_trader_leaderboard_snapshot(db, strategy.profile.id, clean_symbol)
-            prune_trader_database(db, strategy.profile.id, clean_symbol)
-        return RunCycleResponse(
-            runId=record_ids["runId"],
-            persisted=True,
-            recordIds=record_ids,
-            trader=strategy.profile.name,
-            traderId=strategy.profile.id,
-            symbol=clean_symbol,
-            marketSnapshot=snapshot,
-            candidate=no_candidate,
-            aiReview=None,
-            tradePlan=plan,
-            paper=paper_before_candidate,
-            paperOrders=[],
-            paperOrder=None,
-            paperPositions=[],
-            paperPosition=None,
             tradeEvents=paper_before_candidate["engine"]["events"],
             equitySnapshot=paper_before_candidate["engine"]["equitySnapshot"],
             managementReviews=paper_before_candidate.get("managementReviews", []),

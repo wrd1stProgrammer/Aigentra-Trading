@@ -32,7 +32,7 @@ from app.db import (
 )
 from app.ops.trader_history_reset import RESET_CONFIRMATION_TEXT, reset_trader_history
 from app.paper.engine import process_candle, place_paper_order
-from app.paper.loss_discipline import latest_post_loss_cooldown
+from app.paper.loss_discipline import latest_post_loss_cooldown, recent_loss_review_context
 from app.paper.management import order_management_events
 from app.paper.management_actions import create_position_add_order
 from app.paper.planner import create_paper_orders_from_plan
@@ -240,6 +240,23 @@ def test_post_loss_reentry_cooldown_ignores_profitable_and_take_profit_exits(tem
 
         assert latest_post_loss_cooldown(db, "channel-rider", "BTCUSDT", cooldown_seconds=900) is None
         assert latest_post_loss_cooldown(db, "volume-breaker", "BTCUSDT", cooldown_seconds=900) is None
+
+
+def test_recent_loss_review_context_is_compact_and_limited(temp_db):
+    now = datetime.now(timezone.utc)
+    with session_scope() as db:
+        seed_closed_position(db, close_reason="stop_loss", realized_pnl=Decimal("-42.5"), closed_at=now - timedelta(minutes=6))
+        seed_closed_position(db, close_reason="early_thesis_failure", realized_pnl=Decimal("-18.2"), closed_at=now - timedelta(minutes=18))
+        seed_closed_position(db, close_reason="stop_loss", realized_pnl=Decimal("-11.4"), closed_at=now - timedelta(minutes=30))
+        seed_closed_position(db, close_reason="take_profit", realized_pnl=Decimal("24.0"), closed_at=now - timedelta(minutes=42))
+        seed_closed_position(db, close_reason="stop_loss", realized_pnl=Decimal("-9.0"), closed_at=now - timedelta(minutes=54))
+
+        reviews = recent_loss_review_context(db, "channel-rider", "BTCUSDT", limit=3)
+
+    assert len(reviews) == 3
+    assert [review["closeReason"] for review in reviews] == ["stop_loss", "early_thesis_failure", "stop_loss"]
+    assert all(len(review["summary"]) <= 180 for review in reviews)
+    assert all("entryPrice" in review and "exitPrice" in review for review in reviews)
 
 
 def seed_trader_history_for_reset(db) -> dict[str, int]:
@@ -825,6 +842,25 @@ async def test_run_cycle_persists_snapshot_candidate_review_and_plan(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_run_cycle_uses_recent_loss_as_review_context_without_blocking(monkeypatch, temp_db):
+    async def fake_snapshot(client, symbol):
+        return sample_snapshot()
+
+    monkeypatch.setattr("app.main.build_market_snapshot", fake_snapshot)
+
+    with session_scope() as db:
+        seed_closed_position(db, trader_id="channel-rider", close_reason="stop_loss")
+
+    result = await run_trader_cycle("channel-rider", "BTCUSDT", provider_override="mock")
+
+    assert result.tradePlan is not None
+    assert result.tradePlan.status != "POST_LOSS_COOLDOWN"
+    assert result.recordIds["aiReviewId"] is not None
+    assert result.aiReview is not None
+    assert any(fact.code == "loss_discipline_checked" for fact in result.aiReview.reviewFacts)
+
+
+@pytest.mark.asyncio
 async def test_run_cycle_manages_existing_pending_order_and_persists_review(monkeypatch, temp_db):
     snapshot = sample_snapshot()
     snapshot["price"] = 69000.0
@@ -1097,7 +1133,7 @@ async def test_ai_rejection_cooldown_skips_new_first_stage_scan(monkeypatch, tem
 
 
 @pytest.mark.asyncio
-async def test_post_loss_cooldown_skips_run_cycle_candidate_generation(monkeypatch, temp_db):
+async def test_post_loss_context_does_not_skip_run_cycle_candidate_generation(monkeypatch, temp_db):
     async def fake_snapshot(client, symbol):
         return sample_snapshot()
 
@@ -1108,18 +1144,17 @@ async def test_post_loss_cooldown_skips_run_cycle_candidate_generation(monkeypat
 
     result = await run_trader_cycle("channel-rider", "BTCUSDT", provider_override="mock")
 
-    assert result.tradePlan.status == "POST_LOSS_COOLDOWN"
-    assert result.aiReview is None
-    assert result.candidate.created is False
-    assert "손절" in result.candidate.reason or "stop-loss" in result.candidate.reason
+    assert result.tradePlan.status != "POST_LOSS_COOLDOWN"
+    assert result.aiReview is not None
+    assert result.candidate.created is True
 
     with session_scope() as db:
         latest_run = list_records(db, TraderRunLogRecord, 10)[0]
-        assert latest_run["status"] == "post_loss_cooldown"
+        assert latest_run["status"] != "post_loss_cooldown"
 
 
 @pytest.mark.asyncio
-async def test_post_loss_cooldown_skips_scanner_candidate_generation(monkeypatch, temp_db):
+async def test_post_loss_context_does_not_skip_scanner_candidate_generation(monkeypatch, temp_db):
     async def fake_snapshot(client, symbol):
         return sample_snapshot()
 
@@ -1129,13 +1164,13 @@ async def test_post_loss_cooldown_skips_scanner_candidate_generation(monkeypatch
         seed_closed_position(db)
 
     result = await run_scanner_once(symbols=["BTCUSDT"], provider="mock", locale="ko", defer_leaderboard_refresh=False)
-    cooled = [item for item in result["results"] if item.get("traderId") == "channel-rider"]
+    channel_results = [item for item in result["results"] if item.get("traderId") == "channel-rider"]
 
-    assert cooled
-    assert cooled[0]["status"] == "POST_LOSS_COOLDOWN"
-    assert cooled[0]["candidateCreated"] is False
-    assert result["counts"]["cooldowns"] >= 1
-    assert result["symbolBreakdown"]["BTCUSDT"]["candidateJobs"] < result["counts"]["tradersChecked"]
+    assert channel_results
+    assert channel_results[0]["status"] != "POST_LOSS_COOLDOWN"
+    assert channel_results[0]["candidateCreated"] is True
+    assert result["counts"]["cooldowns"] == 0
+    assert result["symbolBreakdown"]["BTCUSDT"]["candidateJobs"] >= 1
 
 
 @pytest.mark.asyncio

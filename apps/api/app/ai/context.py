@@ -12,7 +12,7 @@ from app.db import (
     TraderStateRecord,
 )
 from app.core.config import get_settings
-from app.paper.loss_discipline import latest_loss_discipline_context
+from app.paper.loss_discipline import latest_loss_discipline_context, recent_loss_review_context
 from app.repositories import from_json
 
 
@@ -179,6 +179,7 @@ def build_trade_review_context(db: Session, trader_id: str, symbol: str) -> dict
         "activeExposure": active_exposure_context(db, trader_id, symbol),
         "recentTradeEvents": recent_trade_events_context(db, trader_id, symbol, limit=8),
         "lossDiscipline": loss_discipline or {},
+        "recentLossReviews": recent_loss_review_context(db, trader_id, symbol, limit=3),
     }
 
 

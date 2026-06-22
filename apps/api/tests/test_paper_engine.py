@@ -338,7 +338,7 @@ def test_newly_filled_position_waits_for_next_candle_before_breakeven_management
         assert [event.event_type for event in events] == ["order_filled", "stop_moved_to_breakeven"]
 
 
-def test_newly_filled_position_waits_for_next_candle_before_early_failure_exit(temp_db):
+def test_adverse_close_does_not_trigger_early_thesis_failure_before_stop(temp_db):
     with session_scope() as db:
         upsert_risk_settings(db, "session-raider", "BTCUSDT", max_leverage=5)
         place_paper_order(
@@ -373,9 +373,19 @@ def test_newly_filled_position_waits_for_next_candle_before_early_failure_exit(t
             {"open": 105, "high": 106, "low": 103, "close": 105},
         )
 
-        assert second.closed_positions == [position]
+        assert second.closed_positions == []
+        assert position.status == "open"
+
+        third = process_candle(
+            db,
+            "session-raider",
+            "BTCUSDT",
+            {"open": 105, "high": 111, "low": 104, "close": 110},
+        )
+
+        assert third.closed_positions == [position]
         assert position.status == "closed"
-        assert position.close_reason == "early_thesis_failure"
+        assert position.close_reason == "stop_loss"
         events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
         assert [event.event_type for event in events] == ["order_filled", "position_closed"]
 

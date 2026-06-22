@@ -155,17 +155,20 @@ def _candidate(
     sizing_note: str,
     min_rr: float = 1.15,
 ) -> TradeCandidate:
-    if score < 58:
+    regime = str(gate_scores.get("regime") or "").lower()
+    minimum_score = 60 if regime in {"range", "squeeze"} else 58
+    observe_floor = max(50, minimum_score - 8)
+    if score < minimum_score:
         return candidate_with_audit(
             TradeCandidate(
                 created=False,
-                reason=f"{profile.name} score {score} is below the first-stage entry threshold.",
+                reason=f"{profile.name} score {score} is below the first-stage entry threshold for the current {regime or 'mixed'} regime.",
                 setupScore=score,
             ),
             trader_id=profile.id,
             gate_scores=gate_scores,
             reason_code="score_below_entry_threshold",
-            observation_type="OBSERVE_ONLY" if score >= 50 else "NO_TRADE",
+            observation_type="OBSERVE_ONLY" if score >= observe_floor else "NO_TRADE",
         )
     price = fvalue(snapshot.get("price"))
     entries = _entries(side, price, risk_distance, entry_style)
@@ -269,7 +272,9 @@ class DonchianBreakout(TraderStrategy):
         price = float(g["price"])
         high_break = price >= max(float(g["ema20_1h"]), float(g["ema50_1h"])) and g["trend4h"] != "bearish"
         low_break = price <= min(float(g["ema20_1h"]), float(g["ema50_1h"])) and g["trend4h"] != "bullish"
-        participation = float(g["volumeZ15m"]) > -0.15 or abs(float(g["oi30m"])) >= 0.2
+        volume_z = float(g["volumeZ15m"])
+        oi_abs = abs(float(g["oi30m"]))
+        participation = (volume_z > 0.05 and oi_abs >= 0.12) or volume_z >= 0.35 or oi_abs >= 0.35
         if high_break and participation:
             side, setup = "LONG", "DONCHIAN_RANGE_EXPANSION_LONG"
         elif low_break and participation:
@@ -361,10 +366,10 @@ class VwapReclaimer(TraderStrategy):
 
     def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
         g = _gate_common(snapshot)
-        reclaim_long = float(g["low15m"]) < float(g["ema20_1h"]) < float(g["close15m"]) and float(g["takerBuyShare"]) >= 0.48
-        reject_short = float(g["high15m"]) > float(g["ema20_1h"]) > float(g["close15m"]) and float(g["takerBuyShare"]) <= 0.52
+        reclaim_long = float(g["low15m"]) < float(g["ema20_1h"]) < float(g["close15m"]) and float(g["takerBuyShare"]) >= 0.50
+        reject_short = float(g["high15m"]) > float(g["ema20_1h"]) > float(g["close15m"]) and float(g["takerBuyShare"]) <= 0.50
         score = 49 + (12 if reclaim_long or reject_short else 0) + (6 if abs(float(g["oi30m"])) < 0.8 else 0)
-        score += 6 if float(g["volumeZ15m"]) > -0.6 else -5
+        score += 6 if float(g["volumeZ15m"]) > -0.35 else -5
         if reclaim_long:
             side, setup = "LONG", "VWAP_RECLAIM_LONG"
         elif reject_short:
