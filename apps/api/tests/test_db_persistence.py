@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.ai.factory import get_ai_provider
+from app.ai.context import build_management_review_context
 from app.ai.mock_provider import MockAIProvider
 from app.core.config import Settings
 from app.db import (
@@ -1058,6 +1059,66 @@ async def test_open_position_suppresses_passive_pending_order_heartbeat(monkeypa
             event_type="channel_rider_pending_heartbeat",
         ).all()
         assert pending_reviews == []
+
+
+def test_management_context_skips_provider_failure_review_contamination(temp_db):
+    now = datetime.now(timezone.utc)
+    with session_scope() as db:
+        db.add(
+            PositionManagementReviewRecord(
+                trader_id="donchian-breakout",
+                symbol="BTCUSDT",
+                status="ok",
+                event_type="donchian_breakout_position_heartbeat",
+                phase="OPEN_POSITION",
+                provider="openai",
+                model="gpt-4.1-nano",
+                decision="HOLD",
+                confidence=35,
+                action_type="HOLD",
+                created_at=now - timedelta(minutes=2),
+                payload_json=to_json(
+                    {
+                        "review": {
+                            "rationale": "Provider failure prevents reliable assessment.",
+                            "riskFlags": ["provider_failed"],
+                        }
+                    }
+                ),
+            )
+        )
+        db.add(
+            PositionManagementReviewRecord(
+                trader_id="donchian-breakout",
+                symbol="BTCUSDT",
+                status="ok",
+                event_type="donchian_breakout_position_heartbeat",
+                phase="OPEN_POSITION",
+                provider="openai",
+                model="gpt-4.1-nano",
+                decision="HOLD",
+                confidence=78,
+                action_type="HOLD",
+                created_at=now - timedelta(minutes=5),
+                payload_json=to_json(
+                    {
+                        "review": {
+                            "rationale": "Range expansion is still valid while price holds the breakout boundary.",
+                            "riskFlags": ["breakout_boundary_watch"],
+                        }
+                    }
+                ),
+            )
+        )
+        db.flush()
+
+        context = build_management_review_context(db, "donchian-breakout", "BTCUSDT")
+
+    reviews = context["recentManagementReviews"]
+    assert [review["rationale"] for review in reviews] == [
+        "Range expansion is still valid while price holds the breakout boundary."
+    ]
+    assert reviews[0]["riskFlags"] == ["breakout_boundary_watch"]
 
 
 @pytest.mark.asyncio

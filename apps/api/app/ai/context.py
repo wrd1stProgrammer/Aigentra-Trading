@@ -63,6 +63,18 @@ def _management_summary(record: PositionManagementReviewRecord) -> dict[str, Any
     }
 
 
+def _is_actionable_management_review(record: PositionManagementReviewRecord) -> bool:
+    if record.status != "ok" or record.error_message or record.fallback:
+        return False
+    payload = _payload(record)
+    review = payload.get("review") if isinstance(payload.get("review"), dict) else {}
+    risk_flags = review.get("riskFlags")
+    if isinstance(risk_flags, list) and "provider_failed" in risk_flags:
+        return False
+    rationale = str(review.get("rationale") or "").lower()
+    return "provider failure" not in rationale and "provider failed" not in rationale
+
+
 def _order_summary(record: PaperOrderRecord) -> dict[str, Any]:
     return {
         "id": record.id,
@@ -188,10 +200,15 @@ def build_management_review_context(db: Session, trader_id: str, symbol: str) ->
         select(PositionManagementReviewRecord)
         .where(PositionManagementReviewRecord.trader_id == trader_id, PositionManagementReviewRecord.symbol == symbol)
         .order_by(desc(PositionManagementReviewRecord.created_at), desc(PositionManagementReviewRecord.id))
-        .limit(8)
+        .limit(24)
     ).scalars().all()
+    actionable_reviews = [
+        _management_summary(record)
+        for record in management_reviews
+        if _is_actionable_management_review(record)
+    ][:8]
     return {
-        "recentManagementReviews": [_management_summary(record) for record in management_reviews],
+        "recentManagementReviews": actionable_reviews,
         "recentTradeEvents": recent_trade_events_context(db, trader_id, symbol, limit=10),
         "siblingExposures": active_exposure_context(db, trader_id, symbol),
         "accountState": account_state_context(db, trader_id),

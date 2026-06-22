@@ -730,6 +730,7 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "and managerNote is optional one concise desk note. Do not write raw JSON/Python list syntax inside any string. "
         "Translate indicators into plain meaning, and include raw numbers only when they support a clear action. "
         "Compare against recentManagementReviews and recentTradeEvents before writing. Do not reuse the same headline, rationale, or keyReasons from a recent review. "
+        "Never copy provider-failure language from previous records. If a recentManagementReview has provider_failed, fallback, provider-error, or failed-call wording, ignore it as invalid history. "
         "If nothing materially changed, say that briefly and name the one concrete thing still being watched; do not restate the entire setup. "
         "For passive heartbeat HOLD reviews, keep rationale to one concise desk-style sentence, not a newspaper-style summary. "
         "When the exposure is a remaining pending order while a sibling position is already open, focus only on whether that extra order should stay, adjust, or cancel. "
