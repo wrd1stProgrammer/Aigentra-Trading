@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, BellRinging, CaretDown, Check, Star, TelegramLogo, Translate, Trophy } from "@phosphor-icons/react";
+import { ArrowRight, BellRinging, CaretDown, CaretUp, Check, Star, TelegramLogo, Translate, Trophy } from "@phosphor-icons/react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAppContext } from "@/components/app-provider";
 import { PipelinePreview, PositionManagementPreview, ConsensusPreview, TradePlanPreview, AlertPreview, LandingFooter, PricingCard, VideoFrame } from "@/components/home-landing-visuals";
 import { landingCopy } from "@/lib/marketing-copy";
-import { SUPPORTED_LOCALES } from "@/lib/i18n";
+import { LOCALE_OPTIONS } from "@/lib/i18n";
 
 function CandleNotch({
   position,
@@ -35,8 +36,6 @@ function CandleNotch({
     </div>
   );
 }
-
-import { useEffect, useRef, useState, type ReactNode } from "react";
 
 function ScrollReveal({
   children,
@@ -101,8 +100,8 @@ export function HomePageClient() {
   const copy = landingCopy(locale);
   const [activeFaqIndex, setActiveFaqIndex] = useState<number | null>(null);
   const [isAboutExpanded, setIsAboutExpanded] = useState(false);
-  const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("annual");
-  const nextLocale = SUPPORTED_LOCALES[(SUPPORTED_LOCALES.indexOf(locale) + 1) % SUPPORTED_LOCALES.length] ?? "en";
+  const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
+  const currentLanguage = LOCALE_OPTIONS.find((option) => option.locale === locale) ?? LOCALE_OPTIONS[0];
 
   return (
     <div className="landing-page bg-white text-zinc-950 antialiased overflow-x-hidden">
@@ -130,15 +129,47 @@ export function HomePageClient() {
               <span className="text-base font-bold tracking-tight sm:text-lg">Aigentra Trading</span>
             </Link>
             <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-              <button
-                type="button"
-                onClick={() => setLocale(nextLocale)}
-                className="focus-ring inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-3 py-2 font-mono text-xs text-zinc-200 hover:bg-white/[0.08] transition select-none sm:px-4"
-                aria-label={t("common.language")}
-              >
-                <Translate size={14} />
-                {locale.toUpperCase()}
-              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsLanguageMenuOpen((open) => !open)}
+                  className="focus-ring inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-3 py-2 font-mono text-xs text-zinc-200 transition hover:bg-white/[0.08] select-none sm:px-4"
+                  aria-label={t("common.language")}
+                  aria-expanded={isLanguageMenuOpen}
+                >
+                  <Translate size={14} />
+                  <span>{currentLanguage.shortLabel}</span>
+                  {isLanguageMenuOpen ? <CaretUp size={12} /> : <CaretDown size={12} />}
+                </button>
+                {isLanguageMenuOpen ? (
+                  <div
+                    role="menu"
+                    aria-label={t("common.language")}
+                    className="absolute right-0 top-11 z-40 w-56 overflow-hidden rounded-xl border border-white/10 bg-[#101312] p-1.5 text-left shadow-2xl"
+                  >
+                    {LOCALE_OPTIONS.map((option) => (
+                      <button
+                        key={option.locale}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={option.locale === locale}
+                        onClick={() => {
+                          setLocale(option.locale);
+                          setIsLanguageMenuOpen(false);
+                        }}
+                        className={`focus-ring flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold transition ${
+                          option.locale === locale
+                            ? "bg-emerald-400/12 text-emerald-200"
+                            : "text-zinc-300 hover:bg-white/[0.06] hover:text-white"
+                        }`}
+                      >
+                        <span>{option.label}</span>
+                        <span className="font-mono text-[10px] text-zinc-500">{option.shortLabel}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
               <Link href="/login" className="hidden text-white hover:text-emerald-300 font-mono text-sm font-semibold transition shrink-0 sm:inline">
                 {copy.getStartedCta} →
               </Link>
@@ -209,13 +240,13 @@ export function HomePageClient() {
             <p className="mt-5 text-base sm:text-lg leading-relaxed text-zinc-400 break-keep">{copy.agentSystemSubtitle}</p>
           </div>
 
-          <div className="mt-14 grid grid-cols-1 md:grid-cols-12 gap-5 lg:gap-6">
+          <div className="mt-14 grid grid-cols-1 md:grid-cols-12 gap-4 lg:gap-5">
             {/* Cell 1: Pipeline (Col span 7) */}
-            <div className="md:col-span-7 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-6 md:p-8 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
-              <div className="w-full flex-1 flex items-center justify-center min-h-[220px]">
+            <div className="md:col-span-7 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-4 sm:p-5 md:p-6 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
+              <div className="w-full flex-1 flex items-center justify-center min-h-[250px]">
                 <PipelinePreview />
               </div>
-              <div className="mt-6 border-t border-white/5 pt-5">
+              <div className="mt-5 border-t border-white/5 pt-4">
                 <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-400 font-bold">[ Pipeline ]</span>
                 <h3 className="text-lg font-bold text-white tracking-tight mt-1.5 break-keep">{copy.agentCards[0].title}</h3>
                 <p className="mt-2.5 text-sm leading-6 text-zinc-400 break-keep">{copy.agentCards[0].body}</p>
@@ -223,35 +254,35 @@ export function HomePageClient() {
             </div>
 
             {/* Cell 2: Position Risk (Col span 5) */}
-            <div className="md:col-span-5 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-6 md:p-8 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
-              <div className="w-full flex-1 flex items-center justify-center min-h-[220px]">
+            <div className="md:col-span-5 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-4 sm:p-5 md:p-6 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
+              <div className="w-full flex-1 flex items-center justify-center min-h-[250px]">
                 <PositionManagementPreview />
               </div>
-              <div className="mt-6 border-t border-white/5 pt-5">
+              <div className="mt-5 border-t border-white/5 pt-4">
                 <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-400 font-bold">[ Position Risk ]</span>
                 <h3 className="text-lg font-bold text-white tracking-tight mt-1.5 break-keep">{copy.agentCards[1].title}</h3>
                 <p className="mt-2.5 text-sm leading-6 text-zinc-400 break-keep">{copy.agentCards[1].body}</p>
               </div>
             </div>
 
-            {/* Cell 3: Consensus (Col span 5) */}
-            <div className="md:col-span-5 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-6 md:p-8 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
-              <div className="w-full flex-1 flex items-center justify-center min-h-[220px]">
+            {/* Cell 3: Consensus (Col span 6) */}
+            <div className="md:col-span-6 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-4 sm:p-5 md:p-6 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
+              <div className="w-full flex-1 flex items-center justify-center min-h-[250px]">
                 <ConsensusPreview />
               </div>
-              <div className="mt-6 border-t border-white/5 pt-5">
+              <div className="mt-5 border-t border-white/5 pt-4">
                 <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-400 font-bold">[ Consensus ]</span>
                 <h3 className="text-lg font-bold text-white tracking-tight mt-1.5 break-keep">{copy.agentCards[2].title}</h3>
                 <p className="mt-2.5 text-sm leading-6 text-zinc-400 break-keep">{copy.agentCards[2].body}</p>
               </div>
             </div>
 
-            {/* Cell 4: Trade Plan (Col span 7 - Option 1 Emphasized) */}
-            <div className="md:col-span-7 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-6 md:p-8 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
-              <div className="w-full flex-1 flex items-center justify-center min-h-[220px]">
+            {/* Cell 4: Trade Plan (Col span 6 - Option 1 Emphasized) */}
+            <div className="md:col-span-6 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-4 sm:p-5 md:p-6 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
+              <div className="w-full flex-1 flex items-center justify-center min-h-[250px]">
                 <TradePlanPreview />
               </div>
-              <div className="mt-6 border-t border-white/5 pt-5">
+              <div className="mt-5 border-t border-white/5 pt-4">
                 <span className="font-mono text-[9px] uppercase tracking-wider text-amber-400 font-bold">[ Option 1 · Trade Plan ]</span>
                 <h3 className="text-lg font-bold text-white tracking-tight mt-1.5 break-keep">{copy.agentCards[3].title}</h3>
                 <p className="mt-2.5 text-sm leading-6 text-zinc-400 break-keep">{copy.agentCards[3].body}</p>
@@ -369,38 +400,31 @@ export function HomePageClient() {
             </div>
           </ScrollReveal>
 
-          {/* Billing Cycle Toggle */}
-          <div className="flex justify-center mt-10">
-            <div className="relative grid w-full max-w-[360px] grid-cols-2 rounded-full border border-white/10 bg-zinc-900 p-1 sm:flex sm:w-auto sm:max-w-none sm:items-center">
-              <button
-                onClick={() => setBillingCycle("annual")}
-                className={`px-5 py-2 text-xs font-bold rounded-full transition-all duration-300 ${
-                  billingCycle === "annual"
-                    ? "bg-emerald-500 text-white shadow-neon-emerald"
-                    : "text-zinc-400 hover:text-white"
-                }`}
-              >
-                {copy.billingAnnual}
-              </button>
-              <button
-                onClick={() => setBillingCycle("monthly")}
-                className={`px-5 py-2 text-xs font-bold rounded-full transition-all duration-300 ${
-                  billingCycle === "monthly"
-                    ? "bg-emerald-500 text-white shadow-neon-emerald"
-                    : "text-zinc-400 hover:text-white"
-                }`}
-              >
-                {copy.billingMonthly}
-              </button>
-            </div>
-          </div>
-
-          <div className="mx-auto mt-14 grid max-w-[1240px] gap-6 md:grid-cols-3">
+          <div className="mx-auto mt-12 grid max-w-[920px] gap-5 md:grid-cols-[1fr_0.86fr]">
             {copy.pricingPlans.map((plan, index) => (
               <ScrollReveal key={plan.name} className="w-full" delay={index * 150}>
-                <PricingCard plan={plan} featured={index === 2} billingCycle={billingCycle} />
+                <PricingCard plan={plan} featured={index === 0} />
               </ScrollReveal>
             ))}
+            <ScrollReveal delay={120}>
+              <div className="flex h-full flex-col justify-between rounded-2xl border border-white/[0.08] bg-white/[0.025] p-6 text-left shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)]">
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-emerald-300">[ Included ]</p>
+                  <h3 className="mt-3 text-2xl font-bold text-white break-keep">{copy.pricingSupportTitle}</h3>
+                  <p className="mt-3 text-sm leading-6 text-zinc-400 break-keep">{copy.pricingSupportBody}</p>
+                </div>
+                <div className="mt-7 space-y-3 text-sm text-zinc-300">
+                  {copy.pricingSupportItems.map((item) => (
+                    <p key={item} className="flex gap-3">
+                      <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-300">
+                        <Check size={12} weight="bold" />
+                      </span>
+                      <span className="break-keep">{item}</span>
+                    </p>
+                  ))}
+                </div>
+              </div>
+            </ScrollReveal>
           </div>
         </div>
       </section>
@@ -420,16 +444,16 @@ export function HomePageClient() {
             <div>
               <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-600">[ FAQ ]</p>
               <h2 className="mt-5 text-4xl sm:text-5xl font-bold tracking-tight text-zinc-950 break-keep">
-                Frequently asked questions
+                {copy.faqTitle}
               </h2>
               <p className="mt-4 text-sm leading-6 text-zinc-600 break-keep max-w-[34ch]">
-                Find answers to the most common questions about Aigentra.
+                {copy.faqSubtitle}
               </p>
               <Link
                 href="/leaderboard"
                 className="focus-ring mt-8 inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 hover:bg-emerald-400 px-6 py-3.5 text-sm font-bold text-white shadow-neon-emerald transition duration-300"
               >
-                Get started now
+                {copy.faqCta}
               </Link>
             </div>
 

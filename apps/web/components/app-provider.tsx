@@ -30,12 +30,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       })
   );
-  const [locale, setLocaleState] = useState<Locale>("ko");
+  const [locale, setLocaleState] = useState<Locale>("en");
   const [theme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
     const storedLocale = window.localStorage.getItem("atl-locale");
-    if (isSupportedLocale(storedLocale)) setLocaleState(storedLocale);
+    if (isSupportedLocale(storedLocale)) {
+      setLocaleState(storedLocale);
+      return;
+    }
+    const detectedLocale = detectBrowserLocale({
+      languages: navigator.languages.length > 0 ? navigator.languages : [navigator.language],
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+    });
+    setLocaleState(detectedLocale);
+    window.localStorage.setItem("atl-locale", detectedLocale);
   }, []);
 
   useEffect(() => {
@@ -65,6 +74,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       </QueryClientProvider>
     </SessionProvider>
   );
+}
+
+const COUNTRY_LOCALE_MAP: Readonly<Record<string, Locale>> = {
+  AU: "en",
+  BR: "pt-BR",
+  CA: "en",
+  GB: "en",
+  IE: "en",
+  KR: "ko",
+  NZ: "en",
+  RU: "ru",
+  SG: "en",
+  TR: "tr",
+  US: "en",
+  ZA: "en"
+};
+
+const LANGUAGE_LOCALE_MAP: Readonly<Record<string, Locale>> = {
+  en: "en",
+  ko: "ko",
+  pt: "pt-BR",
+  ru: "ru",
+  tr: "tr"
+};
+
+const TIME_ZONE_LOCALE_MAP: Readonly<Record<string, Locale>> = {
+  "America/Sao_Paulo": "pt-BR",
+  "Asia/Seoul": "ko",
+  "Europe/Istanbul": "tr",
+  "Europe/Moscow": "ru"
+};
+
+export function detectBrowserLocale({
+  languages,
+  timeZone
+}: {
+  readonly languages?: readonly string[];
+  readonly timeZone?: string;
+}): Locale {
+  for (const languageTag of languages ?? []) {
+    const locale = localeFromLanguageTag(languageTag);
+    if (locale) return locale;
+  }
+  if (timeZone && TIME_ZONE_LOCALE_MAP[timeZone]) return TIME_ZONE_LOCALE_MAP[timeZone];
+  return "en";
+}
+
+function localeFromLanguageTag(languageTag: string): Locale | null {
+  const normalizedTag = languageTag.trim().replaceAll("_", "-");
+  if (!normalizedTag) return null;
+  const segments = normalizedTag.split("-");
+  const language = segments[0]?.toLowerCase() ?? "";
+  const region = segments.find((segment) => segment.length === 2 && /^[a-z]{2}$/i.test(segment))?.toUpperCase();
+  if (region && COUNTRY_LOCALE_MAP[region]) return COUNTRY_LOCALE_MAP[region];
+  return LANGUAGE_LOCALE_MAP[language] ?? null;
 }
 
 function LocalePreferenceHydrator({ onLocaleResolved }: { readonly onLocaleResolved: (locale: Locale) => void }) {

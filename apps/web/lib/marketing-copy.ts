@@ -30,6 +30,9 @@ export type LandingCopy = {
   readonly pricingSubtitle: string;
   readonly billingAnnual: string;
   readonly billingMonthly: string;
+  readonly pricingSupportTitle: string;
+  readonly pricingSupportBody: string;
+  readonly pricingSupportItems: readonly string[];
   readonly pricingPlans: readonly {
     readonly name: string;
     readonly price: string;
@@ -43,6 +46,8 @@ export type LandingCopy = {
   readonly trustTitle: string;
   readonly trustBody: string;
   readonly faqTitle: string;
+  readonly faqSubtitle: string;
+  readonly faqCta: string;
   readonly faqs: readonly { readonly question: string; readonly answer: string }[];
   readonly aboutTitle: string;
   readonly aboutBody: readonly string[];
@@ -94,52 +99,39 @@ const copy = {
       { title: "관심 트레이더 알림", body: "구독 계정은 즐겨찾기한 트레이더의 진입, 청산, 리스크 관리 이벤트를 Telegram으로 받을 수 있습니다." }
     ],
     agentSystemTitle: "단순 신호 수신을 넘어, AI 트레이더들의 관점을 대조합니다.",
-    agentSystemSubtitle: "서로 다른 규칙을 학습한 전략봇들과 리스크를 심사하는 LLM 에이전트들의 매매 과정을 한눈에 모니터링하세요.",
+    agentSystemSubtitle: "서로 다른 규칙을 학습한 전략봇들과 리스크를 심사하는 AI 에이전트들의 매매 과정을 한눈에 모니터링하세요.",
     agentCards: [
-      { title: "2단계 의사결정 파이프라인", body: "스캐너가 도출한 매매 진입 조건 후보를 고성능 LLM AI 에이전트가 리스크와 손익비 관점에서 2차 심사하여 집행합니다." },
+      { title: "2단계 의사결정 파이프라인", body: "스캐너가 포착한 진입 후보를 고성능 AI 에이전트가 리스크, 손익비, 무효화 조건까지 다시 확인한 뒤 모의 집행 여부를 결정합니다." },
       { title: "실시간 리스크 관리 & 리뷰", body: "진입 후 방치하지 않고 가격 변동 및 거래량 쇼크를 실시간 감지하여 AI 에이전트가 위험 구간 대응 및 손익비 대응 로그를 남깁니다." },
-      { title: "AI 트레이더 합의 (Consensus)", body: "독립된 규칙과 모델로 무장한 트레이더들의 포지션 비율과 평균 청산 타겟 범위를 대조하여 시장 흐름을 입체적으로 봅니다." },
-      { title: "진입 전 시나리오 계획 수립", body: "AI 트레이더들은 무작정 진입하지 않습니다. 진입 전에 진입 조건 가격대, 무효화 기준(손절가), 목표 익절가 및 판단 기술적 시나리오를 명확히 설계한 대기 플랜을 먼저 공개합니다." }
+      { title: "20개 전략 관점의 Aigentra 종합 의견", body: "롱/숏 비율만 세지 않고, 진행 중인 포지션, 진입 대기, 최근 익절/손절, AI 리뷰를 묶어 현재 리그의 위험 기울기를 정리합니다." },
+      { title: "진입 전 시나리오 계획 수립", body: "AI 트레이더들은 무작정 진입하지 않습니다. 진입 전 가격대, 무효화 기준, 목표 익절가와 기술적 체크를 TradingView 차트처럼 읽히는 플랜으로 남깁니다." }
     ],
     getStartedTitle: "먼저 리더보드에서 팔로우할 AI 트레이더를 고르세요.",
     getStartedSubtitle: "성과 순위만 보지 말고 최근 판단, 오픈 노출, 관리 리뷰를 함께 확인한 뒤 Telegram 알림을 연결합니다.",
     getStartedCta: "관심 트레이더 고르기",
     secondVideoTitle: "구독 설정과 실시간 액션 알림",
     alertsTitle: "텔레그램 알림은 관심 트레이더만 조용하게.",
-    alertsSubtitle: "모든 신호를 쏟아내지 않고, 유저가 고른 트레이더와 이벤트 유형만 보냅니다.",
+    alertsSubtitle: "전체 리그 소음을 보내지 않습니다. 즐겨찾기한 트레이더의 체결, 청산, 관리 리뷰, 상태 피드만 사용자 언어로 짧게 보냅니다.",
     alertsCta: "알림 설정하기",
     alertCards: [
-      { title: "진입 계획", body: "조건 충족 후 진입 대기 또는 실제 진입 상태를 분리해서 전달합니다." },
-      { title: "청산 이벤트", body: "익절, 손절, 본절처럼 결과가 확정된 이벤트를 빠르게 확인합니다." },
-      { title: "AI 관리 리뷰", body: "손절 이동, 포지션 축소, 보류 판단처럼 관리성 결정을 요약합니다." }
+      { title: "관심 트레이더 필터", body: "즐겨찾기한 AI 트레이더만 알림 대상으로 두어 불필요한 신호 소음을 줄입니다." },
+      { title: "상태 피드와 체결 이벤트", body: "진입 대기, 체결, 익절, 손절, 포지션 유지 메모를 실제 채팅처럼 짧게 받습니다." },
+      { title: "사용자 언어 기반 전송", body: "계정 언어 설정을 기준으로 AI 리뷰와 트레이더 피드를 번역해 전달합니다." }
     ],
-    pricingTitle: "시뮬레이션 리그를 보고, 필요한 트레이더만 구독하세요.",
-    pricingSubtitle: "초기 검토는 무료로 시작하고, 실시간 Telegram 액션 알림은 구독 플랜에서 관리합니다.",
+    pricingTitle: "하나의 Pro 플랜으로 전체 리그와 알림을 엽니다.",
+    pricingSubtitle: "복잡한 등급을 두지 않고, AI 트레이더 상세·센티멘트·Telegram 알림을 한 플랜에서 제공합니다.",
     billingAnnual: "연간 결제 (15% 할인)",
     billingMonthly: "월간 결제",
+    pricingSupportTitle: "Pro에 포함되는 핵심 사용 흐름",
+    pricingSupportBody: "Aigentra는 실제 거래소 주문을 대신 넣는 서비스가 아니라, AI 트레이더들의 판단과 리스크 관리 기록을 추적하는 관제면입니다.",
+    pricingSupportItems: ["전체 20개 트레이더 상세 열람", "AI 센티멘트와 Aigentra 종합 의견", "즐겨찾기 트레이더 Telegram 알림", "실시간 체결/청산/관리 리뷰 추적"],
     pricingPlans: [
       {
-        name: "Observer",
-        price: "Free",
-        cadence: "기본 관찰",
-        description: "AI 트레이더 순위와 기본적인 시뮬레이션 상태를 살펴보는 기본 플랜입니다.",
-        features: ["리더보드 전체 랭킹 조회", "상위 3명 트레이더 상세 열람", "타점 시나리오 (10분 딜레이)", "실시간 Telegram 알림 미지원"],
-        cta: "리더보드 보기"
-      },
-      {
-        name: "Tactician",
+        name: "Aigentra Pro",
         price: "$29",
         cadence: "/ 월",
-        description: "실시간 데이터를 무제한 조회하고 특정 AI 트레이더를 정밀 추적합니다.",
-        features: ["모든 트레이더 상세 무제한 열람", "최대 3명 AI 트레이더 Telegram 알림", "AI 실시간 리스크 경고 로그 제공", "실시간 매매 시나리오 (딜레이 없음)"],
-        cta: "구독 시작하기"
-      },
-      {
-        name: "Elite Operator",
-        price: "$49",
-        cadence: "/ 월",
-        description: "전체 시장 합의 데이터와 AI 오디터 심사 전문을 포함한 모든 기능을 활용합니다.",
-        features: ["모든 AI 트레이더 무제한 알림 구독", "AI 시장 합의(Consensus) 상세 분석", "AI 리스크 심사 에이전트 판단 로그 전문", "우선 순위 지원 및 신규 전략 우선 배포"],
+        description: "리더보드, 트레이더 상세, AI 센티멘트, 관심 트레이더 Telegram 알림을 모두 사용하는 단일 플랜입니다.",
+        features: ["모든 AI 트레이더 상세 무제한 열람", "AI 센티멘트와 시간대별 종합 의견", "즐겨찾기 기반 Telegram 알림", "실시간 시뮬레이션 체결 및 포지션 관리 기록"],
         cta: "구독 시작하기"
       }
     ],
@@ -150,14 +142,16 @@ const copy = {
     ],
     trustTitle: "라이브 거래소 주문이 아닌 시뮬레이션 검증 서비스입니다.",
     trustBody: "실제 자금 집행보다 먼저 전략 판단과 관리 과정을 읽기 쉽게 보관하는 데 초점을 둡니다.",
-    faqTitle: "자주 묻는 질문",
+    faqTitle: "유저가 실제로 궁금해할 질문",
+    faqSubtitle: "실거래 여부, 결제, 알림, 데이터 기준처럼 가입 전에 확인할 내용을 먼저 정리했습니다.",
+    faqCta: "리더보드 먼저 보기",
     faqs: [
-      { question: "Aigentra Trading은 정확히 무엇인가요?", answer: "Aigentra Trading은 인공지능 기반의 트레이딩 시뮬레이션 및 분석 플랫폼입니다. 다양한 전략형 AI 에이전트들의 매매 판단을 비교하고, 조건 검사부터 시뮬레이션 진입, 실시간 리스크 관리 리뷰까지 전 과정을 투명하게 기록합니다." },
-      { question: "실시간 시장 데이터를 쓰나요?", answer: "네. Aigentra는 공개 BTC 선물 시장 데이터를 감시하고, 전략 판단과 AI 리스크 리뷰, 관리 기록을 시뮬레이션 데이터로 저장합니다." },
-      { question: "초보자도 볼 수 있나요?", answer: "거래소 계정을 연결하거나 실제 주문을 넣지 않고도 전략 규칙과 AI 리스크 리뷰가 어떻게 기록되는지 확인할 수 있습니다." },
-      { question: "텔레그램 알림 연동은 어떻게 작동하나요?", answer: "계정 페이지에서 Telegram을 연결하면, 선택한 트레이더의 주요 이벤트와 리뷰 알림을 받을 수 있습니다." },
-      { question: "구독 관리는 어떻게 하나요?", answer: "결제와 구독 접근 권한은 Whop에서 표시되는 플랜 조건에 따라 관리됩니다." },
-      { question: "실제 거래소 계정 연동이나 자산이 필요한가요?", answer: "필요 없습니다. Aigentra Trading은 OKX와 Bitget의 공개 선물 데이터 피드를 기반으로 시뮬레이션 기록을 만듭니다. 거래소 API 키나 계정 연결은 요구하지 않습니다." }
+      { question: "Aigentra가 실제 돈으로 거래를 실행하나요?", answer: "아니요. Aigentra는 실제 거래소 주문을 넣거나 고객 자금을 보관하지 않습니다. 공개 선물 데이터를 기반으로 AI 트레이더의 가상 진입, 청산, 리스크 관리 판단을 기록하는 시뮬레이션 서비스입니다." },
+      { question: "왜 단순 매수/매도 신호방이 아니라 리그 형태인가요?", answer: "한 가지 신호만 받으면 판단 근거를 비교하기 어렵습니다. Aigentra는 서로 다른 전략의 AI 트레이더를 리더보드와 상세 리뷰로 비교해 어떤 관점이 현재 시장에서 강한지 보이게 합니다." },
+      { question: "Telegram 알림은 어떤 기준으로 오나요?", answer: "사용자가 즐겨찾기한 트레이더와 선택한 이벤트 유형을 기준으로 보냅니다. 진입 대기, 체결, 익절, 손절, AI 관리 리뷰, 트레이더 상태 피드를 계정 언어에 맞게 받을 수 있습니다." },
+      { question: "AI 센티멘트는 무엇을 종합하나요?", answer: "20개 전략 트레이더의 활성 포지션, 진입 대기, 최근 청산, 관리 리뷰를 묶어 현재 리그의 롱/숏 기울기와 리스크 포인트를 시간대별로 정리합니다." },
+      { question: "구독과 결제는 어디서 관리하나요?", answer: "결제는 Whop 체크아웃을 통해 진행됩니다. 구독 상태가 성공적으로 반영되면 Aigentra의 Pro 화면과 알림 기능 접근이 열립니다." },
+      { question: "투자 조언으로 봐도 되나요?", answer: "아니요. 모든 화면과 알림은 교육 및 시뮬레이션 목적의 정보입니다. 실제 투자 판단과 손익 책임은 사용자 본인에게 있습니다." }
     ],
     aboutTitle: "Aigentra Trading은 자동매매 버튼이 아니라, AI 판단을 비교하는 관제면입니다.",
     aboutBody: [
@@ -212,52 +206,39 @@ const copy = {
       { title: "Follow favorites", body: "Subscribers can favorite traders and receive entry, exit, risk, and management events through Telegram." }
     ],
     agentSystemTitle: "Beyond Simple Signal Alerts: Compare Multi-Dimensional AI Trader Perspectives.",
-    agentSystemSubtitle: "Monitor the entire trading process of strategy-driven bots and cross-validating LLM agents at a glance.",
+    agentSystemSubtitle: "Monitor the entire trading process of strategy-driven bots and cross-validating AI agents at a glance.",
     agentCards: [
-      { title: "2-Step Verification System", body: "A high-performance LLM AI cross-checks the trading entry setup candidates detected by technical scanner bots from a risk-reward perspective before execution." },
+      { title: "2-Step Verification System", body: "A high-performance AI agent rechecks scanner candidates for risk, reward, leverage, and invalidation rules before simulated execution." },
       { title: "Real-time Risk Management", body: "Positions are monitored in real-time. Whenever market volatility spikes, the AI agent logs action plans, updates trailing stop-losses, and handles partial profit-taking." },
-      { title: "AI Consensus & Sentiment", body: "Compare the real-time Long/Short ratios and average target exit ranges of strategy-specific trader agents to capture multi-dimensional market flows." },
-      { title: "Pre-Entry Scenario & Trade Plans", body: "AI traders do not enter blindly. Before taking action, they publish pending plans outlining the entry zones, target exits, stop-loss invalidation rules, and technical trigger conditions." }
+      { title: "20-Strategist Aigentra Opinion", body: "Instead of counting Long/Short votes only, Aigentra combines active positions, pending setups, recent exits, and AI reviews into a current risk read." },
+      { title: "Pre-Entry Scenario & Trade Plans", body: "AI traders do not enter blindly. Before taking action, they publish TradingView-style plans with entry zones, invalidation, targets, and technical checks." }
     ],
     getStartedTitle: "Start by choosing which AI traders deserve your attention.",
     getStartedSubtitle: "Use the leaderboard, recent rationale, open exposure, and management reviews before connecting Telegram alerts.",
     getStartedCta: "Choose traders to follow",
     secondVideoTitle: "Subscription settings and real-time action alerts",
     alertsTitle: "Telegram alerts stay focused on the traders you follow.",
-    alertsSubtitle: "Avoid signal noise by choosing trader favorites and event types before notifications are sent.",
+    alertsSubtitle: "Aigentra does not blast the whole league. It sends favorite-trader fills, exits, management reviews, and status feeds in the account language.",
     alertsCta: "Configure alerts",
     alertCards: [
-      { title: "Entry plans", body: "Separate setup-ready, pending entry, and active position states." },
-      { title: "Exit events", body: "Surface completed take-profit, stop-loss, and breakeven outcomes quickly." },
-      { title: "AI management", body: "Summarize stop moves, size reductions, holds, and risk decisions." }
+      { title: "Favorite-trader filter", body: "Keep notifications scoped to the AI traders you actually want to watch." },
+      { title: "Status feeds and fills", body: "Receive pending entries, fills, exits, holds, and management notes as compact chat messages." },
+      { title: "Localized delivery", body: "AI reviews and trader feeds follow the language selected on your account." }
     ],
-    pricingTitle: "Inspect the simulation league, then subscribe to selected traders.",
-    pricingSubtitle: "Start with public review. Use a subscription when you want real-time Telegram action alerts from favorite AI traders.",
+    pricingTitle: "One Pro plan unlocks the league and alerts.",
+    pricingSubtitle: "No confusing tiers for now. Trader details, AI sentiment, and Telegram alerts are grouped into one plan.",
     billingAnnual: "Annual (15% off)",
     billingMonthly: "Monthly",
+    pricingSupportTitle: "What Pro is built for",
+    pricingSupportBody: "Aigentra is not an exchange execution bot. It is a control surface for tracking AI trader reasoning, simulated exposure, and risk-management updates.",
+    pricingSupportItems: ["Full detail access for all 20 traders", "AI sentiment and hourly Aigentra opinions", "Favorite-trader Telegram alerts", "Real-time simulated fills, exits, and reviews"],
     pricingPlans: [
       {
-        name: "Observer",
-        price: "Free",
-        cadence: "basic view",
-        description: "Review AI trader rankings and basic simulated position state.",
-        features: ["Full leaderboard access", "Top 3 trader details & rationales", "Trade scenario plans (10m delay)", "No real-time Telegram alerts"],
-        cta: "View leaderboard"
-      },
-      {
-        name: "Tactician",
+        name: "Aigentra Pro",
         price: "$29",
         cadence: "/ mo",
-        description: "Access unlimited real-time details and follow specific top-performing AI traders.",
-        features: ["Unlimited access to all trader details", "Follow up to 3 AI traders on Telegram", "AI Real-time Risk Warning logs", "Real-time scenario plans (no delay)"],
-        cta: "Start subscription"
-      },
-      {
-        name: "Elite Operator",
-        price: "$49",
-        cadence: "/ mo",
-        description: "Utilize all features including full consensus sentiment and AI audit decision logic.",
-        features: ["Unlimited AI trader Telegram follows", "AI Consensus Sentiment analysis", "Full AI Risk Audit decision logs", "Priority support & new strategies early access"],
+        description: "Use the full leaderboard, trader detail pages, AI sentiment, and favorite-trader Telegram alerts from one subscription.",
+        features: ["Unlimited access to all trader details", "AI sentiment and hourly aggregate opinions", "Favorite-based Telegram alerts", "Real-time simulated fills and risk-management logs"],
         cta: "Start subscription"
       }
     ],
@@ -268,14 +249,16 @@ const copy = {
     ],
     trustTitle: "This is simulated validation, not live exchange execution.",
     trustBody: "The product stores strategy decisions and management context before any real capital workflow.",
-    faqTitle: "Frequently asked questions",
+    faqTitle: "Questions users actually ask",
+    faqSubtitle: "A quick check on live trading, billing, alerts, data, and what the AI output should and should not be used for.",
+    faqCta: "Open leaderboard first",
     faqs: [
-      { question: "What exactly is Aigentra Trading?", answer: "Aigentra Trading is an AI-powered trading simulation and analysis platform. We compare strategic AI agents in a league format, tracking simulated positions and providing real-time risk audit logs and market confluences." },
-      { question: "Does it use live market data?", answer: "Yes. Aigentra monitors public BTC futures market data and stores simulated strategy decisions, risk reviews, and management notes for review." },
-      { question: "I'm a beginner, is it right for me?", answer: "You can inspect how strategy rules and AI risk reviews are recorded without connecting exchange accounts or placing live orders." },
-      { question: "How does the Telegram alert integration work?", answer: "After you connect Telegram from your account page, Aigentra can send selected trader events and review notifications for the traders you follow." },
-      { question: "Can I manage my subscription?", answer: "Yes. Billing and subscription access are managed through Whop according to the plan terms shown at checkout." },
-      { question: "What exchange accounts or assets does it work with?", answer: "We fetch public BTC futures data feeds from OKX and Bitget. No exchange API keys or account connections are required." }
+      { question: "Does Aigentra place trades with real money?", answer: "No. Aigentra does not execute exchange orders or custody funds. It records simulated entries, exits, and AI risk-management decisions from public futures market data." },
+      { question: "Why a league instead of a simple signal channel?", answer: "A single signal is hard to compare. The league format lets you see which AI trader style is working, what it is waiting for, and how it manages risk after entry." },
+      { question: "How do Telegram alerts decide what to send?", answer: "Alerts are scoped to your favorite traders and selected event types. You can receive pending entries, fills, take-profits, stop-losses, AI management reviews, and trader status feeds." },
+      { question: "What does AI sentiment aggregate?", answer: "It combines active positions, pending setups, recent exits, and AI reviews from 20 strategy traders into an hourly Aigentra opinion." },
+      { question: "Where is billing managed?", answer: "Checkout and subscription access are handled through Whop. Once payment succeeds, Pro access is reflected inside Aigentra." },
+      { question: "Is this investment advice?", answer: "No. The product is for education and simulation. Alerts, reviews, targets, and stops are analytical records, not instructions to buy or sell." }
     ],
     aboutTitle: "Aigentra Trading, Your Expert AI Trading Software",
     aboutBody: [
@@ -304,9 +287,330 @@ const copy = {
       riskDisclosure: "Risk Disclosure",
       madeBy: "Made by"
     }
+  },
+  ru: {
+    heroEyebrow: "лига AI-трейдеров для симуляции фьючерсов",
+    heroTitle: "Сравнивайте взгляды AI-трейдеров и ловите решающие моменты",
+    heroSubtitle:
+      "Aigentra сравнивает подходы AI-трейдеров, которые следят за BTC-фьючерсами. От фильтрации сетапа до виртуального входа и risk review — весь процесс остается прозрачным.",
+    primaryCta: "Открыть лидерборд",
+    secondaryCta: "Войти через Google",
+    proofRating: "20",
+    proofLabel: "simulation desk proof",
+    proofBadge: "Проверка без подключения биржевого счета",
+    proofTitle: "Рейтинг, планы входа и управленческие ревью в одном потоке.",
+    proofSubtitle: "Мы показываем не только доходность, но и причину входа, состояние экспозиции и контекст управления позицией.",
+    videoTitle: "Реплей лиги и поток уведомлений в одном экране",
+    videoSubtitle: "Доступ и платежи управляются через Whop.",
+    stats: [
+      { label: "Трейдеры", value: "20", detail: "стратегические AI-агенты" },
+      { label: "Рынок", value: "BTC", detail: "публичные futures-данные OKX/Bitget" },
+      { label: "Уведомления", value: "Telegram", detail: "только избранные трейдеры" }
+    ],
+    steps: [
+      { title: "Просмотрите лигу", body: "Сразу видно, кто лидирует, кто ждет входа, а кто уже управляет виртуальной позицией." },
+      { title: "Проверьте аргументы", body: "Откройте графики, свежие сценарии, текущие позиции и календарь сделок по каждому трейдеру." },
+      { title: "Подпишитесь на избранных", body: "Подписчики получают события входа, выхода, риска и управления по избранным трейдерам в Telegram." }
+    ],
+    agentSystemTitle: "Не просто сигналы: сравнение многомерных взглядов AI-трейдеров.",
+    agentSystemSubtitle: "Следите за всем процессом: от стратегических ботов до AI-агентов, которые проверяют риск перед виртуальным исполнением.",
+    agentCards: [
+      { title: "Двухэтапная проверка решения", body: "Высокопроизводительный AI-агент повторно проверяет кандидатов сканера по риску, прибыли, плечу и правилам отмены перед симуляцией." },
+      { title: "Risk management в реальном времени", body: "После входа позиция не остается без присмотра: AI-агент фиксирует действия при скачках цены, объема и волатильности." },
+      { title: "Сводное мнение Aigentra из 20 стратегий", body: "Мы учитываем не только Long/Short баланс, но и открытые позиции, ожидающие сетапы, недавние выходы и AI-ревью." },
+      { title: "План сценария до входа", body: "AI-трейдеры не входят вслепую: зоны входа, отмена, цели и технические проверки оформляются как TradingView-подобный план." }
+    ],
+    getStartedTitle: "Сначала выберите AI-трейдеров, за которыми стоит следить.",
+    getStartedSubtitle: "Смотрите не только доходность: проверяйте свежие решения, открытую экспозицию и управленческие ревью перед Telegram-алертами.",
+    getStartedCta: "Выбрать трейдеров",
+    secondVideoTitle: "Настройки подписки и action-алерты",
+    alertsTitle: "Telegram-алерты — только по трейдерам, которые вам интересны.",
+    alertsSubtitle: "Aigentra не спамит всей лигой. В Telegram приходят входы, выходы, risk review и статусные заметки по избранным трейдерам на языке аккаунта.",
+    alertsCta: "Настроить алерты",
+    alertCards: [
+      { title: "Фильтр избранных", body: "Оставьте уведомления только по AI-трейдерам, за которыми действительно хотите наблюдать." },
+      { title: "Статусы и события сделок", body: "Ожидание входа, исполнение, TP, SL и заметки по удержанию приходят как компактные сообщения." },
+      { title: "Локализованная доставка", body: "AI-ревью и фиды трейдеров отправляются на языке, выбранном в аккаунте." }
+    ],
+    pricingTitle: "Один Pro-план открывает лигу и уведомления.",
+    pricingSubtitle: "Пока без сложных уровней: детали трейдеров, AI-сентимент и Telegram-алерты собраны в одном плане.",
+    billingAnnual: "Годовая оплата (скидка 15%)",
+    billingMonthly: "Месячная оплата",
+    pricingSupportTitle: "Для чего нужен Pro",
+    pricingSupportBody: "Aigentra — не бот, который торгует на бирже. Это панель наблюдения за решениями AI-трейдеров, виртуальной экспозицией и risk-management обновлениями.",
+    pricingSupportItems: ["Полный доступ ко всем 20 трейдерам", "AI-сентимент и почасовые мнения Aigentra", "Telegram-алерты по избранным трейдерам", "Виртуальные входы, выходы и ревью в реальном времени"],
+    pricingPlans: [
+      {
+        name: "Aigentra Pro",
+        price: "$29",
+        cadence: "/ мес.",
+        description: "Полный лидерборд, страницы трейдеров, AI-сентимент и Telegram-алерты по избранным в одной подписке.",
+        features: ["Неограниченный доступ к деталям трейдеров", "AI-сентимент и почасовое сводное мнение", "Telegram-алерты по избранным", "Виртуальные исполнения и risk-management логи"],
+        cta: "Начать подписку"
+      }
+    ],
+    testimonialsTitle: "Операторам нужны прослеживаемые решения, а не шум сигналов.",
+    testimonials: [
+      { quote: "Лидерборд и свежая логика помогают быстро понять, за какими AI-трейдерами следить.", author: "Заметка оператора", role: "пример продуктового потока" },
+      { quote: "Telegram привязан к избранным трейдерам, поэтому рыночный шум проще отделять от важных событий управления.", author: "Заметка ревью", role: "пример алертов" }
+    ],
+    trustTitle: "Это симуляционная проверка, а не live-исполнение на бирже.",
+    trustBody: "Сервис сохраняет стратегические решения и контекст управления до любых реальных действий с капиталом.",
+    faqTitle: "Вопросы, которые действительно задают пользователи",
+    faqSubtitle: "Коротко о live-торговле, оплате, уведомлениях, данных и границах AI-аналитики.",
+    faqCta: "Сначала открыть лидерборд",
+    faqs: [
+      { question: "Aigentra торгует реальными деньгами?", answer: "Нет. Aigentra не размещает биржевые ордера и не хранит средства клиентов. Мы записываем виртуальные входы, выходы и AI-решения по risk management на основе публичных futures-данных." },
+      { question: "Почему лига, а не обычный канал сигналов?", answer: "Один сигнал сложно сравнивать. Лига показывает, какой стиль AI-трейдера сейчас работает, чего он ждет и как управляет риском после входа." },
+      { question: "Как Telegram решает, что отправлять?", answer: "Уведомления привязаны к избранным трейдерам и выбранным типам событий: ожидание входа, исполнение, TP, SL, AI management review и статусные фиды." },
+      { question: "Что агрегирует AI-сентимент?", answer: "Он объединяет открытые позиции, ожидающие сетапы, недавние выходы и AI-ревью 20 стратегических трейдеров в почасовое мнение Aigentra." },
+      { question: "Где управляется оплата?", answer: "Checkout и статус подписки проходят через Whop. После успешной оплаты Pro-доступ отражается внутри Aigentra." },
+      { question: "Это инвестиционный совет?", answer: "Нет. Продукт предназначен для обучения и симуляции. Алерты, ревью, цели и стопы — аналитические записи, а не указания покупать или продавать." }
+    ],
+    aboutTitle: "Aigentra Trading — не кнопка автоторговли, а панель сравнения AI-решений.",
+    aboutBody: [
+      "**Aigentra Trading** — это **AI-сервис симуляции и анализа трейдинга** для пользователей, которые хотят изучать поведение стратегий без live-ордеров. Платформа отслеживает ключевые уровни, поддержку, сопротивление, тренд и волатильность по публичным рыночным данным.",
+      "Для сравнения технического контекста мы используем **multi-confluence analysis**, **strategy sentiment ratios**, **order blocks** и **Fibonacci levels**. Цель — показать, как разные стили стратегий ведут себя в симулированной истории.",
+      "В итоге **Aigentra Trading** помогает отслеживать **симулированную торговлю фьючерсами** с дисциплиной и ясностью. Бычьи и медвежьи сценарии, risk notes и обновления управления подаются как аналитическая запись, не как финансовый совет."
+    ],
+    aboutPoints: ["Биржевые ключи не требуются", "Фокус на BTCUSDT", "Telegram-настройки на уровне аккаунта"],
+    footerTagline: "Записи виртуальных AI-трейдеров, BTC futures context и Telegram-алерты.",
+    disclaimer: "Этот продукт предназначен для обучения и симуляции. Это не инвестиционный совет и не рекомендация купить или продать.",
+    footerRiskNotice:
+      "Aigentra Trading — симуляционный аналитический сервис. Он не выполняет биржевые ордера, не хранит средства клиентов и не предоставляет персональные финансовые советы. Результаты лиги, AI-ревью, цели, стопы и алерты являются гипотетическими записями на основе публичных данных и не гарантируют реальных инвестиционных результатов. Crypto futures и perpetual contracts несут риски высокой волатильности, плеча, ликвидации, ликвидности, проскальзывания и задержки данных, включая риск полной потери капитала. Вы самостоятельно отвечаете за финансовые решения и при необходимости должны обратиться к квалифицированному специалисту.",
+    footerLabels: {
+      product: "Продукт",
+      howItWorks: "Как работает",
+      pricing: "Тариф",
+      operatorNotes: "Заметки",
+      faq: "FAQ",
+      company: "Компания",
+      contact: "Контакт",
+      legal: "Правовая информация",
+      terms: "Условия сервиса",
+      disclaimer: "Дисклеймер",
+      legalNotices: "Юридические уведомления",
+      privacyPolicy: "Политика конфиденциальности",
+      riskDisclosure: "Раскрытие рисков",
+      madeBy: "Made by"
+    }
+  },
+  "pt-BR": {
+    heroEyebrow: "liga de traders de IA para futuros simulados",
+    heroTitle: "Compare perspectivas de traders de IA e capture momentos decisivos",
+    heroSubtitle:
+      "Aigentra compara os pontos de vista de traders de IA que monitoram futuros de BTC. Do filtro do setup à entrada simulada e às revisões de risco, o fluxo inteiro fica rastreável.",
+    primaryCta: "Ver leaderboard",
+    secondaryCta: "Entrar com Google",
+    proofRating: "20",
+    proofLabel: "simulation desk proof",
+    proofBadge: "Validação sem conectar conta de exchange",
+    proofTitle: "Ranking, planos de entrada e revisões de gestão no mesmo fluxo.",
+    proofSubtitle: "A tela não mostra só retorno: ela preserva motivo, exposição e contexto de gestão da posição.",
+    videoTitle: "Replay da liga e fluxo de alertas em uma só tela",
+    videoSubtitle: "Acesso e cobrança são gerenciados pelo Whop.",
+    stats: [
+      { label: "Traders", value: "20", detail: "agentes de IA estratégicos" },
+      { label: "Mercado", value: "BTC", detail: "dados públicos de futuros OKX/Bitget" },
+      { label: "Alertas", value: "Telegram", detail: "foco nos favoritos" }
+    ],
+    steps: [
+      { title: "Olhe a liga", body: "Veja quem lidera, quem espera entrada e quem está gerenciando uma posição simulada." },
+      { title: "Confira a evidência", body: "Abra gráficos, cenários recentes, posições e calendário de trades de cada trader." },
+      { title: "Siga favoritos", body: "Assinantes podem favoritar traders e receber eventos de entrada, saída, risco e gestão no Telegram." }
+    ],
+    agentSystemTitle: "Além de alertas simples: compare perspectivas multidimensionais de traders de IA.",
+    agentSystemSubtitle: "Monitore o processo completo dos bots estratégicos e dos agentes de IA que validam risco antes da execução simulada.",
+    agentCards: [
+      { title: "Sistema de decisão em 2 etapas", body: "Um agente de IA de alta performance revisa candidatos do scanner por risco, retorno, alavancagem e invalidação antes da simulação." },
+      { title: "Gestão de risco em tempo real", body: "Depois da entrada, a posição continua monitorada. O agente de IA registra ações quando preço, volume ou volatilidade mudam rapidamente." },
+      { title: "Opinião Aigentra com 20 estratégias", body: "A visão não conta só Long/Short. Ela combina posições ativas, setups pendentes, saídas recentes e revisões de IA." },
+      { title: "Plano de cenário antes da entrada", body: "Os traders de IA não entram no escuro. Zonas de entrada, invalidação, alvos e checagens técnicas viram um plano no estilo TradingView." }
+    ],
+    getStartedTitle: "Comece escolhendo quais traders de IA merecem sua atenção.",
+    getStartedSubtitle: "Use ranking, racional recente, exposição aberta e revisões de gestão antes de ligar os alertas no Telegram.",
+    getStartedCta: "Escolher traders",
+    secondVideoTitle: "Configuração de assinatura e alertas de ação",
+    alertsTitle: "Alertas do Telegram focados nos traders que você segue.",
+    alertsSubtitle: "Aigentra não envia barulho da liga inteira. Ela manda fills, saídas, revisões de gestão e status feeds dos favoritos no idioma da conta.",
+    alertsCta: "Configurar alertas",
+    alertCards: [
+      { title: "Filtro de favoritos", body: "Mantenha notificações apenas nos traders de IA que você quer acompanhar de verdade." },
+      { title: "Status feeds e execuções", body: "Receba entradas pendentes, fills, saídas, holds e notas de gestão como mensagens compactas." },
+      { title: "Entrega localizada", body: "Revisões de IA e feeds de traders seguem o idioma selecionado na sua conta." }
+    ],
+    pricingTitle: "Um plano Pro libera a liga e os alertas.",
+    pricingSubtitle: "Sem níveis confusos por enquanto. Detalhes dos traders, sentimento de IA e alertas no Telegram ficam em um único plano.",
+    billingAnnual: "Anual (15% off)",
+    billingMonthly: "Mensal",
+    pricingSupportTitle: "Para que o Pro foi criado",
+    pricingSupportBody: "Aigentra não é um robô que executa ordens na exchange. É uma superfície de controle para acompanhar raciocínio dos traders de IA, exposição simulada e gestão de risco.",
+    pricingSupportItems: ["Acesso completo aos 20 traders", "Sentimento de IA e opiniões horárias da Aigentra", "Alertas Telegram dos traders favoritos", "Fills, saídas e revisões simuladas em tempo real"],
+    pricingPlans: [
+      {
+        name: "Aigentra Pro",
+        price: "$29",
+        cadence: "/ mês",
+        description: "Leaderboard completo, páginas de traders, sentimento de IA e alertas dos favoritos em uma assinatura.",
+        features: ["Acesso ilimitado aos detalhes dos traders", "Sentimento de IA e opinião horária agregada", "Alertas Telegram por favoritos", "Fills simulados e logs de gestão de risco"],
+        cta: "Iniciar assinatura"
+      }
+    ],
+    testimonialsTitle: "Operadores precisam de decisões rastreáveis, não de mais ruído de sinal.",
+    testimonials: [
+      { quote: "O leaderboard e o racional recente deixam claro quais traders de IA valem atenção.", author: "Nota de operador", role: "fluxo ilustrativo" },
+      { quote: "Os alertas no Telegram ficam presos aos favoritos, então é mais fácil separar ruído de eventos reais de gestão.", author: "Nota de revisão", role: "fluxo de alertas" }
+    ],
+    trustTitle: "Isto é validação simulada, não execução ao vivo na exchange.",
+    trustBody: "O produto registra decisões estratégicas e contexto de gestão antes de qualquer fluxo com capital real.",
+    faqTitle: "Perguntas que usuários realmente fazem",
+    faqSubtitle: "Um resumo sobre trade real, cobrança, alertas, dados e como usar — ou não usar — a saída da IA.",
+    faqCta: "Abrir leaderboard primeiro",
+    faqs: [
+      { question: "Aigentra opera com dinheiro real?", answer: "Não. Aigentra não executa ordens em exchange nem guarda fundos. Ela registra entradas, saídas e decisões de gestão de risco simuladas a partir de dados públicos de futuros." },
+      { question: "Por que uma liga em vez de um canal de sinais?", answer: "Um sinal isolado é difícil de comparar. A liga mostra qual estilo de trader de IA está funcionando, o que ele aguarda e como gerencia risco depois da entrada." },
+      { question: "Como o Telegram decide o que enviar?", answer: "Os alertas seguem seus traders favoritos e tipos de evento escolhidos: entradas pendentes, fills, take-profits, stop-losses, revisões de IA e status feeds." },
+      { question: "O que o sentimento de IA agrega?", answer: "Ele combina posições ativas, setups pendentes, saídas recentes e revisões de IA dos 20 traders em uma opinião horária da Aigentra." },
+      { question: "Onde a cobrança é gerenciada?", answer: "Checkout e acesso de assinatura são gerenciados pelo Whop. Quando o pagamento é aprovado, o acesso Pro aparece dentro da Aigentra." },
+      { question: "Isso é recomendação de investimento?", answer: "Não. O produto é educacional e simulado. Alertas, revisões, alvos e stops são registros analíticos, não ordens de compra ou venda." }
+    ],
+    aboutTitle: "Aigentra Trading não é um botão de auto-trade; é uma mesa para comparar decisões de IA.",
+    aboutBody: [
+      "Na **Aigentra Trading**, criamos **simulação e análise de trading com IA** para usuários que querem inspecionar comportamento de estratégia sem ordens reais. A plataforma acompanha níveis-chave, suportes, resistências, tendência e volatilidade por dados públicos de mercado.",
+      "Também oferecemos ferramentas para comparar contexto técnico, como **análise de múltiplas confluências**, **proporções de sentimento por estratégia**, **order blocks** e **níveis de Fibonacci**. O foco é mostrar como estilos diferentes de estratégia se comportam no registro simulado.",
+      "No fim, **Aigentra Trading** acompanha **trading simulado de futuros** com clareza e disciplina. Cenários altistas e baixistas, notas de risco e atualizações de gestão são apresentados como registro analítico, não como conselho financeiro."
+    ],
+    aboutPoints: ["Sem chaves de exchange", "Foco em BTCUSDT", "Configurações Telegram por conta"],
+    footerTagline: "Registros de traders de IA virtuais, contexto de futuros BTC e alertas Telegram.",
+    disclaimer: "Este produto é para educação e simulação. Não é recomendação de investimento nem indicação de compra ou venda.",
+    footerRiskNotice:
+      "Aigentra Trading é um serviço analítico baseado em simulação. Ele não executa ordens em exchanges, não guarda fundos de clientes e não fornece aconselhamento financeiro personalizado. Performance da liga, revisões de IA, alvos, stops e alertas são registros hipotéticos derivados de dados públicos e não garantem resultados reais de investimento. Futuros e contratos perpétuos de cripto envolvem alta volatilidade, alavancagem, liquidação, liquidez, slippage e risco de atraso de dados, incluindo possível perda total do capital. Você é responsável por cada decisão financeira e deve consultar um profissional qualificado quando necessário.",
+    footerLabels: {
+      product: "Produto",
+      howItWorks: "Como funciona",
+      pricing: "Preço",
+      operatorNotes: "Notas",
+      faq: "FAQ",
+      company: "Empresa",
+      contact: "Contato",
+      legal: "Legal",
+      terms: "Termos de Serviço",
+      disclaimer: "Aviso legal",
+      legalNotices: "Avisos legais",
+      privacyPolicy: "Política de Privacidade",
+      riskDisclosure: "Divulgação de Riscos",
+      madeBy: "Criado por"
+    }
+  },
+  tr: {
+    heroEyebrow: "simüle vadeli işlemler için AI trader ligi",
+    heroTitle: "AI trader bakış açılarını karşılaştırın, kritik anları yakalayın",
+    heroSubtitle:
+      "Aigentra, BTC vadeli piyasasını izleyen AI traderların bakış açılarını karşılaştırır. Kurulum filtresinden simüle girişe ve risk incelemesine kadar tüm akışı şeffaf biçimde izler.",
+    primaryCta: "Liderliği gör",
+    secondaryCta: "Google ile başla",
+    proofRating: "20",
+    proofLabel: "simulation desk proof",
+    proofBadge: "Borsa hesabı bağlamadan doğrulama",
+    proofTitle: "Sıralama, giriş planı ve yönetim incelemeleri aynı akışta.",
+    proofSubtitle: "Sadece getiri değil; giriş nedeni, pozisyon durumu ve yönetim bağlamı da görünür kalır.",
+    videoTitle: "Lig tekrarı ve alarm akışı tek ekranda",
+    videoSubtitle: "Erişim ve ödeme Whop üzerinden yönetilir.",
+    stats: [
+      { label: "Trader", value: "20", detail: "strateji AI ajanları" },
+      { label: "Piyasa", value: "BTC", detail: "OKX/Bitget public futures data" },
+      { label: "Alarmlar", value: "Telegram", detail: "favorilere odaklı" }
+    ],
+    steps: [
+      { title: "Ligi tara", body: "Kim önde, kim giriş bekliyor, kim simüle pozisyon yönetiyor hızlıca görün." },
+      { title: "Kanıtı incele", body: "Her trader için grafiklere, son senaryolara, pozisyonlara ve işlem takvimine girin." },
+      { title: "Favorileri takip et", body: "Aboneler favori traderlarının giriş, çıkış, risk ve yönetim olaylarını Telegram'da alabilir." }
+    ],
+    agentSystemTitle: "Basit sinyal alarmının ötesinde: AI trader perspektiflerini karşılaştırın.",
+    agentSystemSubtitle: "Strateji botlarından riski kontrol eden AI ajanlarına kadar tüm simüle işlem sürecini tek bakışta izleyin.",
+    agentCards: [
+      { title: "2 aşamalı karar sistemi", body: "Yüksek performanslı AI ajanı, scanner adaylarını risk, ödül, kaldıraç ve geçersizlik kurallarıyla tekrar kontrol eder." },
+      { title: "Gerçek zamanlı risk yönetimi", body: "Girişten sonra pozisyon boş bırakılmaz. AI ajanı fiyat, hacim ve volatilite şoklarında aksiyon planlarını kaydeder." },
+      { title: "20 stratejili Aigentra görüşü", body: "Sadece Long/Short sayımı değil; açık pozisyonlar, bekleyen kurulumlar, son çıkışlar ve AI incelemeleri birlikte okunur." },
+      { title: "Giriş öncesi senaryo planı", body: "AI traderlar kör giriş yapmaz. Giriş bölgeleri, geçersizlik, hedefler ve teknik kontroller TradingView tarzı plan olarak kalır." }
+    ],
+    getStartedTitle: "Önce hangi AI traderları takip edeceğinizi seçin.",
+    getStartedSubtitle: "Telegram alarmını bağlamadan önce liderlik, son gerekçe, açık risk ve yönetim incelemelerini birlikte okuyun.",
+    getStartedCta: "Trader seç",
+    secondVideoTitle: "Abonelik ayarları ve gerçek zamanlı aksiyon alarmları",
+    alertsTitle: "Telegram alarmları sadece takip ettiğiniz traderlara odaklanır.",
+    alertsSubtitle: "Aigentra tüm ligi gürültü olarak göndermez. Favori traderların fill, çıkış, yönetim review ve status feed mesajları hesap dilinde gelir.",
+    alertsCta: "Alarm ayarla",
+    alertCards: [
+      { title: "Favori trader filtresi", body: "Bildirimleri gerçekten izlemek istediğiniz AI traderlarla sınırlayın." },
+      { title: "Status feed ve işlem olayları", body: "Bekleyen girişler, fill'ler, çıkışlar, hold ve yönetim notları kompakt mesaj olarak gelir." },
+      { title: "Yerelleştirilmiş teslim", body: "AI review ve trader feed mesajları hesapta seçilen dili izler." }
+    ],
+    pricingTitle: "Tek Pro plan ligi ve alarmları açar.",
+    pricingSubtitle: "Şimdilik karmaşık katmanlar yok. Trader detayları, AI sentiment ve Telegram alarmları tek planda.",
+    billingAnnual: "Yıllık (15% indirim)",
+    billingMonthly: "Aylık",
+    pricingSupportTitle: "Pro ne için tasarlandı",
+    pricingSupportBody: "Aigentra borsada emir çalıştıran bir bot değildir. AI trader kararlarını, simüle riski ve risk yönetimi güncellemelerini izleyen bir kontrol yüzeyidir.",
+    pricingSupportItems: ["20 traderın tüm detayları", "AI sentiment ve saatlik Aigentra görüşleri", "Favori trader Telegram alarmları", "Gerçek zamanlı simüle fill, çıkış ve review kayıtları"],
+    pricingPlans: [
+      {
+        name: "Aigentra Pro",
+        price: "$29",
+        cadence: "/ ay",
+        description: "Tüm liderlik tablosu, trader detayları, AI sentiment ve favori trader Telegram alarmları tek abonelikte.",
+        features: ["Tüm trader detaylarına sınırsız erişim", "AI sentiment ve saatlik toplu görüş", "Favori bazlı Telegram alarmları", "Simüle fill ve risk yönetimi logları"],
+        cta: "Aboneliği başlat"
+      }
+    ],
+    testimonialsTitle: "Operatörlerin ihtiyacı daha fazla sinyal değil, izlenebilir karardır.",
+    testimonials: [
+      { quote: "Liderlik ve son gerekçe, hangi AI traderın izlenmeye değer olduğunu hızlıca gösteriyor.", author: "Operatör notu", role: "örnek ürün akışı" },
+      { quote: "Telegram alarmları favorilere bağlı kaldığı için piyasa gürültüsüyle gerçek yönetim olaylarını ayırmak kolaylaşıyor.", author: "Review notu", role: "örnek alarm akışı" }
+    ],
+    trustTitle: "Bu canlı borsa işlemi değil, simülasyon doğrulamasıdır.",
+    trustBody: "Ürün, gerçek sermaye akışından önce strateji kararlarını ve yönetim bağlamını kaydeder.",
+    faqTitle: "Kullanıcıların gerçekten sorduğu sorular",
+    faqSubtitle: "Canlı işlem, ödeme, alarmlar, veri ve AI çıktısının ne için kullanılıp kullanılmaması gerektiğine kısa cevaplar.",
+    faqCta: "Önce liderliği aç",
+    faqs: [
+      { question: "Aigentra gerçek parayla işlem açıyor mu?", answer: "Hayır. Aigentra borsaya emir göndermez ve kullanıcı fonu tutmaz. Public futures verisinden simüle giriş, çıkış ve AI risk yönetimi kararlarını kaydeder." },
+      { question: "Neden basit sinyal kanalı değil de lig?", answer: "Tek sinyal karşılaştırması zordur. Lig formatı hangi AI trader stilinin çalıştığını, ne beklediğini ve giriş sonrası riski nasıl yönettiğini gösterir." },
+      { question: "Telegram neyi göndereceğine nasıl karar verir?", answer: "Alarmlar favori traderlarınız ve seçtiğiniz olay türlerine göre gelir: bekleyen giriş, fill, TP, SL, AI yönetim review ve status feed." },
+      { question: "AI sentiment neyi toplar?", answer: "20 strateji traderının açık pozisyonlarını, bekleyen kurulumlarını, son çıkışlarını ve AI review kayıtlarını saatlik Aigentra görüşünde birleştirir." },
+      { question: "Ödeme nerede yönetiliyor?", answer: "Checkout ve abonelik erişimi Whop üzerinden yönetilir. Ödeme başarılı olduğunda Pro erişim Aigentra içinde görünür." },
+      { question: "Bu yatırım tavsiyesi mi?", answer: "Hayır. Ürün eğitim ve simülasyon içindir. Alarmlar, review'lar, hedefler ve stoplar analitik kayıttır; al veya sat talimatı değildir." }
+    ],
+    aboutTitle: "Aigentra Trading otomatik işlem düğmesi değil, AI kararlarını karşılaştıran kontrol masasıdır.",
+    aboutBody: [
+      "**Aigentra Trading**, canlı emir vermeden strateji davranışını incelemek isteyen kullanıcılar için geliştirilen **AI destekli trading simülasyon ve analiz** servisidir. Platform public market verisinden önemli seviyeleri, destek/dirençleri, trend koşullarını ve volatilite bağlamını izler.",
+      "Teknik bağlamı daha kolay karşılaştırmak için **multi-confluence analysis**, **strategy sentiment ratios**, **order blocks** ve **Fibonacci levels** gibi araçlar da sunar. Amaç, farklı strateji stillerinin simüle kayıtta nasıl davrandığını göstermektir.",
+      "Sonuçta **Aigentra Trading**, **simüle futures trading** sürecini net ve disiplinli izlemek için tasarlanmıştır. Boğa/ayı senaryoları, risk notları ve yönetim güncellemeleri finansal tavsiye değil, analitik kayıt olarak sunulur."
+    ],
+    aboutPoints: ["Borsa anahtarı gerekmez", "BTCUSDT odaklı izleme", "Hesap bazlı Telegram ayarları"],
+    footerTagline: "Sanal AI trader kayıtları, BTC futures bağlamı ve Telegram alarmları.",
+    disclaimer: "Bu ürün eğitim ve simülasyon içindir. Yatırım tavsiyesi veya al-sat önerisi değildir.",
+    footerRiskNotice:
+      "Aigentra Trading simülasyon tabanlı analitik bir servistir. Borsa emirleri çalıştırmaz, müşteri fonu tutmaz ve kişisel finansal tavsiye vermez. Lig performansı, AI review, hedef, stop ve alarmlar public market verisine dayalı varsayımsal kayıtlardır ve gerçek yatırım sonucunu garanti etmez. Kripto futures ve perpetual sözleşmeler yüksek volatilite, kaldıraç, likidasyon, likidite, slipaj ve veri gecikmesi riski taşır; sermayenin tamamı kaybedilebilir. Her finansal karardan siz sorumlusunuz ve gerektiğinde yetkin bir uzmana danışmalısınız.",
+    footerLabels: {
+      product: "Ürün",
+      howItWorks: "Nasıl çalışır",
+      pricing: "Fiyat",
+      operatorNotes: "Operatör notları",
+      faq: "SSS",
+      company: "Şirket",
+      contact: "İletişim",
+      legal: "Yasal",
+      terms: "Hizmet Şartları",
+      disclaimer: "Feragatname",
+      legalNotices: "Yasal Bildirimler",
+      privacyPolicy: "Gizlilik Politikası",
+      riskDisclosure: "Risk Açıklaması",
+      madeBy: "Hazırlayan"
+    }
   }
-} as const satisfies Record<"ko" | "en", LandingCopy>;
+} as const satisfies Record<Locale, LandingCopy>;
 
 export function landingCopy(locale: Locale): LandingCopy {
-  return locale === "ko" ? copy.ko : copy.en;
+  return copy[locale] ?? copy.en;
 }
