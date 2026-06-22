@@ -335,7 +335,7 @@ export function HomePageClient() {
       </section>
 
       <section data-testid="landing-telegram-alerts" className="relative overflow-hidden bg-white py-16 text-zinc-950 md:py-24">
-        <div className="relative mx-auto max-w-[1240px] px-4 sm:px-10 lg:px-16">
+        <div className="relative mx-auto max-w-[1500px] px-4 sm:px-8 lg:px-10">
           {/* Vertical grid lines */}
           <div className="absolute inset-y-0 left-0 hidden w-px bg-zinc-200 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-zinc-200 lg:block" />
@@ -346,31 +346,41 @@ export function HomePageClient() {
           <CandleNotch position="bottom-right" theme="light" />
 
           <ScrollReveal>
-            <div className="mx-auto grid gap-6 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] p-5 text-white shadow-[0_22px_60px_rgba(0,0,0,0.5)] transition duration-300 hover:border-emerald-500/10 sm:p-8 lg:grid-cols-[0.82fr_1.18fr]">
-              <div className="flex flex-col justify-between py-2">
+            <div className="mx-auto grid gap-6 rounded-2xl border border-white/[0.09] bg-[radial-gradient(circle_at_18%_12%,rgba(45,212,191,0.10),transparent_31%),linear-gradient(180deg,#131716_0%,#070908_100%)] p-5 text-white shadow-[0_22px_60px_rgba(0,0,0,0.5)] transition duration-300 hover:border-emerald-500/15 sm:p-8 lg:grid-cols-[0.72fr_1.28fr] xl:p-10">
+              <div className="flex flex-col justify-between gap-8 py-1">
                 <div>
                   <span className="grid size-12 place-items-center rounded-xl bg-sky-500 text-white shadow-[0_0_20px_rgba(14,165,233,0.35)]">
                     <TelegramLogo size={26} weight="fill" />
                   </span>
                   <h2 className="mt-6 text-3xl font-bold tracking-tight text-white md:text-4xl lg:text-[2.6rem] lg:leading-[1.1] break-keep">{copy.alertsTitle}</h2>
-                  <p className="mt-4 text-sm leading-6 text-zinc-400 break-keep">{copy.alertsSubtitle}</p>
+                  <p className="mt-4 max-w-[54ch] text-base leading-7 text-zinc-300 break-keep">{copy.alertsSubtitle}</p>
+                  <div className="mt-6 grid gap-2 sm:grid-cols-2">
+                    {copy.alertCards.slice(0, 2).map((card) => (
+                      <span key={card.title} className="rounded-xl border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm font-semibold leading-5 text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] break-keep">
+                        {card.title}
+                      </span>
+                    ))}
+                  </div>
                 </div>
                 <Link href="/account" className="focus-ring mt-8 inline-flex items-center justify-center gap-2 rounded-full border border-white/12 bg-white/[0.04] hover:bg-white/[0.08] px-6 py-3.5 text-sm font-bold text-white transition self-start">
                   <BellRinging size={16} />
                   {copy.alertsCta}
                 </Link>
               </div>
-              <div className="grid gap-4 md:grid-cols-[0.8fr_1fr]">
+              <div className="grid gap-4 lg:grid-cols-[1.02fr_0.98fr] xl:gap-5">
                 <AlertPreview />
                 <div className="grid gap-4">
                   {copy.alertCards.map((card, idx) => (
                     <ScrollReveal key={card.title} delay={idx * 100}>
-                      <article className="rounded-[20px] border border-white/[0.08] bg-white/[0.02] p-5 hover:border-emerald-500/20 hover:-translate-y-0.5 transition duration-300">
-                        <span className="flex size-5 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-300">
-                          <Check size={12} weight="bold" />
+                      <article className="group grid grid-cols-[32px_1fr] gap-4 rounded-[18px] border border-white/[0.08] bg-white/[0.025] p-5 transition duration-300 hover:-translate-y-0.5 hover:border-emerald-500/25 hover:bg-white/[0.045]">
+                        <span className="mt-0.5 flex size-8 items-center justify-center rounded-lg border border-emerald-400/20 bg-emerald-400/10 text-emerald-300 transition group-hover:border-emerald-300/35 group-hover:bg-emerald-400/15">
+                          <Check size={15} weight="bold" />
                         </span>
-                        <h3 className="mt-3 text-base font-bold text-white tracking-tight break-keep">{card.title}</h3>
-                        <p className="mt-2 text-xs leading-5 text-zinc-400 break-keep">{card.body}</p>
+                        <div>
+                          <p className="font-mono text-[11px] text-emerald-300/80">0{idx + 1} · alert rule</p>
+                          <h3 className="mt-2 text-lg font-bold tracking-tight text-white break-keep">{card.title}</h3>
+                          <p className="mt-2 text-sm leading-6 text-zinc-400 break-keep">{card.body}</p>
+                        </div>
                       </article>
                     </ScrollReveal>
                   ))}

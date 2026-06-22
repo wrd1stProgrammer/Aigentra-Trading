@@ -440,32 +440,46 @@ export function ProductProofCard({ copy }: { readonly copy: LandingCopy }) {
 
 export function AlertPreview() {
   return (
-    <div className="rounded-2xl border border-white/[0.08] bg-[#182533] p-4 shadow-xl transition-all duration-300 hover:-translate-y-1">
-      <div className="mb-3 flex items-center justify-between border-b border-white/10 pb-3">
+    <div className="rounded-2xl border border-sky-300/15 bg-[#172535] p-4 shadow-[0_18px_42px_rgba(0,0,0,0.32)] transition-all duration-300 hover:-translate-y-1 sm:p-5">
+      <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-4">
         <div className="flex items-center gap-3">
-          <span className="grid size-10 place-items-center rounded-full bg-sky-500 text-white shadow-[0_0_15px_rgba(14,165,233,0.35)]">
-            <TelegramLogo size={20} weight="fill" />
+          <span className="grid size-11 place-items-center rounded-full bg-sky-500 text-white shadow-[0_0_18px_rgba(14,165,233,0.38)]">
+            <TelegramLogo size={22} weight="fill" />
           </span>
           <div>
-            <p className="text-sm font-bold text-white">Aigentra Trading Bot</p>
-            <p className="font-mono text-[11px] text-sky-200/70">now · favorite trader</p>
+            <p className="text-base font-bold tracking-tight text-white">Aigentra Trading Bot</p>
+            <p className="font-mono text-[11px] text-sky-100/65">now · favorite trader only</p>
           </div>
         </div>
-        <span className="rounded-full bg-white/10 px-2 py-1 font-mono text-[10px] text-sky-100">Telegram</span>
+        <span className="rounded-full border border-sky-300/15 bg-white/10 px-2.5 py-1 font-mono text-[10px] text-sky-100">Telegram</span>
       </div>
-      <div className="rounded-2xl rounded-tl-sm bg-[#eff6ff] p-4 text-sm leading-6 text-slate-900 shadow-md">
-        <p className="font-bold text-slate-950">[AI Trader League] 트레이더 피드</p>
-        <p className="mt-1 font-semibold text-slate-700">VWAP 회수반장 · BTCUSDT</p>
-        <p className="mt-3 font-bold text-emerald-700">롱 아직 열려 있어요</p>
-        <p className="mt-1 text-slate-700">내 롱은 살아 있고, 익절선 근처에서는 괜히 따라붙지 않을게요. 거래량이 식으면 바로 보수적으로 관리합니다.</p>
-        <div className="mt-3 grid grid-cols-2 gap-2 font-mono text-[11px]">
-          <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-700">LONG · 5x</span>
-          <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">price 64,280</span>
+      <div className="rounded-[18px] rounded-tl-sm bg-[#f3f7ff] p-4 text-sm leading-6 text-slate-900 shadow-[0_12px_24px_rgba(4,15,29,0.24)] sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="font-bold text-slate-950">[AI Trader League] 트레이더 피드</p>
+            <p className="mt-1 font-semibold text-slate-600">VWAP 회수반장 · BTCUSDT</p>
+          </div>
+          <span className="rounded-full bg-emerald-100 px-2.5 py-1 font-mono text-[11px] font-bold text-emerald-700">LIVE</span>
+        </div>
+        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/80 p-3">
+          <p className="font-bold text-emerald-800">롱 유지, 익절선 근처는 추격 보류</p>
+          <p className="mt-1 text-slate-700">내 롱은 살아 있고, 익절선 근처에서는 괜히 따라붙지 않을게요. 거래량이 식으면 바로 보수적으로 관리합니다.</p>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2 font-mono text-[11px]">
+          <span className="rounded-lg bg-slate-950 px-2.5 py-2 text-emerald-300">LONG · 5x</span>
+          <span className="rounded-lg bg-slate-100 px-2.5 py-2 text-slate-600">price<br /><strong className="text-slate-900">64,280</strong></span>
+          <span className="rounded-lg bg-slate-100 px-2.5 py-2 text-slate-600">ROI<br /><strong className="text-emerald-700">+0.83%</strong></span>
         </div>
       </div>
-      <p className="mt-4 flex items-center gap-2 font-mono text-xs text-sky-100/70">
-        <Clock size={14} /> delivered 8 seconds ago · only favorites
-      </p>
+      <div className="mt-4 grid gap-2 text-xs text-sky-100/72">
+        <p className="flex items-center gap-2 font-mono">
+          <Clock size={14} /> delivered 8 seconds ago · only favorites
+        </p>
+        <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
+          <span className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2">language · KO</span>
+          <span className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2">event · status feed</span>
+        </div>
+      </div>
     </div>
   );
 }

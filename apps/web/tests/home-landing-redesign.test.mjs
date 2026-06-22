@@ -77,4 +77,7 @@ test("pricing, Telegram preview, and FAQ match the simplified Pro offer", () => 
   assert.match(marketingSource, /Questions users actually ask|유저가 실제로 궁금해할 질문/, "FAQ should be rewritten around buyer questions");
   assert.match(visualSource, /Aigentra Trading Bot/, "Telegram preview should resemble the actual bot message surface");
   assert.match(visualSource, /\[AI Trader League\] 트레이더 피드/, "Telegram preview should echo the production message format");
+  assert.match(visualSource, /ROI/, "Telegram preview should show a useful trading summary, not only prose");
+  assert.match(homeSource, /max-w-\[1500px\]/, "Telegram section should use the wider landing panel requested by the user");
+  assert.match(marketingSource, /자동매매 버튼이 아니라|not an auto-trading button/, "Telegram section should explain that Aigentra is a monitoring surface, not an execution bot");
 });

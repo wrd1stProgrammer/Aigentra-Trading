@@ -111,12 +111,12 @@ const copy = {
     getStartedCta: "관심 트레이더 고르기",
     secondVideoTitle: "구독 설정과 실시간 액션 알림",
     alertsTitle: "텔레그램 알림은 관심 트레이더만 조용하게.",
-    alertsSubtitle: "전체 리그 소음을 보내지 않습니다. 즐겨찾기한 트레이더의 체결, 청산, 관리 리뷰, 상태 피드만 사용자 언어로 짧게 보냅니다.",
+    alertsSubtitle: "Aigentra Trading은 자동매매 버튼이 아니라, AI 판단을 비교하는 관제면입니다. 그래서 전체 리그 소음을 보내지 않고, 즐겨찾기한 트레이더의 체결·청산·관리 리뷰·상태 피드만 사용자 언어로 짧게 보냅니다.",
     alertsCta: "알림 설정하기",
     alertCards: [
-      { title: "관심 트레이더 필터", body: "즐겨찾기한 AI 트레이더만 알림 대상으로 두어 불필요한 신호 소음을 줄입니다." },
-      { title: "상태 피드와 체결 이벤트", body: "진입 대기, 체결, 익절, 손절, 포지션 유지 메모를 실제 채팅처럼 짧게 받습니다." },
-      { title: "사용자 언어 기반 전송", body: "계정 언어 설정을 기준으로 AI 리뷰와 트레이더 피드를 번역해 전달합니다." }
+      { title: "관심 트레이더 필터", body: "즐겨찾기한 AI 트레이더만 알림 대상으로 두어, 리더보드 전체의 잡음을 실제로 줄입니다." },
+      { title: "상태 피드와 체결 이벤트", body: "진입 대기, 체결, 익절, 손절, 포지션 유지 메모를 봇 채팅처럼 짧고 빠르게 받습니다." },
+      { title: "사용자 언어 기반 전송", body: "계정 언어 설정을 기준으로 AI 리뷰와 트레이더 피드를 번역해, 같은 알림도 읽기 편하게 전달합니다." }
     ],
     pricingTitle: "하나의 Pro 플랜으로 전체 리그와 알림을 엽니다.",
     pricingSubtitle: "복잡한 등급을 두지 않고, AI 트레이더 상세·센티멘트·Telegram 알림을 한 플랜에서 제공합니다.",
@@ -218,12 +218,12 @@ const copy = {
     getStartedCta: "Choose traders to follow",
     secondVideoTitle: "Subscription settings and real-time action alerts",
     alertsTitle: "Telegram alerts stay focused on the traders you follow.",
-    alertsSubtitle: "Aigentra does not blast the whole league. It sends favorite-trader fills, exits, management reviews, and status feeds in the account language.",
+    alertsSubtitle: "Aigentra Trading is not an auto-trading button. It is a control surface for comparing AI decisions, so Telegram only sends favorite-trader fills, exits, management reviews, and status feeds in your account language.",
     alertsCta: "Configure alerts",
     alertCards: [
-      { title: "Favorite-trader filter", body: "Keep notifications scoped to the AI traders you actually want to watch." },
-      { title: "Status feeds and fills", body: "Receive pending entries, fills, exits, holds, and management notes as compact chat messages." },
-      { title: "Localized delivery", body: "AI reviews and trader feeds follow the language selected on your account." }
+      { title: "Favorite-trader filter", body: "Keep alerts scoped to the AI traders you actually watch instead of turning the whole league into noise." },
+      { title: "Status feeds and fills", body: "Receive pending entries, fills, exits, holds, and management notes as compact bot-style chat messages." },
+      { title: "Localized delivery", body: "AI reviews and trader feeds follow your account language, so the same event is easier to scan." }
     ],
     pricingTitle: "One Pro plan unlocks the league and alerts.",
     pricingSubtitle: "No confusing tiers for now. Trader details, AI sentiment, and Telegram alerts are grouped into one plan.",
@@ -260,7 +260,7 @@ const copy = {
       { question: "Where is billing managed?", answer: "Checkout and subscription access are handled through Whop. Once payment succeeds, Pro access is reflected inside Aigentra." },
       { question: "Is this investment advice?", answer: "No. The product is for education and simulation. Alerts, reviews, targets, and stops are analytical records, not instructions to buy or sell." }
     ],
-    aboutTitle: "Aigentra Trading, Your Expert AI Trading Software",
+    aboutTitle: "Aigentra Trading is not an auto-trading button. It is a control surface for comparing AI decisions.",
     aboutBody: [
       "At **Aigentra Trading**, we build **AI-powered trading simulation and analysis** for users who want to inspect strategy behavior without placing live orders. The platform tracks key levels, supports, resistances, trend conditions, and volatility context from public market data.",
       "We also provide tools that make technical context easier to compare, including **multi-confluence analysis**, **strategy sentiment ratios**, **Order Blocks**, and **Fibonacci levels**. The focus is to show how different strategy styles behave in a simulated record.",
@@ -325,12 +325,12 @@ const copy = {
     getStartedCta: "Выбрать трейдеров",
     secondVideoTitle: "Настройки подписки и action-алерты",
     alertsTitle: "Telegram-алерты — только по трейдерам, которые вам интересны.",
-    alertsSubtitle: "Aigentra не спамит всей лигой. В Telegram приходят входы, выходы, risk review и статусные заметки по избранным трейдерам на языке аккаунта.",
+    alertsSubtitle: "Aigentra Trading — не кнопка автоторговли, а панель сравнения AI-решений. Поэтому Telegram отправляет только входы, выходы, risk review и статусные заметки по избранным трейдерам на языке аккаунта.",
     alertsCta: "Настроить алерты",
     alertCards: [
-      { title: "Фильтр избранных", body: "Оставьте уведомления только по AI-трейдерам, за которыми действительно хотите наблюдать." },
-      { title: "Статусы и события сделок", body: "Ожидание входа, исполнение, TP, SL и заметки по удержанию приходят как компактные сообщения." },
-      { title: "Локализованная доставка", body: "AI-ревью и фиды трейдеров отправляются на языке, выбранном в аккаунте." }
+      { title: "Фильтр избранных", body: "Оставьте алерты только по AI-трейдерам, за которыми действительно наблюдаете, без шума всей лиги." },
+      { title: "Статусы и события сделок", body: "Ожидание входа, исполнение, TP, SL и заметки по удержанию приходят как короткие bot-сообщения." },
+      { title: "Локализованная доставка", body: "AI-ревью и фиды трейдеров отправляются на языке аккаунта, чтобы событие читалось быстрее." }
     ],
     pricingTitle: "Один Pro-план открывает лигу и уведомления.",
     pricingSubtitle: "Пока без сложных уровней: детали трейдеров, AI-сентимент и Telegram-алерты собраны в одном плане.",
@@ -432,12 +432,12 @@ const copy = {
     getStartedCta: "Escolher traders",
     secondVideoTitle: "Configuração de assinatura e alertas de ação",
     alertsTitle: "Alertas do Telegram focados nos traders que você segue.",
-    alertsSubtitle: "Aigentra não envia barulho da liga inteira. Ela manda fills, saídas, revisões de gestão e status feeds dos favoritos no idioma da conta.",
+    alertsSubtitle: "Aigentra Trading não é um botão de auto-trade; é uma mesa para comparar decisões de IA. Por isso o Telegram envia apenas fills, saídas, revisões de gestão e status feeds dos favoritos no idioma da conta.",
     alertsCta: "Configurar alertas",
     alertCards: [
-      { title: "Filtro de favoritos", body: "Mantenha notificações apenas nos traders de IA que você quer acompanhar de verdade." },
-      { title: "Status feeds e execuções", body: "Receba entradas pendentes, fills, saídas, holds e notas de gestão como mensagens compactas." },
-      { title: "Entrega localizada", body: "Revisões de IA e feeds de traders seguem o idioma selecionado na sua conta." }
+      { title: "Filtro de favoritos", body: "Mantenha alertas apenas nos traders de IA que você realmente acompanha, sem transformar a liga inteira em ruído." },
+      { title: "Status feeds e execuções", body: "Receba entradas pendentes, fills, saídas, holds e notas de gestão como mensagens curtas de bot." },
+      { title: "Entrega localizada", body: "Revisões de IA e feeds de traders seguem o idioma da conta para leitura mais rápida." }
     ],
     pricingTitle: "Um plano Pro libera a liga e os alertas.",
     pricingSubtitle: "Sem níveis confusos por enquanto. Detalhes dos traders, sentimento de IA e alertas no Telegram ficam em um único plano.",
@@ -539,12 +539,12 @@ const copy = {
     getStartedCta: "Trader seç",
     secondVideoTitle: "Abonelik ayarları ve gerçek zamanlı aksiyon alarmları",
     alertsTitle: "Telegram alarmları sadece takip ettiğiniz traderlara odaklanır.",
-    alertsSubtitle: "Aigentra tüm ligi gürültü olarak göndermez. Favori traderların fill, çıkış, yönetim review ve status feed mesajları hesap dilinde gelir.",
+    alertsSubtitle: "Aigentra Trading otomatik işlem düğmesi değil, AI kararlarını karşılaştıran kontrol masasıdır. Bu yüzden Telegram sadece favori traderların fill, çıkış, yönetim review ve status feed mesajlarını hesap dilinde gönderir.",
     alertsCta: "Alarm ayarla",
     alertCards: [
-      { title: "Favori trader filtresi", body: "Bildirimleri gerçekten izlemek istediğiniz AI traderlarla sınırlayın." },
-      { title: "Status feed ve işlem olayları", body: "Bekleyen girişler, fill'ler, çıkışlar, hold ve yönetim notları kompakt mesaj olarak gelir." },
-      { title: "Yerelleştirilmiş teslim", body: "AI review ve trader feed mesajları hesapta seçilen dili izler." }
+      { title: "Favori trader filtresi", body: "Alarmları gerçekten izlediğiniz AI traderlarla sınırlayın, tüm lig gürültüye dönüşmesin." },
+      { title: "Status feed ve işlem olayları", body: "Bekleyen girişler, fill'ler, çıkışlar, hold ve yönetim notları kısa bot mesajları olarak gelir." },
+      { title: "Yerelleştirilmiş teslim", body: "AI review ve trader feed mesajları hesap dilini izler, aynı olay daha hızlı okunur." }
     ],
     pricingTitle: "Tek Pro plan ligi ve alarmları açar.",
     pricingSubtitle: "Şimdilik karmaşık katmanlar yok. Trader detayları, AI sentiment ve Telegram alarmları tek planda.",
