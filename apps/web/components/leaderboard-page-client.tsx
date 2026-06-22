@@ -47,7 +47,7 @@ import {
 import { LatestStatusFeedNote } from "@/components/trader-profile-detail/status-feed-thread";
 
 const SYMBOLS: LeagueSymbol[] = ["BTCUSDT"];
-const RANKING_GRID_CLASS = "grid-cols-[30px_46px_minmax(220px,1fr)_130px_108px_108px_60px_80px] gap-3";
+const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_108px_108px_60px_80px_36px] gap-3";
 const OVERVIEW_INITIAL_LIMIT = 20;
 const OVERVIEW_PAGE_LIMIT = 10;
 const OVERVIEW_CACHE_TTL_MS = 60_000;
@@ -86,6 +86,16 @@ type TraderProgress = {
   sideDetail?: string;
   leverage?: number | null;
 };
+
+type ReturnMetricKey = "cumulative" | "return7d" | "return24h" | "return30d";
+
+type ReturnColumn = {
+  readonly key: ReturnMetricKey;
+  readonly label: string;
+  readonly peakValue: number;
+};
+
+const RETURN_METRIC_KEYS: readonly ReturnMetricKey[] = ["cumulative", "return7d", "return24h", "return30d"];
 
 const periodLabels = {
   ko: {
@@ -184,6 +194,7 @@ export function LeaderboardPageClient() {
     () => favoritesOnly ? visibleStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : visibleStandingsBase,
     [favoriteTraderIds, favoritesOnly, visibleStandingsBase]
   );
+  const returnColumns = useMemo(() => topReturnColumns(visibleStandings, t), [visibleStandings, t]);
   const hiddenTraderCount = Math.max(0, standings.length - visibleStandingsBase.length);
   const activeTrader = visibleStandings.find((item) => item.id === activeTraderId) ?? visibleStandings[0] ?? null;
   const leader = visibleStandings[0] ?? null;
@@ -389,6 +400,7 @@ export function LeaderboardPageClient() {
             t={t}
             locale={locale}
             favoriteTraderIds={favoriteTraderIds}
+            returnColumns={returnColumns}
             onToggleFavorite={toggleFavoriteTrader}
             onActivate={activateTrader}
           />
@@ -398,6 +410,7 @@ export function LeaderboardPageClient() {
             t={t}
             locale={locale}
             favoriteTraderIds={favoriteTraderIds}
+            returnColumns={returnColumns}
             onToggleFavorite={toggleFavoriteTrader}
             onPrefetch={prefetchTrader}
           />
@@ -421,28 +434,32 @@ export function LeaderboardPageClient() {
   );
 }
 
-function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, favoriteTraderIds, onToggleFavorite, onActivate }: {
+function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, favoriteTraderIds, returnColumns, onToggleFavorite, onActivate }: {
   standings: TraderStanding[];
   exposureByTrader: Map<string, TraderExposure>;
   activeTraderId: string | null;
   t: (key: string) => string;
   locale: Locale;
   favoriteTraderIds: ReadonlySet<string>;
+  returnColumns: readonly ReturnColumn[];
   onToggleFavorite: (traderId: string) => void;
   onActivate: (traderId: string) => void;
 }) {
+  const primaryReturnColumn = returnColumns[0] ?? fallbackReturnColumn("cumulative", t);
+  const secondaryReturnColumn = returnColumns[1] ?? fallbackReturnColumn("return7d", t);
+
   return (
     <div className="hidden overflow-x-auto lg:block w-full">
       <div className="min-w-[920px]">
         <div className={`grid ${RANKING_GRID_CLASS} border-b px-5 py-3.5 text-xs font-bold uppercase tracking-wider text-zinc-400 md:px-6`} style={{ borderColor: "var(--border)" }}>
-          <div aria-hidden />
           <div className="whitespace-nowrap">{t("leaderboard.rank")}</div>
           <div className="whitespace-nowrap">{t("leaderboard.trader")}</div>
           <div className="text-right whitespace-nowrap">{t("leaderboard.progressStatus")}</div>
-          <div className="text-right whitespace-nowrap">{t("leaderboard.bestReturn")}</div>
-          <div className="text-right whitespace-nowrap">{t("leaderboard.nextReturn")}</div>
+          <div className="text-right whitespace-nowrap">{primaryReturnColumn.label}</div>
+          <div className="text-right whitespace-nowrap">{secondaryReturnColumn.label}</div>
           <div className="text-right whitespace-nowrap">{t("leaderboard.mdd")}</div>
           <div className="text-right whitespace-nowrap">{t("common.winRate")}</div>
+          <div aria-hidden />
         </div>
         <div className="divide-y divide-[var(--border)]">
           {standings.map((trader) => {
@@ -450,7 +467,8 @@ function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, 
             const exposure = exposureByTrader.get(trader.id);
             const progress = traderProgress(trader, exposure, t, locale);
             const isActive = activeTraderId === trader.id;
-            const returnMetrics = topReturnMetrics(trader, t);
+            const primaryReturnValue = returnMetricValue(trader, primaryReturnColumn.key);
+            const secondaryReturnValue = returnMetricValue(trader, secondaryReturnColumn.key);
             const isFavorite = favoriteTraderIds.has(trader.id);
             return (
               <Link
@@ -465,6 +483,13 @@ function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, 
                     : "hover:bg-white/[0.02] border-l-transparent hover:border-l-emerald-500/50"
                 }`}
               >
+                <RankBadge rank={trader.rank} />
+                <TraderIdentity trader={trader} progress={progress} t={t} />
+                <ProgressCell progress={progress} />
+                <MetricValue value={formatSignedPercent(primaryReturnValue)} tone={primaryReturnValue >= 0 ? "good" : "bad"} />
+                <MetricValue value={formatSignedPercent(secondaryReturnValue)} tone={secondaryReturnValue >= 0 ? "good" : "bad"} />
+                <MetricValue value={formatDrawdown(trader.maxDrawdown)} />
+                <MetricValue value={formatNullablePercent(trader.winRate)} />
                 <FavoriteButton
                   active={isFavorite}
                   t={t}
@@ -474,13 +499,6 @@ function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, 
                     onToggleFavorite(trader.id);
                   }}
                 />
-                <RankBadge rank={trader.rank} />
-                <TraderIdentity trader={trader} progress={progress} t={t} />
-                <ProgressCell progress={progress} />
-                <MetricValue label={returnMetrics[0]?.label} value={formatSignedPercent(returnMetrics[0]?.value)} tone={(returnMetrics[0]?.value ?? 0) >= 0 ? "good" : "bad"} />
-                <MetricValue label={returnMetrics[1]?.label} value={formatSignedPercent(returnMetrics[1]?.value)} tone={(returnMetrics[1]?.value ?? 0) >= 0 ? "good" : "bad"} />
-                <MetricValue value={formatDrawdown(trader.maxDrawdown)} />
-                <MetricValue value={formatNullablePercent(trader.winRate)} />
               </Link>
             );
           })}
@@ -511,47 +529,40 @@ function LeaderboardLockedRows({ count, t }: { readonly count: number; readonly 
   );
 }
 
-function MobileRankingList({ standings, exposureByTrader, t, locale, favoriteTraderIds, onToggleFavorite, onPrefetch }: {
+function MobileRankingList({ standings, exposureByTrader, t, locale, favoriteTraderIds, returnColumns, onToggleFavorite, onPrefetch }: {
   standings: TraderStanding[];
   exposureByTrader: Map<string, TraderExposure>;
   t: (key: string) => string;
   locale: Locale;
   favoriteTraderIds: ReadonlySet<string>;
+  returnColumns: readonly ReturnColumn[];
   onToggleFavorite: (traderId: string) => void;
   onPrefetch: (traderId: string) => void;
 }) {
+  const primaryReturnColumn = returnColumns[0] ?? fallbackReturnColumn("cumulative", t);
+
   return (
     <div className="lg:hidden">
-      <div className="grid grid-cols-[28px_38px_minmax(0,1fr)_88px] items-center gap-2 border-b px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-500" style={{ borderColor: "var(--border)" }}>
-        <span aria-hidden />
+      <div className="grid grid-cols-[38px_minmax(0,1fr)_88px_28px] items-center gap-2 border-b px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-500" style={{ borderColor: "var(--border)" }}>
         <span>{t("leaderboard.rank")}</span>
         <span>{t("leaderboard.trader")}</span>
-        <span className="text-right">{t("leaderboard.bestReturn")}</span>
+        <span className="text-right">{primaryReturnColumn.label}</span>
+        <span aria-hidden />
       </div>
       <div className="divide-y" style={{ borderColor: "var(--border)" }}>
         {standings.map((trader) => {
             const progress = traderProgress(trader, exposureByTrader.get(trader.id), t, locale);
             const displayName = localizedTraderName(trader, t);
             const isFavorite = favoriteTraderIds.has(trader.id);
-            const returnMetric = topReturnMetrics(trader, t)[0];
+            const returnValue = returnMetricValue(trader, primaryReturnColumn.key);
             return (
               <Link
                 key={trader.id}
                 href={`/leaderboard/${trader.id}`}
                 onFocus={() => onPrefetch(trader.id)}
                 onMouseEnter={() => onPrefetch(trader.id)}
-                className="focus-ring grid grid-cols-[28px_38px_minmax(0,1fr)_88px] items-center gap-2 px-3 py-3.5 transition hover:bg-white/[0.02]"
+                className="focus-ring grid grid-cols-[38px_minmax(0,1fr)_88px_28px] items-center gap-2 px-3 py-3.5 transition hover:bg-white/[0.02]"
               >
-                <FavoriteButton
-                  active={isFavorite}
-                  t={t}
-                  compact
-                  onToggle={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onToggleFavorite(trader.id);
-                  }}
-                />
                 <RankBadge rank={trader.rank} compact />
                 <div className="flex min-w-0 items-center gap-2.5">
                   <TraderMark trader={trader} compact />
@@ -570,10 +581,20 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, favoriteTra
                   </div>
                 </div>
                 <div className="min-w-0 text-right">
-                  <p className={`font-mono text-[15px] font-bold ${(returnMetric?.value ?? 0) >= 0 ? "value-good" : "value-bad"}`}>{formatSignedPercent(returnMetric?.value)}</p>
-                  <p className="mt-0.5 truncate text-[11px] font-semibold text-zinc-500">{returnMetric?.label ?? t("leaderboard.cumulativeReturn")}</p>
+                  <p className={`font-mono text-[15px] font-bold ${returnValue >= 0 ? "value-good" : "value-bad"}`}>{formatSignedPercent(returnValue)}</p>
+                  <p className="mt-0.5 truncate text-[11px] font-semibold text-zinc-500">{primaryReturnColumn.label}</p>
                   {progress.detail ? <p className="mt-0.5 truncate text-[11px] font-semibold text-zinc-400">{progress.detail}</p> : null}
                 </div>
+                <FavoriteButton
+                  active={isFavorite}
+                  t={t}
+                  compact
+                  onToggle={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onToggleFavorite(trader.id);
+                  }}
+                />
               </Link>
             );
           })}
@@ -744,16 +765,52 @@ function LeverageBadge({ progress }: { progress: TraderProgress }) {
   );
 }
 
-function topReturnMetrics(trader: TraderStanding, t: (key: string) => string) {
-  const metrics = [
-    { key: "cumulative", label: t("leaderboard.cumulativeReturn"), value: trader.returnPct },
-    { key: "return7d", label: t("common.return7d"), value: trader.return7d },
-    { key: "return24h", label: t("common.return24h"), value: trader.return24h },
-    { key: "return30d", label: t("common.return30d"), value: trader.return30d }
-  ];
-  const positives = metrics.filter((metric) => metric.value > 0).sort((a, b) => b.value - a.value);
-  const fallback = metrics.filter((metric) => metric.value <= 0).sort((a, b) => b.value - a.value);
+function topReturnColumns(standings: readonly TraderStanding[], t: (key: string) => string): readonly ReturnColumn[] {
+  const columns = RETURN_METRIC_KEYS.map((key) => {
+    const peakValue = standings.reduce((peak, trader) => Math.max(peak, returnMetricValue(trader, key)), Number.NEGATIVE_INFINITY);
+    return {
+      key,
+      label: returnMetricLabel(key, t),
+      peakValue: Number.isFinite(peakValue) ? peakValue : 0
+    };
+  });
+  const positives = columns.filter((metric) => metric.peakValue > 0).sort((a, b) => b.peakValue - a.peakValue);
+  const fallback = columns.filter((metric) => metric.peakValue <= 0).sort((a, b) => b.peakValue - a.peakValue);
   return [...positives, ...fallback].slice(0, 2);
+}
+
+function fallbackReturnColumn(key: ReturnMetricKey, t: (key: string) => string): ReturnColumn {
+  return {
+    key,
+    label: returnMetricLabel(key, t),
+    peakValue: 0
+  };
+}
+
+function returnMetricLabel(key: ReturnMetricKey, t: (key: string) => string): string {
+  switch (key) {
+    case "cumulative":
+      return t("leaderboard.cumulativeReturn");
+    case "return7d":
+      return t("common.return7d");
+    case "return24h":
+      return t("common.return24h");
+    case "return30d":
+      return t("common.return30d");
+  }
+}
+
+function returnMetricValue(trader: TraderStanding, key: ReturnMetricKey): number {
+  switch (key) {
+    case "cumulative":
+      return trader.returnPct;
+    case "return7d":
+      return trader.return7d;
+    case "return24h":
+      return trader.return24h;
+    case "return30d":
+      return trader.return30d;
+  }
 }
 
 function FavoriteButton({
