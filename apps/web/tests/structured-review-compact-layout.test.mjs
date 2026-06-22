@@ -15,3 +15,9 @@ test("structured review sections render as compact single-row summaries", () => 
   assert.match(modalSource, /ReviewBriefSummary/, "scenario modal should use the compact review summary");
   assert.match(panelSource, /ReviewBriefSummary/, "AI review panel should use the compact review summary");
 });
+
+test("structured review raw decision tokens are localized before display", () => {
+  assert.match(summarySource, /localizedBriefToken/, "brief verdicts should pass through a localization helper");
+  assert.match(summarySource, /APPROVE: "status\.approved"/, "approve verdicts should use status localization");
+  assert.match(summarySource, /MOVE_STOP_TO_BREAKEVEN: "status\.moveStopToBreakeven"/, "breakeven stop actions should use status localization");
+});

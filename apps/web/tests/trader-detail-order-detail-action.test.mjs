@@ -19,6 +19,7 @@ const pageSource = readFileSync(new URL("../components/trader-profile-page-clien
 const chartSource = readFileSync(new URL("../components/trader-profile-detail/chart.tsx", import.meta.url), "utf8");
 const panelSource = readFileSync(new URL("../components/trader-profile-detail/binance-position-panel.tsx", import.meta.url), "utf8");
 const modalSource = readFileSync(new URL("../components/trader-profile-detail/scenario-modal.tsx", import.meta.url), "utf8");
+const dataSource = readFileSync(new URL("../components/trader-profile-detail/data.ts", import.meta.url), "utf8");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
 const scenarioCopy = loadTsModule("../components/trader-profile-detail/scenario-copy.ts");
 const scenarioFeed = loadTsModule("../components/trader-profile-detail/scenario-feed.ts", {
@@ -241,6 +242,13 @@ test("scenario modal labels entry approvals separately from management reviews",
   assert.match(modalSource, /case "review":\s*return t\("aiReview\.rationale"\);/s);
   assert.match(i18nSource, /"aiReview\.entryRationale": "진입 승인 근거"/);
   assert.match(i18nSource, /"aiReview\.entryRationale": "Entry Approval Rationale"/);
+});
+
+test("position detail side labels use dedicated localization keys", () => {
+  assert.match(dataSource, /localizedScenarioSide/, "scenario titles should use localized side labels");
+  assert.match(modalSource, /localizedScenarioSide\(scenario\.side, t\)/, "scenario modal should not display raw LONG or SHORT labels");
+  assert.match(i18nSource, /"detail\.sideLong": "롱"/, "Korean detail side labels should be localized");
+  assert.match(i18nSource, /"detail\.sideShort": "숏"/, "Korean detail side labels should be localized");
 });
 
 test("open position detail shows the saved entry approval rationale instead of generic active status copy", () => {

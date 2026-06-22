@@ -113,6 +113,48 @@ def test_status_feed_created_for_required_lifecycle_events(temp_db):
         assert len(generator.calls) == 4
 
 
+def test_live_status_feed_reuses_recent_same_state_instead_of_duplicate_thread_posts(temp_db):
+    settings = Settings(openai_api_key="", ai_translation_enabled=False, trader_status_feed_regeneration_seconds=10_800)
+    generator = FakeStatusFeedGenerator()
+    base_time = datetime(2026, 6, 22, 17, 8, tzinfo=timezone.utc)
+
+    with session_scope() as db:
+        first = asyncio.run(
+            create_status_feed_for_event(
+                db,
+                settings=settings,
+                trader_id="vwap-reclaimer",
+                symbol="BTCUSDT",
+                state_key=STATUS_FEED_STATE_POSITION_ENTRY,
+                event_type="order_filled",
+                source_type="trade_event",
+                source_id=1798,
+                trigger_payload={"eventId": 1798},
+                generator=generator,
+                now=base_time,
+            )
+        )
+        duplicate_state = asyncio.run(
+            create_status_feed_for_event(
+                db,
+                settings=settings,
+                trader_id="vwap-reclaimer",
+                symbol="BTCUSDT",
+                state_key=STATUS_FEED_STATE_POSITION_ENTRY,
+                event_type="order_filled",
+                source_type="trade_event",
+                source_id=1799,
+                trigger_payload={"eventId": 1799},
+                generator=generator,
+                now=base_time.replace(minute=20),
+            )
+        )
+
+        assert duplicate_state.id == first.id
+        assert db.query(TraderStatusFeedRecord).count() == 1
+        assert len(generator.calls) == 1
+
+
 def test_current_status_prefers_open_position_over_open_orders(temp_db):
     opened_at = datetime(2026, 6, 19, 1, 0, tzinfo=timezone.utc)
     submitted_at = datetime(2026, 6, 19, 1, 5, tzinfo=timezone.utc)

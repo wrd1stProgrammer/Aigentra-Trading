@@ -48,6 +48,48 @@ test("execution markers keep split entries and exits as separate chart marks", (
   assert.equal(new Set(result.map((marker) => marker.cycleId)).size, 1);
 });
 
+test("execution marker rail groups one trade cycle into one card summary", () => {
+  const markers = loadTsModule("../components/trader-profile-detail/execution-markers.ts");
+  const t = translator({
+    "detail.markerEntry": "진입",
+    "detail.markerTakeProfit": "익절",
+    "detail.markerStopLoss": "손절",
+    "detail.markerPartialExit": "분할 청산",
+    "detail.markerExit": "청산",
+    "detail.markerBuy": "매수",
+    "detail.markerSell": "매도",
+    "detail.markerLongEntryShort": "B",
+    "detail.markerShortEntryShort": "S",
+    "detail.markerTakeProfitShort": "TP",
+    "detail.markerStopLossShort": "SL",
+    "detail.markerPartialExitShort": "PX",
+    "detail.markerExitShort": "EX"
+  });
+
+  const result = markers.buildExecutionMarkers({
+    symbol: "BTCUSDT",
+    locale: "ko",
+    t,
+    closedPositions: [{ id: "cycle-a", symbol: "BTCUSDT", side: "long", openedAt: "2026-06-20T00:00:00Z" }],
+    events: [
+      { id: "entry-1", eventType: "order_filled", symbol: "BTCUSDT", positionId: "cycle-a", price: 64000, quantity: 0.1, createdAt: "2026-06-20T00:05:00Z" },
+      { id: "entry-2", eventType: "order_filled", symbol: "BTCUSDT", positionId: "cycle-a", price: 64100, quantity: 0.1, createdAt: "2026-06-20T00:15:00Z" },
+      { id: "tp-1", eventType: "PARTIAL_TAKE_PROFIT", symbol: "BTCUSDT", positionId: "cycle-a", price: 64600, quantity: 0.05, realizedPnl: 30, payload: { side: "long" }, createdAt: "2026-06-20T01:00:00Z" },
+      { id: "sl-1", eventType: "STOP_LOSS", symbol: "BTCUSDT", positionId: "cycle-a", price: 63600, quantity: 0.15, realizedPnl: -10, payload: { side: "long" }, createdAt: "2026-06-20T02:00:00Z" }
+    ]
+  });
+  const cycles = markers.buildExecutionMarkerCycles({ markers: result, locale: "ko", t });
+
+  assert.equal(cycles.length, 1);
+  assert.equal(cycles[0].entryCount, 2);
+  assert.equal(cycles[0].takeProfitCount, 1);
+  assert.equal(cycles[0].stopLossCount, 1);
+  assert.equal(cycles[0].markers.length, 4);
+  assert.match(cycles[0].titleLabel, /LONG 진입2 \/ 익절1 · 손절1/);
+  assert.match(cycles[0].priceSummaryLabel, /64,000 \+1/);
+  assert.equal(cycles[0].representativeId, result.find((marker) => marker.eventId === "entry-1")?.id);
+});
+
 test("execution marker exit tooltip keeps the related entry time", () => {
   const markers = loadTsModule("../components/trader-profile-detail/execution-markers.ts");
   const t = translator({

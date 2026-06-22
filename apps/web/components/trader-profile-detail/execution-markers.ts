@@ -31,6 +31,27 @@ export type ExecutionMarker = {
   positionId: string | null;
 };
 
+export type ExecutionMarkerCycle = {
+  id: string;
+  cycleId: string;
+  representativeId: string;
+  sideLabel: string;
+  titleLabel: string;
+  entrySummaryLabel: string;
+  exitSummaryLabel: string;
+  priceSummaryLabel: string;
+  pnl: number | null;
+  pnlLabel: string | null;
+  pnlTone: ExecutionMarker["pnlTone"];
+  entryCount: number;
+  takeProfitCount: number;
+  stopLossCount: number;
+  partialExitCount: number;
+  latestTimeMs: number;
+  startedTimeMs: number;
+  markers: ExecutionMarker[];
+};
+
 const EXECUTION_EVENT_KEYS = [
   "ORDER_FILLED",
   "POSITION_CLOSED",
@@ -91,6 +112,86 @@ export function defaultExecutionMarkerSelection({
   );
   if (!activePositionIds.size) return null;
   return markers.find((marker) => marker.action === "entry" && marker.positionId !== null && activePositionIds.has(marker.positionId))?.id ?? null;
+}
+
+export function buildExecutionMarkerCycles({
+  markers,
+  locale,
+  t,
+  limit = 12
+}: {
+  markers: readonly ExecutionMarker[];
+  locale: Locale;
+  t: Translator;
+  limit?: number;
+}): ExecutionMarkerCycle[] {
+  const grouped = new Map<string, ExecutionMarker[]>();
+  for (const marker of markers) {
+    const next = grouped.get(marker.cycleId) ?? [];
+    next.push(marker);
+    grouped.set(marker.cycleId, next);
+  }
+
+  return [...grouped.entries()]
+    .map(([cycleId, cycleMarkers]) => buildExecutionMarkerCycle({ cycleId, markers: cycleMarkers, locale, t }))
+    .sort((left, right) => right.latestTimeMs - left.latestTimeMs)
+    .slice(0, limit);
+}
+
+function buildExecutionMarkerCycle({
+  cycleId,
+  markers,
+  locale,
+  t
+}: {
+  cycleId: string;
+  markers: ExecutionMarker[];
+  locale: Locale;
+  t: Translator;
+}): ExecutionMarkerCycle {
+  const sorted = [...markers].sort((left, right) => left.timeMs - right.timeMs);
+  const entries = sorted.filter((marker) => marker.action === "entry");
+  const exits = sorted.filter((marker) => marker.action !== "entry");
+  const takeProfitCount = exits.filter((marker) => marker.action === "takeProfit").length;
+  const stopLossCount = exits.filter((marker) => marker.action === "stopLoss").length;
+  const partialExitCount = exits.filter((marker) => marker.action === "partialExit").length;
+  const representative = entries[0] ?? sorted[0];
+  const sideLabelText = representative?.sideLabel && representative.sideLabel !== "-" ? representative.sideLabel : "-";
+  const entrySummaryLabel = `${t("detail.markerEntry")}${entries.length || 0}`;
+  const exitSummaryLabel = [
+    takeProfitCount ? `${t("detail.markerTakeProfit")}${takeProfitCount}` : null,
+    stopLossCount ? `${t("detail.markerStopLoss")}${stopLossCount}` : null,
+    partialExitCount ? `${t("detail.markerPartialExit")}${partialExitCount}` : null
+  ].filter(Boolean).join(" · ");
+  const pnl = exits.reduce<number | null>((sum, marker) => {
+    if (marker.pnl === null) return sum;
+    return (sum ?? 0) + marker.pnl;
+  }, null);
+  const pnlLabel = pnl === null ? null : formatCurrency(pnl, locale);
+  const entryPrices = entries.map((marker) => marker.priceLabel);
+  const latestTimeMs = Math.max(...sorted.map((marker) => marker.timeMs));
+  const startedTimeMs = Math.min(...sorted.map((marker) => marker.timeMs));
+
+  return {
+    id: `execution-cycle-${cycleId}`,
+    cycleId,
+    representativeId: representative.id,
+    sideLabel: sideLabelText,
+    titleLabel: `${sideLabelText} ${entrySummaryLabel}${exitSummaryLabel ? ` / ${exitSummaryLabel}` : ""}`,
+    entrySummaryLabel,
+    exitSummaryLabel,
+    priceSummaryLabel: entryPrices.length > 1 ? `${entryPrices[0]} +${entryPrices.length - 1}` : entryPrices[0] ?? representative.priceLabel,
+    pnl,
+    pnlLabel,
+    pnlTone: pnlTone(pnl),
+    entryCount: entries.length,
+    takeProfitCount,
+    stopLossCount,
+    partialExitCount,
+    latestTimeMs,
+    startedTimeMs,
+    markers: sorted
+  };
 }
 
 function markerFromEvent({

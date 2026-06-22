@@ -69,7 +69,7 @@ test("trader detail does not auto-expand heavy review limits before user scroll"
 
 test("trader detail shows centered loading affordances for review and chart data", () => {
   assert.match(pageSource, /PageLoadingOverlay/, "trader detail should use the shared centered loading overlay");
-  assert.match(pageSource, /detailQuery\.isFetching && \(detailQuery\.isPending \|\| detailQuery\.isPlaceholderData\)/, "detail overlay should stay active while placeholder AI review and chart context are syncing");
+  assert.match(pageSource, /const initialLoading = loading;/, "detail overlay should not block cached placeholder data while live data is syncing");
   assert.match(pageSource, /common\.loadingTraderDetailData/, "detail loading copy should be localized");
   assert.match(chartSource, /showInitialChartSpinner/, "live chart should expose an initial candle-loading spinner state");
   assert.match(chartSource, /CircleNotch/, "chart loading UI should use a visible spinner instead of only skeleton pulses");

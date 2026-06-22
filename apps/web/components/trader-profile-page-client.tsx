@@ -478,7 +478,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, [detailQuery.data, fallback]);
 
   const loading = detailQuery.isPending && !detailQuery.data;
-  const initialLoading = detailQuery.isFetching && (detailQuery.isPending || detailQuery.isPlaceholderData);
+  const initialLoading = loading;
   const error = detailQuery.error ? (detailQuery.error instanceof Error ? detailQuery.error.message : String(detailQuery.error)) : null;
 
   const prefetchLeaderboard = useCallback(() => {
@@ -717,6 +717,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
           markers={executionMarkers}
           selectedId={selectedExecutionMarkerId}
           onSelect={selectExecutionMarker}
+          locale={locale}
           t={t}
         />
       </div>

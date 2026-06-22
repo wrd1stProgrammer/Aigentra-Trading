@@ -5,7 +5,7 @@ import type { ManagementReview, PaperOrder, PaperPosition, PaperTradeEvent } fro
 import { ReviewBriefSummary } from "@/components/review-brief-summary";
 import { formatNumber } from "@/lib/format";
 import type { LeagueSymbol, TraderScenario } from "@/lib/league";
-import { scenarioTitle } from "@/components/trader-profile-detail/data";
+import { localizedScenarioSide, scenarioTitle } from "@/components/trader-profile-detail/data";
 import { importanceBadge, scenarioDetailRationaleText, scenarioDisplayText, scenarioImportance } from "@/components/trader-profile-detail/scenario-copy";
 import { DetailChart } from "@/components/trader-profile-detail/chart";
 import { MetricBox } from "@/components/trader-profile-detail/side-panels";
@@ -34,7 +34,8 @@ export function ScenarioModal({
 }) {
   const importance = importanceBadge(scenarioImportance(scenario), t);
   const rationaleLabel = scenarioRationaleLabel(scenario, t);
-  const side = scenario.side ? String(scenario.side).toUpperCase() : "-";
+  const sideValue = scenario.side ? String(scenario.side).toUpperCase() : "-";
+  const side = localizedScenarioSide(scenario.side, t) || "-";
   const scenarioCode = scenario.source.slice(0, 2).toUpperCase();
   const scenarioTime = scenario.createdAt ? scenario.createdAt.replace("T", " ").slice(0, 16) : "-";
   return (
@@ -59,7 +60,7 @@ export function ScenarioModal({
                   <span className="text-zinc-300 dark:text-zinc-700">|</span>
                   <span>{scenarioTime}</span>
                   <span className="text-zinc-300 dark:text-zinc-700">|</span>
-                  <span className={side === "SHORT" ? "text-rose-500" : side === "LONG" ? "text-emerald-500" : ""}>{side}</span>
+                  <span className={sideValue === "SHORT" ? "text-rose-500" : sideValue === "LONG" ? "text-emerald-500" : ""}>{side}</span>
                   {scenario.price ? (
                     <>
                       <span className="text-zinc-300 dark:text-zinc-700">|</span>

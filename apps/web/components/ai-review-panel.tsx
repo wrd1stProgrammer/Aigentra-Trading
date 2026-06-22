@@ -304,8 +304,8 @@ function ReviewFacts({ facts }: { facts?: Array<Record<string, any>> | null }) {
     <div>
       <div className="metric-label mb-2">{t("aiReview.reviewFacts")}</div>
       <div className="flex flex-wrap gap-2">
-        {labels.map((label) => (
-          <span key={label} className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-xs font-semibold text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+        {labels.map((label, index) => (
+          <span key={`${label}-${index}`} className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-xs font-semibold text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
             {label}
           </span>
         ))}

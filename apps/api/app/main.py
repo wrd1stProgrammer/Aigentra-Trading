@@ -69,8 +69,11 @@ from app.paper.engine import (
 )
 from app.paper.management_actions import create_position_add_order
 from app.paper.management import (
+    BREAKEVEN_PROFIT_PROTECTION_EVENT_TYPE,
+    breakeven_profit_protection_event,
     managed_exposure_from_order,
     managed_exposure_from_position,
+    management_review_cooldown_seconds,
     order_management_events,
     position_management_events,
     recent_management_review_exists,
@@ -1338,7 +1341,13 @@ async def run_management_reviews(
     async def handle_event(event: ManagementEvent, exposure: ManagedExposure, *, force: bool = False) -> None:
         if len(review_records) >= max_reviews:
             return
-        event_cooldown_seconds = urgent_cooldown_seconds if event.severity.upper() == "HIGH" else cooldown_seconds
+        event_cooldown_seconds = management_review_cooldown_seconds(
+            event,
+            profile=profile,
+            base_cooldown_seconds=cooldown_seconds,
+            urgent_cooldown_seconds=urgent_cooldown_seconds,
+            breakeven_cooldown_seconds=settings.position_management_breakeven_review_cooldown_seconds,
+        )
         if not force and recent_management_review_exists(
             db,
             trader_id=trader_id,
@@ -1363,6 +1372,11 @@ async def run_management_reviews(
             review = await run_position_management_with_logging(db, payload, clean_provider, settings=settings)
             if event.eventType == PRICE_SHOCK_EVENT_TYPE:
                 review.nextReviewInSeconds = max(60, int(settings.price_shock_review_seconds or 120))
+            if event.eventType == BREAKEVEN_PROFIT_PROTECTION_EVENT_TYPE:
+                review.nextReviewInSeconds = max(
+                    int(settings.position_management_breakeven_review_cooldown_seconds or 900),
+                    int(review.nextReviewInSeconds or 0),
+                )
             applied_actions = apply_management_actions(
                 db,
                 trader_id=trader_id,
@@ -1496,7 +1510,7 @@ async def run_management_reviews(
             await handle_event(
                 event,
                 exposure,
-                force=event.eventType.endswith("_heartbeat") or event.eventType == PRICE_SHOCK_EVENT_TYPE,
+                force=event.eventType == PRICE_SHOCK_EVENT_TYPE,
             )
             if len(review_records) >= max_reviews:
                 break
@@ -1524,7 +1538,8 @@ async def run_management_reviews(
                 )
                 else None
             )
-            events = [shock_event] if shock_event else position_management_events(trader_id, position, snapshot)
+            breakeven_event = None if shock_event else breakeven_profit_protection_event(trader_id, position, snapshot)
+            events = [shock_event] if shock_event else [breakeven_event] if breakeven_event else position_management_events(trader_id, position, snapshot)
             if not events and should_run_heartbeat(
                 db,
                 trader_id=trader_id,
@@ -1537,7 +1552,7 @@ async def run_management_reviews(
                 await handle_event(
                     event,
                     exposure,
-                    force=event.eventType.endswith("_heartbeat") or event.eventType == PRICE_SHOCK_EVENT_TYPE,
+                    force=event.eventType == PRICE_SHOCK_EVENT_TYPE,
                 )
                 if len(review_records) >= max_reviews:
                     break

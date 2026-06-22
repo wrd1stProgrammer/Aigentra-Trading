@@ -455,11 +455,11 @@ function isPresentString(value: string | null): value is string {
 
 export function scenarioTitle(scenario: TraderScenario, t: Translator) {
   if (scenario.source === "position") {
-    return `${t("detail.openPosition")} ${scenario.side ? String(scenario.side).toUpperCase() : ""}`.trim();
+    return `${t("detail.openPosition")} ${localizedScenarioSide(scenario.side, t)}`.trim();
   }
   if (scenario.source === "order") {
     const weight = scenario.entryWeight ? ` · ${formatPercent(scenario.entryWeight * 100).replace("+", "")}` : "";
-    return `${t("detail.pendingEntry")} ${scenario.side ? String(scenario.side).toUpperCase() : ""}${weight}`.trim();
+    return `${t("detail.pendingEntry")} ${localizedScenarioSide(scenario.side, t)}${weight}`.trim();
   }
   if (scenario.source === "review") {
     return managementReviewScenarioTitle(scenario, t);
@@ -471,7 +471,7 @@ export function managementReviewScenarioTitle(scenario: TraderScenario, t: Trans
   const actionLabel = statusLabel(scenario.action ?? scenario.status, t);
   const eventLabel = statusLabel(scenario.eventType, t);
   const phaseLabel = scenarioPhaseLabel(scenario.phase, t);
-  const sideLabel = scenario.side ? String(scenario.side).toUpperCase() : "";
+  const sideLabel = localizedScenarioSide(scenario.side, t);
   const primary = actionLabel !== "-" ? actionLabel : eventLabel !== "-" ? eventLabel : t("detail.phaseAiReview");
   const parts = [primary, phaseLabel, sideLabel].filter((part, index, arr) => part && part !== "-" && arr.indexOf(part) === index);
   return parts.join(" · ");
@@ -542,6 +542,13 @@ function sideLabel(value: unknown, t: Translator) {
   if (normalized === "SHORT" || normalized === "SELL") return t("leaderboard.side.short");
   if (normalized === "LONG" || normalized === "BUY") return t("leaderboard.side.long");
   return "-";
+}
+
+export function localizedScenarioSide(value: unknown, t: Translator) {
+  const normalized = normalizeKey(value);
+  if (normalized === "SHORT" || normalized === "SELL") return t("detail.sideShort");
+  if (normalized === "LONG" || normalized === "BUY") return t("detail.sideLong");
+  return "";
 }
 
 function normalizeKey(value: unknown) {

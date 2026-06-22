@@ -668,6 +668,7 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
     locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
     event_type = str(payload.event.eventType or "")
     is_price_shock = event_type == "common_price_shock"
+    is_breakeven_review = event_type == "breakeven_profit_protection_review"
     language_instruction = (
         "Write structuredReview, rationale, counterThesis, and every action reason in Korean. Keep reviewFacts as language-neutral codes and labelKey values."
         if locale == "ko"
@@ -681,6 +682,15 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "Never widen stops or exceed leverage/account deployment caps. For this event, set nextReviewInSeconds to 120 unless the position/order is closed or cancelled. "
         "If the move is noise and structure is intact, HOLD is acceptable, but explain the exact invalidation to watch over the next 120 seconds. "
         if is_price_shock
+        else ""
+    )
+    breakeven_instruction = (
+        "BREAKEVEN PROFIT PROTECTION REVIEW: price has crossed at least halfway from average entry to take-profit while the hard stop is still beyond breakeven. "
+        "Decide only whether to MOVE_STOP_TO_BREAKEVEN or HOLD/LET_PROFIT_RUN. Use MOVE_STOP_TO_BREAKEVEN when the trade is working but remaining risk no longer deserves original stop distance, "
+        "especially if momentum/volume is neutral, target progress is meaningful, or a pullback could turn a winner into a loser. Use HOLD only when the trader style clearly needs the original risk room "
+        "and the current market evidence still supports it. Do not take partial profit, add, pyramid, close, or trail unless a hard risk rule in the payload explicitly requires it. "
+        "If you hold, name the exact price/15m-close condition that would make breakeven necessary. Set nextReviewInSeconds to at least 900. "
+        if is_breakeven_review
         else ""
     )
     data = {
@@ -739,6 +749,7 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "rationale is a legacy compatibility field; use one to two compact desk-style sentences that mirror structuredReview. "
         "If evidence is weak, choose HOLD or NEEDS_MORE_DATA, but include the exact next condition that would trigger action. "
         f"{shock_instruction}"
+        f"{breakeven_instruction}"
         f"{language_instruction}\n\n"
         f"Payload:\n{json.dumps(data, ensure_ascii=False)}"
     )

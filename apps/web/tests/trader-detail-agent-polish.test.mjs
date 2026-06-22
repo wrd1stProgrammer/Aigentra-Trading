@@ -346,6 +346,8 @@ test("Binance-style paper panel has mobile cards before desktop wide tables", ()
   assert.match(binancePanelSource, /hidden overflow-x-auto md:block/, "wide desktop tables should be hidden on mobile");
   assert.match(mobileBinancePanelSource, /data-testid="mobile-position-cards"/, "mobile cards should be testable");
   assert.match(mobileBinancePanelSource, /grid grid-cols-2 gap-2/, "mobile cards should summarize key metrics in two columns");
+  assert.match(mobileBinancePanelSource, /mobileExposureCardClass/, "mobile cards should tint long and short exposure differently");
+  assert.match(binancePanelSource, /positionRowClass/, "desktop rows should tint long and short exposure differently");
 });
 
 test("Binance-style paper panel supports light theme and stays out of scenario modal charts", () => {

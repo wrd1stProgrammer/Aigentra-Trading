@@ -97,7 +97,7 @@ function MobilePositionCard({
   const takeProfit = firstFiniteNumber(position.takeProfit, position.takeProfitPrice, position.take_profit_price);
 
   return (
-    <article className="rounded-xl border border-zinc-200 bg-white p-3.5 dark:border-white/10 dark:bg-[#0c1117]">
+    <article className={`rounded-xl border p-3.5 ${mobileExposureCardClass(side)}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -154,7 +154,7 @@ function MobileOrderCard({
   const takeProfit = firstFiniteNumber(order.takeProfitPrice, order.take_profit_price);
 
   return (
-    <article className="rounded-xl border border-zinc-200 bg-white p-3.5 dark:border-white/10 dark:bg-[#0c1117]">
+    <article className={`rounded-xl border p-3.5 ${mobileExposureCardClass(side)}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate font-mono text-sm font-bold text-zinc-950 dark:text-zinc-100">{order.symbol}</p>
@@ -224,4 +224,14 @@ function formatPercentNumber(value: number | null) {
 function pnlToneClass(value: number | null) {
   if (value === null || Math.abs(value) <= 0.000001) return "text-zinc-400";
   return value > 0 ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300";
+}
+
+function mobileExposureCardClass(side: string) {
+  if (side === "SHORT") {
+    return "border-rose-500/25 bg-rose-50/70 dark:border-rose-400/20 dark:bg-rose-950/[0.12]";
+  }
+  if (side === "LONG") {
+    return "border-emerald-500/25 bg-emerald-50/70 dark:border-emerald-400/20 dark:bg-emerald-950/[0.12]";
+  }
+  return "border-zinc-200 bg-white dark:border-white/10 dark:bg-[#0c1117]";
 }

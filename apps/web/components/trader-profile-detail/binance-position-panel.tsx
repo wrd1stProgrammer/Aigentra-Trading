@@ -176,7 +176,7 @@ function PositionRow({
   const expectedProfit = expectedPositionProfitAtTarget(position);
 
   return (
-    <tr className="hover:bg-zinc-50 dark:hover:bg-white/[0.03]">
+    <tr className={positionRowClass(side)}>
       <PositionCell>
         <div className="flex items-center gap-2">
           <span className={`h-9 w-1 rounded-full ${side === "SHORT" ? "bg-rose-500" : "bg-emerald-400"}`} />
@@ -226,7 +226,7 @@ function OrderRow({
   const margin = firstNonZeroFiniteNumber(payload?.actualPlannedMargin, payload?.plannedMargin, order.margin, derivedMargin(quantity, price, leverage));
   const orderTime = firstString(order.updatedAt, order.updated_at, order.createdAt, order.created_at);
   return (
-    <tr className="hover:bg-zinc-50 dark:hover:bg-white/[0.03]">
+    <tr className={positionRowClass(side)}>
       <PositionCell>
         <p className="font-mono text-sm font-bold text-zinc-950 dark:text-zinc-100">{order.symbol}</p>
         <p className="text-[11px] text-zinc-500">{formatLeverage(leverage)}</p>
@@ -337,6 +337,13 @@ function formatPercentNumber(value: number | null) {
   if (value === null) return "-";
   const sign = value > 0 ? "+" : "";
   return `${sign}${formatNumber(value, 2)}%`;
+}
+
+function positionRowClass(side: string) {
+  const base = "transition hover:bg-zinc-50 dark:hover:bg-white/[0.04]";
+  if (side === "SHORT") return `${base} bg-rose-50/35 dark:bg-rose-950/[0.08]`;
+  if (side === "LONG") return `${base} bg-emerald-50/35 dark:bg-emerald-950/[0.08]`;
+  return base;
 }
 
 function pnlToneClass(value: number | null) {

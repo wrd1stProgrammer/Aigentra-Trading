@@ -586,6 +586,39 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "two compact desk-style sentences" in management
 
 
+def test_breakeven_profit_protection_prompt_has_dedicated_decision_contract():
+    management = position_management_review_prompt(
+        PositionManagementPayload(
+            trader=get_strategy("vwap-reclaimer").profile,
+            symbol="BTCUSDT",
+            marketSnapshot=sample_snapshot(),
+            event=ManagementEvent(
+                eventType="breakeven_profit_protection_review",
+                phase="OPEN_POSITION",
+                severity="MEDIUM",
+                reason="Halfway to target.",
+                suggestedAction="MOVE_STOP_TO_BREAKEVEN",
+                metrics={"targetProgress": 0.52},
+            ),
+            exposure=ManagedExposure(
+                kind="position",
+                id=327,
+                status="open",
+                side="LONG",
+                entryPrice=64591.6,
+                stopLoss=64335.3,
+                takeProfit=65150.5,
+            ),
+            locale="ko",
+        )
+    )
+
+    contract = management.split("Payload:", 1)[0]
+    assert "BREAKEVEN PROFIT PROTECTION REVIEW" in contract
+    assert "MOVE_STOP_TO_BREAKEVEN or HOLD/LET_PROFIT_RUN" in contract
+    assert "Set nextReviewInSeconds to at least 900" in contract
+
+
 def test_structured_review_normalizer_removes_list_syntax_from_action():
     review = MockAIProvider().normalize_management_result(
         {

@@ -61,6 +61,25 @@ def latest_status_feed_record(db: Session, *, trader_id: str, symbol: str) -> Tr
     ).scalar_one_or_none()
 
 
+def latest_status_feed_record_for_state(
+    db: Session,
+    *,
+    trader_id: str,
+    symbol: str,
+    state_key: str,
+) -> TraderStatusFeedRecord | None:
+    return db.execute(
+        select(TraderStatusFeedRecord)
+        .where(
+            TraderStatusFeedRecord.trader_id == trader_id,
+            TraderStatusFeedRecord.symbol == symbol,
+            TraderStatusFeedRecord.state_key == state_key,
+        )
+        .order_by(desc(TraderStatusFeedRecord.created_at), desc(TraderStatusFeedRecord.id))
+        .limit(1)
+    ).scalar_one_or_none()
+
+
 def list_status_feed_records(
     db: Session,
     *,

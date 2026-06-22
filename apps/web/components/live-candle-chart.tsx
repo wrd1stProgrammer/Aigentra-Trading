@@ -501,6 +501,21 @@ export function LiveCandleChart({
     const selected = executionMarkers.find((marker) => marker.id === selectedExecutionMarkerId);
     return selected ? executionMarkers.filter((marker) => marker.cycleId === selected.cycleId) : [];
   }, [executionMarkers, selectedExecutionMarkerId]);
+  const visibleExecutionMarkerKey = useMemo(
+    () => visibleExecutionMarkers.map((marker) => [
+      marker.id,
+      marker.cycleId,
+      marker.shortLabel,
+      marker.timeMs,
+      marker.price,
+      marker.pnlLabel ?? ""
+    ].join(":")).join("|"),
+    [visibleExecutionMarkers]
+  );
+  const selectedExecutionCycleId = useMemo(() => {
+    if (!selectedExecutionMarkerId) return null;
+    return executionMarkers.find((marker) => marker.id === selectedExecutionMarkerId)?.cycleId ?? null;
+  }, [executionMarkers, selectedExecutionMarkerId]);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const ema20SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const ema50SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -987,7 +1002,9 @@ export function LiveCandleChart({
           };
         })
         .filter((marker): marker is PositionedExecutionMarker => marker !== null);
-      setExecutionMarkerPositions(positioned);
+      setExecutionMarkerPositions((current) => (
+        samePositionedExecutionMarkers(current, positioned) ? current : positioned
+      ));
     };
 
     updateMarkerPositions();
@@ -998,7 +1015,7 @@ export function LiveCandleChart({
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(updateMarkerPositions);
       observer.disconnect();
     };
-  }, [indicatorCandles, interval, theme, visibleExecutionMarkers]);
+  }, [indicatorCandles.length, interval, visibleExecutionMarkerKey]);
 
   useEffect(() => {
     if (!focusedExecutionMarkerId || !indicatorCandles.length) return;
@@ -1007,10 +1024,14 @@ export function LiveCandleChart({
     const selected = executionMarkers.find((marker) => marker.id === focusedExecutionMarkerId);
     if (!selected) return;
     const intervalSeconds = intervalToMs(interval) / 1000;
-    const center = alignTimeToInterval(selected.timeMs, interval);
+    const cycleMarkers = executionMarkers.filter((marker) => marker.cycleId === selected.cycleId);
+    const cycleStart = Math.min(...cycleMarkers.map((marker) => alignTimeToInterval(marker.timeMs, interval)));
+    const cycleEnd = Math.max(...cycleMarkers.map((marker) => alignTimeToInterval(marker.timeMs, interval)));
+    const cycleSpan = Math.max(cycleEnd - cycleStart, intervalSeconds * 28);
+    const padding = Math.max(intervalSeconds * 12, cycleSpan * 0.22);
     chart.timeScale().setVisibleRange({
-      from: (center - intervalSeconds * 28) as Time,
-      to: (center + intervalSeconds * 18) as Time
+      from: (cycleStart - padding) as Time,
+      to: (cycleEnd + padding) as Time
     });
   }, [executionMarkers, focusedExecutionMarkerId, indicatorCandles.length, interval]);
 
@@ -1886,7 +1907,7 @@ export function LiveCandleChart({
                   key={marker.id}
                   marker={marker}
                   active={marker.id === activeExecutionMarkerId}
-                  selected={marker.id === selectedExecutionMarkerId}
+                  selected={marker.cycleId === selectedExecutionCycleId}
                   interactive={!showDrawingTools || activeTool === "cursor"}
                   t={t}
                   onActivate={setActiveExecutionMarkerId}
@@ -2239,6 +2260,20 @@ function alignTimeToInterval(timeMs: number, interval: ChartInterval) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function samePositionedExecutionMarkers(left: readonly PositionedExecutionMarker[], right: readonly PositionedExecutionMarker[]) {
+  if (left.length !== right.length) return false;
+  return left.every((marker, index) => {
+    const next = right[index];
+    return Boolean(next) &&
+      marker.id === next.id &&
+      marker.cycleId === next.cycleId &&
+      marker.shortLabel === next.shortLabel &&
+      Math.abs(marker.x - next.x) < 0.5 &&
+      Math.abs(marker.y - next.y) < 0.5 &&
+      Math.abs(marker.dotY - next.dotY) < 0.5;
+  });
 }
 
 function markerButtonClass(marker: ExecutionMarker, selected: boolean) {

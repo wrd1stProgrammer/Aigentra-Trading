@@ -12,6 +12,7 @@ from app.repositories import create_provider_call_log, sanitize_error_message, s
 from app.subscriber_status_feed_alerts import notify_subscribers_for_status_feed
 from app.trader_status_feed.constants import (
     QUALIFYING_STATUS_STATES,
+    SCHEDULED_REFRESH_STATUS_STATES,
     STATUS_FEED_STATE_PENDING_ENTRY,
     STATUS_FEED_STATE_POSITION_CLOSED,
     STATUS_FEED_STATE_POSITION_ENTRY,
@@ -21,7 +22,7 @@ from app.trader_status_feed.context import aware_utc, build_status_feed_context,
 from app.trader_status_feed.generator import MockTraderStatusFeedGenerator, get_status_feed_generator
 from app.trader_status_feed.models import StatusFeedPersona, StatusFeedRequest, StatusFeedResult, TraderStatusFeedGenerator
 from app.trader_status_feed.persona import status_persona_for_profile
-from app.trader_status_feed.records import find_status_feed_by_source, status_feed_payload
+from app.trader_status_feed.records import find_status_feed_by_source, latest_status_feed_record, latest_status_feed_record_for_state, status_feed_payload
 from app.traders.registry import get_strategy
 
 
@@ -83,6 +84,7 @@ async def create_status_feed_for_event(
 ) -> TraderStatusFeedRecord:
     if state_key not in QUALIFYING_STATUS_STATES:
         raise ValueError(f"Unsupported status feed state: {state_key}")
+    generated_at = aware_utc(now)
     if not force:
         existing = find_status_feed_by_source(
             db,
@@ -93,8 +95,15 @@ async def create_status_feed_for_event(
         )
         if existing is not None:
             return existing
+        if refresh_reason == "event" and state_key in SCHEDULED_REFRESH_STATUS_STATES:
+            latest_overall = latest_status_feed_record(db, trader_id=trader_id, symbol=symbol)
+            latest_same_state = latest_status_feed_record_for_state(db, trader_id=trader_id, symbol=symbol, state_key=state_key)
+            if latest_overall is not None and latest_same_state is not None and latest_overall.id == latest_same_state.id:
+                interval_seconds = max(60, int(settings.trader_status_feed_regeneration_seconds or 10_800))
+                age_seconds = (generated_at - aware_utc(latest_same_state.created_at)).total_seconds()
+                if age_seconds < interval_seconds:
+                    return latest_same_state
 
-    generated_at = aware_utc(now)
     profile = get_strategy(trader_id).profile
     request = StatusFeedRequest(
         trader=StatusFeedPersona(**status_persona_for_profile(profile)),

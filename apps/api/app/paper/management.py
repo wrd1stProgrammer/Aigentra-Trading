@@ -11,6 +11,10 @@ from app.repositories import from_json
 from app.traders.models import ManagedExposure, ManagementEvent
 
 
+BREAKEVEN_PROFIT_PROTECTION_EVENT_TYPE = "breakeven_profit_protection_review"
+PROTECTIVE_REVIEW_MIN_COOLDOWN_SECONDS = 900
+
+
 TRADER_MANAGEMENT_PROFILES: dict[str, dict[str, Any]] = {
     "channel-rider": {
         "order_stale_seconds": 900,
@@ -318,6 +322,86 @@ def recent_management_review_exists(
     else:
         stmt = stmt.where(PositionManagementReviewRecord.position_id == exposure_id)
     return db.execute(stmt).scalar_one_or_none() is not None
+
+
+def management_review_cooldown_seconds(
+    event: ManagementEvent,
+    *,
+    profile: dict[str, Any],
+    base_cooldown_seconds: int,
+    urgent_cooldown_seconds: int,
+    breakeven_cooldown_seconds: int,
+) -> int:
+    profile_cooldown = max(0, int(profile.get("cooldown_seconds") or 0))
+    event_type = str(event.eventType or "")
+    base = urgent_cooldown_seconds if event.severity.upper() == "HIGH" else base_cooldown_seconds
+    cooldown = max(0, int(base or 0), profile_cooldown)
+    if event_type.endswith("_heartbeat"):
+        heartbeat = int((event.metrics or {}).get("heartbeatSeconds") or 0)
+        return max(cooldown, heartbeat)
+    if event_type == BREAKEVEN_PROFIT_PROTECTION_EVENT_TYPE:
+        return max(cooldown, int(breakeven_cooldown_seconds or 0), PROTECTIVE_REVIEW_MIN_COOLDOWN_SECONDS)
+    if event_type in {"near_target_profit_protection", "near_stop_risk_reduction"}:
+        return max(cooldown, PROTECTIVE_REVIEW_MIN_COOLDOWN_SECONDS)
+    return cooldown
+
+
+def breakeven_profit_protection_event(
+    trader_id: str,
+    position: PaperPositionRecord,
+    snapshot: dict,
+) -> ManagementEvent | None:
+    side = (position.side or "").lower()
+    if side not in {"long", "short"}:
+        return None
+    price = as_float(snapshot.get("price"))
+    entry = as_float(position.entry_price)
+    stop = as_float(position.stop_loss_price, entry)
+    take_profit = as_float(position.take_profit_price, entry)
+    if price <= 0 or entry <= 0 or take_profit <= 0:
+        return None
+    target_distance = abs(take_profit - entry)
+    if target_distance <= 0:
+        return None
+    if side == "long":
+        if stop >= entry:
+            return None
+        halfway_price = entry + (target_distance * 0.5)
+        crossed_halfway = price >= halfway_price and take_profit > entry
+        target_progress = (price - entry) / target_distance
+    else:
+        if stop <= entry:
+            return None
+        halfway_price = entry - (target_distance * 0.5)
+        crossed_halfway = price <= halfway_price and take_profit < entry
+        target_progress = (entry - price) / target_distance
+    if not crossed_halfway:
+        return None
+    risk = abs(entry - stop) or max(price * 0.004, 1.0)
+    progress_r = ((price - entry) / risk) if side == "long" else ((entry - price) / risk)
+    return ManagementEvent(
+        eventType=BREAKEVEN_PROFIT_PROTECTION_EVENT_TYPE,
+        phase="OPEN_POSITION",
+        severity="MEDIUM",
+        reason=(
+            "Price has crossed at least halfway from average entry to take-profit while the stop is still beyond breakeven; "
+            "review whether to move the stop to average entry or keep the original risk room."
+        ),
+        suggestedAction="MOVE_STOP_TO_BREAKEVEN",
+        metrics={
+            "price": price,
+            "entryPrice": entry,
+            "stopLoss": stop,
+            "takeProfit": take_profit,
+            "halfwayPrice": halfway_price,
+            "targetProgress": round(target_progress, 4),
+            "progressR": round(progress_r, 4),
+            "unrealizedPnl": as_float(position.unrealized_pnl, 0.0),
+            "side": side.upper(),
+            "traderId": trader_id,
+            "positionId": position.id,
+        },
+    )
 
 
 def order_management_events(trader_id: str, order: PaperOrderRecord, snapshot: dict) -> list[ManagementEvent]:

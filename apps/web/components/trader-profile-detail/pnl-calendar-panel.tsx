@@ -20,8 +20,8 @@ export function PnlCalendarPanel({ calendar, locale, t }: { calendar: MonthlyPnl
       </div>
 
       <div className="mt-5 grid grid-cols-7 gap-1.5">
-        {weekdayLabels(locale).map((label) => (
-          <div key={label} className="pb-1 text-center text-[11px] font-semibold text-zinc-400 dark:text-zinc-500">
+        {weekdayLabels(locale).map((label, index) => (
+          <div key={`${label}-${index}`} className="pb-1 text-center text-[11px] font-semibold text-zinc-400 dark:text-zinc-500">
             {label}
           </div>
         ))}

@@ -154,6 +154,9 @@ class Settings(BaseModel):
     position_management_pending_heartbeat_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_PENDING_HEARTBEAT_SECONDS", "300"))
     position_management_open_heartbeat_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_OPEN_HEARTBEAT_SECONDS", "300"))
     position_management_urgent_cooldown_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_URGENT_COOLDOWN_SECONDS", "60"))
+    position_management_breakeven_review_cooldown_seconds: int = Field(
+        default_factory=lambda: env_int("POSITION_MANAGEMENT_BREAKEVEN_REVIEW_COOLDOWN_SECONDS", "900")
+    )
     league_sentiment_provider: str = Field(
         default_factory=lambda: normalize_ai_provider_name(
             os.getenv("LEAGUE_SENTIMENT_PROVIDER"),
