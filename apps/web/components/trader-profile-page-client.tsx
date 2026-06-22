@@ -368,6 +368,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const liveAlertKeyRef = useRef<string | null>(null);
   const liveAlertHydratedRef = useRef(false);
   const liveAlertContextRef = useRef<string | null>(null);
+  const liveAlertStartedAtRef = useRef(Date.now());
 
   const fallbackDetailBundle = useMemo<TraderDetailBundle | undefined>(() => {
     const leaderboardBundle = clientHydrated ? queryClient.getQueryData<LeaderboardBundle>(leaderboardBundleQueryKey(symbol, locale)) : undefined;
@@ -627,6 +628,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     const latestItem = scenarioTimelineItems[0];
     if (liveAlertContextRef.current !== alertContextKey) {
       liveAlertContextRef.current = alertContextKey;
+      liveAlertStartedAtRef.current = Date.now();
       liveAlertKeyRef.current = latestItem?.id ?? null;
       liveAlertHydratedRef.current = Boolean(latestItem);
       setLiveAlert(null);
@@ -637,6 +639,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       previousKey: liveAlertKeyRef.current,
       item: latestItem,
       hydrated: liveAlertHydratedRef.current,
+      minSortMs: liveAlertStartedAtRef.current,
       t
     });
     liveAlertKeyRef.current = next.nextKey;

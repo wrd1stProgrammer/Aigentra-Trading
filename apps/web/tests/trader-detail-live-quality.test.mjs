@@ -14,6 +14,8 @@ test("management review scenarios use event-aware titles instead of repeated gen
   assert.match(dataSource, /managementReviewScenarioTitle/, "review scenarios need a dedicated semantic title helper");
   assert.match(dataSource, /eventType/, "review titles should consider event type");
   assert.match(dataSource, /actionType|scenario\.action/, "review titles should consider management actions");
+  assert.match(dataSource, /reviewNarrativeTitle/, "review titles should prefer the structured headline or first rationale clause");
+  assert.match(dataSource, /reviewBrief\?\.headline/, "review titles should use structured review headlines when available");
   assert.doesNotMatch(
     dataSource,
     /return `\$\{t\("detail\.aiDecision"\)\} · \$\{statusLabel\(scenario\.action \?\? scenario\.status, t\)\}`/,
