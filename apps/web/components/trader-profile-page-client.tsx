@@ -4,8 +4,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import {
   leaderboardBundleQueryKey,
+  traderDetailBundleQueryKey,
   getCachedTraderDetailBundle,
   getEquitySnapshots,
+  getTraderExecutionEventsUrl,
   prefetchLeaderboardBundle,
   traderDetailBundleQueryOptions,
   type LeaderboardBundle,
@@ -403,6 +405,52 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       return clientHydrated ? getCachedTraderDetailBundle(traderId, symbol, reviewsLimit, eventsLimit, locale) ?? fallbackDetailBundle : fallbackDetailBundle;
     }
   });
+
+  useEffect(() => {
+    if (!clientHydrated || typeof window === "undefined" || typeof EventSource === "undefined") return;
+
+    const source = new EventSource(getTraderExecutionEventsUrl(traderId, symbol));
+    const detailKey = traderDetailBundleQueryKey(traderId, symbol, reviewsLimit, eventsLimit, locale);
+    const leaderboardKey = leaderboardBundleQueryKey(symbol, locale);
+
+    const refreshDetail = (event: Event) => {
+      const message = event as MessageEvent<string>;
+      try {
+        const payload = JSON.parse(message.data || "{}") as {
+          price?: number;
+          eventTypes?: string[];
+          filledOrderIds?: unknown[];
+          closedPositionIds?: unknown[];
+          rejectedOrderIds?: unknown[];
+        };
+        if (typeof payload.price === "number" && Number.isFinite(payload.price)) {
+          setLiveMarkPrice(payload.price);
+        }
+        const hasExecutionChange = Boolean(
+          payload.eventTypes?.length ||
+          payload.filledOrderIds?.length ||
+          payload.closedPositionIds?.length ||
+          payload.rejectedOrderIds?.length
+        );
+        if (!hasExecutionChange) return;
+      } catch {
+        return;
+      }
+
+      void queryClient.invalidateQueries({ queryKey: detailKey });
+      void queryClient.refetchQueries({ queryKey: detailKey, type: "active" });
+      void queryClient.invalidateQueries({ queryKey: leaderboardKey });
+      void queryClient.invalidateQueries({ queryKey: ["paper"] });
+      void queryClient.invalidateQueries({ queryKey: ["paper", "equity-snapshots", traderId, symbol] });
+    };
+
+    source.addEventListener("paper_execution", refreshDetail);
+    return () => {
+      source.removeEventListener("paper_execution", refreshDetail);
+      source.close();
+    };
+  }, [clientHydrated, eventsLimit, locale, queryClient, reviewsLimit, symbol, traderId]);
+
   const equitySnapshotsQuery = useQuery({
     queryKey: ["paper", "equity-snapshots", traderId, symbol],
     queryFn: () => getEquitySnapshots(45, traderId, symbol),

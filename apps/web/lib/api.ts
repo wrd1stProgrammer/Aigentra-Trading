@@ -804,6 +804,11 @@ export function getTraderDetailBundle(traderId: string, symbol: string, reviewsL
   });
 }
 
+export function getTraderExecutionEventsUrl(traderId: string, symbol: string) {
+  const params = new URLSearchParams({ symbol });
+  return `${API_BASE_URL}/api/league/traders/${encodeURIComponent(traderId)}/execution-events?${params.toString()}`;
+}
+
 export function getCachedLeaderboardBundle(symbol: string, locale: Locale = "en", options?: LeaderboardBundleRequestOptions) {
   return readBrowserCache<LeaderboardBundle>(leaderboardCacheKey(symbol, locale, options), LEADERBOARD_BROWSER_CACHE_MS);
 }

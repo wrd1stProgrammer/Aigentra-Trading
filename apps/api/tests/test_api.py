@@ -84,6 +84,8 @@ def test_scanner_status_defaults_to_btc_only():
     assert "ticks" in data
     assert "skippedTicks" in data
     assert "scanInProgress" in data
+    assert "realtimeExecutionLoop" in data
+    assert data["realtimeExecutionLoop"]["mode"] == "paper"
 
 
 def test_snapshot_to_engine_candle_includes_live_mark_price_for_execution_checks():

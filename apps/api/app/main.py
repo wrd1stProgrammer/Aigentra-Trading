@@ -8,8 +8,9 @@ import time
 from typing import Any, Dict, Optional
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -79,6 +80,13 @@ from app.paper.planner import (
     create_paper_orders_from_plan,
     list_active_paper_exposure,
     list_active_paper_exposure_map,
+)
+from app.paper.realtime_execution import (
+    PAPER_EXECUTION_LOCK,
+    REALTIME_EXECUTION_STATE,
+    auto_realtime_execution_loop,
+    execution_event_stream,
+    run_realtime_execution_once,
 )
 from app.paper.plan_state import latest_active_trade_plan, list_active_trade_plans
 from app.paper.reduction_policy import build_reduction_decision
@@ -224,6 +232,7 @@ AUTO_MANAGEMENT_STATE: dict[str, Any] = {
     "lastResult": None,
 }
 AUTO_MANAGEMENT_TASK: Optional[asyncio.Task] = None
+REALTIME_EXECUTION_TASK: Optional[asyncio.Task] = None
 PRICE_SHOCK_STATE: dict[str, dict[str, Any]] = {}
 LEAGUE_BUNDLE_CACHE_TTL_SECONDS = 300
 LEAGUE_BUNDLE_CACHE: dict[tuple[str, bool, bool, str], tuple[float, dict[str, Any]]] = {}
@@ -295,9 +304,41 @@ def cleanup_stale_running_runs(max_age_minutes: int = 15) -> int:
         return len(records)
 
 
+async def handle_realtime_paper_execution_result(
+    db: Session,
+    trader_id: str,
+    symbol: str,
+    result: PaperEngineResult,
+) -> None:
+    if not (result.filled_orders or result.closed_positions or result.rejected_orders or result.events):
+        return
+    invalidate_league_cache(symbol, trader_id)
+    refresh_leaderboard_snapshots(db, symbol, {trader_id})
+    event_ids = [event.id for event in result.events if event.id is not None]
+    if event_ids:
+        try:
+            asyncio.get_running_loop().create_task(create_realtime_status_feeds_for_events(event_ids, symbol, trader_id))
+        except RuntimeError:
+            pass
+
+
+async def create_realtime_status_feeds_for_events(event_ids: list[int], symbol: str, trader_id: str) -> None:
+    await asyncio.sleep(0.2)
+    try:
+        with session_scope() as db:
+            events = db.execute(select(TradeEventRecord).where(TradeEventRecord.id.in_(event_ids))).scalars().all()
+            if not events:
+                return
+            records = await create_status_feeds_for_trade_events(db, settings=settings, events=events)
+            if records:
+                invalidate_league_cache(symbol, trader_id)
+    except Exception:
+        return
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global AUTO_SCANNER_TASK, AUTO_MANAGEMENT_TASK
+    global AUTO_SCANNER_TASK, AUTO_MANAGEMENT_TASK, REALTIME_EXECUTION_TASK
     init_db()
     cleanup_stale_running_runs()
     warm_initial_league_cache()
@@ -305,6 +346,10 @@ async def lifespan(app: FastAPI):
     if settings.enable_auto_scanner:
         AUTO_SCANNER_TASK = asyncio.create_task(auto_scanner_loop())
         AUTO_MANAGEMENT_TASK = asyncio.create_task(auto_management_loop())
+    if settings.enable_realtime_paper_execution and settings.realtime_paper_execution_role in {"api", "both"}:
+        REALTIME_EXECUTION_TASK = asyncio.create_task(
+            auto_realtime_execution_loop(on_result=handle_realtime_paper_execution_result)
+        )
     yield
     if AUTO_SCANNER_TASK:
         AUTO_SCANNER_TASK.cancel()
@@ -316,6 +361,12 @@ async def lifespan(app: FastAPI):
         AUTO_MANAGEMENT_TASK.cancel()
         try:
             await AUTO_MANAGEMENT_TASK
+        except asyncio.CancelledError:
+            pass
+    if REALTIME_EXECUTION_TASK:
+        REALTIME_EXECUTION_TASK.cancel()
+        try:
+            await REALTIME_EXECUTION_TASK
         except asyncio.CancelledError:
             pass
 
@@ -1551,7 +1602,8 @@ async def process_existing_paper_exposure(
     status_feed_ids: list[int] = []
     if before["hasExposure"]:
         sync_default_paper_settings(db, trader_id, symbol, settings)
-        result = process_candle(db, trader_id, symbol, snapshot_to_engine_candle(snapshot))
+        async with PAPER_EXECUTION_LOCK:
+            result = process_candle(db, trader_id, symbol, snapshot_to_engine_candle(snapshot))
         management_reviews = await run_management_reviews(
             db,
             trader_id=trader_id,
@@ -2814,6 +2866,10 @@ def scanner_status_payload() -> dict[str, Any]:
         "managementLoop": {
             **AUTO_MANAGEMENT_STATE,
             "taskActive": bool(AUTO_MANAGEMENT_TASK and not AUTO_MANAGEMENT_TASK.done()),
+        },
+        "realtimeExecutionLoop": {
+            **REALTIME_EXECUTION_STATE,
+            "taskActive": bool(REALTIME_EXECUTION_TASK and not REALTIME_EXECUTION_TASK.done()),
         },
         "paperOnly": True,
         "privateTradingApi": False,
@@ -4529,6 +4585,41 @@ async def ai_providers():
 @app.get("/api/scanner/status")
 async def scanner_status():
     return scanner_status_payload()
+
+
+@app.get("/api/paper/realtime/status")
+async def realtime_paper_status():
+    return {
+        **REALTIME_EXECUTION_STATE,
+        "taskActive": bool(REALTIME_EXECUTION_TASK and not REALTIME_EXECUTION_TASK.done()),
+    }
+
+
+@app.post("/api/paper/realtime/run-once")
+async def realtime_paper_run_once(request: ScannerRunRequest):
+    clean_symbol = normalize_symbol(request.symbol)
+    return await run_realtime_execution_once(
+        symbols=[clean_symbol],
+        on_result=handle_realtime_paper_execution_result,
+    )
+
+
+@app.get("/api/league/traders/{trader_id}/execution-events")
+async def trader_execution_events(
+    trader_id: str,
+    request: Request,
+    symbol: str = Query("BTCUSDT"),
+):
+    clean_symbol = normalize_symbol(symbol)
+    return StreamingResponse(
+        execution_event_stream(request, trader_id=trader_id, symbol=clean_symbol),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/api/scanner/run-once")

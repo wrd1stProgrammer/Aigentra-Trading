@@ -129,6 +129,18 @@ class Settings(BaseModel):
     auto_scanner_symbols: List[str] = Field(default_factory=lambda: env_symbol_list("AUTO_SCANNER_SYMBOLS", "BTCUSDT"))
     auto_scanner_interval_seconds: int = Field(default_factory=lambda: env_int("AUTO_SCANNER_INTERVAL_SECONDS", "60"))
     auto_management_interval_seconds: int = Field(default_factory=lambda: env_int("AUTO_MANAGEMENT_INTERVAL_SECONDS", "10"))
+    enable_realtime_paper_execution: bool = Field(
+        default_factory=lambda: env_bool("ENABLE_REALTIME_PAPER_EXECUTION", os.getenv("ENABLE_AUTO_SCANNER", "false"))
+    )
+    realtime_paper_execution_symbols: List[str] = Field(
+        default_factory=lambda: env_symbol_list("REALTIME_PAPER_EXECUTION_SYMBOLS", os.getenv("AUTO_SCANNER_SYMBOLS", "BTCUSDT"))
+    )
+    realtime_paper_execution_interval_seconds: float = Field(
+        default_factory=lambda: env_float("REALTIME_PAPER_EXECUTION_INTERVAL_SECONDS", "1")
+    )
+    realtime_paper_execution_role: str = Field(
+        default_factory=lambda: os.getenv("REALTIME_PAPER_EXECUTION_ROLE", "api").strip().lower()
+    )
     auto_scanner_provider: str = Field(default_factory=lambda: normalize_ai_provider_name(os.getenv("AUTO_SCANNER_PROVIDER"), "mock"))
     auto_scanner_locale: str = Field(default_factory=lambda: normalize_locale(os.getenv("AUTO_SCANNER_LOCALE", "en")))
     auto_scanner_snapshot_concurrency: int = Field(default_factory=lambda: env_int("AUTO_SCANNER_SNAPSHOT_CONCURRENCY", "3"))

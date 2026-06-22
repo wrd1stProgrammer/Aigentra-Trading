@@ -24,3 +24,10 @@ test("leaderboard adjacent live queries also refresh while viewing", () => {
 test("trader detail page keeps the live bundle polling after navigation", () => {
   assert.match(detailSource, /traderDetailBundleQueryOptions\(traderId, symbol, reviewsLimit, eventsLimit, locale\)/, "detail page should use the shared localized live query options");
 });
+
+test("trader detail page subscribes to server execution events for immediate fills", () => {
+  assert.match(apiSource, /getTraderExecutionEventsUrl/, "API helper should expose the server execution event stream URL");
+  assert.match(detailSource, /new EventSource\(getTraderExecutionEventsUrl\(traderId, symbol\)\)/, "detail page should subscribe to backend paper execution events");
+  assert.match(detailSource, /refetchQueries\(\{ queryKey: detailKey, type: "active" \}\)/, "execution events should immediately refetch the active detail bundle");
+  assert.match(detailSource, /invalidateQueries\(\{ queryKey: leaderboardKey \}\)/, "execution events should also invalidate the visible leaderboard cache");
+});
