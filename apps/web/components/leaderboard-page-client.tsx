@@ -2,12 +2,15 @@
 
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState, useEffect, useRef } from "react";
+import { useCallback, useMemo, useState, useEffect, useRef, type MouseEvent } from "react";
 import {
   ArrowRight,
   Calendar,
   CaretDown,
   CircleNotch,
+  Medal,
+  Star,
+  Trophy,
 } from "@phosphor-icons/react";
 import {
   getEquitySnapshots,
@@ -44,7 +47,7 @@ import {
 import { LatestStatusFeedNote } from "@/components/trader-profile-detail/status-feed-thread";
 
 const SYMBOLS: LeagueSymbol[] = ["BTCUSDT"];
-const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_100px_90px_60px_80px_65px] gap-3";
+const RANKING_GRID_CLASS = "grid-cols-[30px_46px_minmax(220px,1fr)_130px_108px_108px_60px_80px] gap-3";
 const OVERVIEW_INITIAL_LIMIT = 20;
 const OVERVIEW_PAGE_LIMIT = 10;
 const OVERVIEW_CACHE_TTL_MS = 60_000;
@@ -114,6 +117,8 @@ export function LeaderboardPageClient() {
   const [isPeriodOpen, setIsPeriodOpen] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<"ALL" | "7D" | "30D" | "90D">("ALL");
   const [cacheReady, setCacheReady] = useState(false);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [favoriteTraderIds, setFavoriteTraderIds] = useState<Set<string>>(() => new Set());
 
   const fallbackBundle = useMemo<LeaderboardBundle>(() => ({
     symbol: "BTCUSDT",
@@ -128,6 +133,30 @@ export function LeaderboardPageClient() {
 
   useEffect(() => {
     setCacheReady(true);
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("aigentra:leaderboard:favorites");
+      if (raw) setFavoriteTraderIds(new Set(JSON.parse(raw)));
+    } catch {
+      setFavoriteTraderIds(new Set());
+    }
+  }, []);
+
+  const toggleFavoriteTrader = useCallback((traderId: string) => {
+    setFavoriteTraderIds((current) => {
+      const next = new Set(current);
+      if (next.has(traderId)) {
+        next.delete(traderId);
+      } else {
+        next.add(traderId);
+      }
+      try {
+        window.localStorage.setItem("aigentra:leaderboard:favorites", JSON.stringify([...next]));
+      } catch {}
+      return next;
+    });
   }, []);
 
   const btcQuery = useQuery({
@@ -147,11 +176,15 @@ export function LeaderboardPageClient() {
   const traders = bundle.traders?.length ? bundle.traders : (fallbackTraders as unknown as TraderProfile[]);
   const standings = useMemo(() => buildStandings(traders, bundle.summaries ?? []), [bundle.summaries, traders]);
   const isSubscribed = Boolean(access?.isSubscribed);
-  const visibleStandings = useMemo(
+  const visibleStandingsBase = useMemo(
     () => (isSubscribed ? standings : standings.slice(0, FREE_LEADERBOARD_LIMIT)),
     [isSubscribed, standings]
   );
-  const hiddenTraderCount = Math.max(0, standings.length - visibleStandings.length);
+  const visibleStandings = useMemo(
+    () => favoritesOnly ? visibleStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : visibleStandingsBase,
+    [favoriteTraderIds, favoritesOnly, visibleStandingsBase]
+  );
+  const hiddenTraderCount = Math.max(0, standings.length - visibleStandingsBase.length);
   const activeTrader = visibleStandings.find((item) => item.id === activeTraderId) ?? visibleStandings[0] ?? null;
   const leader = visibleStandings[0] ?? null;
   const totalEquity = visibleStandings.reduce((sum, item) => sum + item.equity, 0);
@@ -287,6 +320,19 @@ export function LeaderboardPageClient() {
                     </button>
                   );
                 })}
+                <button
+                  type="button"
+                  onClick={() => setFavoritesOnly((value) => !value)}
+                  className={`focus-ring inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold transition duration-200 ${
+                    favoritesOnly
+                      ? "bg-amber-300 text-zinc-950 shadow-sm"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                  aria-pressed={favoritesOnly}
+                >
+                  <Star size={14} weight={favoritesOnly ? "fill" : "bold"} />
+                  {t("leaderboard.favorites")}
+                </button>
               </div>
 
               {/* Right side: visual period selection dropdown */}
@@ -336,8 +382,25 @@ export function LeaderboardPageClient() {
               </div>
             </div>
 
-          <RankingTable standings={visibleStandings} exposureByTrader={exposureByTrader} activeTraderId={activeTrader?.id ?? null} t={t} locale={locale} onActivate={activateTrader} />
-          <MobileRankingList standings={visibleStandings} exposureByTrader={exposureByTrader} t={t} locale={locale} onPrefetch={prefetchTrader} />
+          <RankingTable
+            standings={visibleStandings}
+            exposureByTrader={exposureByTrader}
+            activeTraderId={activeTrader?.id ?? null}
+            t={t}
+            locale={locale}
+            favoriteTraderIds={favoriteTraderIds}
+            onToggleFavorite={toggleFavoriteTrader}
+            onActivate={activateTrader}
+          />
+          <MobileRankingList
+            standings={visibleStandings}
+            exposureByTrader={exposureByTrader}
+            t={t}
+            locale={locale}
+            favoriteTraderIds={favoriteTraderIds}
+            onToggleFavorite={toggleFavoriteTrader}
+            onPrefetch={prefetchTrader}
+          />
           {!isSubscribed && hiddenTraderCount > 0 ? (
             <LeaderboardLockedRows count={hiddenTraderCount} t={t} />
           ) : null}
@@ -358,26 +421,28 @@ export function LeaderboardPageClient() {
   );
 }
 
-function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, onActivate }: {
+function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, favoriteTraderIds, onToggleFavorite, onActivate }: {
   standings: TraderStanding[];
   exposureByTrader: Map<string, TraderExposure>;
   activeTraderId: string | null;
   t: (key: string) => string;
   locale: Locale;
+  favoriteTraderIds: ReadonlySet<string>;
+  onToggleFavorite: (traderId: string) => void;
   onActivate: (traderId: string) => void;
 }) {
   return (
     <div className="hidden overflow-x-auto lg:block w-full">
       <div className="min-w-[920px]">
         <div className={`grid ${RANKING_GRID_CLASS} border-b px-5 py-3.5 text-xs font-bold uppercase tracking-wider text-zinc-400 md:px-6`} style={{ borderColor: "var(--border)" }}>
+          <div aria-hidden />
           <div className="whitespace-nowrap">{t("leaderboard.rank")}</div>
           <div className="whitespace-nowrap">{t("leaderboard.trader")}</div>
           <div className="text-right whitespace-nowrap">{t("leaderboard.progressStatus")}</div>
-          <div className="text-right whitespace-nowrap">{t("leaderboard.cumulativeReturn")}</div>
-          <div className="text-right whitespace-nowrap">{t("common.return7d")}</div>
+          <div className="text-right whitespace-nowrap">{t("leaderboard.bestReturn")}</div>
+          <div className="text-right whitespace-nowrap">{t("leaderboard.nextReturn")}</div>
           <div className="text-right whitespace-nowrap">{t("leaderboard.mdd")}</div>
           <div className="text-right whitespace-nowrap">{t("common.winRate")}</div>
-          <div className="text-right whitespace-nowrap">{t("leaderboard.sharpe")}</div>
         </div>
         <div className="divide-y divide-[var(--border)]">
           {standings.map((trader) => {
@@ -385,6 +450,8 @@ function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, 
             const exposure = exposureByTrader.get(trader.id);
             const progress = traderProgress(trader, exposure, t, locale);
             const isActive = activeTraderId === trader.id;
+            const returnMetrics = topReturnMetrics(trader, t);
+            const isFavorite = favoriteTraderIds.has(trader.id);
             return (
               <Link
                 key={trader.id}
@@ -398,14 +465,22 @@ function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, 
                     : "hover:bg-white/[0.02] border-l-transparent hover:border-l-emerald-500/50"
                 }`}
               >
+                <FavoriteButton
+                  active={isFavorite}
+                  t={t}
+                  onToggle={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onToggleFavorite(trader.id);
+                  }}
+                />
                 <RankBadge rank={trader.rank} />
                 <TraderIdentity trader={trader} progress={progress} t={t} />
                 <ProgressCell progress={progress} />
-                <MetricValue value={formatSignedPercent(trader.returnPct)} tone={trader.returnPct >= 0 ? "good" : "bad"} />
-                <MetricValue value={formatSignedPercent(trader.monthlyReturn)} tone={trader.monthlyReturn >= 0 ? "good" : "bad"} />
+                <MetricValue label={returnMetrics[0]?.label} value={formatSignedPercent(returnMetrics[0]?.value)} tone={(returnMetrics[0]?.value ?? 0) >= 0 ? "good" : "bad"} />
+                <MetricValue label={returnMetrics[1]?.label} value={formatSignedPercent(returnMetrics[1]?.value)} tone={(returnMetrics[1]?.value ?? 0) >= 0 ? "good" : "bad"} />
                 <MetricValue value={formatDrawdown(trader.maxDrawdown)} />
                 <MetricValue value={formatNullablePercent(trader.winRate)} />
-                <MetricValue value={formatNumber(trader.sharpe, 2, locale)} tone={trader.sharpe > 2 ? "good" : trader.sharpe < 0 ? "bad" : "neutral"} />
               </Link>
             );
           })}
@@ -436,32 +511,47 @@ function LeaderboardLockedRows({ count, t }: { readonly count: number; readonly 
   );
 }
 
-function MobileRankingList({ standings, exposureByTrader, t, locale, onPrefetch }: {
+function MobileRankingList({ standings, exposureByTrader, t, locale, favoriteTraderIds, onToggleFavorite, onPrefetch }: {
   standings: TraderStanding[];
   exposureByTrader: Map<string, TraderExposure>;
   t: (key: string) => string;
   locale: Locale;
+  favoriteTraderIds: ReadonlySet<string>;
+  onToggleFavorite: (traderId: string) => void;
   onPrefetch: (traderId: string) => void;
 }) {
   return (
     <div className="lg:hidden">
-      <div className="grid grid-cols-[38px_minmax(0,1fr)_88px] items-center gap-2 border-b px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-500" style={{ borderColor: "var(--border)" }}>
+      <div className="grid grid-cols-[28px_38px_minmax(0,1fr)_88px] items-center gap-2 border-b px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-500" style={{ borderColor: "var(--border)" }}>
+        <span aria-hidden />
         <span>{t("leaderboard.rank")}</span>
         <span>{t("leaderboard.trader")}</span>
-        <span className="text-right">{t("leaderboard.cumulativeReturn")}</span>
+        <span className="text-right">{t("leaderboard.bestReturn")}</span>
       </div>
       <div className="divide-y" style={{ borderColor: "var(--border)" }}>
         {standings.map((trader) => {
             const progress = traderProgress(trader, exposureByTrader.get(trader.id), t, locale);
             const displayName = localizedTraderName(trader, t);
+            const isFavorite = favoriteTraderIds.has(trader.id);
+            const returnMetric = topReturnMetrics(trader, t)[0];
             return (
               <Link
                 key={trader.id}
                 href={`/leaderboard/${trader.id}`}
                 onFocus={() => onPrefetch(trader.id)}
                 onMouseEnter={() => onPrefetch(trader.id)}
-                className="focus-ring grid grid-cols-[38px_minmax(0,1fr)_88px] items-center gap-2 px-3 py-3.5 transition hover:bg-white/[0.02]"
+                className="focus-ring grid grid-cols-[28px_38px_minmax(0,1fr)_88px] items-center gap-2 px-3 py-3.5 transition hover:bg-white/[0.02]"
               >
+                <FavoriteButton
+                  active={isFavorite}
+                  t={t}
+                  compact
+                  onToggle={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onToggleFavorite(trader.id);
+                  }}
+                />
                 <RankBadge rank={trader.rank} compact />
                 <div className="flex min-w-0 items-center gap-2.5">
                   <TraderMark trader={trader} compact />
@@ -480,8 +570,8 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, onPrefetch 
                   </div>
                 </div>
                 <div className="min-w-0 text-right">
-                  <p className={`font-mono text-[15px] font-bold ${trader.returnPct >= 0 ? "value-good" : "value-bad"}`}>{formatSignedPercent(trader.returnPct)}</p>
-                  <p className="mt-0.5 truncate font-mono text-[11px] text-zinc-500">{formatCurrency(trader.equity, locale)}</p>
+                  <p className={`font-mono text-[15px] font-bold ${(returnMetric?.value ?? 0) >= 0 ? "value-good" : "value-bad"}`}>{formatSignedPercent(returnMetric?.value)}</p>
+                  <p className="mt-0.5 truncate text-[11px] font-semibold text-zinc-500">{returnMetric?.label ?? t("leaderboard.cumulativeReturn")}</p>
                   {progress.detail ? <p className="mt-0.5 truncate text-[11px] font-semibold text-zinc-400">{progress.detail}</p> : null}
                 </div>
               </Link>
@@ -552,7 +642,6 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
             <MiniCell label={t("common.return7d")} value={formatSignedPercent(trader.monthlyReturn)} />
             <MiniCell label={t("leaderboard.mdd")} value={formatDrawdown(trader.maxDrawdown)} />
             <MiniCell label={t("common.winRate")} value={formatNullablePercent(trader.winRate)} />
-            <MiniCell label={t("leaderboard.sharpe")} value={formatNumber(trader.sharpe, 2, locale)} />
             <MiniCell label={t("leaderboard.trades")} value={formatNumber(trader.trades, 0, locale)} />
           </div>
         </section>
@@ -572,14 +661,22 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
 }
 
 function RankBadge({ rank, compact = false }: { rank: number; compact?: boolean }) {
+  if (rank <= 3) {
+    const medalClass =
+      rank === 1
+        ? "bg-amber-300/25 text-amber-200 ring-amber-300/35"
+        : rank === 2
+          ? "bg-zinc-300/20 text-zinc-100 ring-zinc-300/30"
+          : "bg-orange-300/20 text-orange-200 ring-orange-300/30";
+    const Icon = rank === 1 ? Trophy : Medal;
+    return (
+      <span className={`${compact ? "size-8" : "size-10"} grid place-items-center rounded-full ring-1 ${medalClass}`} title={`#${rank}`}>
+        <Icon size={compact ? 17 : 20} weight="fill" />
+      </span>
+    );
+  }
   const colors =
-    rank === 1
-      ? "bg-amber-300/35 text-amber-900 dark:bg-amber-300/25 dark:text-amber-100"
-      : rank === 2
-        ? "bg-slate-300/45 text-slate-800 dark:bg-slate-300/20 dark:text-slate-100"
-        : rank === 3
-          ? "bg-orange-300/30 text-orange-800 dark:bg-orange-300/20 dark:text-orange-100"
-          : "bg-[var(--surface-muted)] text-muted-app";
+    "bg-[var(--surface-muted)] text-muted-app";
   return (
     <span className={`${compact ? "size-8 text-xs" : "size-10 text-sm"} grid place-items-center rounded-full font-mono font-semibold ${colors}`}>
       {rank}
@@ -647,9 +744,54 @@ function LeverageBadge({ progress }: { progress: TraderProgress }) {
   );
 }
 
-function MetricValue({ value, tone = "neutral" }: { value: string; tone?: "good" | "bad" | "warn" | "neutral" }) {
+function topReturnMetrics(trader: TraderStanding, t: (key: string) => string) {
+  const metrics = [
+    { key: "cumulative", label: t("leaderboard.cumulativeReturn"), value: trader.returnPct },
+    { key: "return7d", label: t("common.return7d"), value: trader.return7d },
+    { key: "return24h", label: t("common.return24h"), value: trader.return24h },
+    { key: "return30d", label: t("common.return30d"), value: trader.return30d }
+  ];
+  const positives = metrics.filter((metric) => metric.value > 0).sort((a, b) => b.value - a.value);
+  const fallback = metrics.filter((metric) => metric.value <= 0).sort((a, b) => b.value - a.value);
+  return [...positives, ...fallback].slice(0, 2);
+}
+
+function FavoriteButton({
+  active,
+  compact = false,
+  t,
+  onToggle
+}: {
+  active: boolean;
+  compact?: boolean;
+  t: (key: string) => string;
+  onToggle: (event: MouseEvent) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`focus-ring grid ${compact ? "size-7" : "size-8"} place-items-center rounded-full transition ${
+        active
+          ? "bg-amber-300/15 text-amber-300 hover:bg-amber-300/25"
+          : "text-zinc-600 hover:bg-white/[0.04] hover:text-zinc-300"
+      }`}
+      onClick={onToggle}
+      aria-label={active ? t("leaderboard.unfavoriteTrader") : t("leaderboard.favoriteTrader")}
+      aria-pressed={active}
+    >
+      <Star size={compact ? 15 : 16} weight={active ? "fill" : "bold"} />
+    </button>
+  );
+}
+
+function MetricValue({ value, label, tone = "neutral" }: { value: string; label?: string; tone?: "good" | "bad" | "warn" | "neutral" }) {
   const toneClass = tone === "good" ? "value-good" : tone === "bad" ? "value-bad" : tone === "warn" ? "value-warn" : "text-muted-app";
-  return <div className={`text-right font-mono text-sm font-semibold ${toneClass}`}>{value}</div>;
+  return (
+    <div className="min-w-0 text-right">
+      {label ? <p className="truncate text-[10px] font-semibold text-zinc-500">{label}</p> : null}
+      <p className={`font-mono text-sm font-semibold ${toneClass}`}>{value}</p>
+    </div>
+  );
 }
 
 function StatusPill({ label, tone }: { label: string; tone: "good" | "bad" | "warn" | "neutral" }) {

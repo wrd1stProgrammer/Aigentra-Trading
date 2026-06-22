@@ -17,6 +17,7 @@ export type ExecutionMarker = {
   actionLabel: string;
   markerLabel: string;
   shortLabel: string;
+  cycleId: string;
   timeMs: number;
   eventTimeLabel: string;
   entryTimeLabel: string | null;
@@ -70,7 +71,7 @@ export function buildExecutionMarkers({
     .map((event, index) => markerFromEvent({ event, index, exposureIndex, entryTimeByPosition, symbol, locale, t }))
     .filter((marker): marker is ExecutionMarker => marker !== null);
 
-  return numberSplitEntries(markers)
+  return numberTradeActions(markers, t)
     .sort((left, right) => right.timeMs - left.timeMs)
     .slice(0, limit);
 }
@@ -144,6 +145,7 @@ function markerFromEvent({
     : (positionId ? entryTimeByPosition.get(positionId) ?? exposureIndex.positionOpenedAt.get(positionId) ?? null : null);
   const sideText = side || "-";
   const markerLabel = side ? `${side} ${actionLabel}` : actionLabel;
+  const cycleId = executionCycleId({ symbol, side, positionId, orderId, eventId });
 
   return {
     id: `execution-marker-${eventId}`,
@@ -156,6 +158,7 @@ function markerFromEvent({
     actionLabel,
     markerLabel,
     shortLabel: shortMarkerLabel(action, side, t),
+    cycleId,
     timeMs,
     eventTimeLabel: formatDateTime(timeMs, locale),
     entryTimeLabel: entryTimeMs ? formatDateTime(entryTimeMs, locale) : null,
@@ -274,24 +277,51 @@ function shortMarkerLabel(action: ExecutionMarkerAction, side: string, t: Transl
   return t("detail.markerExitShort");
 }
 
-function numberSplitEntries(markers: readonly ExecutionMarker[]) {
+function numberTradeActions(markers: readonly ExecutionMarker[], t: Translator) {
   const counts = new Map<string, number>();
   return [...markers]
     .sort((left, right) => left.timeMs - right.timeMs)
     .map((marker) => {
-      if (marker.action !== "entry") return marker;
-      const groupKey = marker.positionId ?? marker.orderId ?? `${marker.symbol}:${marker.sideLabel}`;
+      const tradeLetter = tradeActionLetter(marker);
+      const groupKey = `${marker.cycleId}:${tradeLetter}`;
       const nextCount = (counts.get(groupKey) ?? 0) + 1;
       counts.set(groupKey, nextCount);
-      if (nextCount === 1) return marker;
-      const actionLabel = `${marker.actionLabel}${nextCount}`;
+      const actionLabel = `${tradeActionText(tradeLetter, t)}${nextCount}`;
       return {
         ...marker,
         actionLabel,
         markerLabel: marker.sideLabel && marker.sideLabel !== "-" ? `${marker.sideLabel} ${actionLabel}` : actionLabel,
-        shortLabel: `${marker.shortLabel}${nextCount}`,
+        shortLabel: `${tradeLetter}${nextCount}`,
       };
     });
+}
+
+function executionCycleId({
+  symbol,
+  side,
+  positionId,
+  orderId,
+  eventId
+}: {
+  symbol: string;
+  side: string;
+  positionId: string | null;
+  orderId: string | null;
+  eventId: string;
+}) {
+  if (positionId) return `${symbol}:position:${positionId}`;
+  if (orderId) return `${symbol}:order:${orderId}`;
+  return `${symbol}:event:${side || "unknown"}:${eventId}`;
+}
+
+function tradeActionLetter(marker: ExecutionMarker) {
+  const isShort = marker.sideLabel === "SHORT";
+  if (marker.action === "entry") return isShort ? "S" : "B";
+  return isShort ? "B" : "S";
+}
+
+function tradeActionText(letter: "B" | "S", t: Translator) {
+  return letter === "B" ? t("detail.markerBuy") : t("detail.markerSell");
 }
 
 function sideLabel(value: unknown) {

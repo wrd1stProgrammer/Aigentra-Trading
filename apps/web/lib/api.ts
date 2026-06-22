@@ -5,6 +5,7 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://loca
 export const LEAGUE_QUERY_STALE_TIME_MS = 60_000;
 export const LEAGUE_QUERY_GC_TIME_MS = 10 * 60_000;
 export const LEAGUE_LIVE_REFETCH_INTERVAL_MS = 60_000;
+export const TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS = 20_000;
 
 export type LeaderboardBundleRequestOptions = {
   readonly includeRelated?: boolean;
@@ -172,6 +173,8 @@ export type TraderPaperSummary = {
   unrealizedPnl?: number | null;
   totalFees?: number | null;
   totalPnl?: number | null;
+  cumulativeReturn?: number | null;
+  return24h?: number | null;
   return7d: number;
   return30d: number;
   winRate?: number | null;
@@ -834,9 +837,9 @@ export function traderDetailBundleQueryOptions(traderId: string, symbol: string,
   return {
     queryKey: traderDetailBundleQueryKey(traderId, symbol, reviewsLimit, eventsLimit, locale),
     queryFn: () => getTraderDetailBundle(traderId, symbol, reviewsLimit, eventsLimit, locale),
-    staleTime: LEAGUE_QUERY_STALE_TIME_MS,
+    staleTime: TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS,
     gcTime: LEAGUE_QUERY_GC_TIME_MS,
-    refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
+    refetchInterval: TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false
   };
 }

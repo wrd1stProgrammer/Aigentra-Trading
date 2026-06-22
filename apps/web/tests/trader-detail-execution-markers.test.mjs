@@ -11,6 +11,8 @@ test("execution markers keep split entries and exits as separate chart marks", (
     "detail.markerStopLoss": "손절",
     "detail.markerPartialExit": "분할 청산",
     "detail.markerExit": "청산",
+    "detail.markerBuy": "매수",
+    "detail.markerSell": "매도",
     "detail.markerLongEntryShort": "B",
     "detail.markerShortEntryShort": "S",
     "detail.markerTakeProfitShort": "TP",
@@ -39,8 +41,11 @@ test("execution markers keep split entries and exits as separate chart marks", (
   assert.equal(result.filter((marker) => marker.action === "entry").length, 3);
   assert.equal(result.filter((marker) => marker.action === "takeProfit").length, 3);
   const entries = result.filter((marker) => marker.action === "entry").sort((a, b) => a.timeMs - b.timeMs);
-  assert.deepEqual(entries.map((marker) => marker.shortLabel), ["B", "B2", "B3"]);
-  assert.deepEqual(entries.map((marker) => marker.markerLabel), ["LONG 진입", "LONG 진입2", "LONG 진입3"]);
+  const exits = result.filter((marker) => marker.action === "takeProfit").sort((a, b) => a.timeMs - b.timeMs);
+  assert.deepEqual(entries.map((marker) => marker.shortLabel), ["B1", "B2", "B3"]);
+  assert.deepEqual(entries.map((marker) => marker.markerLabel), ["LONG 매수1", "LONG 매수2", "LONG 매수3"]);
+  assert.deepEqual(exits.map((marker) => marker.shortLabel), ["S1", "S2", "S3"]);
+  assert.equal(new Set(result.map((marker) => marker.cycleId)).size, 1);
 });
 
 test("execution marker exit tooltip keeps the related entry time", () => {
@@ -51,6 +56,8 @@ test("execution marker exit tooltip keeps the related entry time", () => {
     "detail.markerStopLoss": "Stop loss",
     "detail.markerPartialExit": "Partial exit",
     "detail.markerExit": "Exit",
+    "detail.markerBuy": "Buy",
+    "detail.markerSell": "Sell",
     "detail.markerLongEntryShort": "B",
     "detail.markerShortEntryShort": "S",
     "detail.markerTakeProfitShort": "TP",
@@ -86,6 +93,8 @@ test("execution markers hide neutral generic exits", () => {
     "detail.markerStopLoss": "Stop loss",
     "detail.markerPartialExit": "Partial exit",
     "detail.markerExit": "Exit",
+    "detail.markerBuy": "Buy",
+    "detail.markerSell": "Sell",
     "detail.markerLongEntryShort": "B",
     "detail.markerShortEntryShort": "S",
     "detail.markerTakeProfitShort": "TP",

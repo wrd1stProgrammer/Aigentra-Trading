@@ -40,8 +40,14 @@ export function ConsensusAveragePrices({ averages, locale, t }: ConsensusAverage
         />
       </div>
 
-      <div className="mt-5 hidden overflow-x-auto sm:block">
-        <table className="min-w-[520px] w-full text-left border-collapse">
+      <div className="mt-5 hidden sm:block">
+        <table className="w-full table-fixed text-left border-collapse">
+          <colgroup>
+            <col className="w-[22%]" />
+            <col className="w-[26%]" />
+            <col className="w-[25%]" />
+            <col className="w-[25%]" />
+          </colgroup>
           <thead>
             <tr className="border-b border-zinc-200 text-[10px] text-zinc-500 font-bold uppercase font-mono dark:border-white/[0.08]">
               <th className="py-2">{t("common.side")}</th>

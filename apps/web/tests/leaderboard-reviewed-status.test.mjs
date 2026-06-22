@@ -9,11 +9,11 @@ const overviewFilter = loadTsModule("../components/leaderboard-overview-filter.t
 const formatSource = readFileSync(new URL("../lib/format.ts", import.meta.url), "utf8");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
 
-test("leaderboard completed status uses entry-ended copy and compact elapsed time", () => {
-  assert.match(i18nSource, /"leaderboard\.status\.reviewed": "진입종료"/, "Korean completed status should read as entry ended");
-  assert.match(i18nSource, /"leaderboard\.status\.reviewed": "Entry ended"/, "English completed status should read as entry ended");
-  assert.match(i18nSource, /"leaderboard\.status\.reviewedAt": "종료"/, "Korean completion-time label should be compact");
-  assert.match(i18nSource, /"leaderboard\.status\.reviewedAt": "Ended"/, "English completion-time label should be compact");
+test("leaderboard completed status uses watching copy and compact elapsed time", () => {
+  assert.match(i18nSource, /"leaderboard\.status\.reviewed": "감시중"/, "Korean completed status should read as watching");
+  assert.match(i18nSource, /"leaderboard\.status\.reviewed": "Watching"/, "English completed status should read as watching");
+  assert.match(i18nSource, /"leaderboard\.status\.reviewedAt": "감시중"/, "Korean completion-time label should match watching copy");
+  assert.match(i18nSource, /"leaderboard\.status\.reviewedAt": "Watching"/, "English completion-time label should match watching copy");
   assert.match(formatSource, /export function formatClockTime/, "format helper should expose HH:mm clock time");
   assert.match(leaderboardSource, /getElapsedTimeString\(summary\?\.updatedAt\)/, "leaderboard should use elapsed time for reviewed rows");
   assert.doesNotMatch(leaderboardSource, /detail: formatDateTime\(summary\?\.updatedAt, locale\)/, "reviewed rows should not show full date/time");

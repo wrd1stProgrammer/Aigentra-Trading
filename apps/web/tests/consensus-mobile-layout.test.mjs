@@ -13,7 +13,8 @@ test("consensus average prices use mobile cards before the wide desktop table", 
   assert.doesNotMatch(consensusSource, /data-testid="consensus-market-strip"/, "removed market summary boxes should not render before the opinion card");
   assert.match(averagePricesSource, /data-testid="consensus-average-mobile-cards"/, "mobile average cards should be testable");
   assert.match(averagePricesSource, /sm:hidden/, "mobile cards should be the primary small-screen surface");
-  assert.match(averagePricesSource, /hidden overflow-x-auto sm:block/, "wide table should wait until small-plus viewports");
+  assert.match(averagePricesSource, /hidden sm:block/, "wide table should wait until small-plus viewports");
+  assert.match(averagePricesSource, /table-fixed/, "wide table should avoid horizontal scroll by keeping compact fixed columns");
 });
 
 test("consensus delays browser-cache placeholders until after hydration", () => {

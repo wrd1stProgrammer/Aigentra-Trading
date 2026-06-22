@@ -206,7 +206,7 @@ AUTO_MANAGEMENT_STATE: dict[str, Any] = {
     "running": False,
     "mode": "paper",
     "symbols": settings.auto_scanner_symbols,
-    "intervalSeconds": 30,
+    "intervalSeconds": settings.auto_management_interval_seconds,
     "provider": settings.position_management_provider or settings.auto_scanner_provider,
     "locale": settings.auto_scanner_locale,
     "cycles": 0,
@@ -553,10 +553,22 @@ def snapshot_to_engine_candle(snapshot: dict) -> dict:
     if open_time:
         timestamp = datetime.fromtimestamp(int(open_time) / 1000, tz=timezone.utc)
     close = latest.get("close", snapshot.get("price"))
+    mark_price = snapshot.get("price")
+    open_price = latest.get("open", close)
+    high = latest.get("high", close)
+    low = latest.get("low", close)
+    if mark_price is not None:
+        try:
+            mark_value = Decimal(str(mark_price))
+            high = max(Decimal(str(high)), mark_value)
+            low = min(Decimal(str(low)), mark_value)
+            close = mark_value
+        except Exception:
+            pass
     return {
-        "open": latest.get("open", close),
-        "high": latest.get("high", close),
-        "low": latest.get("low", close),
+        "open": open_price,
+        "high": high,
+        "low": low,
         "close": close,
         "timestamp": timestamp,
     }
@@ -2084,6 +2096,10 @@ def trader_summary_for_profile(db: Session, trader, symbol: str) -> dict:
         ).scalar_one_or_none()
     )
     current_equity = float(state.equity) if state else initial_equity
+    realized_pnl = float(state.realized_pnl) if state else 0.0
+    unrealized_pnl = float(state.unrealized_pnl) if state else 0.0
+    total_pnl = realized_pnl + unrealized_pnl
+    cumulative_return = round((total_pnl / initial_equity) * 100, 2) if initial_equity > 0 else 0.0
     closed_positions, wins, losses = position_win_loss_counts(db, trader.id, symbol)
     win_rate = round((wins / closed_positions) * 100, 2) if closed_positions else None
     open_orders = count_model_records(db, PaperOrderRecord, trader.id, symbol, "open")
@@ -2124,10 +2140,12 @@ def trader_summary_for_profile(db: Session, trader, symbol: str) -> dict:
         ),
         "equity": round(current_equity, 4),
         "cashBalance": round(float(state.cash_balance), 4) if state else initial_equity,
-        "realizedPnl": round(float(state.realized_pnl), 4) if state else 0.0,
-        "unrealizedPnl": round(float(state.unrealized_pnl), 4) if state else 0.0,
+        "realizedPnl": round(realized_pnl, 4),
+        "unrealizedPnl": round(unrealized_pnl, 4),
         "totalFees": round(float(state.total_fees), 4) if state else 0.0,
-        "totalPnl": round((float(state.realized_pnl) + float(state.unrealized_pnl)), 4) if state else 0.0,
+        "totalPnl": round(total_pnl, 4),
+        "cumulativeReturn": cumulative_return,
+        "return24h": equity_return_for_period(db, trader.id, symbol, current_equity, initial_equity, 1),
         "return7d": equity_return_for_period(db, trader.id, symbol, current_equity, initial_equity, 7),
         "return30d": equity_return_for_period(db, trader.id, symbol, current_equity, initial_equity, 30),
         "winRate": win_rate,
@@ -2222,12 +2240,17 @@ def upsert_leaderboard_snapshot_from_summary(db: Session, summary: dict) -> Trad
         db.add(record)
     now = datetime.now(timezone.utc)
     total_pnl = float_or_default(summary.get("totalPnl"))
+    rank_score = max(
+        float_or_default(summary.get("cumulativeReturn")),
+        float_or_default(summary.get("return7d")),
+        float_or_default(summary.get("return30d")),
+    )
     record.status = "active" if summary.get("hasLivePaperData") else "empty"
     record.updated_at = now
     record.mode = "paper"
     record.trader_name = summary.get("traderName")
     record.has_live_paper_data = bool(summary.get("hasLivePaperData"))
-    record.rank_score = total_pnl
+    record.rank_score = rank_score
     record.equity = float_or_default(summary.get("equity"))
     record.cash_balance = float_or_default(summary.get("cashBalance"))
     record.realized_pnl = float_or_default(summary.get("realizedPnl"))
@@ -2269,6 +2292,8 @@ def upsert_leaderboard_snapshot_from_summary(db: Session, summary: dict) -> Trad
             "currentPlanKo": summary.get("currentPlanKo"),
             "currentPlanEn": summary.get("currentPlanEn"),
             "agentState": summary.get("agentState"),
+            "cumulativeReturn": summary.get("cumulativeReturn"),
+            "return24h": summary.get("return24h"),
         }
     )
     record.raw_json = None
@@ -2373,6 +2398,9 @@ def leaderboard_snapshot_summary(record: TraderLeaderboardSnapshotRecord, rank: 
         last_decision=record.last_decision,
         last_action=record.last_action,
     )
+    payload = from_json(record.payload_json) if record.payload_json else {}
+    if not isinstance(payload, dict):
+        payload = {}
     return {
         "rank": rank,
         "traderId": record.trader_id,
@@ -2387,6 +2415,8 @@ def leaderboard_snapshot_summary(record: TraderLeaderboardSnapshotRecord, rank: 
         "unrealizedPnl": json_safe(record.unrealized_pnl),
         "totalFees": json_safe(record.total_fees),
         "totalPnl": json_safe(record.total_pnl),
+        "cumulativeReturn": json_safe(payload.get("cumulativeReturn")),
+        "return24h": json_safe(payload.get("return24h")),
         "return7d": json_safe(record.return_7d),
         "return30d": json_safe(record.return_30d),
         "winRate": json_safe(record.win_rate),
@@ -3332,7 +3362,7 @@ async def run_management_once(
 
 async def auto_management_loop() -> None:
     AUTO_MANAGEMENT_STATE.update({"enabled": True, "running": True})
-    interval = min(30, max(10, int(settings.auto_scanner_interval_seconds or 60)))
+    interval = min(30, max(5, int(settings.auto_management_interval_seconds or 10)))
     AUTO_MANAGEMENT_STATE["intervalSeconds"] = interval
     scan_task: Optional[asyncio.Task] = None
     next_tick = time.monotonic()

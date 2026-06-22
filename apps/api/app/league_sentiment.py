@@ -23,6 +23,7 @@ from app.db import (
     utc_now,
 )
 from app.locales import AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT, CANONICAL_AI_LOCALE, normalize_locale
+from app.market.data_cache import redis_get_json, redis_set_json, shared_cache_key
 from app.repositories import create_provider_call_log, from_json, sanitize_error_message, to_json
 from app.traders.registry import list_traders
 
@@ -63,6 +64,33 @@ def iso_utc(value: Optional[datetime]) -> Optional[str]:
     return ensure_utc(value).isoformat()
 
 
+def league_sentiment_cache_key(symbol: str, locale: str, interval_start: datetime) -> str:
+    return shared_cache_key("league_sentiment_opinion:v1", symbol.upper(), normalize_locale(locale), ensure_utc(interval_start).isoformat())
+
+
+def league_sentiment_cache_ttl(interval_end: datetime, *, stale: bool = False) -> int:
+    if stale:
+        return 120
+    seconds = int((ensure_utc(interval_end) - utc_now()).total_seconds())
+    return max(60, min(seconds + 300, 7200))
+
+
+async def cache_league_sentiment_payload(
+    symbol: str,
+    locale: str,
+    interval_start: datetime,
+    interval_end: datetime,
+    payload: dict[str, Any],
+    *,
+    stale: bool = False,
+) -> None:
+    await redis_set_json(
+        league_sentiment_cache_key(symbol, locale, interval_start),
+        payload,
+        league_sentiment_cache_ttl(interval_end, stale=stale),
+    )
+
+
 def sanitize_league_sentiment_opinion(opinion: LeagueSentimentOpinionResult) -> LeagueSentimentOpinionResult:
     return LeagueSentimentOpinionResult.model_validate(scrub_banned_opinion_terms(opinion.model_dump()))
 
@@ -93,6 +121,10 @@ async def get_or_create_league_sentiment_opinion(
     requested_locale = normalize_locale(locale)
     interval_start, interval_end = current_utc_hour_window(now)
     if not force:
+        cached_payload = await redis_get_json(league_sentiment_cache_key(symbol, requested_locale, interval_start))
+        if isinstance(cached_payload, dict):
+            cached_payload["cacheHit"] = True
+            return cached_payload
         existing = latest_hourly_opinion(db, symbol, CANONICAL_AI_LOCALE, interval_start)
         if existing is not None:
             await ensure_league_sentiment_translation(
@@ -101,7 +133,9 @@ async def get_or_create_league_sentiment_opinion(
                 locale=requested_locale,
                 settings=settings,
             )
-            return serialize_league_sentiment_record(db, existing, cache_hit=True, locale=requested_locale)
+            serialized = serialize_league_sentiment_record(db, existing, cache_hit=True, locale=requested_locale)
+            await cache_league_sentiment_payload(symbol, requested_locale, interval_start, interval_end, serialized)
+            return serialized
         if prefer_cached:
             previous = latest_previous_opinion(db, symbol, CANONICAL_AI_LOCALE, interval_start)
             if previous is not None:
@@ -111,7 +145,7 @@ async def get_or_create_league_sentiment_opinion(
                     locale=requested_locale,
                     settings=settings,
                 )
-                return serialize_league_sentiment_record(
+                serialized = serialize_league_sentiment_record(
                     db,
                     previous,
                     cache_hit=True,
@@ -119,6 +153,8 @@ async def get_or_create_league_sentiment_opinion(
                     stale=True,
                     next_refresh_at=interval_start,
                 )
+                await cache_league_sentiment_payload(symbol, requested_locale, interval_start, interval_end, serialized, stale=True)
+                return serialized
 
     payload = build_league_sentiment_payload(
         db,
@@ -217,9 +253,13 @@ async def get_or_create_league_sentiment_opinion(
                 locale=requested_locale,
                 settings=settings,
             )
-            return serialize_league_sentiment_record(db, existing, cache_hit=True, locale=requested_locale)
+            serialized = serialize_league_sentiment_record(db, existing, cache_hit=True, locale=requested_locale)
+            await cache_league_sentiment_payload(symbol, requested_locale, interval_start, interval_end, serialized)
+            return serialized
         raise
-    return serialize_league_sentiment_record(db, record, cache_hit=False, locale=requested_locale)
+    serialized = serialize_league_sentiment_record(db, record, cache_hit=False, locale=requested_locale)
+    await cache_league_sentiment_payload(symbol, requested_locale, interval_start, interval_end, serialized)
+    return serialized
 
 
 async def ensure_league_sentiment_translation(

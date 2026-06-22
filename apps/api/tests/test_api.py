@@ -86,6 +86,29 @@ def test_scanner_status_defaults_to_btc_only():
     assert "scanInProgress" in data
 
 
+def test_snapshot_to_engine_candle_includes_live_mark_price_for_execution_checks():
+    candle = main.snapshot_to_engine_candle(
+        {
+            "price": 105,
+            "timeframes": {
+                "1m": {
+                    "latestCandle": {
+                        "openTime": 1_786_000_000_000,
+                        "open": 100,
+                        "high": 101,
+                        "low": 99,
+                        "close": 100,
+                    }
+                }
+            },
+        }
+    )
+
+    assert candle["high"] == 105
+    assert candle["low"] == 99
+    assert candle["close"] == 105
+
+
 def test_auto_scanner_provider_accepts_anthropic_typo(monkeypatch):
     from app.core.config import Settings
 

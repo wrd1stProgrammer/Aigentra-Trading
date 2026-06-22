@@ -8,8 +8,9 @@ const detailSource = readFileSync(new URL("../components/trader-profile-page-cli
 
 test("league bundle queries poll live paper-trading data", () => {
   assert.match(apiSource, /LEAGUE_LIVE_REFETCH_INTERVAL_MS/, "live query interval should be centralized");
+  assert.match(apiSource, /TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS/, "detail live query interval should be centralized");
   assert.match(apiSource, /leaderboardBundleQueryOptions[\s\S]*refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS/, "leaderboard bundle should poll");
-  assert.match(apiSource, /traderDetailBundleQueryOptions[\s\S]*refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS/, "trader detail bundle should poll");
+  assert.match(apiSource, /traderDetailBundleQueryOptions[\s\S]*refetchInterval: TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS/, "trader detail bundle should poll on its faster detail interval");
 });
 
 test("leaderboard adjacent live queries also refresh while viewing", () => {

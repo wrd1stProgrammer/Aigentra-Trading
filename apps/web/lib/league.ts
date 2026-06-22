@@ -140,6 +140,9 @@ export type TraderStanding = TraderProfile & {
   rank: number;
   equity: number;
   returnPct: number;
+  return7d: number;
+  return24h: number;
+  return30d: number;
   monthlyReturn: number;
   totalPnl: number;
   totalFees: number;
@@ -155,6 +158,7 @@ export type TraderStanding = TraderProfile & {
   leverage: number | null;
   averageLeverage: number | null;
   rankScore: number;
+  rankingReturn: number;
 };
 
 export function buildStandings(traders: TraderProfile[], summaries: TraderPaperSummary[]): TraderStanding[] {
@@ -164,10 +168,18 @@ export function buildStandings(traders: TraderProfile[], summaries: TraderPaperS
     .map((trader) => {
       const summary = summaryMap.get(trader.id);
       const equity = numberValue(summary?.equity, 10000);
-      const returnPct = numberValue(summary?.return30d, 0);
-      const monthlyReturn = numberValue(summary?.return7d, 0);
-      const initial = equity / (1 + returnPct / 100) || 10000;
-      const totalPnl = numberValue(summary?.totalPnl, equity - initial, 0);
+      const totalPnl = numberValue(summary?.totalPnl, 0, 0);
+      const inferredInitial = equity - totalPnl;
+      const cumulativeReturn = numberValue(
+        summary?.cumulativeReturn,
+        inferredInitial > 0 ? (totalPnl / inferredInitial) * 100 : summary?.return30d,
+        0
+      );
+      const return7d = numberValue(summary?.return7d, 0);
+      const return24h = numberValue(summary?.return24h, 0);
+      const return30d = numberValue(summary?.return30d, 0);
+      const monthlyReturn = return7d;
+      const rankingReturn = Math.max(cumulativeReturn, return7d, return30d);
       const closed = numberValue(summary?.closedPositions, 0, 0);
       const backendRank = numberValue(summary?.rank, 0, 0);
       return {
@@ -175,7 +187,10 @@ export function buildStandings(traders: TraderProfile[], summaries: TraderPaperS
         summary,
         rank: backendRank,
         equity,
-        returnPct,
+        returnPct: cumulativeReturn,
+        return7d,
+        return24h,
+        return30d,
         monthlyReturn,
         totalPnl,
         totalFees: numberValue(summary?.totalFees, 0, 0),
@@ -190,14 +205,14 @@ export function buildStandings(traders: TraderProfile[], summaries: TraderPaperS
         riskPercent: numberValue(summary?.riskPercent, trader.baseRiskPercent, 0),
         leverage: summary?.leverage ?? null,
         averageLeverage: summary?.averageLeverage ?? summary?.leverage ?? null,
-        rankScore: numberValue(summary?.rankScore, returnPct)
+        rankScore: numberValue(summary?.rankScore, rankingReturn),
+        rankingReturn
       };
     })
     .sort((a, b) => {
-      if (a.rank > 0 && b.rank > 0) return a.rank - b.rank;
-      return b.rankScore - a.rankScore || b.equity - a.equity || a.id.localeCompare(b.id);
+      return b.rankingReturn - a.rankingReturn || b.rankScore - a.rankScore || b.equity - a.equity || a.id.localeCompare(b.id);
     })
-    .map((item, index) => ({ ...item, rank: item.rank > 0 ? item.rank : index + 1 }));
+    .map((item, index) => ({ ...item, rank: index + 1 }));
 }
 
 export function buildEquityCurve(standing: TraderStanding, points = 28) {

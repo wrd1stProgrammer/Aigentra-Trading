@@ -6,7 +6,7 @@ const source = readFileSync(new URL("../components/leaderboard-page-client.tsx",
 
 test("mobile leaderboard uses compact ranking rows instead of dashboard metric grids", () => {
   assert.match(source, /function MobileRankingList/, "mobile leaderboard should keep a dedicated small-screen surface");
-  assert.match(source, /grid-cols-\[38px_minmax\(0,1fr\)_88px\]/, "mobile rows should read like stable rank, trader, and return columns");
+  assert.match(source, /grid-cols-\[28px_38px_minmax\(0,1fr\)_88px\]/, "mobile rows should read like stable favorite, rank, trader, and return columns");
   assert.match(source, /<StatusPill label=\{progress\.label\} tone=\{progress\.tone\} \/>/, "mobile rows should show live entry or monitoring state");
   assert.doesNotMatch(source, /mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4/, "mobile leaderboard should not use the old 2x2 metric-card grid");
 });

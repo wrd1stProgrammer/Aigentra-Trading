@@ -85,6 +85,10 @@ def _cache_key(namespace: str, *parts: Any) -> str:
     return ":".join([prefix, "market", namespace, *clean_parts])
 
 
+def shared_cache_key(namespace: str, *parts: Any) -> str:
+    return _cache_key(namespace, *parts)
+
+
 async def _redis_get_json(key: str) -> Optional[Any]:
     global _REDIS_DISABLED_UNTIL
     if time.monotonic() < _REDIS_DISABLED_UNTIL:
@@ -116,6 +120,14 @@ async def _redis_set_json(key: str, value: Any, ttl: int) -> None:
         await client.set(key, json.dumps(value, separators=(",", ":"), default=str), ex=max(1, ttl))
     except (RedisError, TypeError):
         _REDIS_DISABLED_UNTIL = time.monotonic() + 30
+
+
+async def redis_get_json(key: str) -> Optional[Any]:
+    return await _redis_get_json(key)
+
+
+async def redis_set_json(key: str, value: Any, ttl: int) -> None:
+    await _redis_set_json(key, value, ttl)
 
 
 def _trim_cache(cache: Dict[Any, tuple[float, Any]], max_entries: int = 240) -> None:

@@ -119,10 +119,10 @@ test("managed stop lookup does not mix position and order exposure ids", () => {
   assert.equal(overlayHelpers.latestManagedStopLoss({ records, symbol: "BTCUSDT", orderId: 7 }), 72000);
 });
 
-test("execution chart markers render only the selected marker", () => {
+test("execution chart markers render only the selected trade cycle", () => {
   assert.match(source, /const visibleExecutionMarkers = useMemo/, "chart should derive a bounded execution marker set");
   assert.match(source, /if \(!selectedExecutionMarkerId\) return \[\];/, "recent execution chips should not paint chart labels by default");
-  assert.match(source, /return selected \? \[selected\] : \[\];/, "clicking one execution should paint only that one chart marker");
+  assert.match(source, /executionMarkers\.filter\(\(marker\) => marker\.cycleId === selected\.cycleId\)/, "clicking one execution should paint only its trade-cycle markers");
   assert.doesNotMatch(source, /executionMarkers\.slice\(0,\s*5\)/, "chart should not mix recent markers with the selected marker");
 });
 

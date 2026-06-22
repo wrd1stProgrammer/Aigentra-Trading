@@ -77,6 +77,7 @@ type ChartResultView = RunCycleResult | Pick<RunCycleResult, "tradePlan">;
 type PositionedExecutionMarker = ExecutionMarker & {
   x: number;
   y: number;
+  dotY: number;
 };
 
 const TIMEFRAMES: ChartInterval[] = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"];
@@ -498,7 +499,7 @@ export function LiveCandleChart({
     if (!selectedExecutionMarkerId) return [];
     if (!executionMarkers.length) return [];
     const selected = executionMarkers.find((marker) => marker.id === selectedExecutionMarkerId);
-    return selected ? [selected] : [];
+    return selected ? executionMarkers.filter((marker) => marker.cycleId === selected.cycleId) : [];
   }, [executionMarkers, selectedExecutionMarkerId]);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const ema20SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -977,11 +978,12 @@ export function LiveCandleChart({
           const y = series.priceToCoordinate(marker.price);
           if (x === null || y === null) return null;
           if (x < -40 || x > rect.width + 40 || y < -40 || y > rect.height + 40) return null;
-          const verticalOffset = marker.tone === "longEntry" ? 20 : -22;
+          const verticalOffset = marker.shortLabel.startsWith("B") ? 20 : -22;
           return {
             ...marker,
             x: clamp(x, 12, Math.max(12, rect.width - 12)),
-            y: clamp(y + verticalOffset, 18, Math.max(18, rect.height - 18))
+            y: clamp(y + verticalOffset, 18, Math.max(18, rect.height - 18)),
+            dotY: clamp(y, 8, Math.max(8, rect.height - 8))
           };
         })
         .filter((marker): marker is PositionedExecutionMarker => marker !== null);
@@ -1987,6 +1989,11 @@ function ExecutionChartMarker({
       className={`absolute ${active ? "z-50" : selected ? "z-40" : "z-30"} ${interactive ? "pointer-events-auto" : "pointer-events-none"}`}
       style={{ left: marker.x, top: marker.y, transform: "translate(-50%, -50%)" }}
     >
+      <span
+        className={`pointer-events-none absolute left-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-[0_0_0_3px_rgba(0,0,0,0.35)] ${markerDotClass(marker)}`}
+        style={{ top: marker.dotY - marker.y }}
+        aria-hidden
+      />
       <button
         type="button"
         className={`focus-ring relative z-10 rounded-md border px-2 py-1 font-mono text-[10px] font-black leading-none shadow-lg shadow-zinc-950/20 transition ${
@@ -2243,6 +2250,11 @@ function markerButtonClass(marker: ExecutionMarker, selected: boolean) {
     return `border-rose-300/80 bg-rose-400 text-white hover:bg-rose-300 ${selectedRing}`;
   }
   return `border-zinc-300 bg-zinc-100 text-zinc-700 hover:bg-white dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 ${selectedRing}`;
+}
+
+function markerDotClass(marker: ExecutionMarker) {
+  if (marker.shortLabel.startsWith("B")) return "border-emerald-950 bg-emerald-300";
+  return "border-rose-950 bg-rose-300";
 }
 
 function markerBadgeClass(marker: ExecutionMarker) {
