@@ -103,6 +103,36 @@ function translatedOrFallback(t: (key: string) => string, key: string, fallback:
   return translated === key ? fallback : translated;
 }
 
+function stringFromUnknown(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function isProbablyEnglishText(value: string) {
+  return /[A-Za-z]{4,}/.test(value) && !/[가-힣]/.test(value);
+}
+
+function localizedActiveRationale({
+  raw,
+  status,
+  locale,
+  fallback,
+  t
+}: {
+  raw: string | null;
+  status: TraderActiveState["status"];
+  locale: Locale;
+  fallback: string;
+  t: (key: string) => string;
+}) {
+  if (raw && !(locale !== "en" && isProbablyEnglishText(raw))) return raw;
+  if (status === "inPosition") return t("consensus.activeRationale.inPosition");
+  if (status === "pendingEntry") return t("consensus.activeRationale.pendingEntry");
+  return fallback;
+}
+
 function localizedTraderName(trader: { id: string; name: string }, t: (key: string) => string) {
   return translatedOrFallback(t, traderNameKey(trader.id), trader.name);
 }
@@ -360,14 +390,20 @@ export function ConsensusPageClient() {
       const activePosition = traderPositions.find(p => isActivePosition(p.status));
       const activeOrder = traderOrders.find(o => isActiveOrder(o.status));
       const activePayload = activePosition?.payload || activeOrder?.payload || {};
-
-      let rationale = activeScenario?.rationale || activeScenario?.summary || activePayload?.aiApprovalReason || activePayload?.entryReason || activePayload?.managementRationale;
-      
-      if (!rationale && (activeState.status === "inPosition" || activeState.status === "pendingEntry")) {
-        rationale = t("consensus.entryAnalysisLoading");
-      } else if (!rationale) {
-        rationale = standing.description;
-      }
+      const rawRationale = stringFromUnknown(
+        activeScenario?.rationale,
+        activeScenario?.summary,
+        activePayload?.aiApprovalReason,
+        activePayload?.entryReason,
+        activePayload?.managementRationale
+      );
+      const rationale = localizedActiveRationale({
+        raw: rawRationale,
+        status: activeState.status,
+        locale,
+        fallback: standing.description,
+        t
+      });
 
       return {
         ...standing,
@@ -376,7 +412,7 @@ export function ConsensusPageClient() {
         rationale
       };
     });
-  }, [standings, bundle, activeOrders, activePositions, t]);
+  }, [standings, bundle, activeOrders, activePositions, locale, t]);
 
   // Strict Filter: Only inPosition or pendingEntry
   const activeTraders = useMemo(() => {
@@ -477,6 +513,7 @@ export function ConsensusPageClient() {
     );
   }, [tradersWithStates]);
 
+  const hourlyOpinionLoading = hourlyOpinionQuery.isPending || !hourlyOpinionQuery.data?.opinion || Boolean(hourlyOpinionQuery.data.stale);
   const initialLoading = btcQuery.isFetching && (btcQuery.isPending || btcQuery.isPlaceholderData);
   const error = btcQuery.error ? t("common.liveDataUnavailable") : null;
 
@@ -527,6 +564,7 @@ export function ConsensusPageClient() {
         <ConsensusHourlyOpinion
           data={hourlyOpinionQuery.data}
           isFetching={hourlyOpinionQuery.isFetching}
+          isLoading={hourlyOpinionLoading}
           locale={locale}
           t={t}
         />

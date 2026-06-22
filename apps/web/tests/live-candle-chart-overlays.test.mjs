@@ -35,6 +35,18 @@ test("live candle chart merges nearby overlay labels by priority", () => {
   assert.equal(overlayHelpers.overlaySideLabel("buy"), "LONG");
 });
 
+test("pending order overlays use user-facing waiting labels instead of raw order side copy", () => {
+  const t = (key) => ({
+    "chart.pendingLongOrder": "롱 대기",
+    "chart.pendingShortOrder": "숏 대기",
+    "chart.pendingOrder": "대기 주문"
+  })[key] ?? key;
+
+  assert.equal(overlayHelpers.pendingOrderLineLabel("LONG", 0, t), "롱 대기");
+  assert.equal(overlayHelpers.pendingOrderLineLabel("SHORT", 0, t), "숏 대기");
+  assert.equal(overlayHelpers.pendingOrderLineLabel("", 2, t), "대기 주문 3");
+});
+
 test("live candle chart treats paper trading statuses as open exposure", () => {
   // Given: API statuses use backend names, not only the literal string "open".
   const openStatuses = ["open", "OPEN_POSITION", "PENDING_ORDER", "paper trading pending", undefined];
@@ -105,6 +117,13 @@ test("managed stop lookup does not mix position and order exposure ids", () => {
 
   assert.equal(overlayHelpers.latestManagedStopLoss({ records, symbol: "BTCUSDT", positionId: 7 }), 69000);
   assert.equal(overlayHelpers.latestManagedStopLoss({ records, symbol: "BTCUSDT", orderId: 7 }), 72000);
+});
+
+test("execution chart markers render only the selected marker", () => {
+  assert.match(source, /const visibleExecutionMarkers = useMemo/, "chart should derive a bounded execution marker set");
+  assert.match(source, /if \(!selectedExecutionMarkerId\) return \[\];/, "recent execution chips should not paint chart labels by default");
+  assert.match(source, /return selected \? \[selected\] : \[\];/, "clicking one execution should paint only that one chart marker");
+  assert.doesNotMatch(source, /executionMarkers\.slice\(0,\s*5\)/, "chart should not mix recent markers with the selected marker");
 });
 
 test("chart overlays do not mix saved open orders with latest plan preview lines", () => {

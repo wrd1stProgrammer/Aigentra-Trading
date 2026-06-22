@@ -41,9 +41,16 @@ test("trading journal only renders position action journal items", () => {
 });
 
 test("chart surface uses faster initial candle load and production copy", () => {
-  assert.match(chartSource, /"1h": 120/, "default hourly chart should load a compact first window");
+  assert.match(chartSource, /const DEFAULT_INTERVAL: ChartInterval = "5m"/, "detail chart should open on the 5 minute candle interval");
+  assert.match(chartSource, /const limit = candleLimitForInterval\(interval\)/, "initial candle load should use the interval-specific optimized window");
   assert.doesNotMatch(chartSource, /TradingView Lightweight Charts/, "chart subtitle should not expose implementation-library copy");
   assert.match(chartSource, /chart\.liveSource/, "chart should use localized product source copy");
+});
+
+test("trader detail header keeps execution rail without monitoring tabs", () => {
+  assert.match(pageSource, /ExecutionMarkerRail/, "detail page should keep the recent execution rail above the chart");
+  assert.doesNotMatch(pageSource, /<TabButton/, "detail page should not render the old monitoring analysis info tab strip");
+  assert.doesNotMatch(pageSource, /detail\.monitoring/, "detail page should not render the old monitoring tab label");
 });
 
 test("detail bundle uses cached placeholder data without blocking live fetch", () => {
@@ -52,6 +59,12 @@ test("detail bundle uses cached placeholder data without blocking live fetch", (
   assert.match(apiSource, /getCachedTraderDetailBundle[\s\S]*TRADER_DETAIL_BROWSER_CACHE_MS/, "detail cache reader should use the short trading-state TTL");
   assert.doesNotMatch(pageSource, /initialData/, "placeholder/fallback data must not be treated as fresh live data");
   assert.match(pageSource, /placeholderData[\s\S]*getCachedTraderDetailBundle/, "detail page should use browser cache only as placeholder data");
+});
+
+test("trader detail does not auto-expand heavy review limits before user scroll", () => {
+  assert.doesNotMatch(pageSource, /setReviewsLimit\(\(current\) => current \+ 20\)/, "detail page should not immediately grow review fetch size just to fill the selected date");
+  assert.doesNotMatch(pageSource, /setReviewsLimit\(\(current\) => current \+ 30\)/, "detail page should not hydrate whole weeks on initial render");
+  assert.match(pageSource, /loadMoreSelectedScenarios/, "manual scroll/load-more should remain the way to fetch older reviews");
 });
 
 test("trader detail shows centered loading affordances for review and chart data", () => {

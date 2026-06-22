@@ -16,6 +16,9 @@ test("AI sentiment page renders a cached hourly Aigentra opinion before dense se
   assert.match(consensusSource, /data-testid="consensus-hourly-opinion"/, "opinion card should be a testable first-class surface");
   assert.match(opinionCardSource, /Aigentra/, "opinion card should be branded as an Aigentra aggregate opinion");
   assert.match(opinionCardSource, /nextRefreshAt/, "opinion card should expose the exact next hourly refresh time");
+  assert.match(opinionCardSource, /isLoading/, "opinion card should distinguish generated data from a loading placeholder");
+  assert.match(opinionCardSource, /data-testid="consensus-opinion-loading"/, "opinion card should show an explicit loading state while generated data is unavailable");
+  assert.match(consensusSource, /hourlyOpinionLoading/, "sentiment page should keep the opinion card loading until fresh generated data is ready");
   assert.doesNotMatch(opinionCardSource, /opinionDataQuality|dataQuality/, "opinion card should not render the removed data-quality panel");
 });
 
@@ -29,4 +32,12 @@ test("hourly opinion API contract is typed and localized", () => {
   assert.match(i18nSource, /"consensus\.aigentraOpinion"/, "Korean copy should include the opinion title key");
   assert.match(i18nSource, /"consensus\.nextOpinionRefresh"/, "copy should explain the hourly refresh");
   assert.doesNotMatch(i18nSource, /"consensus\.opinionDataQuality"/, "data-quality copy should be removed");
+});
+
+test("AI sentiment status copy is localized instead of leaking raw backend enums", () => {
+  assert.match(opinionCardSource, /localizedRiskLevel/, "risk level values should be mapped through locale copy");
+  assert.doesNotMatch(opinionCardSource, /value=\{opinion\?\.riskLevel \?\? "-"\}/, "raw LOW/MEDIUM/HIGH values should not be printed directly");
+  assert.match(consensusSource, /localizedActiveRationale/, "raw English position rationales should be replaced with localized fallback copy when needed");
+  assert.match(i18nSource, /"consensus\.riskLevel\.MEDIUM"/, "risk level locale keys should exist");
+  assert.match(i18nSource, /"consensus\.activeRationale\.inPosition"/, "localized active-position rationale copy should exist");
 });

@@ -7,7 +7,6 @@ import {
   getCachedTraderDetailBundle,
   getEquitySnapshots,
   prefetchLeaderboardBundle,
-  prefetchTraderDetailBundle,
   traderDetailBundleQueryOptions,
   type LeaderboardBundle,
   type TraderDetailBundle,
@@ -38,13 +37,14 @@ import {
   DetailSidebar,
   HeroHeader,
   ScenarioModal,
-  TabButton,
   TimelineRow,
   TradingJournal
 } from "@/components/trader-profile-detail/panels";
 import { StatusFeedThread } from "@/components/trader-profile-detail/status-feed-thread";
+import { buildExecutionMarkers, defaultExecutionMarkerSelection } from "@/components/trader-profile-detail/execution-markers";
+import { ExecutionMarkerRail } from "@/components/trader-profile-detail/execution-marker-rail";
 import { PageLoadingOverlay } from "@/components/page-loading-overlay";
-import { SYMBOLS, type TradeHistoryItem } from "@/components/trader-profile-detail/types";
+import type { TradeHistoryItem } from "@/components/trader-profile-detail/types";
 import { traderVisuals } from "@/lib/league";
 import { CaretLeft, CaretRight, Clock } from "@phosphor-icons/react";
 import { ProtectedContentGate } from "@/components/access-gate";
@@ -271,9 +271,11 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     () => fallbackTraders.find((item) => item.id === traderId) as unknown as TraderProfile | undefined,
     [traderId]
   );
-  const [symbol, setSymbol] = useState<LeagueSymbol>("BTCUSDT");
+  const symbol: LeagueSymbol = "BTCUSDT";
   const [liveMarkPrice, setLiveMarkPrice] = useState<number | null>(null);
   const [selectedScenario, setSelectedScenario] = useState<TraderScenario | null>(null);
+  const [selectedExecutionMarkerId, setSelectedExecutionMarkerId] = useState<string | null>(null);
+  const [focusedExecutionMarkerId, setFocusedExecutionMarkerId] = useState<string | null>(null);
   const [liveAlert, setLiveAlert] = useState<LiveDetailAlert | null>(null);
   const [visibleScenarioCountByDate, setVisibleScenarioCountByDate] = useState<Record<string, number>>({});
   const [reviewsLimit, setReviewsLimit] = useState(DETAIL_INITIAL_REVIEWS_LIMIT);
@@ -431,10 +433,6 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const initialLoading = detailQuery.isFetching && (detailQuery.isPending || detailQuery.isPlaceholderData);
   const error = detailQuery.error ? (detailQuery.error instanceof Error ? detailQuery.error.message : String(detailQuery.error)) : null;
 
-  const prefetchSymbol = useCallback((nextSymbol: LeagueSymbol) => {
-    void prefetchTraderDetailBundle(queryClient, traderId, nextSymbol, locale);
-  }, [locale, queryClient, traderId]);
-
   const prefetchLeaderboard = useCallback(() => {
     void prefetchLeaderboardBundle(queryClient, symbol, locale);
   }, [locale, queryClient, symbol]);
@@ -473,6 +471,23 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const holdingItems = useMemo(
     () => buildHoldingItems({ standing, positions, orders, latestPlan, symbol, locale, t }),
     [latestPlan, locale, orders, positions, standing, symbol, t]
+  );
+  const executionMarkers = useMemo(
+    () => buildExecutionMarkers({
+      events,
+      positions,
+      closedPositions,
+      orders,
+      symbol,
+      locale,
+      t,
+      limit: 30
+    }),
+    [closedPositions, events, locale, orders, positions, symbol, t]
+  );
+  const defaultSelectedExecutionMarkerId = useMemo(
+    () => defaultExecutionMarkerSelection({ markers: executionMarkers, positions }),
+    [executionMarkers, positions]
   );
   const pnlCalendar = useMemo(
     () => buildMonthlyPnlCalendar({
@@ -539,39 +554,26 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, [scenarioCountByDate, scenarioTimelineItems, selectedDate, symbol, traderId]);
 
   useEffect(() => {
-    if (
-      detailQuery.data?.managementReviews &&
-      detailQuery.data.managementReviews.length === reviewsLimit &&
-      filteredTimelineItems.length < Math.min(10, selectedScenarioTotal) &&
-      reviewsLimit < 200
-    ) {
-      setReviewsLimit((current) => current + 20);
-    }
-  }, [detailQuery.data?.managementReviews, filteredTimelineItems.length, reviewsLimit, selectedScenarioTotal]);
-
-  useEffect(() => {
-    if (!detailQuery.data?.managementReviews) return;
-    const loadedReviews = detailQuery.data.managementReviews;
-    if (loadedReviews.length === 0) return;
-
-    const oldestReview = loadedReviews[loadedReviews.length - 1];
-    if (oldestReview && oldestReview.createdAt) {
-      const oldestDate = new Date(oldestReview.createdAt);
-      if (
-        oldestDate > weekStart &&
-        loadedReviews.length === reviewsLimit &&
-        reviewsLimit < 300
-      ) {
-        setReviewsLimit((current) => current + 30);
-      }
-    }
-  }, [detailQuery.data?.managementReviews, weekStart, reviewsLimit]);
-
-  useEffect(() => {
     if (!detailQuery.data || lastHistoryRefreshKeyRef.current === historyRefreshKey) return;
     lastHistoryRefreshKeyRef.current = historyRefreshKey;
     void loadHistoryPage(0, true);
   }, [detailQuery.data, historyRefreshKey, loadHistoryPage]);
+
+  useEffect(() => {
+    setSelectedExecutionMarkerId((current) => {
+      if (current && executionMarkers.some((marker) => marker.id === current)) return current;
+      return defaultSelectedExecutionMarkerId;
+    });
+    setFocusedExecutionMarkerId((current) => {
+      if (current && executionMarkers.some((marker) => marker.id === current)) return current;
+      return null;
+    });
+  }, [defaultSelectedExecutionMarkerId, executionMarkers]);
+
+  const selectExecutionMarker = useCallback((markerId: string) => {
+    setSelectedExecutionMarkerId(markerId);
+    setFocusedExecutionMarkerId(markerId);
+  }, []);
 
   useEffect(() => {
     const latestItem = scenarioTimelineItems[0];
@@ -662,30 +664,13 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
         prefetchLeaderboard={prefetchLeaderboard}
       />
 
-      <div className="mt-4 flex flex-col gap-2 sm:mt-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="grid w-full grid-cols-3 rounded-xl bg-white p-1 ring-1 ring-zinc-200 sm:inline-flex sm:w-auto dark:bg-zinc-950 dark:ring-zinc-800">
-          <TabButton active label={t("detail.monitoring")} />
-          <TabButton label={t("detail.analysis")} />
-          <TabButton label={t("detail.info")} />
-        </div>
-        <div className="grid w-full grid-cols-2 items-center gap-2 rounded-xl bg-white p-1 ring-1 ring-zinc-200 sm:inline-flex sm:w-auto dark:bg-zinc-950 dark:ring-zinc-800">
-          {SYMBOLS.map((item) => (
-            <button
-              key={item}
-              type="button"
-              onFocus={() => prefetchSymbol(item)}
-              onMouseEnter={() => prefetchSymbol(item)}
-              onClick={() => setSymbol(item)}
-              className={`focus-ring rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                symbol === item
-                  ? "bg-zinc-950 text-white dark:bg-zinc-100 dark:text-zinc-950"
-                  : "text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
-              }`}
-            >
-              {item.replace("USDT", "")}
-            </button>
-          ))}
-        </div>
+      <div className="mt-4 min-w-0 sm:mt-5">
+        <ExecutionMarkerRail
+          markers={executionMarkers}
+          selectedId={selectedExecutionMarkerId}
+          onSelect={selectExecutionMarker}
+          t={t}
+        />
       </div>
 
       <section data-testid="top-chart-panel" className="mt-3 grid min-w-0 gap-3 sm:mt-4 xl:grid-cols-[minmax(0,3fr)_minmax(300px,1fr)] xl:gap-5">
@@ -697,7 +682,11 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
             paperOrders={orders}
             paperEvents={events}
             managementReviews={reviews}
-            height={320}
+            executionMarkers={executionMarkers}
+            selectedExecutionMarkerId={selectedExecutionMarkerId}
+            focusedExecutionMarkerId={focusedExecutionMarkerId}
+            onExecutionMarkerSelect={selectExecutionMarker}
+            height={380}
             compact
             showPositionPanel={false}
             scenarios={scenarios}

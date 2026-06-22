@@ -582,6 +582,8 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "structuredReview" in management
     assert "early_failure_adverse_r is a review-warning signal only" in management
     assert "rationale is a legacy compatibility field" in management
+    assert "Do not collapse active-position HOLD reviews into a single generic sentence" in management
+    assert "two compact desk-style sentences" in management
 
 
 def test_structured_review_normalizer_removes_list_syntax_from_action():

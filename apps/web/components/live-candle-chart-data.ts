@@ -13,9 +13,35 @@ export const CANDLE_LIMITS: Record<ChartInterval, number> = {
 
 export const CACHED_CANDLES_VISIBLE_MS = 10 * 60_000;
 export const REST_BACKFILL_CANDLE_LIMIT = 2;
+const INITIAL_VISIBLE_BARS: Record<ChartInterval, number> = {
+  "1m": 360,
+  "5m": 500,
+  "15m": 360,
+  "30m": 300,
+  "1h": 120,
+  "4h": 180,
+  "1d": 180,
+  "1w": 160
+};
+const INITIAL_RIGHT_OFFSET = 8;
 
 export function candleLimitForInterval(interval: ChartInterval) {
   return CANDLE_LIMITS[interval];
+}
+
+export function initialVisibleBarsForInterval(interval: ChartInterval) {
+  return INITIAL_VISIBLE_BARS[interval];
+}
+
+export function latestVisibleLogicalRange(candleCount: number, interval: ChartInterval) {
+  const total = Math.max(0, Math.floor(candleCount));
+  if (total === 0) return null;
+  const visibleBars = Math.min(total, initialVisibleBarsForInterval(interval));
+  const lastIndex = total - 1;
+  return {
+    from: Math.max(0, lastIndex - visibleBars + 1),
+    to: lastIndex + INITIAL_RIGHT_OFFSET
+  };
 }
 
 export function restFallbackIntervalMs(interval: ChartInterval) {

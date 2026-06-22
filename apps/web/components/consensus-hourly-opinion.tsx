@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { ClockCounterClockwise, Gauge, ShieldWarning, Sparkle, TrendDown, TrendUp } from "@phosphor-icons/react";
+import { CircleNotch, ClockCounterClockwise, Gauge, ShieldWarning, Sparkle, TrendDown, TrendUp } from "@phosphor-icons/react";
 import { formatNumber, intlLocale } from "@/lib/format";
 import type { LeagueSentimentOpinionResponse } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
@@ -9,6 +9,7 @@ import type { Locale } from "@/lib/i18n";
 type Props = {
   data?: LeagueSentimentOpinionResponse;
   isFetching?: boolean;
+  isLoading?: boolean;
   locale: Locale;
   t: (key: string) => string;
 };
@@ -21,8 +22,9 @@ const biasTone: Record<string, string> = {
   NEUTRAL: "border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300",
 };
 
-export function ConsensusHourlyOpinion({ data, isFetching = false, locale, t }: Props) {
+export function ConsensusHourlyOpinion({ data, isFetching = false, isLoading = false, locale, t }: Props) {
   const opinion = data?.opinion;
+  const shouldShowLoading = isLoading || !opinion;
   const bias = opinion?.bias ?? "NEUTRAL";
   const tone = biasTone[bias] ?? biasTone.NEUTRAL;
   const sourceCounts = opinion?.sourceCounts ?? {};
@@ -46,22 +48,40 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, locale, t }: 
                 {t("consensus.aigentraOpinionSubtitle")}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2 sm:justify-end">
-              <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold ${tone}`}>
-                {biasIcon(bias)}
-                {t(`consensus.bias.${bias}`)}
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-bold text-zinc-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300">
-                <Gauge size={14} />
-                {formatNumber(opinion?.confidence ?? 0, 0, locale)}%
-              </span>
-            </div>
+            {!shouldShowLoading && (
+              <div className="flex flex-wrap gap-2 sm:justify-end">
+                <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold ${tone}`}>
+                  {biasIcon(bias)}
+                  {t(`consensus.bias.${bias}`)}
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-bold text-zinc-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300">
+                  <Gauge size={14} />
+                  {formatNumber(opinion.confidence, 0, locale)}%
+                </span>
+              </div>
+            )}
           </div>
 
+          {shouldShowLoading ? (
+            <div
+              data-testid="consensus-opinion-loading"
+              className="mt-4 flex min-h-[220px] items-center justify-center border-t border-zinc-200 pt-4 dark:border-white/[0.08] sm:mt-5 sm:pt-5"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="flex max-w-md flex-col items-center gap-3 text-center">
+                <CircleNotch className="animate-spin text-emerald-500 dark:text-emerald-300" size={30} weight="bold" />
+                <div>
+                  <p className="text-sm font-bold text-zinc-950 dark:text-white">{t("consensus.opinionLoadingHeadline")}</p>
+                  <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{t("consensus.opinionLoadingSummary")}</p>
+                </div>
+              </div>
+            </div>
+          ) : (
           <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-white/[0.08] sm:mt-5 sm:pt-5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-base font-bold leading-6 text-zinc-950 dark:text-white sm:text-lg sm:leading-7">
-                {opinion?.headline ?? t("consensus.opinionLoadingHeadline")}
+                {opinion.headline}
               </p>
               {data?.cacheHit && (
                 <span className="shrink-0 self-start rounded-full bg-zinc-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-600 dark:bg-white/10 dark:text-zinc-300">
@@ -70,20 +90,23 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, locale, t }: 
               )}
             </div>
             <p className="mt-2 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
-              {opinion?.summary ?? t("consensus.opinionLoadingSummary")}
+              {opinion.summary}
             </p>
-            {opinion?.action && (
+            {opinion.action && (
               <p className="mt-3 border-l-2 border-emerald-500 pl-3 text-sm font-semibold leading-6 text-zinc-800 dark:text-zinc-200 sm:mt-4">
                 {opinion.action}
               </p>
             )}
           </div>
+          )}
 
-          <div className="mt-3 grid gap-2 md:grid-cols-3 md:gap-3">
-            <OpinionList tone="good" title={t("consensus.opinionDrivers")} items={opinion?.keyDrivers} empty={t("consensus.opinionNoDrivers")} />
-            <OpinionList tone="warn" title={t("consensus.opinionRisks")} items={opinion?.risks} empty={t("consensus.opinionNoRisks")} />
-            <OpinionList tone="neutral" title={t("consensus.opinionWatch")} items={opinion?.watchConditions} empty={t("consensus.opinionNoWatch")} />
-          </div>
+          {!shouldShowLoading && (
+            <div className="mt-3 grid gap-2 md:grid-cols-3 md:gap-3">
+              <OpinionList tone="good" title={t("consensus.opinionDrivers")} items={opinion.keyDrivers} empty={t("consensus.opinionNoDrivers")} />
+              <OpinionList tone="warn" title={t("consensus.opinionRisks")} items={opinion.risks} empty={t("consensus.opinionNoRisks")} />
+              <OpinionList tone="neutral" title={t("consensus.opinionWatch")} items={opinion.watchConditions} empty={t("consensus.opinionNoWatch")} />
+            </div>
+          )}
         </div>
 
         <aside className="border-t border-zinc-200 bg-zinc-50/70 p-4 dark:border-white/[0.08] dark:bg-black/20 sm:p-6 lg:border-l lg:border-t-0">
@@ -91,9 +114,9 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, locale, t }: 
             {t("consensus.aigentraOpinion")}
           </p>
           <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 divide-y-0 sm:mt-4 sm:block sm:divide-y sm:divide-zinc-200 sm:dark:divide-white/[0.08]">
-            <Metric label={t("consensus.opinionRisk")} value={opinion?.riskLevel ?? "-"} />
-            <Metric label={t("consensus.opinionActiveSources")} value={String(activeCount)} />
-            <Metric label={t("consensus.opinionLongShort")} value={opinion?.longShortContext ?? "-"} compact />
+            <Metric label={t("consensus.opinionRisk")} value={shouldShowLoading ? "-" : localizedRiskLevel(opinion.riskLevel, t)} />
+            <Metric label={t("consensus.opinionActiveSources")} value={shouldShowLoading ? "-" : String(activeCount)} />
+            <Metric label={t("consensus.opinionLongShort")} value={shouldShowLoading ? "-" : opinion.longShortContext} compact />
             <Metric
               label={t("consensus.nextOpinionRefresh")}
               value={formatDateTime(nextRefreshAt, locale)}
@@ -106,6 +129,12 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, locale, t }: 
       </div>
     </section>
   );
+}
+
+function localizedRiskLevel(value: string, t: (key: string) => string) {
+  const key = `consensus.riskLevel.${value}`;
+  const translated = t(key);
+  return translated === key ? value : translated;
 }
 
 function OpinionList({

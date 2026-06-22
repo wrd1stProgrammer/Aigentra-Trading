@@ -32,15 +32,17 @@ import {
   type ISeriesApi,
   type Time
 } from "lightweight-charts";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type WheelEvent } from "react";
 import { getCachedKlines, getKlines, updateKlineCache, type KlineCandle, type ManagementReview, type PaperOrder, type PaperPosition, type PaperTradeEvent, type RunCycleResult } from "@/lib/api";
 import { useAppContext } from "@/components/app-provider";
 import { intlLocale } from "@/lib/format";
 import { buildRealizedEventOverlayLines } from "@/components/trader-profile-detail/chart-realized-overlays";
+import type { ExecutionMarker } from "@/components/trader-profile-detail/execution-markers";
 import { StatusBadge } from "@/components/status-badge";
 import {
   CACHED_CANDLES_VISIBLE_MS,
   candleLimitForInterval,
+  latestVisibleLogicalRange,
   restBackfillCandleLimit,
   restCacheStaleMs,
   restFallbackIntervalMs,
@@ -54,6 +56,7 @@ import {
   isOpenChartExposure,
   latestManagedStopLoss,
   overlaySideLabel,
+  pendingOrderLineLabel,
   priceLineTitle,
   shouldMarkTakeProfitCompleted,
   shouldRenderRealizedEventOverlays,
@@ -71,10 +74,13 @@ type TradePlanView = {
   takeProfits?: Array<{ price: number; weight: number; reason: string }>;
 };
 type ChartResultView = RunCycleResult | Pick<RunCycleResult, "tradePlan">;
+type PositionedExecutionMarker = ExecutionMarker & {
+  x: number;
+  y: number;
+};
 
 const TIMEFRAMES: ChartInterval[] = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"];
-const DEFAULT_INTERVAL: ChartInterval = "1h";
-const DEFAULT_INTERVAL_LIMIT = { "1h": 120 } as const;
+const DEFAULT_INTERVAL: ChartInterval = "5m";
 const HISTORY_PAGE_LIMIT = 500;
 const MAX_CHART_CANDLES = 5000;
 const OVERLAY_LINE_VISUAL = {
@@ -230,9 +236,13 @@ export function LiveCandleChart({
   paperOrders = [],
   paperEvents = [],
   managementReviews = [],
+  executionMarkers = [],
+  selectedExecutionMarkerId = null,
+  focusedExecutionMarkerId = null,
   height = 340,
   compact = false,
-  onLatestPriceChange
+  onLatestPriceChange,
+  onExecutionMarkerSelect
 }: {
   symbol: string;
   result: ChartResultView | null;
@@ -240,9 +250,13 @@ export function LiveCandleChart({
   paperOrders?: Array<PaperOrder | Record<string, any>>;
   paperEvents?: Array<PaperTradeEvent | Record<string, any>>;
   managementReviews?: Array<ManagementReview | Record<string, any>>;
+  executionMarkers?: readonly ExecutionMarker[];
+  selectedExecutionMarkerId?: string | null;
+  focusedExecutionMarkerId?: string | null;
   height?: number;
   compact?: boolean;
   onLatestPriceChange?: (price: number | null) => void;
+  onExecutionMarkerSelect?: (markerId: string) => void;
 }) {
   const { locale, t, theme } = useAppContext();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -265,6 +279,8 @@ export function LiveCandleChart({
   const [latestPrice, setLatestPrice] = useState<number | null>(null);
   const [dailyReferencePrice, setDailyReferencePrice] = useState<number | null>(null);
   const [showDrawingTools, setShowDrawingTools] = useState(false);
+  const [executionMarkerPositions, setExecutionMarkerPositions] = useState<PositionedExecutionMarker[]>([]);
+  const [activeExecutionMarkerId, setActiveExecutionMarkerId] = useState<string | null>(null);
   const chartHeight = height || 380;
 
   // --- Upgrade: Indicators Toggles ---
@@ -455,7 +471,7 @@ export function LiveCandleChart({
       const orderPrice = firstFiniteNumber(order.limitPrice, order.price, order.stopPrice, order.triggerPrice);
       if (orderPrice !== null) {
         const side = overlaySideLabel(order.side);
-        lines.push({ value: orderPrice, label: side ? `${t("chart.order")} ${side}` : `${t("chart.order")} ${index + 1}`, tone: "order" });
+        lines.push({ value: orderPrice, label: pendingOrderLineLabel(side, index, t), tone: "order" });
       }
       const stopLoss = firstFiniteNumber(order.stopLossPrice, order.stop_loss_price, payload?.stopLossPrice, payload?.stopLoss);
       if (stopLoss !== null) {
@@ -478,6 +494,12 @@ export function LiveCandleChart({
     }
     return compactOverlayLines(lines);
   }, [hasOpenPaperOrder, hasOpenPaperPosition, isFreshRunCycleResult, latestPrice, managementReviews, paperEvents, result, symbol, t, visibleOpenPaperOrders, visibleOpenPaperPositions]);
+  const visibleExecutionMarkers = useMemo(() => {
+    if (!selectedExecutionMarkerId) return [];
+    if (!executionMarkers.length) return [];
+    const selected = executionMarkers.find((marker) => marker.id === selectedExecutionMarkerId);
+    return selected ? [selected] : [];
+  }, [executionMarkers, selectedExecutionMarkerId]);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const ema20SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const ema50SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -526,7 +548,7 @@ export function LiveCandleChart({
       },
       rightPriceScale: {
         borderVisible: false,
-        scaleMargins: { top: 0.12, bottom: 0.22 }
+        scaleMargins: { top: 0.08, bottom: 0.16 }
       },
       timeScale: {
         borderVisible: false,
@@ -618,7 +640,7 @@ export function LiveCandleChart({
     const volumeSeries = volumeSeriesRef.current;
     if (!series || !chart || !volumeSeries) return;
 
-    const limit = interval === DEFAULT_INTERVAL ? DEFAULT_INTERVAL_LIMIT["1h"] : candleLimitForInterval(interval);
+    const limit = candleLimitForInterval(interval);
     const cached = getCachedKlines(symbol, interval, limit, CACHED_CANDLES_VISIBLE_MS);
     const cachedCandles = cached?.candles ?? [];
     const hasCachedCandles = cachedCandles.length > 0;
@@ -651,7 +673,7 @@ export function LiveCandleChart({
       lastCandleTimeRef.current = chartTimeValue(cachedCandles.at(-1)?.openTime);
       visibleSymbolRef.current = symbol;
       setLatestPrice(cachedCandles.at(-1)?.close ?? null);
-      chart.timeScale().fitContent();
+      setLatestVisibleRange(chart, cachedCandles.length, interval);
     } else if (!shouldPreserveVisible) {
       series.setData([]);
       volumeSeries.setData([]);
@@ -679,7 +701,7 @@ export function LiveCandleChart({
           lastCandleTimeRef.current = data.candles.length ? Math.floor(data.candles.at(-1)!.openTime / 1000) : null;
           visibleSymbolRef.current = data.candles.length ? symbol : visibleSymbolRef.current;
           setLatestPrice(data.candles.at(-1)?.close ?? null);
-          if (data.candles.length && fit) chart.timeScale().fitContent();
+          if (data.candles.length && fit) setLatestVisibleRange(chart, data.candles.length, interval);
         }
         setError(null);
       } catch (err) {
@@ -939,6 +961,56 @@ export function LiveCandleChart({
       });
     });
   }, [overlayLines, theme]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    const container = containerRef.current;
+    if (!chart || !series || !container) return;
+
+    const updateMarkerPositions = () => {
+      const rect = container.getBoundingClientRect();
+      const positioned = visibleExecutionMarkers
+        .map((marker) => {
+          const chartTime = alignTimeToInterval(marker.timeMs, interval);
+          const x = chart.timeScale().timeToCoordinate(chartTime as Time);
+          const y = series.priceToCoordinate(marker.price);
+          if (x === null || y === null) return null;
+          if (x < -40 || x > rect.width + 40 || y < -40 || y > rect.height + 40) return null;
+          const verticalOffset = marker.tone === "longEntry" ? 20 : -22;
+          return {
+            ...marker,
+            x: clamp(x, 12, Math.max(12, rect.width - 12)),
+            y: clamp(y + verticalOffset, 18, Math.max(18, rect.height - 18))
+          };
+        })
+        .filter((marker): marker is PositionedExecutionMarker => marker !== null);
+      setExecutionMarkerPositions(positioned);
+    };
+
+    updateMarkerPositions();
+    chart.timeScale().subscribeVisibleLogicalRangeChange(updateMarkerPositions);
+    const observer = new ResizeObserver(updateMarkerPositions);
+    observer.observe(container);
+    return () => {
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(updateMarkerPositions);
+      observer.disconnect();
+    };
+  }, [indicatorCandles, interval, theme, visibleExecutionMarkers]);
+
+  useEffect(() => {
+    if (!focusedExecutionMarkerId || !indicatorCandles.length) return;
+    const chart = chartRef.current;
+    if (!chart) return;
+    const selected = executionMarkers.find((marker) => marker.id === focusedExecutionMarkerId);
+    if (!selected) return;
+    const intervalSeconds = intervalToMs(interval) / 1000;
+    const center = alignTimeToInterval(selected.timeMs, interval);
+    chart.timeScale().setVisibleRange({
+      from: (center - intervalSeconds * 28) as Time,
+      to: (center + intervalSeconds * 18) as Time
+    });
+  }, [executionMarkers, focusedExecutionMarkerId, indicatorCandles.length, interval]);
 
   // --- Synced RSI Sub-Chart ---
   useEffect(() => {
@@ -1778,7 +1850,7 @@ export function LiveCandleChart({
         {/* Sync Chart stack */}
         <div className="flex-1 flex flex-col gap-2 min-w-0">
           {/* Candlestick Main Frame */}
-          <div className="relative w-full overflow-hidden">
+          <div className="relative w-full overflow-visible">
             <div ref={containerRef} className="w-full rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950/70" style={{ height: chartHeight }} />
             {showInitialChartSpinner ? (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-50/70 backdrop-blur-[2px] dark:bg-zinc-950/55" role="status" aria-live="polite">
@@ -1804,6 +1876,22 @@ export function LiveCandleChart({
               onMouseUp={handleCanvasMouseUp}
               onMouseLeave={handleCanvasMouseUp}
             />
+            <div
+              className="pointer-events-none absolute inset-0 z-30"
+            >
+              {executionMarkerPositions.map((marker) => (
+                <ExecutionChartMarker
+                  key={marker.id}
+                  marker={marker}
+                  active={marker.id === activeExecutionMarkerId}
+                  selected={marker.id === selectedExecutionMarkerId}
+                  interactive={!showDrawingTools || activeTool === "cursor"}
+                  t={t}
+                  onActivate={setActiveExecutionMarkerId}
+                  onSelect={onExecutionMarkerSelect}
+                />
+              ))}
+            </div>
           </div>
 
           {/* RSI Pane */}
@@ -1847,6 +1935,125 @@ export function LiveCandleChart({
 }
 
 // --- Helper UI Components ---
+
+function ExecutionChartMarker({
+  marker,
+  active,
+  selected,
+  interactive,
+  t,
+  onActivate,
+  onSelect
+}: {
+  marker: PositionedExecutionMarker;
+  active: boolean;
+  selected: boolean;
+  interactive: boolean;
+  t: (key: string) => string;
+  onActivate: (markerId: string | null) => void;
+  onSelect?: (markerId: string) => void;
+}) {
+  const tooltipAbove = marker.y > 160;
+  const pointerStartRef = useRef<{ readonly x: number; readonly y: number } | null>(null);
+  const suppressClickUntilRef = useRef(0);
+
+  const suppressClickBriefly = () => {
+    suppressClickUntilRef.current = Date.now() + 300;
+  };
+  const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    pointerStartRef.current = { x: event.clientX, y: event.clientY };
+  };
+  const handlePointerMove = (event: PointerEvent<HTMLButtonElement>) => {
+    const start = pointerStartRef.current;
+    if (!start) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) suppressClickBriefly();
+  };
+  const handlePointerUp = () => {
+    pointerStartRef.current = null;
+  };
+  const handleWheel = (_event: WheelEvent<HTMLButtonElement>) => {
+    suppressClickBriefly();
+  };
+  const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if (Date.now() < suppressClickUntilRef.current) {
+      event.preventDefault();
+      return;
+    }
+    onSelect?.(marker.id);
+  };
+
+  return (
+    <div
+      className={`absolute ${active ? "z-50" : selected ? "z-40" : "z-30"} ${interactive ? "pointer-events-auto" : "pointer-events-none"}`}
+      style={{ left: marker.x, top: marker.y, transform: "translate(-50%, -50%)" }}
+    >
+      <button
+        type="button"
+        className={`focus-ring relative z-10 rounded-md border px-2 py-1 font-mono text-[10px] font-black leading-none shadow-lg shadow-zinc-950/20 transition ${
+          markerButtonClass(marker, selected)
+        }`}
+        onMouseEnter={() => onActivate(marker.id)}
+        onMouseLeave={() => onActivate(null)}
+        onFocus={() => onActivate(marker.id)}
+        onBlur={() => onActivate(null)}
+        onTouchStart={() => onActivate(marker.id)}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onWheelCapture={handleWheel}
+        onClick={handleClick}
+        aria-label={`${marker.markerLabel} ${marker.priceLabel}`}
+      >
+        {marker.shortLabel}
+      </button>
+      {active ? (
+        <div
+          className={`absolute left-1/2 z-[60] w-60 -translate-x-1/2 rounded-xl border border-zinc-200 bg-white/95 p-3 text-left shadow-2xl shadow-zinc-950/20 backdrop-blur dark:border-zinc-700 dark:bg-zinc-950/95 ${
+            tooltipAbove ? "bottom-full mb-2" : "top-full mt-2"
+          }`}
+          role="tooltip"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className={`truncate text-xs font-bold ${markerTextTone(marker)}`}>{marker.markerLabel}</p>
+              <p className="mt-0.5 truncate font-mono text-[10px] text-zinc-400">{marker.eventTimeLabel}</p>
+            </div>
+            <span className={`shrink-0 rounded-md px-1.5 py-1 font-mono text-[10px] font-black ${markerBadgeClass(marker)}`}>
+              {marker.sideLabel}
+            </span>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+            <TooltipMetric label={t("detail.markerExecutedAt")} value={marker.eventTimeLabel} />
+            <TooltipMetric label={t("detail.markerEnteredAt")} value={marker.entryTimeLabel ?? "-"} />
+            <TooltipMetric label={t("common.price")} value={marker.priceLabel} mono />
+            <TooltipMetric label={t("common.quantity")} value={marker.quantityLabel ?? "-"} mono />
+            <TooltipMetric label={t("common.pnl")} value={marker.pnlLabel ?? "-"} valueClass={pnlValueClass(marker.pnlTone)} mono />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TooltipMetric({
+  label,
+  value,
+  valueClass = "text-zinc-950 dark:text-zinc-50",
+  mono = false
+}: {
+  label: string;
+  value: string;
+  valueClass?: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="truncate text-[10px] font-semibold text-zinc-400">{label}</p>
+      <p className={`mt-0.5 truncate text-[11px] font-semibold ${mono ? "font-mono" : ""} ${valueClass}`}>{value}</p>
+    </div>
+  );
+}
 
 function activeToolLabel(tool: "cursor" | "trend" | "horizontal" | "brush" | "ruler", t: (key: string) => string) {
   switch (tool) {
@@ -2007,6 +2214,53 @@ function intervalToMs(interval: ChartInterval) {
     "1w": 10080
   };
   return minutes[interval] * 60_000;
+}
+
+function setLatestVisibleRange(chart: IChartApi, candleCount: number, interval: ChartInterval) {
+  const range = latestVisibleLogicalRange(candleCount, interval);
+  if (range) {
+    chart.timeScale().setVisibleLogicalRange(range);
+  } else {
+    chart.timeScale().fitContent();
+  }
+}
+
+function alignTimeToInterval(timeMs: number, interval: ChartInterval) {
+  const intervalMs = intervalToMs(interval);
+  return Math.floor(timeMs / intervalMs) * (intervalMs / 1000);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function markerButtonClass(marker: ExecutionMarker, selected: boolean) {
+  const selectedRing = selected ? "ring-2 ring-white/80 dark:ring-zinc-950" : "";
+  if (marker.tone === "longEntry" || marker.tone === "profitExit") {
+    return `border-emerald-300/80 bg-emerald-400 text-zinc-950 hover:bg-emerald-300 ${selectedRing}`;
+  }
+  if (marker.tone === "shortEntry" || marker.tone === "lossExit") {
+    return `border-rose-300/80 bg-rose-400 text-white hover:bg-rose-300 ${selectedRing}`;
+  }
+  return `border-zinc-300 bg-zinc-100 text-zinc-700 hover:bg-white dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 ${selectedRing}`;
+}
+
+function markerBadgeClass(marker: ExecutionMarker) {
+  if (marker.sideLabel === "LONG") return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  if (marker.sideLabel === "SHORT") return "bg-rose-500/10 text-rose-700 dark:text-rose-300";
+  return "bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400";
+}
+
+function markerTextTone(marker: ExecutionMarker) {
+  if (marker.tone === "longEntry" || marker.tone === "profitExit") return "text-emerald-700 dark:text-emerald-300";
+  if (marker.tone === "shortEntry" || marker.tone === "lossExit") return "text-rose-700 dark:text-rose-300";
+  return "text-zinc-700 dark:text-zinc-200";
+}
+
+function pnlValueClass(tone: ExecutionMarker["pnlTone"]) {
+  if (tone === "good") return "text-emerald-600 dark:text-emerald-300";
+  if (tone === "bad") return "text-rose-600 dark:text-rose-300";
+  return "text-zinc-500 dark:text-zinc-400";
 }
 
 function firstFiniteNumber(...values: unknown[]) {

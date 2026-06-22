@@ -94,6 +94,12 @@ export function priceLineTitle(line: OverlayLine) {
   return line.count && line.count > 1 ? `${line.label} +${line.count - 1}` : line.label;
 }
 
+export function pendingOrderLineLabel(side: string, index: number, t: (key: string) => string) {
+  if (side === "LONG") return t("chart.pendingLongOrder");
+  if (side === "SHORT") return t("chart.pendingShortOrder");
+  return `${t("chart.pendingOrder")} ${index + 1}`;
+}
+
 export function isOpenChartExposure(record: { readonly status?: unknown }) {
   const status = normalizeStatusText(record.status);
   if (!status) return true;

@@ -13,6 +13,13 @@ test("low timeframe candle windows keep enough history for usable chart navigati
   assert.equal(chartData.candleLimitForInterval("1h"), 120);
 });
 
+test("initial chart viewport keeps cached history but opens near the latest candles", () => {
+  assert.equal(chartData.initialVisibleBarsForInterval("5m"), 500);
+  assert.deepEqual(chartData.latestVisibleLogicalRange(5_000, "5m"), { from: 4500, to: 5007 });
+  assert.deepEqual(chartData.latestVisibleLogicalRange(80, "5m"), { from: 0, to: 87 });
+  assert.equal(chartData.latestVisibleLogicalRange(0, "5m"), null);
+});
+
 test("REST backfill runs quickly when websocket updates go stale", () => {
   assert.equal(chartData.restBackfillCandleLimit(), 2);
   assert.equal(

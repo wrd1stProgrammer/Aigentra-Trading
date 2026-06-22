@@ -6,6 +6,7 @@ import type { ManagementReview, PaperOrder, PaperPosition, PaperTradeEvent } fro
 import type { LeagueSymbol, TraderScenario } from "@/lib/league";
 import { BinancePositionPanel } from "@/components/trader-profile-detail/binance-position-panel";
 import type { ChartPlanResult } from "@/components/trader-profile-detail/types";
+import type { ExecutionMarker } from "@/components/trader-profile-detail/execution-markers";
 
 const LiveCandleChart = dynamic(
   () => import("@/components/live-candle-chart").then((module) => module.LiveCandleChart),
@@ -22,12 +23,16 @@ export function DetailChart({
   paperOrders,
   paperEvents,
   managementReviews,
+  executionMarkers,
+  selectedExecutionMarkerId,
+  focusedExecutionMarkerId,
   height,
   compact,
   showPositionPanel = true,
   scenarios,
   liveMarkPrice,
   onLatestPriceChange,
+  onExecutionMarkerSelect,
   onOpenScenario
 }: {
   symbol: LeagueSymbol;
@@ -36,12 +41,16 @@ export function DetailChart({
   paperOrders: PaperOrder[];
   paperEvents?: PaperTradeEvent[];
   managementReviews?: ManagementReview[];
+  executionMarkers?: ExecutionMarker[];
+  selectedExecutionMarkerId?: string | null;
+  focusedExecutionMarkerId?: string | null;
   height?: number;
   compact?: boolean;
   showPositionPanel?: boolean;
   scenarios?: readonly TraderScenario[];
   liveMarkPrice?: number | null;
   onLatestPriceChange?: (price: number | null) => void;
+  onExecutionMarkerSelect?: (markerId: string) => void;
   onOpenScenario?: (scenario: TraderScenario) => void;
 }) {
   return (
@@ -53,9 +62,13 @@ export function DetailChart({
         paperOrders={paperOrders}
         paperEvents={paperEvents}
         managementReviews={managementReviews}
+        executionMarkers={executionMarkers}
+        selectedExecutionMarkerId={selectedExecutionMarkerId}
+        focusedExecutionMarkerId={focusedExecutionMarkerId}
         height={height}
         compact={compact}
         onLatestPriceChange={onLatestPriceChange}
+        onExecutionMarkerSelect={onExecutionMarkerSelect}
       />
       {showPositionPanel ? (
         <BinancePositionPanel
