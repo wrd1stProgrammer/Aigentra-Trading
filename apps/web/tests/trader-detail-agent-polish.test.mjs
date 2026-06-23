@@ -189,6 +189,63 @@ test("latest scenario timeline hides passive pending heartbeat paired with posit
   );
 });
 
+test("latest scenario timeline collapses repeated heartbeat reviews with identical AI copy", () => {
+  const repeatedBrief = {
+    headline: "Fresh displacement and sound imbalance structure support a cautious approach.",
+    action: "Hold current position and monitor volume and invalidation signals.",
+    keyReasons: ["Geometry and risk-reward are sound."],
+    risks: ["Weak volume warrants patience."],
+    watchConditions: ["Cancel or reduce if the current price stalls."],
+    managerNote: "Maintain cautious stance."
+  };
+  const scenarios = [
+    {
+      id: "review-1100",
+      source: "review",
+      createdAt: "2026-06-23T15:53:55Z",
+      phase: "OPEN_POSITION",
+      eventType: "imbalance_hunter_position_heartbeat",
+      action: "HOLD",
+      status: "HOLD",
+      side: "SHORT",
+      price: 62301.4,
+      reviewBrief: repeatedBrief
+    },
+    {
+      id: "review-1099",
+      source: "review",
+      createdAt: "2026-06-23T15:18:01Z",
+      phase: "OPEN_POSITION",
+      eventType: "imbalance_hunter_position_heartbeat",
+      action: "HOLD",
+      status: "HOLD",
+      side: "SHORT",
+      price: 62304.8,
+      reviewBrief: repeatedBrief
+    },
+    {
+      id: "review-1098",
+      source: "review",
+      createdAt: "2026-06-23T14:44:30Z",
+      phase: "OPEN_POSITION",
+      eventType: "imbalance_hunter_position_heartbeat",
+      action: "HOLD",
+      status: "HOLD",
+      side: "SHORT",
+      price: 62545.1,
+      reviewBrief: {
+        ...repeatedBrief,
+        headline: "The short is still protected, but momentum has changed since the last review."
+      }
+    }
+  ];
+
+  assert.deepEqual(
+    scenarioDedupe.dedupeScenarioTimelineScenarios(scenarios).map((scenario) => scenario.id),
+    ["review-1100", "review-1098"]
+  );
+});
+
 test("review facts replace user summary in visible review UI", () => {
   assert.match(aiReviewPanelSource, /reviewFacts/, "AI review panel should render structured review facts");
   assert.match(apiSource, /reviewFacts/, "API types should expose structured review facts");

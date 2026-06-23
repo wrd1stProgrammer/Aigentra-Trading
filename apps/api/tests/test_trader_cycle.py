@@ -9,8 +9,16 @@ from app.ai.base import (
     trader_review_policy,
 )
 from app.market.snapshot import classify_market_regime, derivative_context
-from app.main import trade_plan_from_review
-from app.traders.models import ManagedExposure, ManagementEvent, PositionManagementPayload, TradeReviewPayload, TradeReviewResult
+from app.main import refresh_stale_position_management_review, trade_plan_from_review
+from app.traders.models import (
+    ManagedExposure,
+    ManagementEvent,
+    PositionManagementPayload,
+    PositionManagementResult,
+    StructuredReview,
+    TradeReviewPayload,
+    TradeReviewResult,
+)
 from app.traders.registry import get_strategy, list_traders
 
 
@@ -647,3 +655,60 @@ def test_structured_review_normalizer_removes_list_syntax_from_action():
     assert review.structuredReview is not None
     assert review.structuredReview.action == "숏 포지션은 유지하세요. 손절을 넓히지 마세요."
     assert review.structuredReview.keyReasons == ["손절이 이미 진입가에 있습니다."]
+
+
+def test_stale_position_management_review_is_refreshed_from_live_metrics():
+    review = PositionManagementResult(
+        decision="HOLD",
+        confidence=78,
+        riskLevel="MEDIUM",
+        reviewCode="IMBALANCE_HUNTER_POSITION_HEARTBEAT",
+        structuredReview=StructuredReview(
+            verdict="Approve with caution",
+            headline="Fresh displacement and sound imbalance geometry support a cautious approach.",
+            action="Hold current position and monitor volume and invalidation signals.",
+            keyReasons=[
+                "Current price 64038.4 is 289.3 pips below the most recent loss entry (64266.5), indicating a fresh pullback context."
+            ],
+            risks=["Weak volume may lead to stall."],
+            watchConditions=["Cancel or reduce position if price stalls above 63900."],
+            managerNote="Maintain cautious stance.",
+        ),
+        actions=[],
+        riskChange="UNCHANGED",
+        nextReviewInSeconds=1500,
+        rationale="Position shows valid geometry but weak volume suggests patience.",
+        counterThesis="If invalidation fires, hard risk rules take priority.",
+        provider="openai",
+        model="gpt-4.1-nano",
+    )
+    event = ManagementEvent(
+        eventType="imbalance_hunter_position_heartbeat",
+        phase="OPEN_POSITION",
+        reason="Periodic agent review: actively monitor imbalance midpoint respect and displacement extension.",
+        metrics={
+            "price": 62301.4,
+            "entryPrice": 62853.7,
+            "stopLoss": 62853.7,
+            "takeProfit": 61590.9,
+            "progressR": 2.2163,
+            "unrealizedPnl": 152.10438,
+        },
+    )
+    exposure = ManagedExposure(
+        kind="position",
+        id=77,
+        status="open",
+        side="SHORT",
+        entryPrice=62853.7,
+        stopLoss=62853.7,
+        takeProfit=61590.9,
+    )
+
+    refreshed = refresh_stale_position_management_review(review, event=event, exposure=exposure)
+
+    assert refreshed.structuredReview is not None
+    assert "62,301.4" in refreshed.structuredReview.headline
+    assert "64,038.4" not in " ".join(refreshed.structuredReview.keyReasons)
+    assert "STALE_STRUCTURED_REVIEW_REFRESHED" in refreshed.riskFlags
+    assert "Current price 62,301.4" in refreshed.rationale

@@ -11,6 +11,16 @@ type ScenarioDedupeShape = {
   side?: string | null;
   price?: number | null;
   phase?: string | null;
+  rationale?: string | null;
+  summary?: string | null;
+  reviewBrief?: {
+    headline?: string | null;
+    action?: string | null;
+    keyReasons?: readonly string[] | null;
+    risks?: readonly string[] | null;
+    watchConditions?: readonly string[] | null;
+    managerNote?: string | null;
+  } | null;
 };
 
 export function dedupeScenarioTimelineScenarios(scenarios: readonly TraderScenario[]): TraderScenario[] {
@@ -22,6 +32,9 @@ export function dedupeScenarioTimelineScenarios(scenarios: readonly TraderScenar
     const key = scenarioTimelineDedupeKey(scenario);
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
+    const contentKey = scenarioTimelineContentDedupeKey(scenario);
+    if (contentKey && seenKeys.has(contentKey)) continue;
+    if (contentKey) seenKeys.add(contentKey);
     deduped.push(scenario);
   }
 
@@ -47,6 +60,31 @@ export function scenarioTimelineDedupeKey(scenario: ScenarioDedupeShape): string
     }
   }
   return `${scenario.source}:${scenario.id}`;
+}
+
+export function scenarioTimelineContentDedupeKey(scenario: ScenarioDedupeShape): string | null {
+  if (scenario.source !== "review") return null;
+  const content = normalizeContent(
+    [
+      scenario.reviewBrief?.headline,
+      scenario.reviewBrief?.action,
+      ...(scenario.reviewBrief?.keyReasons ?? []),
+      ...(scenario.reviewBrief?.risks ?? []),
+      ...(scenario.reviewBrief?.watchConditions ?? []),
+      scenario.reviewBrief?.managerNote,
+      scenario.rationale,
+      scenario.summary,
+    ].join(" ")
+  );
+  if (content.length < 48) return null;
+  return [
+    "review-content",
+    normalizeToken(scenario.phase),
+    normalizeToken(scenario.eventType).replace(/_\\d+$/, ""),
+    normalizeToken(scenario.action || scenario.status),
+    normalizeToken(scenario.side),
+    content,
+  ].join(":");
 }
 
 function isPassivePendingHeartbeatPairedWithPosition(
@@ -102,4 +140,12 @@ function priceBucket(value: number | null | undefined): number | "noprice" {
 
 function normalizeToken(value: string | null | undefined): string {
   return String(value ?? "").trim().replace(/[-\s]+/g, "_").toUpperCase();
+}
+
+function normalizeContent(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?/g, "#")
+    .replace(/\s+/g, " ")
+    .trim();
 }

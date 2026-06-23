@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import os
+import re
 import time
 from typing import Any, Dict, Optional
 
@@ -133,6 +134,7 @@ from app.traders.models import (
     PositionManagementPayload,
     PositionManagementResult,
     RunCycleRequest,
+    StructuredReview,
     RunCycleResponse,
     TakeProfitPlan,
     TradeCandidate,
@@ -149,6 +151,10 @@ PRICE_SHOCK_EVENT_TYPE = "common_price_shock"
 MIN_FINAL_PAPER_LEVERAGE = 5.0
 POSITION_MANAGEMENT_HEARTBEAT_LOOKAHEAD_SECONDS = 30
 OBSERVATION_SETUP_SCORE_FLOOR = 50
+CURRENT_PRICE_PATTERN = re.compile(
+    r"(?:current\s+price|현재\s*가격)\D{0,16}([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)",
+    re.IGNORECASE,
+)
 
 
 class PaperEngineRunRequest(BaseModel):
@@ -1178,6 +1184,195 @@ def heartbeat_event_for_position(trader_id: str, position: PaperPositionRecord, 
     )
 
 
+def refresh_stale_position_management_review(
+    review: PositionManagementResult,
+    *,
+    event: ManagementEvent,
+    exposure: ManagedExposure,
+) -> PositionManagementResult:
+    if not structured_review_has_stale_current_price(review.structuredReview, review.rationale, event.metrics):
+        return review
+    metrics = event.metrics
+    price = numeric_metric(metrics, "price")
+    entry = numeric_metric(metrics, "entryPrice") or exposure.entryPrice or exposure.limitPrice
+    stop = numeric_metric(metrics, "stopLoss") or exposure.stopLoss
+    target = numeric_metric(metrics, "takeProfit") or exposure.takeProfit
+    pnl = numeric_metric(metrics, "unrealizedPnl") or exposure.unrealizedPnl
+    progress_r = numeric_metric(metrics, "progressR")
+    side = str(exposure.side or "").upper() or "POSITION"
+    action_type = primary_action_type(review) or review.decision
+    position_state = management_position_state(side=side, price=price, entry=entry)
+    structured = StructuredReview(
+        verdict=review.decision.replace("_", " ").title(),
+        headline=(
+            f"{side} position reviewed at {format_management_price(price)} with the latest entry, stop, target, and PnL."
+        ),
+        action=management_action_sentence(action_type, position_state),
+        keyReasons=[
+            management_price_box_sentence(price=price, entry=entry, stop=stop, target=target, pnl=pnl, progress_r=progress_r),
+            f"Latest event: {event.reason}",
+        ],
+        risks=[management_risk_sentence(side=side, stop=stop, target=target)],
+        watchConditions=[management_watch_sentence(side=side, stop=stop, target=target, entry=entry)],
+        managerNote=management_note_sentence(action_type, side=side),
+    )
+    rationale = " ".join(
+        [
+            management_price_box_sentence(price=price, entry=entry, stop=stop, target=target, pnl=pnl, progress_r=progress_r),
+            management_watch_sentence(side=side, stop=stop, target=target, entry=entry),
+        ]
+    )
+    return review.model_copy(
+        update={
+            "structuredReview": structured,
+            "rationale": rationale,
+            "riskFlags": unique_strings([*review.riskFlags, "STALE_STRUCTURED_REVIEW_REFRESHED"]),
+        }
+    )
+
+
+def structured_review_has_stale_current_price(
+    structured_review: Optional[StructuredReview],
+    rationale: Optional[str],
+    metrics: dict[str, Any],
+) -> bool:
+    current_price = numeric_metric(metrics, "price")
+    if current_price is None:
+        return False
+    text = " ".join(structured_review_texts(structured_review) + ([rationale] if rationale else []))
+    for match in CURRENT_PRICE_PATTERN.finditer(text):
+        mentioned = parse_management_number(match.group(1))
+        if mentioned is not None and abs(mentioned - current_price) > max(100.0, current_price * 0.006):
+            return True
+    return False
+
+
+def structured_review_texts(structured_review: Optional[StructuredReview]) -> list[str]:
+    if structured_review is None:
+        return []
+    values = [
+        structured_review.verdict,
+        structured_review.headline,
+        structured_review.action,
+        *structured_review.keyReasons,
+        *structured_review.risks,
+        *structured_review.watchConditions,
+        structured_review.managerNote,
+    ]
+    return [value for value in values if value]
+
+
+def numeric_metric(metrics: dict[str, Any], key: str) -> Optional[float]:
+    value = metrics.get(key)
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed == parsed else None
+
+
+def parse_management_number(value: str) -> Optional[float]:
+    try:
+        return float(value.replace(",", ""))
+    except ValueError:
+        return None
+
+
+def format_management_price(value: Optional[float]) -> str:
+    if value is None:
+        return "-"
+    return f"{value:,.1f}".rstrip("0").rstrip(".")
+
+
+def format_management_pnl(value: Optional[float]) -> str:
+    if value is None:
+        return "-"
+    sign = "+" if value > 0 else ""
+    return f"{sign}{value:,.2f}"
+
+
+def management_position_state(*, side: str, price: Optional[float], entry: Optional[float]) -> str:
+    if price is None or entry is None:
+        return "active"
+    is_winning = price >= entry if side == "LONG" else price <= entry
+    return "working in profit" if is_winning else "under pressure"
+
+
+def management_action_sentence(action_type: Optional[str], position_state: str) -> str:
+    action = str(action_type or "HOLD").replace("_", " ").lower()
+    if "close" in action:
+        return "Close or reduce the exposure only if the hard invalidation is confirmed by the latest candle."
+    if "cancel" in action:
+        return "Cancel stale extra orders, but judge the open position from the current stop and target."
+    if "move stop" in action or "breakeven" in action:
+        return "Protect the position by keeping the stop tight; do not move risk farther away."
+    return f"Hold the position for now because it is {position_state}, while watching the next invalidation trigger."
+
+
+def management_price_box_sentence(
+    *,
+    price: Optional[float],
+    entry: Optional[float],
+    stop: Optional[float],
+    target: Optional[float],
+    pnl: Optional[float],
+    progress_r: Optional[float],
+) -> str:
+    progress = f", progress {progress_r:.2f}R" if progress_r is not None else ""
+    return (
+        f"Current price {format_management_price(price)}, entry {format_management_price(entry)}, "
+        f"stop {format_management_price(stop)}, target {format_management_price(target)}, "
+        f"PnL {format_management_pnl(pnl)}{progress}."
+    )
+
+
+def management_risk_sentence(*, side: str, stop: Optional[float], target: Optional[float]) -> str:
+    if side == "SHORT":
+        return (
+            f"A move back toward stop {format_management_price(stop)} weakens the short, while continuation toward "
+            f"{format_management_price(target)} keeps the target path open."
+        )
+    return (
+        f"A move back toward stop {format_management_price(stop)} weakens the long, while continuation toward "
+        f"{format_management_price(target)} keeps the target path open."
+    )
+
+
+def management_watch_sentence(
+    *,
+    side: str,
+    stop: Optional[float],
+    target: Optional[float],
+    entry: Optional[float],
+) -> str:
+    reference = stop if stop is not None else entry
+    if side == "SHORT":
+        return (
+            f"If a 15m close reclaims {format_management_price(reference)}, risk control should take priority; "
+            f"if price extends toward {format_management_price(target)}, keep monitoring profit protection."
+        )
+    return (
+        f"If a 15m close loses {format_management_price(reference)}, risk control should take priority; "
+        f"if price extends toward {format_management_price(target)}, keep monitoring profit protection."
+    )
+
+
+def management_note_sentence(action_type: Optional[str], *, side: str) -> str:
+    return f"Keep the next {side} decision tied to the live price, stop, and target. Older review wording should not override the current risk box."
+
+
+def unique_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    items: list[str] = []
+    for value in values:
+        key = str(value).strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        items.append(key)
+    return items
+
+
 def apply_management_actions(
     db: Session,
     *,
@@ -1408,6 +1603,7 @@ async def run_management_reviews(
         )
         try:
             review = await run_position_management_with_logging(db, payload, clean_provider, settings=settings)
+            review = refresh_stale_position_management_review(review, event=event, exposure=exposure)
             if event.eventType == PRICE_SHOCK_EVENT_TYPE:
                 review.nextReviewInSeconds = max(60, int(settings.price_shock_review_seconds or 120))
             if event.eventType == BREAKEVEN_PROFIT_PROTECTION_EVENT_TYPE:
