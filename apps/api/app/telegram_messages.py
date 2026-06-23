@@ -44,9 +44,101 @@ TRADER_NAMES = {
     "atr-trail-commander": "ATR Trail Boss",
 }
 
+TRADER_NAMES_BY_LOCALE = {
+    "en": TRADER_NAMES,
+    "ko": {
+        "channel-rider": "채널 항해사",
+        "volume-breaker": "거래량 브레이커",
+        "pullback-architect": "풀백 아키텍트",
+        "leverage-hunter": "레버리지 헌터",
+        "liquidity-reaper": "유동성 회수반",
+        "volatility-squeezer": "변동성 압착반",
+        "trend-sentinel": "추세 감시관",
+        "range-maker": "박스권 장인",
+        "funding-contrarian": "펀딩 역발상가",
+        "orderflow-sniper": "오더플로우 저격수",
+        "donchian-breakout": "돈치안 돌파대장",
+        "ichimoku-cloud-pilot": "구름항법사",
+        "vwap-reclaimer": "VWAP 회수반장",
+        "wyckoff-spring": "와이코프 스프링맨",
+        "rsi-divergence-scout": "RSI 다이버전스 정찰대",
+        "session-raider": "세션 침투조",
+        "imbalance-hunter": "임밸런스 추적반",
+        "momentum-ignition": "모멘텀 점화수",
+        "bollinger-reversion": "볼린저 부메랑",
+        "atr-trail-commander": "ATR 트레일 캡틴",
+    },
+    "ru": {
+        "channel-rider": "Картограф Канала",
+        "volume-breaker": "Взломщик Объёма",
+        "pullback-architect": "Архитектор Отката",
+        "leverage-hunter": "Трекер Плеча",
+        "liquidity-reaper": "Сборщик Ликвидности",
+        "volatility-squeezer": "Оператор Сжатия",
+        "trend-sentinel": "Страж Тренда",
+        "range-maker": "Механик Диапазона",
+        "funding-contrarian": "Контрариан Фандинга",
+        "orderflow-sniper": "Снайпер Потока",
+        "donchian-breakout": "Босс Donchian",
+        "ichimoku-cloud-pilot": "Пилот Облака",
+        "vwap-reclaimer": "Возвращатель VWAP",
+        "wyckoff-spring": "Пружина Wyckoff",
+        "rsi-divergence-scout": "Разведчик RSI-дивергенции",
+        "session-raider": "Рейдер Сессии",
+        "imbalance-hunter": "Охотник за Имбалансом",
+        "momentum-ignition": "Зажигатель Моментума",
+        "bollinger-reversion": "Бумеранг Боллинджера",
+        "atr-trail-commander": "Босс ATR-трейла",
+    },
+    "pt-BR": {
+        "channel-rider": "Cartógrafo do Canal",
+        "volume-breaker": "Quebra-Volume",
+        "pullback-architect": "Arquiteto do Pullback",
+        "leverage-hunter": "Rastreador de Alavancagem",
+        "liquidity-reaper": "Varredor de Liquidez",
+        "volatility-squeezer": "Operador do Squeeze",
+        "trend-sentinel": "Sentinela de Tendência",
+        "range-maker": "Mecânico do Range",
+        "funding-contrarian": "Contrário do Funding",
+        "orderflow-sniper": "Sniper do Fluxo",
+        "donchian-breakout": "Chefe Donchian",
+        "ichimoku-cloud-pilot": "Piloto da Nuvem",
+        "vwap-reclaimer": "Resgatador do VWAP",
+        "wyckoff-spring": "Trampolim Wyckoff",
+        "rsi-divergence-scout": "Batedor de Divergência RSI",
+        "session-raider": "Raider de Sessão",
+        "imbalance-hunter": "Caçador de Imbalance",
+        "momentum-ignition": "Ignitor de Momentum",
+        "bollinger-reversion": "Bumerangue Bollinger",
+        "atr-trail-commander": "Chefe do Trail ATR",
+    },
+    "tr": {
+        "channel-rider": "Kanal Haritacısı",
+        "volume-breaker": "Hacim Kırıcı",
+        "pullback-architect": "Pullback Mimarı",
+        "leverage-hunter": "Kaldıraç İzleyici",
+        "liquidity-reaper": "Likidite Süpürücüsü",
+        "volatility-squeezer": "Sıkışma Operatörü",
+        "trend-sentinel": "Trend Nöbetçisi",
+        "range-maker": "Range Tamircisi",
+        "funding-contrarian": "Funding Tersçisi",
+        "orderflow-sniper": "Emir Akışı Nişancısı",
+        "donchian-breakout": "Donchian Kırılım Şefi",
+        "ichimoku-cloud-pilot": "Bulut Pilotu",
+        "vwap-reclaimer": "VWAP Geri Alıcı",
+        "wyckoff-spring": "Wyckoff Zıplaması",
+        "rsi-divergence-scout": "RSI Uyumsuzluk Gözcüsü",
+        "session-raider": "Seans Akıncısı",
+        "imbalance-hunter": "Dengesizlik Avcısı",
+        "momentum-ignition": "Momentum Ateşleyici",
+        "bollinger-reversion": "Bollinger Bumerangı",
+        "atr-trail-commander": "ATR Trail Patronu",
+    },
+}
+
 
 def compose_event_message(preferences: TelegramPreferences, event: TradeEventRecord, telegram_event_type: str) -> str:
-    trader_name = TRADER_NAMES.get(event.trader_id or "", event.trader_id or "-")
+    trader_name = localized_trader_name(event.trader_id, preferences.locale)
     label = telegram_event_label(telegram_event_type, preferences.locale)
     price = f"{float(event.price):,.1f}" if event.price is not None else "-"
     pnl = f"{float(event.realized_pnl):+,.2f}" if event.realized_pnl else "-"
@@ -83,7 +175,7 @@ def compose_management_message(
     review: PositionManagementReviewRecord,
     telegram_event_type: str,
 ) -> str:
-    trader_name = TRADER_NAMES.get(review.trader_id or "", review.trader_id or "-")
+    trader_name = localized_trader_name(review.trader_id, preferences.locale)
     label = telegram_event_label(telegram_event_type, preferences.locale)
     payload = from_json(review.payload_json)
     translation_meta: dict[str, Any] = {"status": "canonical"}
@@ -106,7 +198,7 @@ def compose_management_message(
     sections = review_sections_for_preferences(preferences)
     rationale = text_value(review_payload.get("rationale")) or text_value(review.error_message) or "-"
     lines = [
-        f"[AI Trader League] {label}",
+        management_notification_title(telegram_event_type, label, preferences.locale),
         f"{trader_name} · {review.symbol or '-'}",
     ]
     if "status" in sections:
@@ -129,10 +221,30 @@ def compose_management_message(
             ]
         )
     if should_suppress_unlocalized_management_details(preferences.locale, translation_meta):
-        lines.extend(management_translation_unavailable_lines(sections, preferences.locale))
+        lines.extend(management_localized_digest_lines(exposure_payload, metrics_payload, sections, preferences.locale))
     else:
         lines.extend(management_review_detail_lines(review_payload, sections, preferences.locale, rationale))
     return "\n".join(lines)
+
+
+def localized_trader_name(trader_id: str | None, locale: str) -> str:
+    if not trader_id:
+        return "-"
+    names = TRADER_NAMES_BY_LOCALE.get(locale, TRADER_NAMES)
+    return names.get(trader_id, TRADER_NAMES.get(trader_id, trader_id))
+
+
+def management_notification_title(telegram_event_type: str, fallback_label: str, locale: str) -> str:
+    if telegram_event_type.startswith("ai_review_"):
+        labels = {
+            "en": "Agent Review",
+            "ko": "Agent 중간 리뷰",
+            "ru": "Обзор агента",
+            "pt-BR": "Revisão do agente",
+            "tr": "Agent ara incelemesi",
+        }
+        return f"[Aigentra Trading] {labels.get(locale, labels['en'])}"
+    return f"[Aigentra Trading] {fallback_label}"
 
 
 def compose_league_sentiment_message(preferences: TelegramPreferences, opinion: LeagueSentimentOpinionRecord) -> str:
@@ -236,6 +348,66 @@ def management_translation_unavailable_copy(locale: str) -> str:
         "tr": "İnceleme çevirisi henüz hazır değil. Son incelemeyi okumak için Aigentra Trading'i açın.",
     }
     return copy.get(locale, copy["en"])
+
+
+def management_localized_digest_lines(
+    exposure_payload: dict[str, Any],
+    metrics_payload: dict[str, Any],
+    sections: list[str],
+    locale: str,
+) -> list[str]:
+    if not any(section in sections for section in ("summary", "action", "key_reasons", "risks", "watch_conditions", "manager_note", "rationale")):
+        return []
+    labels = management_message_labels(locale)
+    side = text_value(exposure_payload.get("side")) or "-"
+    entry = first_number(exposure_payload.get("entryPrice"), metrics_payload.get("entryPrice"))
+    stop = first_number(exposure_payload.get("stopLoss"), metrics_payload.get("stopLoss"))
+    take_profit = first_number(exposure_payload.get("takeProfit"), metrics_payload.get("takeProfit"))
+    pnl = format_pnl(exposure_payload, metrics_payload)
+    first_line = localized_position_digest_line(locale, side, entry, stop, take_profit)
+    second_line = localized_position_pnl_line(locale, pnl)
+    return ["", labels["reviewTitle"], f"  {first_line}", f"  {second_line}"]
+
+
+def localized_position_digest_line(
+    locale: str,
+    side: str,
+    entry: float | None,
+    stop: float | None,
+    take_profit: float | None,
+) -> str:
+    at_breakeven = entry is not None and stop is not None and abs(entry - stop) <= max(abs(entry) * 0.00001, 0.01)
+    if locale == "ko":
+        if at_breakeven:
+            return f"현재 {side} 포지션은 본전 방어가 걸려 있습니다."
+        return f"현재 {side} 포지션은 진입가 {format_price(entry)}, 손절가 {format_price(stop)}, 익절가 {format_price(take_profit)} 기준으로 관리 중입니다."
+    if locale == "ru":
+        if at_breakeven:
+            return f"Текущая позиция {side} защищена стопом в безубытке."
+        return f"Позиция {side} управляется от входа {format_price(entry)}, стопа {format_price(stop)} и цели {format_price(take_profit)}."
+    if locale == "pt-BR":
+        if at_breakeven:
+            return f"A posição {side} está protegida no breakeven."
+        return f"A posição {side} está sendo gerida pela entrada {format_price(entry)}, stop {format_price(stop)} e alvo {format_price(take_profit)}."
+    if locale == "tr":
+        if at_breakeven:
+            return f"Mevcut {side} pozisyonu başa baş stop ile korunuyor."
+        return f"{side} pozisyonu giriş {format_price(entry)}, stop {format_price(stop)} ve hedef {format_price(take_profit)} üzerinden yönetiliyor."
+    if at_breakeven:
+        return f"The current {side} position is protected at breakeven."
+    return f"The {side} position is being managed from entry {format_price(entry)}, stop {format_price(stop)}, and target {format_price(take_profit)}."
+
+
+def localized_position_pnl_line(locale: str, pnl: str) -> str:
+    if locale == "ko":
+        return f"현재 손익은 {pnl}입니다. 자세한 리뷰는 앱에서 이어서 확인하세요."
+    if locale == "ru":
+        return f"Текущий PnL: {pnl}. Подробный обзор смотрите в приложении."
+    if locale == "pt-BR":
+        return f"PnL atual: {pnl}. Veja a revisão completa no app."
+    if locale == "tr":
+        return f"Güncel PnL: {pnl}. Ayrıntılı incelemeyi uygulamada kontrol edin."
+    return f"Current PnL is {pnl}. Open the app for the full review."
 
 
 def review_sections_for_preferences(preferences: TelegramPreferences) -> list[str]:
@@ -597,7 +769,21 @@ def format_pnl(exposure_payload: dict[str, Any], metrics_payload: dict[str, Any]
         exposure_payload.get("roePercent"),
         metrics_payload.get("roePercent"),
     )
+    if pnl_pct is None:
+        pnl_pct = inferred_roe_percent(exposure_payload, metrics_payload, pnl)
     return f"{pnl_text} ({pnl_pct:+.2f}%)" if pnl_pct is not None else pnl_text
+
+
+def inferred_roe_percent(exposure_payload: dict[str, Any], metrics_payload: dict[str, Any], pnl: float) -> float | None:
+    entry = first_number(exposure_payload.get("entryPrice"), metrics_payload.get("entryPrice"))
+    quantity = first_number(exposure_payload.get("quantity"), metrics_payload.get("quantity"), exposure_payload.get("size"), metrics_payload.get("size"))
+    leverage = first_number(exposure_payload.get("leverage"), metrics_payload.get("leverage"))
+    margin = first_number(exposure_payload.get("margin"), metrics_payload.get("margin"), exposure_payload.get("initialMargin"), metrics_payload.get("initialMargin"))
+    if margin is None and entry is not None and quantity is not None and leverage is not None and leverage > 0:
+        margin = abs(entry * quantity) / leverage
+    if margin is None or margin <= 0:
+        return None
+    return (pnl / margin) * 100
 
 
 def compact_number(value: float, *, max_decimals: int) -> str:

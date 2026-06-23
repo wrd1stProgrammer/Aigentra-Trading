@@ -61,7 +61,7 @@ def test_entry_alert_uses_ai_review_summary_when_available():
 
     text = compose_event_message(preferences, event, "pending_entry")
 
-    assert "Session Raider · BTCUSDT" in text
+    assert "세션 침투조 · BTCUSDT" in text
     assert "조정 후 승인" in text
     assert "BTC가 세션 범위 아래로 확인된 하락 돌파" in text
     assert "주문이 채워지지 않으면 2개의 15분 캔들 후 자동 취소하세요." in text
@@ -192,11 +192,11 @@ def test_management_alert_includes_position_context_readably():
 
     text = compose_management_message(preferences, review, "ai_review_high")
 
-    assert "[AI Trader League] AI 중간 리뷰 높음" in text
-    assert "Liquidity Sweeper · BTCUSDT" in text
+    assert "[Aigentra Trading] Agent 중간 리뷰" in text
+    assert "유동성 회수반 · BTCUSDT" in text
     assert "\n\n상태\n  단계: OPEN_POSITION\n  판단: HOLD\n  조치: MOVE_STOP_TO_BREAKEVEN\n  신뢰도: 84" in text
     assert "\n\n포지션\n  방향: LONG · 5x\n  진입가: 63,800\n  현재가: 63,920.25" in text
-    assert "  손절가: 63,666\n  익절가: 64,500\n  PnL: +42.30" in text
+    assert "  손절가: 63,666\n  익절가: 64,500\n  PnL: +42.30 (+1.66%)" in text
     assert "\n\n리뷰\n  유지\n  스윕 재수집 논리는 아직 살아 있습니다." in text
     assert "  손절은 본전으로 두고 15분 종가가 63666 아래로 내려가면 즉시 종료하세요." in text
     assert "  포지션은 소폭 이익 상태입니다." in text
@@ -372,7 +372,7 @@ def test_management_alert_uses_cached_locale_translation_and_cleans_bullets(temp
     assert "\n  - " not in text
 
 
-def test_management_alert_suppresses_english_detail_when_translation_is_missing(temp_db):
+def test_management_alert_uses_localized_digest_when_translation_is_missing(temp_db):
     preferences = SubscriberPreferencesView(
         user_id="google-1",
         email="operator@example.com",
@@ -402,7 +402,16 @@ def test_management_alert_suppresses_english_detail_when_translation_is_missing(
             payload_json=to_json(
                 {
                     "event": {"severity": "MEDIUM", "phase": "OPEN_POSITION", "metrics": {"price": 62635.9}},
-                    "exposure": {"kind": "position", "side": "SHORT", "entryPrice": 62768.2, "leverage": 5},
+                    "exposure": {
+                        "kind": "position",
+                        "side": "SHORT",
+                        "entryPrice": 62768.2,
+                        "stopLoss": 62768.2,
+                        "takeProfit": 62453.3,
+                        "leverage": 5,
+                        "quantity": 0.043,
+                        "unrealizedPnl": 28.21,
+                    },
                     "review": {
                         "structuredReview": {
                             "verdict": "Hold the short",
@@ -419,6 +428,11 @@ def test_management_alert_suppresses_english_detail_when_translation_is_missing(
 
         text = compose_management_message(preferences, review, "ai_review_medium")
 
-    assert "리뷰 번역이 아직 준비되지 않았습니다." in text
+    assert "[Aigentra Trading] Agent 중간 리뷰" in text
+    assert "세션 침투조 · BTCUSDT" in text
+    assert "PnL: +28.21 (+5.23%)" in text
+    assert "리뷰 번역이 아직 준비되지 않았습니다." not in text
+    assert "현재 SHORT 포지션은 본전 방어가 걸려 있습니다." in text
+    assert "전체 리뷰 번역은 앱에서 확인하세요." not in text
     assert "Hold the short" not in text
     assert "Keep the short open" not in text

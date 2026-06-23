@@ -30,10 +30,11 @@ test("holding panel is a scrollable exposure surface without inert more button",
   assert.match(sidePanelsSource, /data-testid="holding-item"/, "holding rows should be targetable in QA");
 });
 
-test("trade history basis button expands real evidence text", () => {
-  assert.match(sidePanelsSource, /expandedTradeHistoryId/, "trade history must track the expanded evidence row");
-  assert.match(sidePanelsSource, /item\.basisDetail/, "expanded row should show basis detail");
-  assert.match(sidePanelsSource, /aria-expanded=\{expanded/, "basis button should expose expanded state");
+test("trade history removes basis affordances from the execution log", () => {
+  assert.doesNotMatch(sidePanelsSource, /expandedTradeHistoryId/, "trade history should not track hidden evidence expanders");
+  assert.doesNotMatch(sidePanelsSource, /item\.basisDetail/, "execution log should not render hidden basis detail");
+  assert.doesNotMatch(sidePanelsSource, /aria-expanded=\{expanded/, "basis label should not expose expandable state");
+  assert.doesNotMatch(sidePanelsSource, /\{item\.basis\}/, "execution log should not render a basis chip");
 });
 
 test("trading journal only renders position action journal items", () => {

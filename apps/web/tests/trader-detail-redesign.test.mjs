@@ -91,7 +91,7 @@ test("trader detail exposes reference-style monitoring layout regions", () => {
 test("status feed thread reads like a note without next-watch labels", () => {
   assert.doesNotMatch(source, /detail\.statusFeedWatch/, "status feed should not render a labeled next-watch line");
   assert.doesNotMatch(source, /feedWatch\(feed\)/, "legacy watch fields should not be displayed in the thread UI");
-  assert.match(source, /mt-1 break-keep text-sm leading-6 text-zinc-600/, "thread body should keep Korean phrases from orphaning syllables in the narrow card");
+  assert.match(source, /mt-2 break-keep text-pretty text-sm leading-6 text-zinc-600/, "thread body should keep Korean phrases from orphaning syllables in the narrow card");
   assert.match(source, /mt-1 break-keep text-sm leading-6 text-zinc-300/, "leaderboard note body should use the same Korean-friendly wrapping");
 });
 

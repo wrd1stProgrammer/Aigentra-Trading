@@ -73,27 +73,34 @@ export function StatusFeedThread({
   return (
     <aside
       data-testid="trader-status-feed-thread"
-      className="min-h-[340px] min-w-0 self-start overflow-hidden rounded-2xl bg-white ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800"
+      className="min-h-[340px] min-w-0 self-start overflow-hidden rounded-2xl bg-white ring-1 ring-zinc-200 dark:bg-[#090d0b] dark:ring-white/10"
     >
-      <div className="border-b border-zinc-100 px-5 py-4 dark:border-zinc-900">
-        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-600 dark:text-emerald-400">{t("detail.statusFeed")}</p>
-        <h2 className="mt-1 text-lg font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{t("detail.statusFeedThread")}</h2>
+      <div className="border-b border-zinc-100 px-5 py-4 dark:border-white/10">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-600 dark:text-emerald-400">{t("detail.statusFeed")}</p>
+            <h2 className="mt-1 text-lg font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{t("detail.statusFeedThread")}</h2>
+          </div>
+          <span className="inline-flex size-2.5 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.45)]" />
+        </div>
       </div>
       <div className="max-h-[426px] overflow-y-auto px-5 py-4">
         {items.length ? (
-          <div className="relative space-y-5">
-            <div className="absolute left-[5px] top-2 h-[calc(100%-1rem)] w-px bg-zinc-200 dark:bg-zinc-800" />
+          <div className="relative space-y-4">
+            <div className="absolute left-[7px] top-3 h-[calc(100%-1.5rem)] w-px bg-zinc-200 dark:bg-white/10" />
             {items.map((feed) => {
               const state = feedState(feed);
               const time = feedCreatedAt(feed);
               return (
-                <article key={`${feed.id ?? feed.createdAt ?? feed.message}`} className="relative pl-5">
-                  <span className="absolute left-0 top-1.5 size-2.5 rounded-full bg-emerald-400 ring-4 ring-white dark:ring-zinc-950" />
-                  <div className="flex min-w-0 items-center justify-between gap-3">
-                    <p className={`min-w-0 truncate text-sm font-semibold ${stateTone(state)}`}>{feedHeadline(feed) || t("detail.statusFeed")}</p>
-                    {time ? <span className="shrink-0 font-mono text-[11px] text-zinc-500">{formatRelativeDateTime(time, locale, t)}</span> : null}
+                <article key={`${feed.id ?? feed.createdAt ?? feed.message}`} data-testid="desk-note-thread-item" className="relative pl-6">
+                  <span className="absolute left-0 top-4 size-3.5 rounded-full border-2 border-white bg-emerald-400 shadow-[0_0_0_4px_rgba(16,185,129,0.10)] dark:border-[#090d0b]" />
+                  <div className="rounded-[1.25rem] border border-zinc-200 bg-zinc-50/80 px-4 py-3.5 shadow-sm shadow-zinc-950/[0.03] transition duration-200 ease-out hover:-translate-y-0.5 hover:border-emerald-500/30 dark:border-white/10 dark:bg-white/[0.035] dark:shadow-black/20">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <p className={`min-w-0 text-pretty text-sm font-semibold leading-5 ${stateTone(state)}`}>{feedHeadline(feed) || t("detail.statusFeed")}</p>
+                      {time ? <span className="shrink-0 whitespace-nowrap font-mono text-[11px] tabular-nums text-zinc-500">{formatRelativeDateTime(time, locale, t)}</span> : null}
+                    </div>
+                    <p className="mt-2 break-keep text-pretty text-sm leading-6 text-zinc-600 dark:text-zinc-300">{feedMessage(feed)}</p>
                   </div>
-                  <p className="mt-1 break-keep text-sm leading-6 text-zinc-600 dark:text-zinc-300">{feedMessage(feed)}</p>
                 </article>
               );
             })}

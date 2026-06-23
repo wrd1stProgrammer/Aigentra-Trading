@@ -252,7 +252,7 @@ def test_trade_events_enqueue_matching_telegram_alerts(temp_db, monkeypatch):
             "text": sent_messages[0]["text"],
         }
     ]
-    assert "Channel Cartographer" in sent_messages[0]["text"]
+    assert "채널 항해사" in sent_messages[0]["text"]
     assert "BTCUSDT" in sent_messages[0]["text"]
 
 
@@ -367,7 +367,7 @@ def test_management_review_alerts_respect_importance(temp_db, monkeypatch):
         assert delivery.position_management_review_id == review.id
         assert delivery.telegram_event_type == "ai_review_high"
 
-    assert "AI 중간 리뷰 높음" in sent_messages[0]["text"]
+    assert "Agent 중간 리뷰" in sent_messages[0]["text"]
 
 
 def test_league_sentiment_opinion_alerts_are_short_localized_and_deduplicated(temp_db, monkeypatch):

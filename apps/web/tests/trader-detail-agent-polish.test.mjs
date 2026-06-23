@@ -21,6 +21,7 @@ const scenarioFeedSource = readFileSync(new URL("../components/trader-profile-de
 const profileSource = readFileSync(new URL("../components/trader-profile-page-client.tsx", import.meta.url), "utf8");
 const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
+const statusFeedThreadSource = readFileSync(new URL("../components/trader-profile-detail/status-feed-thread.tsx", import.meta.url), "utf8");
 
 const overlayHelpers = loadTsModule("../components/live-candle-chart-overlays.ts");
 const reviewDisplay = loadTsModule("../lib/review-display.ts");
@@ -328,6 +329,22 @@ test("sidebar execution log uses the same load-more guards as the main trade jou
   assert.match(sidebarSource, /historyHasMore/, "sidebar should receive the shared history has-more state");
   assert.match(sidebarSource, /loadingMoreHistory/, "sidebar should receive the shared loading state");
   assert.match(pageSource, /if \(loadingMoreHistory \|\| !historyHasMore\) return/, "detail page should avoid extra history fetches when already loading or exhausted");
+});
+
+test("sidebar execution log no longer exposes rationale expanders", () => {
+  assert.doesNotMatch(sidePanelsSource, /expandedTradeHistoryId/, "execution log should not keep local expander state");
+  assert.doesNotMatch(sidePanelsSource, /aria-expanded=\{expanded\}/, "execution log should not expose expandable rationale controls");
+  assert.doesNotMatch(sidePanelsSource, /CaretDown/, "execution log should not render rationale chevrons");
+  assert.doesNotMatch(sidePanelsSource, /item\.basisDetail/, "execution log should not render hidden basis detail copy");
+  assert.doesNotMatch(sidePanelsSource, /\{item\.basis\}/, "execution log should not render basis chips");
+});
+
+test("live desk notes use a thread-feed surface with stable readable notes", () => {
+  assert.match(statusFeedThreadSource, /data-testid="trader-status-feed-thread"/, "desk notes need a stable QA target");
+  assert.match(statusFeedThreadSource, /data-testid="desk-note-thread-item"/, "each desk note should be independently inspectable");
+  assert.match(statusFeedThreadSource, /rounded-\[1\.25rem\]/, "thread notes should use a distinct message-card radius");
+  assert.match(statusFeedThreadSource, /text-pretty/, "long desk notes should avoid ragged awkward wrapping");
+  assert.match(statusFeedThreadSource, /tabular-nums/, "timestamps should use tabular figures");
 });
 
 test("trade history uses closed positions and normalized user-facing result labels", () => {

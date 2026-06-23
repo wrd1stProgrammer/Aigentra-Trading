@@ -1,7 +1,7 @@
 "use client";
 
-import { CaretDown, ChartPieSlice } from "@phosphor-icons/react";
-import { useState, type UIEvent } from "react";
+import { ChartPieSlice } from "@phosphor-icons/react";
+import type { UIEvent } from "react";
 import type { ManagementReview } from "@/lib/api";
 import { formatNumber, formatPercent } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
@@ -103,8 +103,6 @@ export function TradeHistoryPanel({
   hasMore?: boolean;
   loadingMore?: boolean;
 }) {
-  const [expandedTradeHistoryId, setExpandedTradeHistoryId] = useState<string | null>(null);
-
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
     if (!onLoadMore || loadingMore || !hasMore) return;
     const target = event.currentTarget;
@@ -121,8 +119,8 @@ export function TradeHistoryPanel({
         onScroll={handleScroll}
       >
         {items.map((item) => (
-          <div key={item.id} className="py-3">
-            <div className="grid grid-cols-[74px_minmax(0,1fr)_auto] items-center gap-3">
+          <div key={item.id} className="py-3.5">
+            <div className="grid grid-cols-[74px_minmax(0,1fr)] items-center gap-3">
               <span className="font-mono text-sm font-semibold text-zinc-400">{item.time}</span>
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50">
@@ -132,26 +130,7 @@ export function TradeHistoryPanel({
                   {[item.quantity, item.priceLabel].filter(Boolean).join(" · ")}
                 </p>
               </div>
-              {(() => {
-                const expanded = expandedTradeHistoryId === item.id;
-                return (
-                  <button
-                    type="button"
-                    aria-expanded={expanded}
-                    onClick={() => setExpandedTradeHistoryId(expanded ? null : item.id)}
-                    className="focus-ring inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-semibold text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
-                  >
-                    {item.basis}
-                    <CaretDown className={expanded ? "rotate-180 transition" : "transition"} size={14} />
-                  </button>
-                );
-              })()}
             </div>
-            {expandedTradeHistoryId === item.id ? (
-              <div className="mt-3 rounded-lg bg-zinc-50 p-3 text-sm leading-6 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
-                {item.basisDetail}
-              </div>
-            ) : null}
           </div>
         ))}
         {!items.length ? <div className="py-6 text-sm text-zinc-500 dark:text-zinc-400">{t("detail.noTradeHistory")}</div> : null}
