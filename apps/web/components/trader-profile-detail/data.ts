@@ -21,8 +21,6 @@ const POSITION_JOURNAL_EVENT_TYPES = [
   "REDUCE_RISK"
 ] as const;
 
-const REVIEW_TITLE_MAX_CHARS = 34;
-
 export function buildScenarioTimelineItems({
   scenarios,
   reviews,
@@ -470,84 +468,42 @@ export function scenarioTitle(scenario: TraderScenario, t: Translator) {
 }
 
 export function managementReviewScenarioTitle(scenario: TraderScenario, t: Translator) {
-  const narrativeTitle = reviewNarrativeTitle(scenario, t);
-  const actionLabel = statusLabel(scenario.action ?? scenario.status, t);
-  const eventLabel = statusLabel(scenario.eventType, t);
-  const phaseLabel = scenarioPhaseLabel(scenario.phase, t);
   const sideLabel = localizedScenarioSide(scenario.side, t);
-  if (narrativeTitle) {
-    const parts = [narrativeTitle, sideLabel].filter((part, index, arr) => part && part !== "-" && arr.indexOf(part) === index);
-    return parts.join(" · ");
-  }
-  const primary = eventLabel !== "-" ? eventLabel : actionLabel !== "-" ? actionLabel : t("detail.phaseAiReview");
-  const parts = [primary, phaseLabel, sideLabel].filter((part, index, arr) => part && part !== "-" && arr.indexOf(part) === index);
-  return parts.join(" · ");
+  const title = reviewTitleTopic(scenario, t);
+  return [sideLabel, title].filter((part, index, arr) => part && part !== "-" && arr.indexOf(part) === index).join(" ");
 }
 
-function reviewNarrativeTitle(scenario: TraderScenario, t: Translator) {
-  const candidates = [
-    scenario.reviewBrief?.headline,
-    scenario.rationale,
-    scenario.reviewBrief?.action,
-    scenario.reviewBrief?.keyReasons[0],
-    scenario.reviewBrief?.watchConditions[0],
-    scenario.summary
-  ];
-  for (const candidate of candidates) {
-    const title = reviewTitleCandidate(candidate, t);
-    if (title) return title;
-  }
-  return null;
+function reviewTitleTopic(scenario: TraderScenario, t: Translator) {
+  const haystack = reviewTitleHaystack(scenario);
+  if (haystack.includes("CANCEL")) return t("detail.reviewTitle.orderCancel");
+  if (haystack.includes("CLOSE") || haystack.includes("POSITION_CLOSED")) return t("detail.reviewTitle.positionClose");
+  if (haystack.includes("MOVE_STOP") || haystack.includes("BREAKEVEN")) return t("detail.reviewTitle.stopAdjust");
+  if (haystack.includes("REDUCE")) return t("detail.reviewTitle.riskReduce");
+  if (haystack.includes("익절") || haystack.includes("목표") || haystack.includes("TAKE_PROFIT") || haystack.includes("TARGET")) return t("detail.reviewTitle.profitWatch");
+  if (haystack.includes("거래량") || haystack.includes("VOLUME") || haystack.includes("Z_SCORE")) return t("detail.reviewTitle.volumeCaution");
+  if (haystack.includes("손절") || haystack.includes("STOP") || haystack.includes("INVALID") || haystack.includes("무효화")) return t("detail.reviewTitle.stopWatch");
+  if (haystack.includes("PENDING_ORDER")) return t("detail.reviewTitle.pendingEntry");
+  if (haystack.includes("OPEN_POSITION") || haystack.includes("HOLD")) return t("detail.reviewTitle.positionHold");
+  return t("detail.reviewTitle.marketWatch");
 }
 
-function reviewTitleCandidate(value: unknown, t: Translator) {
-  const text = firstString(value);
-  if (!text) return null;
-  const displayText = scenarioDisplayText(text, t);
-  for (const segment of reviewTitleSegments(displayText)) {
-    const clean = stripReviewTitlePrefix(segment);
-    if (!clean || isGenericReviewTitle(clean, t)) continue;
-    return truncateReviewTitle(clean);
-  }
-  return null;
-}
-
-function reviewTitleSegments(value: string) {
-  return value
-    .split(/[.;；。!?！？\n]+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
-
-function stripReviewTitlePrefix(value: string) {
-  return value
-    .replace(/^\s*\[[A-Z_]+\]\s*/g, "")
-    .replace(/^(?:리스크\s*심사\s*완료|관리\s*검토\s*완료|risk\s*review\s*complete|management\s*review\s*complete)[:：\s-]*/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function isGenericReviewTitle(value: string, t: Translator) {
-  const normalized = normalizeKey(value);
-  if (!normalized || normalized.length < 3) return true;
-  const genericValues = [
-    t("detail.phaseAiReview"),
-    t("status.hold"),
-    t("status.reviewed"),
-    t("status.completed")
-  ].map(normalizeKey);
-  return (
-    genericValues.includes(normalized) ||
-    normalized.includes("관리_검토_완료") ||
-    normalized.includes("리스크_심사_완료") ||
-    normalized.includes("MANAGEMENT_REVIEW_COMPLETE") ||
-    normalized.includes("RISK_REVIEW_COMPLETE")
+function reviewTitleHaystack(scenario: TraderScenario) {
+  return normalizeKey(
+    [
+      scenario.eventType,
+      scenario.action,
+      scenario.status,
+      scenario.phase,
+      scenario.reviewBrief?.headline,
+      scenario.reviewBrief?.action,
+      scenario.reviewBrief?.managerNote,
+      ...(scenario.reviewBrief?.keyReasons ?? []),
+      ...(scenario.reviewBrief?.risks ?? []),
+      ...(scenario.reviewBrief?.watchConditions ?? []),
+      scenario.rationale,
+      scenario.summary
+    ].join(" ")
   );
-}
-
-function truncateReviewTitle(value: string) {
-  if (value.length <= REVIEW_TITLE_MAX_CHARS) return value;
-  return `${value.slice(0, REVIEW_TITLE_MAX_CHARS - 3).trimEnd()}...`;
 }
 
 export function movementToneClass(tone: "good" | "bad" | "warn" | "neutral") {
@@ -560,15 +516,6 @@ export function movementToneClass(tone: "good" | "bad" | "warn" | "neutral") {
 function isPositionJournalEvent(event: PaperTradeEvent) {
   const normalized = normalizeKey(event.eventType ?? event.type);
   return POSITION_JOURNAL_EVENT_TYPES.some((item) => normalized.includes(item));
-}
-
-function scenarioPhaseLabel(phase: unknown, t: Translator) {
-  const normalized = normalizeKey(phase);
-  if (normalized.includes("PENDING_ORDER")) return t("detail.phaseOrder");
-  if (normalized.includes("OPEN_POSITION")) return t("detail.phasePosition");
-  if (normalized.includes("WATCH")) return t("detail.phaseWatch");
-  if (normalized && normalized !== "-") return statusLabel(phase, t);
-  return t("detail.phaseAiReview");
 }
 
 function formatTradeQuantity(quantity: unknown, pnl: unknown, locale: Locale) {

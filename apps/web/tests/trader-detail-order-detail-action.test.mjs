@@ -11,6 +11,7 @@ const panelRows = loadTsModule("../components/trader-profile-detail/position-pan
   "@/components/live-candle-chart-overlays": exposureStub
 });
 const reviewBrief = loadTsModule("../lib/review-brief.ts");
+const reviewDisplay = loadTsModule("../lib/review-display.ts");
 const league = loadTsModule("../lib/league.ts", {
   "@/lib/review-brief": reviewBrief,
   "@/lib/traders": { fallbackTraders: [] }
@@ -25,6 +26,7 @@ const scenarioCopy = loadTsModule("../components/trader-profile-detail/scenario-
 const scenarioFeed = loadTsModule("../components/trader-profile-detail/scenario-feed.ts", {
   "@/components/live-candle-chart-overlays": exposureStub,
   "@/lib/review-brief": reviewBrief,
+  "@/lib/review-display": reviewDisplay,
   "@/components/trader-profile-detail/scenario-copy": {
     scenarioDetailRationaleText: () => "active position copy"
   },
@@ -297,23 +299,54 @@ test("latest scenario feed prefers structured readable review text when availabl
     watchConditions: ["15분 종가 확인"],
     managerNote: "과한 추가 진입은 피합니다."
   };
+  const reviewT = (key) =>
+    ({
+      "detail.reviewBody.holdPosition": "{side} 포지션 유지 중. 핵심 조건만 확인합니다.",
+      "detail.reviewBody.pendingEntry": "{side} 진입은 아직 대기 중입니다.",
+      "detail.reviewBody.cancelOrder": "{side} 대기 주문 취소를 검토했습니다.",
+      "detail.reviewBody.adjustStop": "{side} 손절 위치를 다시 점검했습니다.",
+      "detail.reviewBody.closePosition": "{side} 포지션 종료 조건을 확인했습니다.",
+      "detail.reviewBody.watchMarket": "새 진입보다 시장 확인이 우선입니다.",
+      "detail.reviewReason.volumeWeak": "거래량이 약해 추가 진입은 보류합니다.",
+      "detail.reviewReason.stopWatch": "손절 기준을 넘는지 확인 중입니다.",
+      "detail.reviewReason.profitWatch": "목표가 접근 여부를 확인 중입니다.",
+      "detail.sideLong": "롱",
+      "detail.sideShort": "숏"
+    })[key] ?? key;
 
   assert.equal(
     scenarioFeed.scenarioTimelineBody(
       { id: "review-1", source: "review", phase: "OPEN_POSITION", status: "HOLD", reviewBrief: structured },
       undefined,
-      (key) => key
+      reviewT
     ),
-    "현재 포지션은 아직 유지가 맞습니다. 손절 접근 여부만 확인하세요. 진입 근거가 깨지지 않았습니다. 15분 종가 확인"
+    "포지션 유지 중. 핵심 조건만 확인합니다. 손절 기준을 넘는지 확인 중입니다."
   );
   assert.equal(
     scenarioFeed.scenarioTimelineBody(
       { id: "position-1", source: "position", phase: "OPEN_POSITION", status: "open", reviewBrief: structured, rationale: "old long paragraph" },
       undefined,
-      (key) => key
+      reviewT
     ),
-    "현재 포지션은 아직 유지가 맞습니다. 손절 접근 여부만 확인하세요. 진입 근거가 깨지지 않았습니다. 15분 종가 확인"
+    "포지션 유지 중. 핵심 조건만 확인합니다. 손절 기준을 넘는지 확인 중입니다."
   );
+
+  const semicolonHeavy = {
+    verdict: "HOLD",
+    headline: "새로운 이격과 견고한 불균형 지오메트리로 신중한 접근 필요; 약한 거래량 주의.",
+    action: "현재 포지션 유지하며 거래량과 무효화 신호 모니터링; 거래량 개선 시 진입 고려.",
+    keyReasons: [],
+    risks: [],
+    watchConditions: [],
+    managerNote: null
+  };
+  const copy = scenarioFeed.scenarioTimelineBody(
+    { id: "review-2", source: "review", phase: "OPEN_POSITION", status: "HOLD", side: "SHORT", reviewBrief: semicolonHeavy },
+    undefined,
+    reviewT
+  );
+  assert.equal(copy, "숏 포지션 유지 중. 핵심 조건만 확인합니다. 거래량이 약해 추가 진입은 보류합니다.");
+  assert.doesNotMatch(copy, /;|지오메트리|무효화|모니터링/);
 });
 
 test("trader detail builds scenarios from closed positions without sending them to active chart positions", () => {

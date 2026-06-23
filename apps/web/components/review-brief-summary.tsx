@@ -4,6 +4,7 @@ import { CheckCircle, ListChecks, Target } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { StatusBadge } from "@/components/status-badge";
 import type { ReviewBrief } from "@/lib/review-brief";
+import { cleanReviewDisplayItems, cleanReviewDisplayText } from "@/lib/review-display";
 
 type ReviewBriefSummaryProps = {
   brief: ReviewBrief;
@@ -13,11 +14,11 @@ type ReviewBriefSummaryProps = {
 };
 
 export function ReviewBriefSummary({ brief, title, compact = false, t }: ReviewBriefSummaryProps) {
-  const headline = brief.headline ?? brief.action ?? brief.managerNote ?? "-";
+  const headline = cleanReviewDisplayText(brief.headline ?? brief.action ?? brief.managerNote ?? "-", compact ? 96 : 140);
   const verdict = localizedBriefToken(brief.verdict, t);
-  const action = localizedBriefToken(brief.action, t);
-  const rationaleItems = [...brief.keyReasons.slice(0, 2), ...brief.risks.slice(0, 1)];
-  const watchItems = brief.watchConditions.slice(0, 2);
+  const action = cleanReviewDisplayText(localizedBriefToken(brief.action, t) ?? brief.action, compact ? 72 : 100);
+  const rationaleItems = cleanReviewDisplayItems([...brief.keyReasons.slice(0, 2), ...brief.risks.slice(0, 1)], compact ? 86 : 120);
+  const watchItems = cleanReviewDisplayItems(brief.watchConditions.slice(0, 2), compact ? 86 : 120);
   return (
     <div className={`rounded-xl border border-zinc-200 bg-white/70 p-3 dark:border-zinc-800 dark:bg-zinc-950/35 ${compact ? "space-y-2" : "space-y-3"}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -27,10 +28,10 @@ export function ReviewBriefSummary({ brief, title, compact = false, t }: ReviewB
       <p className={`${compact ? "text-xs leading-5" : "text-sm leading-6"} text-zinc-800 dark:text-zinc-100`}>
         {headline}
       </p>
-      {brief.action && brief.action !== headline ? (
+      {action && action !== headline ? (
         <div className="flex gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs leading-5 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/55 dark:text-zinc-300">
           <CheckCircle className="mt-0.5 shrink-0 text-zinc-500 dark:text-zinc-400" size={15} />
-          <span><span className="font-semibold">{t("aiReview.nextAction")}:</span> {action ?? brief.action}</span>
+          <span><span className="font-semibold">{t("aiReview.nextAction")}:</span> {action}</span>
         </div>
       ) : null}
       <div className="space-y-2">

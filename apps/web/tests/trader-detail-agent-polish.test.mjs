@@ -190,7 +190,7 @@ test("review facts replace user summary in visible review UI", () => {
   assert.match(apiSource, /reviewFacts/, "API types should expose structured review facts");
   assert.match(aiReviewPanelSource, /ReviewBriefSummary/, "AI review panel should prefer beginner-readable structured reviews");
   assert.match(apiSource, /structuredReview/, "API types should expose structured AI review briefs");
-  assert.match(scenarioFeedSource, /reviewBriefText/, "latest scenarios should use structured review summaries when available");
+  assert.match(scenarioFeedSource, /managementReviewTimelineBody/, "latest scenarios should use concise structured review summaries when available");
   assert.match(modalSource, /ReviewBriefSummary/, "scenario modal should show structured review sections");
   assert.match(i18nSource, /reviewFact\.entryGeometryChecked/, "review fact labels should be localized");
   assert.match(i18nSource, /aiReview\.watchConditions/, "structured review sections need localized labels");
