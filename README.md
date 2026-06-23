@@ -633,7 +633,12 @@ OpenAI 예시:
 AI_PROVIDER=openai
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
+OPENAI_TRADE_REVIEW_MODEL=gpt-5.4-mini
+OPENAI_POSITION_MANAGEMENT_MODEL=gpt-5.4-nano
+OPENAI_LEAGUE_SENTIMENT_MODEL=gpt-5.4-nano
 ```
+
+`OPENAI_MODEL`은 기본 fallback 모델입니다. 2차 진입 리뷰, 포지션 중간 리뷰, Aigentra 종합 의견을 분리하려면 위 세 모델 변수를 각각 지정합니다.
 
 다른 provider:
 

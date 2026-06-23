@@ -181,7 +181,7 @@ async def get_or_create_league_sentiment_opinion(
         create_provider_call_log(
             db,
             provider=provider.name,
-            model=provider.model,
+            model=opinion.model,
             success=True,
             latency_ms=latency_ms,
             decision=opinion.bias,

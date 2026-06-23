@@ -54,7 +54,7 @@ async def run_review_with_logging(
             create_provider_call_log(
                 db,
                 provider=provider.name,
-                model=provider.model,
+                model=review.model,
                 success=True,
                 latency_ms=latency_ms,
                 decision=review.decision,
@@ -115,7 +115,7 @@ async def run_position_management_with_logging(
             create_provider_call_log(
                 db,
                 provider=provider.name,
-                model=provider.model,
+                model=review.model,
                 success=True,
                 latency_ms=latency_ms,
                 decision=review.decision,

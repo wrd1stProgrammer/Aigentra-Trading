@@ -15,6 +15,9 @@ def provider_status(settings: Settings, selected_override: str = None) -> Dict[s
         "openai": {
             "configured": bool(settings.openai_api_key),
             "model": settings.openai_model,
+            "tradeReviewModel": settings.openai_trade_review_model or settings.openai_model,
+            "positionManagementModel": settings.openai_position_management_model or settings.openai_model,
+            "leagueSentimentModel": settings.openai_league_sentiment_model or settings.openai_model,
         },
         "gemini": {
             "configured": bool(settings.gemini_api_key),
@@ -42,7 +45,13 @@ def get_ai_provider(settings: Settings, provider_override: str = None):
     if provider == "mock":
         return MockAIProvider()
     if provider == "openai" and settings.openai_api_key:
-        return OpenAIProvider(settings.openai_api_key, settings.openai_model)
+        return OpenAIProvider(
+            settings.openai_api_key,
+            settings.openai_model,
+            trade_review_model=settings.openai_trade_review_model,
+            position_management_model=settings.openai_position_management_model,
+            league_sentiment_model=settings.openai_league_sentiment_model,
+        )
     if provider == "gemini" and settings.gemini_api_key:
         return GeminiProvider(settings.gemini_api_key, settings.gemini_model)
     if provider == "anthropic" and settings.anthropic_api_key:
