@@ -23,10 +23,12 @@ import {
   normalizedSide,
   positionEntryPrice,
   positionLeverage,
+  positionLiquidationPrice,
   positionMargin,
   positionMarkPrice,
   positionPnl,
   positionQuantity,
+  positionTargetPrice,
   recordValue
 } from "@/components/trader-profile-detail/position-panel-calculations";
 
@@ -80,7 +82,7 @@ export function BinancePositionPanel({
       />
       <div className="hidden overflow-x-auto md:block">
         {activeTab === "positions" ? (
-          <table className="min-w-[1140px] w-full border-separate border-spacing-0 text-left text-xs">
+          <table className="min-w-[1040px] w-full border-separate border-spacing-0 text-left text-xs">
             <thead className="text-zinc-500">
               <tr>
                 <PositionHead>{t("detail.positionSymbol")}</PositionHead>
@@ -88,7 +90,6 @@ export function BinancePositionPanel({
                 <PositionHead>{t("detail.positionEntryPrice")}</PositionHead>
                 <PositionHead>{t("detail.positionMarkPrice")}</PositionHead>
                 <PositionHead>{t("detail.positionLiqPrice")}</PositionHead>
-                <PositionHead>{t("detail.positionMarginRatio")}</PositionHead>
                 <PositionHead>{t("detail.positionMargin")}</PositionHead>
                 <PositionHead>{t("detail.positionExpectedProfit")}</PositionHead>
                 <PositionHead>{t("detail.positionPnlRoe")}</PositionHead>
@@ -170,7 +171,7 @@ function PositionRow({
   const entryPrice = positionEntryPrice(position);
   const markPrice = positionMarkPrice(position, liveMarkPrice);
   const leverage = positionLeverage(position);
-  const liquidation = firstFiniteNumber(position.liquidationPrice, position.liquidation_price);
+  const liquidation = positionLiquidationPrice(position);
   const margin = positionMargin(position);
   const pnl = positionPnl(position, liveMarkPrice);
   const roe = margin !== null && margin > 0 && pnl !== null ? (pnl / margin) * 100 : null;
@@ -193,7 +194,6 @@ function PositionRow({
       <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatNumber(entryPrice, 1, locale)}</PositionCell>
       <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatNumber(markPrice, 1, locale)}</PositionCell>
       <PositionCell className="font-mono text-orange-600 dark:text-orange-400">{formatNumber(liquidation, 1, locale)}</PositionCell>
-      <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatPercentNumber(firstFiniteNumber(position.marginRatio, position.margin_ratio))}</PositionCell>
       <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatCurrency(margin, locale)}</PositionCell>
       <PositionCell className={`font-mono font-semibold ${pnlToneClass(expectedProfit)}`}>{formatCurrency(expectedProfit, locale)}</PositionCell>
       <PositionCell>
@@ -295,7 +295,7 @@ function scenarioFromPosition(position: PaperPosition): TraderScenario {
     side: String(position.side ?? ""),
     price: firstFiniteNumber(position.entryPrice, position.averageEntryPrice, position.openPrice),
     stop: firstFiniteNumber(position.stopLoss, position.stopLossPrice, position.stop_loss_price),
-    target: firstFiniteNumber(position.takeProfit, position.takeProfitPrice, position.take_profit_price, recordValue(payload?.target)?.price),
+    target: positionTargetPrice(position),
     quantity: firstFiniteNumber(position.quantity, position.size),
     leverage: firstFiniteNumber(position.leverage, recordValue(payload?.leveragePlan)?.suggestedLeverage),
     riskPercent: firstFiniteNumber(payload?.riskPercent),

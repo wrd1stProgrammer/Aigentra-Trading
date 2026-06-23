@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, X } from "@phosphor-icons/react";
+import { X } from "@phosphor-icons/react";
 import type { ManagementReview, PaperOrder, PaperPosition, PaperTradeEvent } from "@/lib/api";
 import { ReviewBriefSummary } from "@/components/review-brief-summary";
 import { formatNumber } from "@/lib/format";
@@ -89,36 +89,27 @@ export function ScenarioModal({
             showPositionPanel={false}
           />
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_260px]">
-            <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[11px] font-black uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">{rationaleLabel}</p>
-                <span className="rounded-md border border-zinc-200 bg-white px-2 py-1 font-mono text-[10px] font-bold text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
-                  {scenario.source.toUpperCase()}
-                </span>
-              </div>
-              <div className="mt-3">
-                {scenario.reviewBrief ? (
-                  <ReviewBriefSummary brief={scenario.reviewBrief} title={rationaleLabel} t={t} />
-                ) : (
-                  <p className="text-sm leading-7 text-zinc-800 dark:text-zinc-100">{scenarioDisplayText(scenarioDetailRationaleText(scenario, t), t)}</p>
-                )}
-              </div>
-            </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <MetricBox label={t("common.side")} value={side} />
+            <MetricBox label={t("common.price")} value={formatNumber(scenario.price, 0)} />
+            <MetricBox label={t("chart.stopLoss")} value={formatNumber(scenario.stop, 0)} />
+            <MetricBox label={t("chart.takeProfit")} value={formatNumber(scenario.target, 0)} />
+            <MetricBox label={t("common.quantity")} value={formatNumber(scenario.quantity)} />
+          </div>
 
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <MetricBox label={t("common.side")} value={side} />
-                <MetricBox label={t("common.price")} value={formatNumber(scenario.price, 0)} />
-                <MetricBox label={t("chart.stopLoss")} value={formatNumber(scenario.stop, 0)} />
-                <MetricBox label={t("chart.takeProfit")} value={formatNumber(scenario.target, 0)} />
-                <MetricBox label={t("common.quantity")} value={formatNumber(scenario.quantity)} />
-                <MetricBox label={t("detail.confidence")} value={scenario.confidence ? `${scenario.confidence}%` : "-"} />
-              </div>
-              <button type="button" onClick={onClose} className="action-button w-full rounded-xl py-2.5">
-                {t("detail.closeScenario")}
-                <ArrowRight size={16} />
-              </button>
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] font-black uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">{rationaleLabel}</p>
+              <span className="rounded-md border border-zinc-200 bg-white px-2 py-1 font-mono text-[10px] font-bold text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
+                {scenario.source.toUpperCase()}
+              </span>
+            </div>
+            <div className="mt-3">
+              {scenario.reviewBrief ? (
+                <ReviewBriefSummary brief={scenario.reviewBrief} title={rationaleLabel} t={t} />
+              ) : (
+                <p className="text-sm leading-7 text-zinc-800 dark:text-zinc-100">{scenarioDisplayText(scenarioDetailRationaleText(scenario, t), t)}</p>
+              )}
             </div>
           </div>
         </div>

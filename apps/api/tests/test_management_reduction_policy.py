@@ -173,6 +173,29 @@ def test_breakeven_review_event_triggers_after_half_target_progress(temp_db):
         assert event.metrics["halfwayPrice"] == 110
 
 
+def test_breakeven_review_event_triggers_after_partial_take_profit_fill(temp_db):
+    with session_scope() as db:
+        position = _create_open_position(db)
+        position.entry_price = Decimal("100")
+        position.stop_loss_price = Decimal("90")
+        position.take_profit_price = Decimal("140")
+        position.payload_json = to_json({
+            "takeProfits": [
+                {"price": 120, "weight": 0.5, "status": "filled", "reason": "TP1"},
+                {"price": 140, "weight": 0.5, "status": "pending", "reason": "TP2"},
+            ]
+        })
+        db.flush()
+
+        event = breakeven_profit_protection_event("paper-trader", position, {"price": 112})
+
+        assert event is not None
+        assert event.eventType == BREAKEVEN_PROFIT_PROTECTION_EVENT_TYPE
+        assert event.metrics["trigger"] == "partial_take_profit_filled"
+        assert event.metrics["filledTakeProfitIndex"] == 0
+        assert event.metrics["takeProfit"] == 120
+
+
 def test_breakeven_review_event_does_not_repeat_after_stop_reaches_entry(temp_db):
     with session_scope() as db:
         position = _create_open_position(db)

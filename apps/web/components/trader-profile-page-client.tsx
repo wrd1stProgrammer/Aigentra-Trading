@@ -88,6 +88,25 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
     return null;
   };
   const recordValue = (value: unknown) => typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
+  const takeProfitTargets = (pos: PaperPosition) => {
+    const payload = recordValue(pos.payload);
+    const value = Array.isArray(pos.takeProfits)
+      ? pos.takeProfits
+      : Array.isArray(pos.take_profits)
+        ? pos.take_profits
+        : Array.isArray(payload?.takeProfits)
+          ? payload.takeProfits
+          : Array.isArray(payload?.take_profits)
+            ? payload.take_profits
+            : [];
+    return value as Record<string, unknown>[];
+  };
+  const completedTargetStatuses = new Set(["COMPLETED", "DONE", "FILLED", "HIT", "TRIGGERED", "TAKE_PROFIT", "TP_FILLED"]);
+  const firstOpenTakeProfitPrice = (targets: readonly Record<string, unknown>[]) => {
+    const ordered = targets.length ? targets : [];
+    const target = ordered.find((item) => !completedTargetStatuses.has(String(item.status ?? item.state ?? "").trim().replace(/[-\s]+/g, "_").toUpperCase())) ?? ordered[0];
+    return firstFiniteNumber(target?.price, target?.targetPrice);
+  };
 
   const groups = new Map<string, PaperPosition[]>();
   for (const pos of positions) {
@@ -122,6 +141,7 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
     let maxLeverage = 0;
     let takeProfitPrice: number | null = null;
     let stopLossPrice: number | null = null;
+    let mergedTakeProfits: Record<string, unknown>[] = [];
     const positionLegs = list.map((pos) => ({
       symbol: pos.symbol,
       side: pos.side,
@@ -137,7 +157,7 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
       take_profit_price: firstFiniteNumber(pos.takeProfit, pos.takeProfitPrice, pos.take_profit_price),
       stopLossPrice: firstFiniteNumber(pos.stopLoss, pos.stopLossPrice, pos.stop_loss_price),
       stop_loss_price: firstFiniteNumber(pos.stopLoss, pos.stopLossPrice, pos.stop_loss_price),
-      takeProfits: pos.takeProfits,
+      takeProfits: takeProfitTargets(pos),
       payload: pos.payload,
     }));
     
@@ -162,7 +182,9 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
       totalPnl += pnl;
       totalEntryFee += entryFee;
       if (leverage > maxLeverage) maxLeverage = leverage;
-      if (takeProfitPrice === null) takeProfitPrice = firstFiniteNumber(pos.takeProfit, pos.takeProfitPrice, pos.take_profit_price);
+      const posTargets = takeProfitTargets(pos);
+      if (!mergedTakeProfits.length && posTargets.length) mergedTakeProfits = posTargets;
+      if (takeProfitPrice === null) takeProfitPrice = firstOpenTakeProfitPrice(posTargets) ?? firstFiniteNumber(pos.takeProfit, pos.takeProfitPrice, pos.take_profit_price);
       if (stopLossPrice === null) stopLossPrice = firstFiniteNumber(pos.stopLoss, pos.stopLossPrice, pos.stop_loss_price);
     }
 
@@ -176,6 +198,7 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
       initialQuantity: totalQty,
       entryFee: totalEntryFee,
       positionLegs,
+      takeProfits: mergedTakeProfits.length ? mergedTakeProfits : firstPayload?.takeProfits,
       takeProfitPrice: takeProfitPrice ?? firstPayload?.takeProfitPrice,
       stopLossPrice: stopLossPrice ?? firstPayload?.stopLossPrice
     };
@@ -201,6 +224,7 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
       leverage: maxLeverage > 0 ? maxLeverage : first.leverage,
       takeProfitPrice: takeProfitPrice ?? first.takeProfitPrice,
       take_profit_price: takeProfitPrice ?? first.take_profit_price,
+      takeProfits: mergedTakeProfits.length ? mergedTakeProfits as any : first.takeProfits,
       stopLossPrice: stopLossPrice ?? first.stopLossPrice,
       stop_loss_price: stopLossPrice ?? first.stop_loss_price,
       payload: mergedPayload,
@@ -518,8 +542,8 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, [scenarioTimelineItems, selectedDate, selectedScenarioVisibleCount]);
   const accessState = access ?? guestSubscriberAccess;
   const holdingItems = useMemo(
-    () => buildHoldingItems({ standing, positions, orders, latestPlan, symbol, locale, t }),
-    [latestPlan, locale, orders, positions, standing, symbol, t]
+    () => buildHoldingItems({ standing, positions, orders, latestPlan, symbol, locale, t, liveMarkPrice }),
+    [latestPlan, liveMarkPrice, locale, orders, positions, standing, symbol, t]
   );
   const executionMarkers = useMemo(
     () => buildExecutionMarkers({

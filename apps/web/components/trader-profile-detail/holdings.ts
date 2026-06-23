@@ -26,7 +26,8 @@ export function buildHoldingItems({
   latestPlan,
   symbol,
   locale,
-  t
+  t,
+  liveMarkPrice
 }: {
   readonly standing?: TraderStanding;
   readonly positions: readonly PaperPosition[];
@@ -35,6 +36,7 @@ export function buildHoldingItems({
   readonly symbol: LeagueSymbol;
   readonly locale: Locale;
   readonly t: Translator;
+  readonly liveMarkPrice?: number | null;
 }): HoldingItem[] {
   const accountEquity = standing?.equity ?? 10_000;
   const activePositions = positions.filter((position) => (!position.symbol || position.symbol === symbol) && isOpenChartExposure(position));
@@ -42,7 +44,7 @@ export function buildHoldingItems({
     const exposures = activePositions.map((position) => positionExposureValue(position));
     const totalExposure = exposureTotal(exposures, firstFiniteNumber(standing?.summary?.openNotional, standing?.summary?.openMargin));
     return activePositions.map((position, index) => {
-      const numbers = positionHoldingNumbers(position, accountEquity);
+      const numbers = positionHoldingNumbers(position, accountEquity, liveMarkPrice);
       const weight = exposureWeight(exposures[index], totalExposure, activePositions.length);
       return holdingItem({
         id: `position-${position.id ?? index}`,

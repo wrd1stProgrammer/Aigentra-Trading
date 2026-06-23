@@ -115,6 +115,45 @@ test("position panel recalculates open PnL from the live chart mark price", () =
   assert.equal(positionCalculations.positionPnl(longPosition, 105), 10);
 });
 
+test("position calculations read partial take-profit ladders from payload", () => {
+  const position = {
+    side: "short",
+    averageEntryPrice: "62853.7",
+    quantity: "0.459",
+    leverage: 5,
+    payload: {
+      takeProfits: [
+        { price: 63082.4, weight: 0.5, status: "filled", reason: "TP1" },
+        { price: 62126.3, weight: 0.5, status: "pending", reason: "TP2" }
+      ]
+    }
+  };
+
+  assert.deepEqual(
+    positionCalculations.positionTakeProfitTargets(position).map((item) => ({ price: item.price, status: item.status, index: item.index })),
+    [
+      { price: 63082.4, status: "filled", index: 0 },
+      { price: 62126.3, status: "pending", index: 1 }
+    ]
+  );
+  assert.equal(positionCalculations.positionTargetPrice(position), 62126.3);
+  assert.equal(Math.round(positionCalculations.positionLiquidationPrice(position) * 10) / 10, 75424.4);
+});
+
+test("holding metrics recalculate position pnl from a live mark override", () => {
+  const metrics = holdingMetrics.positionHoldingNumbers({
+    side: "short",
+    averageEntryPrice: "62853.7",
+    markPrice: "62853.7",
+    quantity: "0.459",
+    margin: "5770",
+    unrealizedPnl: "0"
+  }, 10_000, 62185.8);
+
+  assert.equal(metrics.markPrice, 62185.8);
+  assert.equal(metrics.pnl, Math.round((62853.7 - 62185.8) * 0.459 * 100_000_000) / 100_000_000);
+});
+
 test("holding metrics read pending order and plan entry price context", () => {
   const order = holdingMetrics.orderHoldingNumbers({
     limitPrice: "64500",

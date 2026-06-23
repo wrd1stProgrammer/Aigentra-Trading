@@ -15,10 +15,12 @@ import {
   normalizedSide,
   positionEntryPrice,
   positionLeverage,
+  positionLiquidationPrice,
   positionMargin,
   positionMarkPrice,
   positionPnl,
   positionQuantity,
+  positionTargetPrice,
   recordValue
 } from "@/components/trader-profile-detail/position-panel-calculations";
 
@@ -94,7 +96,8 @@ function MobilePositionCard({
   const roe = margin !== null && margin > 0 && pnl !== null ? (pnl / margin) * 100 : null;
   const expectedProfit = expectedPositionProfitAtTarget(position);
   const stopLoss = firstFiniteNumber(position.stopLoss, position.stopLossPrice, position.stop_loss, position.stop_loss_price);
-  const takeProfit = firstFiniteNumber(position.takeProfit, position.takeProfitPrice, position.take_profit_price);
+  const takeProfit = positionTargetPrice(position);
+  const liquidation = positionLiquidationPrice(position);
 
   return (
     <article className={`rounded-xl border p-3.5 ${mobileExposureCardClass(side)}`}>
@@ -123,7 +126,7 @@ function MobilePositionCard({
       <div className="mt-2 grid grid-cols-2 gap-2">
         <MobileMetric label={t("chart.stopLoss")} value={formatNumber(stopLoss, 1, locale)} tone="bad" />
         <MobileMetric label={t("chart.takeProfit")} value={formatNumber(takeProfit, 1, locale)} tone="good" />
-        <MobileMetric label={t("detail.positionLiqPrice")} value={formatNumber(firstFiniteNumber(position.liquidationPrice, position.liquidation_price), 1, locale)} />
+        <MobileMetric label={t("detail.positionLiqPrice")} value={formatNumber(liquidation, 1, locale)} />
         <MobileMetric label={t("detail.positionExpectedProfit")} value={formatCurrency(expectedProfit, locale)} />
       </div>
       {onOpen ? <MobileDetailButton label={t("detail.rowDetail")} onClick={() => onOpen(position)} /> : null}

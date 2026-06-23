@@ -2761,9 +2761,9 @@ def build_trader_detail_payload(
         "symbol": clean_symbol,
         "trader": trader,
         "summaries": summaries,
-        "positions": list_filtered_records(db, PaperPositionRecord, limit=12, symbol=clean_symbol, trader_id=trader_id, status="open", include_payload=True),
-        "closedPositions": list_filtered_records(db, PaperPositionRecord, limit=20, symbol=clean_symbol, trader_id=trader_id, status="closed", include_payload=True),
-        "orders": list_filtered_records(db, PaperOrderRecord, limit=12, symbol=clean_symbol, trader_id=trader_id, status="open", include_payload=True),
+        "positions": list_filtered_records(db, PaperPositionRecord, limit=12, symbol=clean_symbol, trader_id=trader_id, status="open", include_payload=True, locale=locale),
+        "closedPositions": list_filtered_records(db, PaperPositionRecord, limit=20, symbol=clean_symbol, trader_id=trader_id, status="closed", include_payload=True, locale=locale),
+        "orders": list_filtered_records(db, PaperOrderRecord, limit=12, symbol=clean_symbol, trader_id=trader_id, status="open", include_payload=True, locale=locale),
         "managementReviews": list_filtered_records(
             db,
             PositionManagementReviewRecord,
@@ -2773,7 +2773,7 @@ def build_trader_detail_payload(
             include_payload=True,
             locale=locale,
         ),
-        "events": list_filtered_records(db, TradeEventRecord, limit=events_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True),
+        "events": list_filtered_records(db, TradeEventRecord, limit=events_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True, locale=locale),
         "statusFeeds": list_status_feed_payloads(
             db,
             symbol=clean_symbol,
@@ -2825,9 +2825,9 @@ def refresh_league_bundle_cache_background(symbol: str, include_empty: bool = Tr
         LEAGUE_BUNDLE_REFRESHING.discard(refresh_key)
 
 
-def refresh_trader_detail_cache_background(trader_id: str, symbol: str) -> None:
+def refresh_trader_detail_cache_background(trader_id: str, symbol: str, locale: str = CANONICAL_AI_LOCALE) -> None:
     clean_symbol = normalize_symbol(symbol)
-    clean_locale = CANONICAL_AI_LOCALE
+    clean_locale = normalize_locale(locale)
     refresh_key = (trader_id, clean_symbol, clean_locale)
     if refresh_key in TRADER_DETAIL_REFRESHING:
         return
@@ -4419,7 +4419,7 @@ async def league_trader_detail(
         is_fresh = cached[0] > now
         if is_fresh:
             return {**cached[1], "cacheHit": True, "stale": False, "scheduledRefresh": False}
-        schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol)
+        schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol, clean_locale)
     if refresh:
         refresh_trader_leaderboard_snapshot(db, trader_id, clean_symbol)
         db.commit()
@@ -4435,7 +4435,7 @@ async def league_trader_detail(
         locale=clean_locale,
     )
     if not any(summary.get("traderId") == trader_id for summary in payload["summaries"]):
-        schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol)
+        schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol, clean_locale)
     payload["scheduledRefresh"] = bool(cache_was_stale and not refresh)
     TRADER_DETAIL_CACHE[cache_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
     return payload

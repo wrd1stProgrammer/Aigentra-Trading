@@ -11,16 +11,19 @@ export type HoldingNumbers = {
   readonly entryWeight: number | null;
 };
 
-export function positionHoldingNumbers(position: unknown, accountEquity?: number | null): HoldingNumbers {
+export function positionHoldingNumbers(position: unknown, accountEquity?: number | null, markPriceOverride?: number | null): HoldingNumbers {
   const record = isRecord(position) ? position : null;
   const payload = nestedRecord(record, "payload");
   const entryPrice = firstFiniteNumber(record?.averageEntryPrice, record?.avgEntryPrice, record?.entryPrice, record?.openPrice, record?.price);
-  const markPrice = firstFiniteNumber(record?.markPrice, record?.price, entryPrice);
+  const markPrice = firstFiniteNumber(markPriceOverride, record?.markPrice, record?.mark_price, payload?.markPrice, payload?.mark_price, payload?.currentPrice, record?.price, entryPrice);
   const quantity = firstFiniteNumber(record?.quantity, record?.size);
   const leverage = leverageFromRecord(record);
   const derivedNotional = quantity !== null && (markPrice !== null || entryPrice !== null) ? Math.abs(quantity * (markPrice ?? entryPrice ?? 0)) : null;
-  const notional = firstFiniteNumber(record?.notional, record?.openNotional, derivedNotional);
+  const explicitNotional = firstFiniteNumber(record?.notional, record?.openNotional);
+  const hasLiveMarkOverride = firstFiniteNumber(markPriceOverride) !== null;
+  const notional = hasLiveMarkOverride ? firstFiniteNumber(derivedNotional, explicitNotional) : firstFiniteNumber(explicitNotional, derivedNotional);
   const margin = derivedMargin(firstFiniteNumber(record?.margin, record?.openMargin), notional, leverage);
+  const livePnl = positionPnlFromMarkPrice(record, entryPrice, markPrice, quantity);
   return {
     entryPrice,
     markPrice,
@@ -30,7 +33,7 @@ export function positionHoldingNumbers(position: unknown, accountEquity?: number
     margin,
     accountMarginPercent: percentOfAccount(margin, accountEquity),
     accountNotionalPercent: percentOfAccount(notional, accountEquity),
-    pnl: firstFiniteNumber(record?.unrealizedPnl, record?.realizedPnl),
+    pnl: firstFiniteNumber(livePnl, record?.unrealizedPnl, record?.realizedPnl),
     entryWeight: normalizePercentWeight(firstFiniteNumber(record?.entryWeight, payload?.entryWeight, payload?.weight, payload?.riskPercent))
   };
 }
@@ -83,6 +86,14 @@ export function planEntryHoldingNumbers(entry: unknown, plan: unknown, accountEq
 export function positionExposureValue(position: unknown) {
   const numbers = positionHoldingNumbers(position);
   return firstFiniteNumber(numbers.notional, numbers.margin);
+}
+
+function positionPnlFromMarkPrice(record: Record<string, unknown> | null, entryPrice: number | null, markPrice: number | null, quantity: number | null) {
+  if (!record || entryPrice === null || markPrice === null || quantity === null || quantity <= 0) return null;
+  const side = String(record.side ?? "").trim().toUpperCase();
+  if (side === "SHORT" || side === "SELL") return roundMetric((entryPrice - markPrice) * Math.abs(quantity));
+  if (side === "LONG" || side === "BUY") return roundMetric((markPrice - entryPrice) * Math.abs(quantity));
+  return null;
 }
 
 export function orderExposureValue(order: unknown) {

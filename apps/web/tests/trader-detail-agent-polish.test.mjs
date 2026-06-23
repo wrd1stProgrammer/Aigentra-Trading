@@ -206,6 +206,9 @@ test("scenario modal uses a compact reference-style ratio and neutral rationale 
   assert.match(modalSource, /max-w-\[920px\]/, "scenario modal should use a narrower reference-style width");
   assert.doesNotMatch(modalSource, /max-w-7xl/, "scenario modal should not use an oversized max width");
   assert.match(modalSource, /height=\{320\}/, "modal chart should use a compact inspection height");
+  assert.match(modalSource, /lg:grid-cols-5/, "position prices should sit in a full-width metric row below the chart");
+  assert.doesNotMatch(modalSource, /detail\.confidence/, "position/order detail modal should not show the old confidence card");
+  assert.doesNotMatch(modalSource, /lg:grid-cols-\[minmax\(0,1\.15fr\)_260px\]/, "rationale and metric data should not be split into the old side rail");
   assert.doesNotMatch(reviewBriefSummarySource, /border-l-2 border-emerald-500\/70/, "management rationale cards should not use a green side stripe");
 });
 

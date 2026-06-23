@@ -263,6 +263,7 @@ export type TraderScenario = {
 
 const HIDDEN_MANAGEMENT_SCENARIO_DECISIONS = new Set(["REJECT", "REJECTED", "DEFER", "NEEDS_MORE_DATA"]);
 const PROVIDER_FAILURE_FLAGS = new Set(["PROVIDER_FAILED", "PROVIDER_FAILURE", "PROVIDER_ERROR"]);
+const COMPLETED_TAKE_PROFIT_STATUSES = new Set(["COMPLETED", "DONE", "FILLED", "HIT", "TRIGGERED", "TAKE_PROFIT", "TP_FILLED"]);
 
 export function buildScenarios(args: {
   trader: TraderProfile;
@@ -286,7 +287,7 @@ export function buildScenarios(args: {
       side: position.side,
       price: firstNumber(position.entryPrice, position.averageEntryPrice, position.openPrice),
       stop: firstNumber(position.stopLoss, position.stopLossPrice, position.stop_loss_price),
-      target: firstNumber(position.takeProfit, position.takeProfitPrice, position.take_profit_price, payload.target?.price),
+      target: activeTakeProfitPrice(position, payload),
       quantity: firstNumber(position.quantity, position.size),
       leverage: firstNumber(position.leverage, payload.leveragePlan?.suggestedLeverage),
       riskPercent: firstNumber(payload.riskPercent),
@@ -353,7 +354,7 @@ export function buildScenarios(args: {
         linkedOrder?.price
       ),
       stop: firstNumber(metrics.stopLoss, exposurePayload.stopLoss, linkedPosition?.stopLossPrice, linkedOrder?.stopLossPrice, linkedPosition?.stop_loss_price, linkedOrder?.stop_loss_price),
-      target: firstNumber(metrics.takeProfit, exposurePayload.takeProfit, linkedPosition?.takeProfitPrice, linkedOrder?.takeProfitPrice, linkedPosition?.take_profit_price, linkedOrder?.take_profit_price, exposureInnerPayload.target?.price),
+      target: firstNumber(metrics.takeProfit, exposurePayload.takeProfit, linkedPosition ? activeTakeProfitPrice(linkedPosition, linkedPayload) : null, linkedOrder?.takeProfitPrice, linkedOrder?.take_profit_price, exposureInnerPayload.target?.price),
       quantity: firstNumber(exposurePayload.quantity, linkedPosition?.quantity, linkedOrder?.quantity),
       leverage: firstNumber(exposurePayload.leverage, linkedPosition?.leverage, linkedOrder?.leverage, exposureInnerPayload.leveragePlan?.suggestedLeverage),
       riskPercent: firstNumber(exposureInnerPayload.riskPercent),
@@ -381,6 +382,30 @@ export function buildScenarios(args: {
     });
   }
   return scenarios.sort((a, b) => scenarioTime(b.createdAt) - scenarioTime(a.createdAt));
+}
+
+function activeTakeProfitPrice(record: Record<string, any>, payload: Record<string, any> = {}): number | null {
+  const targets = takeProfitTargets(record, payload);
+  const target = targets.find((item) => !COMPLETED_TAKE_PROFIT_STATUSES.has(String(item.status ?? item.state ?? "").trim().replace(/[-\s]+/g, "_").toUpperCase())) ?? targets[0];
+  return firstNumber(
+    target?.price,
+    target?.targetPrice,
+    record.takeProfit,
+    record.takeProfitPrice,
+    record.take_profit_price,
+    payload.takeProfit,
+    payload.takeProfitPrice,
+    payload.take_profit_price,
+    payload.target?.price
+  );
+}
+
+function takeProfitTargets(record: Record<string, any>, payload: Record<string, any>) {
+  if (Array.isArray(record.takeProfits)) return record.takeProfits;
+  if (Array.isArray(record.take_profits)) return record.take_profits;
+  if (Array.isArray(payload.takeProfits)) return payload.takeProfits;
+  if (Array.isArray(payload.take_profits)) return payload.take_profits;
+  return [];
 }
 
 function isDisplayableManagementScenarioReview(review: ManagementReview): boolean {

@@ -65,6 +65,7 @@ import {
 } from "@/components/live-candle-chart-overlays";
 import { volumeHistogramData, volumeHistogramPoint } from "@/components/live-candle-chart-volume";
 import { isPendingEntryOrder } from "@/components/trader-profile-detail/position-panel-rows";
+import { positionTakeProfitTargets } from "@/components/trader-profile-detail/position-panel-calculations";
 
 type TradePlanView = {
   status?: string;
@@ -441,29 +442,16 @@ export function LiveCandleChart({
       if (stopLoss !== null) {
         lines.push({ value: stopLoss, label: t("chart.stopLoss"), tone: "stop" });
       }
-      const takeProfit = firstFiniteNumber(position.takeProfit, position.takeProfitPrice, position.take_profit_price);
-      if (takeProfit !== null) {
-        const target = takeProfitState({
+      for (const target of positionTakeProfitTargets(position as Record<string, unknown>)) {
+        const targetState = takeProfitState({
           side: position.side,
-          targetPrice: takeProfit,
+          targetPrice: target.price,
           latestPrice,
-          completed: position.takeProfitStatus ?? position.take_profit_status ?? payload?.takeProfitStatus ?? payload?.take_profit_status,
+          completed: target.status,
           t
         });
-        lines.push({ value: takeProfit, label: target.label, tone: target.tone });
-      }
-      for (const [targetIndex, target] of asArray<Record<string, any>>(position.takeProfits ?? position.take_profits).entries()) {
-        const price = firstFiniteNumber(target?.price, target?.targetPrice);
-        if (price !== null) {
-          const targetState = takeProfitState({
-            side: position.side,
-            targetPrice: price,
-            latestPrice,
-            completed: target?.status ?? target?.state ?? target?.completed ?? target?.filled ?? target?.filledAt ?? target?.filled_at,
-            t
-          });
-          lines.push({ value: price, label: `${t("chart.position")} ${targetState.label} ${targetIndex + 1}`, tone: targetState.tone });
-        }
+        const labelBase = targetState.tone === "takeProfitDone" ? t("detail.takeProfitCompleted") : t("chart.takeProfit");
+        lines.push({ value: target.price, label: `${labelBase} ${target.index + 1}`, tone: targetState.tone });
       }
     }
 
@@ -2343,10 +2331,6 @@ function shouldRenderPlanLines(
   if (hasOpenPaperPosition) return false;
   if (hasOpenPaperOrder) return false;
   return isFreshRunCycleResult;
-}
-
-function asArray<T>(value: unknown): T[] {
-  return Array.isArray(value) ? value : [];
 }
 
 function takeProfitState({
