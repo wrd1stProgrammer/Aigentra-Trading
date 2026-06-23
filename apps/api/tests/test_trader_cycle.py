@@ -585,6 +585,8 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "Do not collapse active-position HOLD reviews into a single generic sentence" in management
     assert "two compact desk-style sentences" in management
     assert "position management briefing for a normal user" in management
+    assert "The UI merges headline, action, keyReasons, risks, and watchConditions into a few natural review lines" in management
+    assert "do not write text that depends on headings such as next action, key reasons, risks, or watch conditions" in management
     assert "Start from the current exposure: entry, current price, stop, target, unrealized PnL" in management
     assert "Do not write checklist fragments such as structure and risk-reward are healthy" in management
     assert "Do not mention paper trading in structuredReview, rationale, counterThesis, or action reasons" in management

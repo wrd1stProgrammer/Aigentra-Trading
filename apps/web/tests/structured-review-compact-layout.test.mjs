@@ -6,10 +6,14 @@ const summarySource = readFileSync(new URL("../components/review-brief-summary.t
 const modalSource = readFileSync(new URL("../components/trader-profile-detail/scenario-modal.tsx", import.meta.url), "utf8");
 const panelSource = readFileSync(new URL("../components/ai-review-panel.tsx", import.meta.url), "utf8");
 
-test("structured review sections render as compact single-row summaries", () => {
+test("structured reviews render as a short briefing plus manager note", () => {
   assert.match(summarySource, /ReviewBriefSummary/, "shared compact structured review component should exist");
-  assert.match(summarySource, /BriefSummaryLine/, "structured review sections should use one row per section");
-  assert.match(summarySource, /items\.join\(" · "\)/, "section items should be joined into one readable line");
+  assert.match(summarySource, /reviewLinesFromBrief/, "structured review details should be merged into simple briefing lines");
+  assert.doesNotMatch(summarySource, /aiReview\.nextAction/, "review body should not render a separate next-action section");
+  assert.doesNotMatch(summarySource, /aiReview\.keyReasons/, "review body should not render a separate key-reasons section");
+  assert.doesNotMatch(summarySource, /aiReview\.risks/, "review body should not render a separate risks section");
+  assert.doesNotMatch(summarySource, /aiReview\.watchConditions/, "review body should not render a separate watch-conditions section");
+  assert.match(summarySource, /aiReview\.managerNote/, "manager note should remain as the only explicit review subsection");
   assert.doesNotMatch(summarySource, /sm:grid-cols-3/, "review details should not split into three narrow columns");
   assert.doesNotMatch(summarySource, /<ul/, "review details should not render bullet lists");
   assert.match(modalSource, /ReviewBriefSummary/, "scenario modal should use the compact review summary");

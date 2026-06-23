@@ -179,7 +179,6 @@ def management_review_detail_lines(
     fallback_rationale: str,
 ) -> list[str]:
     labels = management_message_labels(locale)
-    translated = review_labels(locale)
     structured = first_record(review_payload.get("structuredReview"), review_payload.get("aiStructuredReview")) or {}
     lines: list[str] = []
 
@@ -191,26 +190,26 @@ def management_review_detail_lines(
     risks = text_list(structured.get("risks"), 1)
     watch_conditions = text_list(structured.get("watchConditions"), 2)
 
-    if "summary" in sections and (verdict or headline):
-        summary = " · ".join([part for part in (verdict, headline) if part])
-        lines.extend(["", labels["summaryTitle"], f"  {summary}"])
+    review_parts: list[str] = []
+    if "summary" in sections:
+        review_parts.extend([part for part in (verdict, headline) if part])
     if "action" in sections and action_line:
-        lines.extend(["", translated["action"], f"  {action_line}"])
-
-    rationale_parts: list[str] = []
+        review_parts.append(action_line)
     if "key_reasons" in sections:
-        rationale_parts.extend(key_reasons)
+        review_parts.extend(key_reasons)
     if "risks" in sections:
-        rationale_parts.extend(risks)
-    if rationale_parts:
-        lines.extend(["", labels["rationaleTitle"], f"  {' · '.join(rationale_parts)}"])
+        review_parts.extend(risks)
+    if "watch_conditions" in sections:
+        review_parts.extend(watch_conditions)
 
-    if "watch_conditions" in sections and watch_conditions:
-        lines.extend(["", translated["watchConditions"], f"  {' · '.join(watch_conditions)}"])
-    if "manager_note" in sections and manager_note and not rationale_parts:
+    review_lines = compact_review_lines(review_parts, limit=5)
+    if review_lines:
+        lines.extend(["", labels["reviewTitle"], *[f"  {line}" for line in review_lines]])
+    if "manager_note" in sections and manager_note:
+        translated = review_labels(locale)
         lines.extend(["", translated["managerNote"], f"  {manager_note}"])
-    if "rationale" in sections and not (verdict or headline or action_line or rationale_parts or watch_conditions):
-        lines.extend(["", labels["rationaleTitle"], f"  {fallback_rationale}"])
+    if "rationale" in sections and not review_lines:
+        lines.extend(["", labels["reviewTitle"], f"  {fallback_rationale}"])
     return lines
 
 
@@ -351,8 +350,6 @@ def entry_review_lines(payload: dict[str, Any], locale: str) -> list[str]:
     if structured is None and approval_reason is None:
         return []
 
-    translated = review_labels(locale)
-    lines: list[str] = []
     verdict = text_value(structured.get("verdict")) if structured else None
     headline = text_value(structured.get("headline")) if structured else None
     action = " ".join(text_lines(structured.get("action"), 3)) if structured else None
@@ -361,18 +358,19 @@ def entry_review_lines(payload: dict[str, Any], locale: str) -> list[str]:
     risks = text_list(structured.get("risks"), 1) if structured else []
     watch_conditions = text_list(structured.get("watchConditions"), 2) if structured else []
 
-    if verdict:
-        lines.append(verdict)
-    if headline or approval_reason:
-        lines.append(headline or approval_reason or "-")
-    if action and action != headline:
-        lines.append(f"{translated['action']}: {action}")
-    rationale_parts = [*key_reasons, *risks]
-    if rationale_parts:
-        lines.append(f"{translated['keyReasons']}: {' · '.join(rationale_parts)}")
-    if watch_conditions:
-        lines.append(f"{translated['watchConditions']}: {' · '.join(watch_conditions)}")
-    if manager_note and not rationale_parts:
+    lines = compact_review_lines(
+        [
+            verdict,
+            headline or approval_reason,
+            action,
+            *key_reasons,
+            *risks,
+            *watch_conditions,
+        ],
+        limit=5,
+    )
+    if manager_note:
+        translated = review_labels(locale)
         lines.append(f"{translated['managerNote']}: {manager_note}")
     return lines
 
@@ -427,6 +425,7 @@ def management_message_labels(locale: str) -> dict[str, str]:
             "action": "Action",
             "confidence": "Confidence",
             "positionTitle": "Position",
+            "reviewTitle": "Review",
             "summaryTitle": "Summary",
             "side": "Side",
             "entry": "Entry",
@@ -443,6 +442,7 @@ def management_message_labels(locale: str) -> dict[str, str]:
             "action": "조치",
             "confidence": "신뢰도",
             "positionTitle": "포지션",
+            "reviewTitle": "리뷰",
             "summaryTitle": "요약",
             "side": "방향",
             "entry": "진입가",
@@ -459,6 +459,7 @@ def management_message_labels(locale: str) -> dict[str, str]:
             "action": "Действие",
             "confidence": "Уверенность",
             "positionTitle": "Позиция",
+            "reviewTitle": "Обзор",
             "summaryTitle": "Итог",
             "side": "Направление",
             "entry": "Вход",
@@ -475,6 +476,7 @@ def management_message_labels(locale: str) -> dict[str, str]:
             "action": "Ação",
             "confidence": "Confiança",
             "positionTitle": "Posição",
+            "reviewTitle": "Revisão",
             "summaryTitle": "Resumo",
             "side": "Direção",
             "entry": "Entrada",
@@ -491,6 +493,7 @@ def management_message_labels(locale: str) -> dict[str, str]:
             "action": "Aksiyon",
             "confidence": "Güven",
             "positionTitle": "Pozisyon",
+            "reviewTitle": "İnceleme",
             "summaryTitle": "Özet",
             "side": "Yön",
             "entry": "Giriş",
@@ -627,6 +630,23 @@ def text_lines(value: Any, limit: int) -> list[str]:
         else:
             items = []
     return [clean for item in items if (clean := strip_bullet_prefix(item))][:limit]
+
+
+def compact_review_lines(values: list[str | None], *, limit: int) -> list[str]:
+    lines: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        clean = text_value(value)
+        if clean is None:
+            continue
+        normalized = " ".join(clean.lower().split())
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        lines.append(clean)
+        if len(lines) >= limit:
+            break
+    return lines
 
 
 def literal_string_list(value: Any) -> list[str] | None:
