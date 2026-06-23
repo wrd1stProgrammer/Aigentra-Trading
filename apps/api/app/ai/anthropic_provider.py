@@ -53,12 +53,15 @@ def structured_review_schema() -> dict[str, Any]:
         "type": "object",
         "properties": {
             "verdict": {"type": "string", "description": "Short decision label in the requested language."},
-            "headline": {"type": "string", "description": "One plain-language sentence explaining the current judgment."},
+            "headline": {
+                "type": "string",
+                "description": "One plain-language sentence explaining whether the current position is working, weakening, protected, or invalidated.",
+            },
             "action": {"type": "string", "description": "One concrete next action sentence. Never return a list or list-like text."},
             "keyReasons": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Up to two short reasons, written for a beginner.",
+                "description": "Up to two short reasons tied to current price versus entry, stop, target, PnL, recent candles, or recent reviews.",
             },
             "risks": {
                 "type": "array",
@@ -153,7 +156,10 @@ def management_review_schema() -> dict[str, Any]:
             "actions": {"type": "array", "items": management_action_schema()},
             "riskChange": {"type": "string"},
             "nextReviewInSeconds": {"type": "integer", "description": "Seconds until the next review, from 60 to 3600."},
-            "rationale": {"type": "string", "description": "Legacy management rationale. Write 1-2 compact sentences mirroring structuredReview."},
+            "rationale": {
+                "type": "string",
+                "description": "Legacy management rationale. Write 1-2 compact sentences mirroring the current exposure briefing in structuredReview.",
+            },
             "counterThesis": {"type": "string"},
         },
         "required": [

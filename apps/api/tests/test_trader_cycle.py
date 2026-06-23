@@ -584,6 +584,11 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "rationale is a legacy compatibility field" in management
     assert "Do not collapse active-position HOLD reviews into a single generic sentence" in management
     assert "two compact desk-style sentences" in management
+    assert "position management briefing for a normal user" in management
+    assert "Start from the current exposure: entry, current price, stop, target, unrealized PnL" in management
+    assert "Do not write checklist fragments such as structure and risk-reward are healthy" in management
+    assert "Do not mention paper trading in structuredReview, rationale, counterThesis, or action reasons" in management
+    assert "This is paper trading only" not in management.split("Payload:", 1)[0]
 
 
 def test_breakeven_profit_protection_prompt_has_dedicated_decision_contract():

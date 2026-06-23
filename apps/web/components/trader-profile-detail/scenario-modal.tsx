@@ -1,6 +1,7 @@
 "use client";
 
 import { X } from "@phosphor-icons/react";
+import { useId } from "react";
 import type { ManagementReview, PaperOrder, PaperPosition, PaperTradeEvent } from "@/lib/api";
 import { ReviewBriefSummary } from "@/components/review-brief-summary";
 import { formatNumber } from "@/lib/format";
@@ -32,6 +33,7 @@ export function ScenarioModal({
   onClose: () => void;
   t: Translator;
 }) {
+  const titleId = useId();
   const importance = importanceBadge(scenarioImportance(scenario), t);
   const rationaleLabel = scenarioRationaleLabel(scenario, t);
   const sideValue = scenario.side ? String(scenario.side).toUpperCase() : "-";
@@ -40,7 +42,13 @@ export function ScenarioModal({
   const scenarioTime = scenario.createdAt ? scenario.createdAt.replace("T", " ").slice(0, 16) : "-";
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-zinc-950/60 p-3 pt-[6dvh] backdrop-blur-sm sm:p-5 sm:pt-[7dvh]">
-      <div className="max-h-[86dvh] w-full max-w-[920px] overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 dark:bg-[#0b0c10] dark:ring-zinc-800">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        data-testid="scenario-modal"
+        className="max-h-[86dvh] w-full max-w-[920px] overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 dark:bg-[#0b0c10] dark:ring-zinc-800"
+      >
         <div className="sticky top-0 z-[1] border-b border-zinc-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-zinc-800 dark:bg-[#0b0c10]/95 sm:px-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
@@ -49,7 +57,7 @@ export function ScenarioModal({
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-xl font-black tracking-tight text-zinc-950 dark:text-zinc-50 sm:text-2xl">{scenarioTitle(scenario, t)}</h2>
+                  <h2 id={titleId} className="text-xl font-black tracking-tight text-zinc-950 dark:text-zinc-50 sm:text-2xl">{scenarioTitle(scenario, t)}</h2>
                   <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-bold leading-none ring-1 ${importance.className}`}>
                     <span className={`size-1.5 rounded-full ${importance.dotClassName}`} />
                     {importance.label}
@@ -106,7 +114,7 @@ export function ScenarioModal({
             </div>
             <div className="mt-3">
               {scenario.reviewBrief ? (
-                <ReviewBriefSummary brief={scenario.reviewBrief} title={rationaleLabel} t={t} />
+                <ReviewBriefSummary brief={scenario.reviewBrief} title={rationaleLabel} embedded showHeader={false} t={t} />
               ) : (
                 <p className="text-sm leading-7 text-zinc-800 dark:text-zinc-100">{scenarioDisplayText(scenarioDetailRationaleText(scenario, t), t)}</p>
               )}

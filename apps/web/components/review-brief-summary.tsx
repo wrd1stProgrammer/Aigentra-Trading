@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, ListChecks, Target } from "@phosphor-icons/react";
+import { CheckCircle, ListChecks, Target, WarningCircle } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { StatusBadge } from "@/components/status-badge";
 import type { ReviewBrief } from "@/lib/review-brief";
@@ -10,21 +10,42 @@ type ReviewBriefSummaryProps = {
   brief: ReviewBrief;
   title: string;
   compact?: boolean;
+  embedded?: boolean;
+  showHeader?: boolean;
   t: (key: string) => string;
 };
 
-export function ReviewBriefSummary({ brief, title, compact = false, t }: ReviewBriefSummaryProps) {
+export function ReviewBriefSummary({
+  brief,
+  title,
+  compact = false,
+  embedded = false,
+  showHeader = true,
+  t
+}: ReviewBriefSummaryProps) {
   const headline = cleanReviewDisplayText(brief.headline ?? brief.action ?? brief.managerNote ?? "-", compact ? 96 : 140);
   const verdict = localizedBriefToken(brief.verdict, t);
   const action = cleanReviewDisplayText(localizedBriefToken(brief.action, t) ?? brief.action, compact ? 72 : 100);
-  const rationaleItems = cleanReviewDisplayItems([...brief.keyReasons.slice(0, 2), ...brief.risks.slice(0, 1)], compact ? 86 : 120);
+  const rationaleItems = cleanReviewDisplayItems(brief.keyReasons.slice(0, 2), compact ? 86 : 120);
+  const riskItems = cleanReviewDisplayItems(brief.risks.slice(0, 1), compact ? 86 : 120);
   const watchItems = cleanReviewDisplayItems(brief.watchConditions.slice(0, 2), compact ? 86 : 120);
+  const managerNote = cleanReviewDisplayText(brief.managerNote ?? "", compact ? 110 : 160);
+  const shellClassName = embedded
+    ? `${compact ? "space-y-2" : "space-y-3"}`
+    : `rounded-xl border border-zinc-200 bg-white/70 p-3 dark:border-zinc-800 dark:bg-zinc-950/35 ${compact ? "space-y-2" : "space-y-3"}`;
+
   return (
-    <div className={`rounded-xl border border-zinc-200 bg-white/70 p-3 dark:border-zinc-800 dark:bg-zinc-950/35 ${compact ? "space-y-2" : "space-y-3"}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="metric-label">{title}</div>
-        {verdict ? <StatusBadge tone="neutral">{verdict}</StatusBadge> : null}
-      </div>
+    <div className={shellClassName}>
+      {showHeader ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="metric-label">{title}</div>
+          {verdict ? <StatusBadge tone="neutral">{verdict}</StatusBadge> : null}
+        </div>
+      ) : verdict ? (
+        <div className="flex justify-end">
+          <StatusBadge tone="neutral">{verdict}</StatusBadge>
+        </div>
+      ) : null}
       <p className={`${compact ? "text-xs leading-5" : "text-sm leading-6"} text-zinc-800 dark:text-zinc-100`}>
         {headline}
       </p>
@@ -36,8 +57,14 @@ export function ReviewBriefSummary({ brief, title, compact = false, t }: ReviewB
       ) : null}
       <div className="space-y-2">
         <BriefSummaryLine icon={<ListChecks size={15} />} label={t("aiReview.keyReasons")} items={rationaleItems} />
+        <BriefSummaryLine icon={<WarningCircle size={15} />} label={t("aiReview.risks")} items={riskItems} />
         <BriefSummaryLine icon={<Target size={15} />} label={t("aiReview.watchConditions")} items={watchItems} />
       </div>
+      {managerNote ? (
+        <p className="rounded-lg bg-zinc-100/65 px-3 py-2 text-xs leading-5 text-zinc-600 dark:bg-zinc-900/50 dark:text-zinc-300">
+          <span className="font-semibold text-zinc-500 dark:text-zinc-400">{t("aiReview.managerNote")}:</span> {managerNote}
+        </p>
+      ) : null}
     </div>
   );
 }

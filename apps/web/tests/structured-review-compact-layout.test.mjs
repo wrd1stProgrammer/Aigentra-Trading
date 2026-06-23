@@ -16,6 +16,16 @@ test("structured review sections render as compact single-row summaries", () => 
   assert.match(panelSource, /ReviewBriefSummary/, "AI review panel should use the compact review summary");
 });
 
+test("scenario modal suppresses duplicate management rationale heading inside the summary card", () => {
+  assert.match(summarySource, /showHeader/, "shared review summary should support hiding its internal heading");
+  assert.match(modalSource, /showHeader=\{false\}/, "scenario modal already labels the rationale section outside the summary");
+  assert.doesNotMatch(
+    modalSource,
+    /<ReviewBriefSummary brief=\{scenario\.reviewBrief\} title=\{rationaleLabel\} t=\{t\} \/>/,
+    "scenario modal should not render the same rationale label twice"
+  );
+});
+
 test("structured review raw decision tokens are localized before display", () => {
   assert.match(summarySource, /localizedBriefToken/, "brief verdicts should pass through a localization helper");
   assert.match(summarySource, /APPROVE: "status\.approved"/, "approve verdicts should use status localization");
