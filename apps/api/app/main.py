@@ -553,6 +553,42 @@ def serialize_record_slim(record) -> dict:
     return data
 
 
+def record_payload(value: Any) -> dict | None:
+    return value if isinstance(value, dict) else None
+
+
+def numeric_record_id(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def localized_embedded_ai_review_payload(record, payload: dict, locale: str) -> tuple[dict, dict | None]:
+    record_session = object_session(record)
+    ai_review_id = numeric_record_id(payload.get("aiReviewId"))
+    ai_review = record_payload(payload.get("aiReview"))
+    if record_session is None or ai_review_id is None or ai_review is None:
+        return payload, None
+    localized_review, meta = localized_payload_for_source(
+        db=record_session,
+        source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+        source_id=ai_review_id,
+        payload=ai_review,
+        locale=locale,
+    )
+    if meta.get("status") != "ok":
+        return payload, None
+    next_payload = {**payload, "aiReview": localized_review}
+    structured = record_payload(localized_review.get("structuredReview"))
+    if structured is not None:
+        next_payload["aiStructuredReview"] = structured
+    approval_reason = localized_review.get("approvalReason")
+    if approval_reason:
+        next_payload["aiApprovalReason"] = approval_reason
+    return next_payload, {"status": "ok", "embeddedAiReview": meta}
+
+
 def serialize_record_for_ui(record, *, include_payload: bool = False, locale: str = CANONICAL_AI_LOCALE) -> dict:
     data = serialize_record_slim(record)
     if not include_payload:
@@ -577,6 +613,8 @@ def serialize_record_for_ui(record, *, include_payload: bool = False, locale: st
                 payload=payload,
                 locale=locale,
             )
+        elif isinstance(record, (PaperOrderRecord, PaperPositionRecord, TradeEventRecord)):
+            payload, translation_meta = localized_embedded_ai_review_payload(record, payload, locale)
     if payload:
         data["payload"] = payload
     if translation_meta is not None:
@@ -4451,8 +4489,50 @@ async def league_trader_trade_history(
         except (ValueError, TypeError):
             return 0.0
 
-    # Aggregate positions
+    def event_payload(ev: TradeEventRecord) -> dict:
+        if not ev.payload_json:
+            return {}
+        try:
+            parsed = json.loads(ev.payload_json)
+        except Exception:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def normalized_event_type(ev: TradeEventRecord) -> str:
+        return str(ev.event_type or "").replace("-", "_").upper()
+
+    def is_partial_exit_event(ev: TradeEventRecord, payload: dict) -> bool:
+        event_type = normalized_event_type(ev)
+        source = str(payload.get("source") or "").lower()
+        return (
+            "PARTIAL" in event_type
+            or "REDUCE" in event_type
+            or event_type == "TAKE_PARTIAL_PROFIT"
+            or source == "strategy_take_profit"
+            or payload.get("takeProfitIndex") is not None
+        )
+
+    def is_final_exit_event(ev: TradeEventRecord, payload: dict) -> bool:
+        if is_partial_exit_event(ev, payload):
+            return False
+        return normalized_event_type(ev) in {
+            "POSITION_CLOSED",
+            "TAKE_PROFIT",
+            "STOP_LOSS",
+            "LIQUIDATION",
+            "CLOSE_POSITION",
+        }
+
+    event_payloads = {id(ev): event_payload(ev) for ev in events}
+    positions_with_final_exit_events = {
+        ev.position_id
+        for ev in events
+        if ev.position_id is not None and is_final_exit_event(ev, event_payloads[id(ev)])
+    }
+
     for pos in positions:
+        if pos.id in positions_with_final_exit_events:
+            continue
         closed_at = pos.closed_at or pos.updated_at or pos.created_at
         if not closed_at:
             continue
@@ -4490,11 +4570,7 @@ async def league_trader_trade_history(
                 "closeReason": pos.close_reason or "closed",
             }
             
-    # Aggregate fallback events (that might not match known positions)
-    known_pos_ids = {pos.id for pos in positions}
     for ev in events:
-        if ev.position_id in known_pos_ids:
-            continue
         created_at = ev.created_at
         if not created_at:
             continue
@@ -4504,12 +4580,7 @@ async def league_trader_trade_history(
         qty = parse_float(ev.quantity)
         pnl = parse_float(ev.realized_pnl)
         
-        payload = {}
-        if ev.payload_json:
-            try:
-                payload = json.loads(ev.payload_json)
-            except Exception:
-                pass
+        payload = event_payloads[id(ev)]
                 
         entry_price = parse_float(payload.get("entryPrice") or payload.get("averageEntryPrice") or price)
         leverage = parse_float(payload.get("leverage") or 1.0)

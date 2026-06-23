@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app.db import (
+    PaperPositionRecord,
     PositionManagementReviewRecord,
     TradeEventRecord,
     init_db,
@@ -51,6 +52,75 @@ def test_trade_history_includes_lowercase_realized_events(temp_db):
     assert data["items"][0]["time"].startswith("2026-06-13T15:00:00")
     assert data["items"][0]["pnl"] == 27.4
     assert data["items"][0]["closeReason"] == "TP1 filled"
+
+
+def test_trade_history_keeps_partial_take_profits_for_closed_position(temp_db):
+    with session_scope() as db:
+        position = PaperPositionRecord(
+            trader_id="trend-sentinel",
+            symbol="BTCUSDT",
+            status="closed",
+            side="long",
+            quantity=Decimal("0.300"),
+            entry_price=Decimal("64000"),
+            leverage=Decimal("5"),
+            notional=Decimal("96000"),
+            margin=Decimal("19200"),
+            exit_price=Decimal("65500"),
+            realized_pnl=Decimal("75.00"),
+            close_reason="take_profit",
+            opened_at=datetime(2026, 6, 23, 7, 0, tzinfo=timezone.utc),
+            closed_at=datetime(2026, 6, 23, 9, 30, tzinfo=timezone.utc),
+        )
+        db.add(position)
+        db.flush()
+        db.add_all(
+            [
+                TradeEventRecord(
+                    trader_id="trend-sentinel",
+                    symbol="BTCUSDT",
+                    event_type="take_partial_profit",
+                    position_id=position.id,
+                    price=Decimal("65000"),
+                    quantity=Decimal("0.100"),
+                    realized_pnl=Decimal("120.10"),
+                    created_at=datetime(2026, 6, 23, 8, 10, tzinfo=timezone.utc),
+                    payload_json=json.dumps({"side": "LONG", "entryPrice": 64000, "reason": "TP1 filled"}),
+                ),
+                TradeEventRecord(
+                    trader_id="trend-sentinel",
+                    symbol="BTCUSDT",
+                    event_type="take_partial_profit",
+                    position_id=position.id,
+                    price=Decimal("65350"),
+                    quantity=Decimal("0.100"),
+                    realized_pnl=Decimal("180.33"),
+                    created_at=datetime(2026, 6, 23, 8, 55, tzinfo=timezone.utc),
+                    payload_json=json.dumps({"side": "LONG", "entryPrice": 64000, "reason": "TP2 filled"}),
+                ),
+                TradeEventRecord(
+                    trader_id="trend-sentinel",
+                    symbol="BTCUSDT",
+                    event_type="position_closed",
+                    position_id=position.id,
+                    price=Decimal("65500"),
+                    quantity=Decimal("0.100"),
+                    realized_pnl=Decimal("75.00"),
+                    created_at=datetime(2026, 6, 23, 9, 30, tzinfo=timezone.utc),
+                    payload_json=json.dumps({"side": "LONG", "entryPrice": 64000, "reason": "take_profit"}),
+                ),
+            ]
+        )
+
+    client = TestClient(app)
+    response = client.get("/api/league/traders/trend-sentinel/trade-history?symbol=BTCUSDT&limit=10")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 3
+    assert [item["closeReason"] for item in data["items"]] == ["take_profit", "TP2 filled", "TP1 filled"]
+    assert [item["exitPrice"] for item in data["items"]] == [65500.0, 65350.0, 65000.0]
+    assert sum(item["pnl"] for item in data["items"]) == pytest.approx(375.43)
 
 
 def test_trader_detail_exposes_review_counts_by_utc_day(temp_db):

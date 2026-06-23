@@ -27,7 +27,15 @@ export function cleanReviewDisplayText(value: unknown, maxChars = MAX_REVIEW_COP
 
   text = text
     .replace(/\s*\.\s*\./g, ".")
-    .replace(/\s*([,.!?])\s*/g, "$1 ")
+    .replace(/\s*([,.!?])\s*/g, (match, punctuation: string, offset: number, source: string) => {
+      const punctuationIndex = offset + match.indexOf(punctuation);
+      const previous = source[punctuationIndex - 1];
+      const next = source[punctuationIndex + 1];
+      if ((punctuation === "." || punctuation === ",") && /\d/.test(previous ?? "") && /\d/.test(next ?? "")) {
+        return punctuation;
+      }
+      return `${punctuation} `;
+    })
     .replace(/\s+/g, " ")
     .replace(/\s+([,.!?])/g, "$1")
     .trim();

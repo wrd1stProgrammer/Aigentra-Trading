@@ -23,7 +23,10 @@ const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8"
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
 
 const overlayHelpers = loadTsModule("../components/live-candle-chart-overlays.ts");
-const scenarioCopy = loadTsModule("../components/trader-profile-detail/scenario-copy.ts");
+const reviewDisplay = loadTsModule("../lib/review-display.ts");
+const scenarioCopy = loadTsModule("../components/trader-profile-detail/scenario-copy.ts", {
+  "@/lib/review-display": reviewDisplay
+});
 const scenarioDedupe = loadTsModule("../components/trader-profile-detail/scenario-dedupe.ts");
 
 test("AI management scenarios normalize short English reason labels and expose four-level importance", () => {
@@ -364,7 +367,7 @@ test("trader detail browser cache placeholders wait until after hydration", () =
   assert.match(profileSource, /clientHydrated \? getCachedTraderDetailBundle/, "localStorage-backed detail cache should not run during hydration");
 });
 
-function loadTsModule(relativePath) {
+function loadTsModule(relativePath, requireStubs = {}) {
   const tsSource = readFileSync(new URL(relativePath, import.meta.url), "utf8");
   const { outputText } = ts.transpileModule(tsSource, {
     compilerOptions: {
@@ -373,6 +376,10 @@ function loadTsModule(relativePath) {
     }
   });
   const module = { exports: {} };
-  Function("exports", "module", outputText)(module.exports, module);
+  const requireShim = (specifier) => {
+    if (Object.hasOwn(requireStubs, specifier)) return requireStubs[specifier];
+    throw new Error(`Unexpected test import: ${specifier}`);
+  };
+  Function("exports", "module", "require", outputText)(module.exports, module, requireShim);
   return module.exports;
 }

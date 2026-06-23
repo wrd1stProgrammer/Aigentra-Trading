@@ -1,4 +1,5 @@
 import type { TraderScenario } from "@/lib/league";
+import { cleanReviewDisplayText } from "@/lib/review-display";
 import type { ScenarioImportance, Translator } from "@/components/trader-profile-detail/types";
 
 const DISPLAY_TEXT_KEYS: ReadonlyArray<readonly [RegExp, string]> = [
@@ -50,11 +51,11 @@ export function scenarioDetailRationaleText(scenario: TraderScenario, t: Transla
   switch (scenario.source) {
     case "position":
     case "order":
-      return scenario.rationale ?? t("detail.noAiRationale");
+      return cleanReviewDisplayText(scenario.rationale, 0) || t("detail.noAiRationale");
     case "review":
     case "event":
     case "strategy":
-      return scenario.rationale ?? t("detail.noAiRationale");
+      return cleanReviewDisplayText(scenario.rationale, 0) || t("detail.noAiRationale");
   }
 }
 

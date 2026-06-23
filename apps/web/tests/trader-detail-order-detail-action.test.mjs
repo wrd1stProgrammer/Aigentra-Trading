@@ -22,7 +22,9 @@ const panelSource = readFileSync(new URL("../components/trader-profile-detail/bi
 const modalSource = readFileSync(new URL("../components/trader-profile-detail/scenario-modal.tsx", import.meta.url), "utf8");
 const dataSource = readFileSync(new URL("../components/trader-profile-detail/data.ts", import.meta.url), "utf8");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
-const scenarioCopy = loadTsModule("../components/trader-profile-detail/scenario-copy.ts");
+const scenarioCopy = loadTsModule("../components/trader-profile-detail/scenario-copy.ts", {
+  "@/lib/review-display": reviewDisplay
+});
 const scenarioFeed = loadTsModule("../components/trader-profile-detail/scenario-feed.ts", {
   "@/components/live-candle-chart-overlays": exposureStub,
   "@/lib/review-brief": reviewBrief,
@@ -231,6 +233,11 @@ test("position panel exposes detail callbacks for positions and orders", () => {
   assert.match(pageSource, /setSelectedScenario/, "detail action should reuse the same ScenarioModal state as the latest scenario list");
 });
 
+test("position panel fallback detail scenarios keep structured AI review copy", () => {
+  assert.match(panelSource, /import \{ reviewBriefFromRecord \} from "@\/lib\/review-brief"/);
+  assert.match(panelSource, /reviewBrief:\s*reviewBriefFromRecord\(\{ payload \}\)/);
+});
+
 test("scenario modal does not show entry summary as management rationale", () => {
   assert.match(modalSource, /scenarioDetailRationaleText\(scenario, t\)/);
   assert.doesNotMatch(modalSource, /scenario\.rationale \?\? scenario\.summary/);
@@ -251,6 +258,13 @@ test("position detail side labels use dedicated localization keys", () => {
   assert.match(modalSource, /localizedScenarioSide\(scenario\.side, t\)/, "scenario modal should not display raw LONG or SHORT labels");
   assert.match(i18nSource, /"detail\.sideLong": "롱"/, "Korean detail side labels should be localized");
   assert.match(i18nSource, /"detail\.sideShort": "숏"/, "Korean detail side labels should be localized");
+});
+
+test("review display cleanup preserves decimal prices and ratios", () => {
+  assert.equal(
+    reviewDisplay.cleanReviewDisplayText("z-score 1.49, 손익비 2.6은 기준 1.15 이상입니다.", 0),
+    "z-score 1.49, 손익비 2.6은 기준 1.15 이상입니다."
+  );
 });
 
 test("open position detail shows the saved entry approval rationale instead of generic active status copy", () => {
@@ -314,22 +328,24 @@ test("latest scenario feed prefers structured readable review text when availabl
       "detail.sideShort": "숏"
     })[key] ?? key;
 
-  assert.equal(
-    scenarioFeed.scenarioTimelineBody(
-      { id: "review-1", source: "review", phase: "OPEN_POSITION", status: "HOLD", reviewBrief: structured },
-      undefined,
-      reviewT
-    ),
-    "포지션 유지 중. 핵심 조건만 확인합니다. 손절 기준을 넘는지 확인 중입니다."
+  const reviewCopy = scenarioFeed.scenarioTimelineBody(
+    { id: "review-1", source: "review", phase: "OPEN_POSITION", status: "HOLD", reviewBrief: structured },
+    undefined,
+    reviewT
   );
-  assert.equal(
-    scenarioFeed.scenarioTimelineBody(
-      { id: "position-1", source: "position", phase: "OPEN_POSITION", status: "open", reviewBrief: structured, rationale: "old long paragraph" },
-      undefined,
-      reviewT
-    ),
-    "포지션 유지 중. 핵심 조건만 확인합니다. 손절 기준을 넘는지 확인 중입니다."
+  assert.match(reviewCopy, /현재 포지션은 아직 유지가 맞습니다/);
+  assert.match(reviewCopy, /손절 접근 여부만 확인하세요/);
+  assert.match(reviewCopy, /진입 근거가 깨지지 않았습니다/);
+  assert.doesNotMatch(reviewCopy, /포지션 유지 중\. 핵심 조건만 확인합니다/);
+
+  const positionCopy = scenarioFeed.scenarioTimelineBody(
+    { id: "position-1", source: "position", phase: "OPEN_POSITION", status: "open", reviewBrief: structured, rationale: "old long paragraph" },
+    undefined,
+    reviewT
   );
+  assert.match(positionCopy, /현재 포지션은 아직 유지가 맞습니다/);
+  assert.match(positionCopy, /손절 접근 여부만 확인하세요/);
+  assert.doesNotMatch(positionCopy, /old long paragraph/);
 
   const semicolonHeavy = {
     verdict: "HOLD",
@@ -345,8 +361,10 @@ test("latest scenario feed prefers structured readable review text when availabl
     undefined,
     reviewT
   );
-  assert.equal(copy, "숏 포지션 유지 중. 핵심 조건만 확인합니다. 거래량이 약해 추가 진입은 보류합니다.");
+  assert.match(copy, /가격 구조로 신중한 접근 필요/);
+  assert.match(copy, /약한 거래량 주의/);
   assert.doesNotMatch(copy, /;|지오메트리|무효화|모니터링/);
+  assert.doesNotMatch(copy, /포지션 유지 중\. 핵심 조건만 확인합니다/);
 });
 
 test("trader detail builds scenarios from closed positions without sending them to active chart positions", () => {

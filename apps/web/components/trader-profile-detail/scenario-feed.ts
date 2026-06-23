@@ -2,7 +2,7 @@ import type { ManagementReview } from "@/lib/api";
 import type { TraderScenario } from "@/lib/league";
 import type { ReviewBrief } from "@/lib/review-brief";
 import { reviewBriefFromRecord } from "@/lib/review-brief";
-import { cleanReviewDisplayText } from "@/lib/review-display";
+import { cleanReviewDisplayItems, cleanReviewDisplayText } from "@/lib/review-display";
 import { dedupeScenarioTimelineScenarios } from "@/components/trader-profile-detail/scenario-dedupe";
 import { scenarioDetailRationaleText } from "@/components/trader-profile-detail/scenario-copy";
 import type { Translator } from "@/components/trader-profile-detail/types";
@@ -28,7 +28,7 @@ export function scenarioTimelineBody(scenario: TraderScenario, matchingReview: M
   switch (scenario.source) {
     case "review":
       {
-        const briefText = managementReviewTimelineBody(scenario, scenario.reviewBrief ?? reviewBriefFromRecord(matchingReview), t);
+        const briefText = managementReviewTimelineBody(scenario.reviewBrief ?? reviewBriefFromRecord(matchingReview));
         if (briefText) return briefText;
       }
       if (matchingReview?.rationale) return cleanReviewDisplayText(matchingReview.rationale);
@@ -39,7 +39,7 @@ export function scenarioTimelineBody(scenario: TraderScenario, matchingReview: M
     case "position":
     case "order":
       {
-        const briefText = managementReviewTimelineBody(scenario, scenario.reviewBrief ?? null, t);
+        const briefText = managementReviewTimelineBody(scenario.reviewBrief ?? null);
         if (briefText) return briefText;
       }
       return cleanReviewDisplayText(scenarioDetailRationaleText(scenario, t)) || "-";
@@ -49,68 +49,17 @@ export function scenarioTimelineBody(scenario: TraderScenario, matchingReview: M
   }
 }
 
-function managementReviewTimelineBody(scenario: TraderScenario, brief: ReviewBrief | null, t: Translator) {
-  const lead = reviewTimelineLead(scenario, t);
-  const reason = reviewReasonCue(brief, t);
-  return [lead, reason].filter(Boolean).join(" ");
-}
-
-function reviewTimelineLead(scenario: TraderScenario, t: Translator) {
-  const side = localizedSide(scenario.side, t);
-  const normalized = normalizeReviewKey([scenario.action, scenario.status, scenario.eventType]);
-  const phase = normalizeReviewKey([scenario.phase]);
-  if (normalized.includes("CANCEL")) return fillSide(t("detail.reviewBody.cancelOrder"), side);
-  if (normalized.includes("CLOSE") || normalized.includes("POSITION_CLOSED")) return fillSide(t("detail.reviewBody.closePosition"), side);
-  if (normalized.includes("MOVE_STOP") || normalized.includes("BREAKEVEN")) return fillSide(t("detail.reviewBody.adjustStop"), side);
-  if (phase.includes("PENDING_ORDER")) return fillSide(t("detail.reviewBody.pendingEntry"), side);
-  if (phase.includes("OPEN_POSITION") || normalized.includes("HOLD")) return fillSide(t("detail.reviewBody.holdPosition"), side);
-  return t("detail.reviewBody.watchMarket");
-}
-
-function reviewReasonCue(brief: ReviewBrief | null, t: Translator) {
+function managementReviewTimelineBody(brief: ReviewBrief | null) {
   if (!brief) return null;
-  const haystack = normalizeReviewKey([
+  const parts = cleanReviewDisplayItems([
     brief.headline,
     brief.action,
-    brief.managerNote,
-    ...brief.keyReasons,
-    ...brief.risks,
-    ...brief.watchConditions
-  ]);
-  if (haystack.includes("거래량") || haystack.includes("VOLUME") || haystack.includes("Z_SCORE")) return t("detail.reviewReason.volumeWeak");
-  if (haystack.includes("손절") || haystack.includes("STOP") || haystack.includes("실패") || haystack.includes("INVALID")) return t("detail.reviewReason.stopWatch");
-  if (haystack.includes("익절") || haystack.includes("목표") || haystack.includes("TAKE_PROFIT") || haystack.includes("TARGET")) return t("detail.reviewReason.profitWatch");
-  const [firstSnippet] = [
-    brief.headline,
-    brief.action,
-    brief.keyReasons[0],
-    brief.risks[0],
-    brief.watchConditions[0],
+    ...brief.keyReasons.slice(0, 2),
+    ...brief.risks.slice(0, 1),
+    ...brief.watchConditions.slice(0, 1),
     brief.managerNote
-  ]
-    .map((item) => cleanReviewDisplayText(item, 72))
-    .filter(Boolean);
-  return firstSnippet ?? null;
-}
-
-function fillSide(template: string, side: string) {
-  return template.replace("{side}", side).replace(/\s+/g, " ").trim();
-}
-
-function localizedSide(side: unknown, t: Translator) {
-  const normalized = String(side ?? "").trim().toUpperCase();
-  if (normalized === "LONG" || normalized === "BUY") return t("detail.sideLong");
-  if (normalized === "SHORT" || normalized === "SELL") return t("detail.sideShort");
-  return "";
-}
-
-function normalizeReviewKey(values: readonly unknown[]) {
-  return values
-    .map((value) => cleanReviewDisplayText(value, 0))
-    .join(" ")
-    .trim()
-    .replace(/[-\s]+/g, "_")
-    .toUpperCase();
+  ], 96);
+  return cleanReviewDisplayText(parts.join(" "), 260) || null;
 }
 
 function hasSavedAiApproval(scenario: TraderScenario): boolean {
