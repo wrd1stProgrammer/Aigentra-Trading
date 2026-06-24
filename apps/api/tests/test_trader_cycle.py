@@ -9,7 +9,7 @@ from app.ai.base import (
     trader_review_policy,
 )
 from app.market.snapshot import classify_market_regime, derivative_context
-from app.main import refresh_stale_position_management_review, trade_plan_from_review
+from app.main import enforce_pending_order_cancel_event, refresh_stale_position_management_review, trade_plan_from_review
 from app.traders.models import (
     ManagedExposure,
     ManagementEvent,
@@ -125,6 +125,44 @@ def sample_snapshot():
             "keltnerWidth1h": 2.1,
         },
     }
+
+
+def test_pending_order_cancel_event_overrides_hold_review():
+    review = PositionManagementResult(
+        decision="HOLD",
+        confidence=82,
+        riskLevel="MEDIUM",
+        actions=[],
+        riskChange="UNCHANGED",
+        nextReviewInSeconds=900,
+        rationale="Wait for more confirmation.",
+        counterThesis="Cancel if the level is missed.",
+    )
+    event = ManagementEvent(
+        eventType="imbalance_retest_missed",
+        phase="PENDING_ORDER",
+        severity="MEDIUM",
+        reason="Projected take-profit zone was reached before the pending entry filled.",
+        suggestedAction="CANCEL_PENDING_ORDER",
+    )
+    exposure = ManagedExposure(
+        kind="order",
+        id=758,
+        status="open",
+        side="SHORT",
+        quantity=0.278,
+        limitPrice=62826.9,
+        stopLoss=62964.9,
+        takeProfit=61476.2,
+        leverage=5,
+    )
+
+    enforced = enforce_pending_order_cancel_event(review, event=event, exposure=exposure)
+
+    assert enforced.decision == "CANCEL_PENDING_ORDER"
+    assert enforced.actions[0].type == "CANCEL_PENDING_ORDER"
+    assert enforced.actions[0].reason == event.reason
+    assert "PENDING_ORDER_CANCEL_EVENT_ENFORCED" in enforced.riskFlags
 
 
 def test_derivative_context_and_regime_contract():

@@ -129,6 +129,7 @@ from app.trader_status_feed.service import (
 )
 from app.traders.models import (
     EntryPlan,
+    ManagementAction,
     ManagedExposure,
     ManagementEvent,
     PositionManagementPayload,
@@ -148,6 +149,8 @@ from app.traders.strategy_base import default_leverage_plan, default_order_inten
 settings = get_settings()
 AI_COOLDOWN_DECISIONS = {"REJECT", "DEFER", "NEEDS_MORE_DATA"}
 PRICE_SHOCK_EVENT_TYPE = "common_price_shock"
+PENDING_ORDER_CANCEL_ACTIONS = {"CANCEL_PENDING_ORDER", "CANCEL_REMAINING_ORDERS", "EXPIRE_PLAN", "REDUCE_RISK"}
+PENDING_ORDER_CANCEL_DECISIONS = {"CANCEL_PENDING_ORDER", "REDUCE_RISK"}
 MIN_FINAL_PAPER_LEVERAGE = 5.0
 POSITION_MANAGEMENT_HEARTBEAT_LOOKAHEAD_SECONDS = 30
 OBSERVATION_SETUP_SCORE_FLOOR = 50
@@ -1231,6 +1234,31 @@ def refresh_stale_position_management_review(
     )
 
 
+def enforce_pending_order_cancel_event(
+    review: PositionManagementResult,
+    *,
+    event: ManagementEvent,
+    exposure: ManagedExposure,
+) -> PositionManagementResult:
+    if exposure.kind != "order":
+        return review
+    suggested_action = (event.suggestedAction or "").upper()
+    if suggested_action not in PENDING_ORDER_CANCEL_ACTIONS:
+        return review
+    current_action = (primary_action_type(review) or review.decision or "").upper()
+    if current_action in PENDING_ORDER_CANCEL_ACTIONS:
+        return review
+    enforced_decision = suggested_action if suggested_action in PENDING_ORDER_CANCEL_DECISIONS else "CANCEL_PENDING_ORDER"
+    return review.model_copy(
+        update={
+            "decision": enforced_decision,
+            "actions": [ManagementAction(type=suggested_action, reason=event.reason)],
+            "riskChange": "REDUCED",
+            "riskFlags": unique_strings([*review.riskFlags, "PENDING_ORDER_CANCEL_EVENT_ENFORCED"]),
+        }
+    )
+
+
 def structured_review_has_stale_current_price(
     structured_review: Optional[StructuredReview],
     rationale: Optional[str],
@@ -1604,6 +1632,7 @@ async def run_management_reviews(
         try:
             review = await run_position_management_with_logging(db, payload, clean_provider, settings=settings)
             review = refresh_stale_position_management_review(review, event=event, exposure=exposure)
+            review = enforce_pending_order_cancel_event(review, event=event, exposure=exposure)
             if event.eventType == PRICE_SHOCK_EVENT_TYPE:
                 review.nextReviewInSeconds = max(60, int(settings.price_shock_review_seconds or 120))
             if event.eventType == BREAKEVEN_PROFIT_PROTECTION_EVENT_TYPE:
