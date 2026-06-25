@@ -1,4 +1,6 @@
+import json
 import pytest
+from decimal import Decimal
 
 from app.ai.mock_provider import MockAIProvider
 from app.ai.base import (
@@ -8,8 +10,15 @@ from app.ai.base import (
     review_prompt,
     trader_review_policy,
 )
+from app.db import PaperPositionRecord
 from app.market.snapshot import classify_market_regime, derivative_context
-from app.main import enforce_pending_order_cancel_event, refresh_stale_position_management_review, trade_plan_from_review
+from app.main import (
+    enforce_pending_order_cancel_event,
+    heartbeat_event_for_position,
+    refresh_stale_position_management_review,
+    trade_plan_from_review,
+)
+from app.paper.management import position_management_events
 from app.traders.models import (
     ManagedExposure,
     ManagementEvent,
@@ -771,6 +780,157 @@ def test_review_prompts_require_plain_english_decision_flow_not_indicator_lists(
         assert "valid price structure" in contract
         assert "risk-reward ratio is valid" in contract
         assert "hold the position and continue monitoring" in contract
+
+
+def test_imbalance_management_prompt_builds_delta_memory_from_recent_reviews():
+    snapshot = sample_snapshot()
+    snapshot["price"] = 59531.0
+    snapshot["timeframes"]["15m"]["close"] = 59531.0
+    snapshot["timeframes"]["15m"]["latestCandle"]["close"] = 59531.0
+    snapshot["timeframes"]["15m"]["volumeZscore"] = -0.65
+    snapshot["derivatives"]["fundingRate"] = 0.000005
+    snapshot["derivatives"]["takerBuySell"]["buyShare"] = 0.47
+
+    management = position_management_review_prompt(
+        PositionManagementPayload(
+            trader=get_strategy("imbalance-hunter").profile,
+            symbol="BTCUSDT",
+            marketSnapshot=snapshot,
+            event=ManagementEvent(
+                eventType="imbalance_hunter_position_heartbeat",
+                phase="OPEN_POSITION",
+                severity="MEDIUM",
+                reason="Short is working but the failure line is close enough to require a precise next review.",
+                suggestedAction="HOLD",
+                metrics={
+                    "price": 59531.0,
+                    "entryPrice": 59213.0,
+                    "stopLoss": 62853.7,
+                    "takeProfit": 58407.6,
+                    "progressR": -0.0873,
+                    "targetProgress": -0.3946,
+                    "distanceToStopR": 0.9127,
+                    "imbalanceMidpoint": 59213.0,
+                    "failureLine": 62853.7,
+                    "volumeZscore": -0.65,
+                    "fundingRate": 0.000005,
+                    "takerBuyRatio": 0.47,
+                },
+            ),
+            exposure=ManagedExposure(
+                kind="position",
+                id=531,
+                status="open",
+                side="SHORT",
+                entryPrice=59213.0,
+                stopLoss=62853.7,
+                takeProfit=58407.6,
+                unrealizedPnl=-18.2,
+            ),
+            recentManagementReviews=[
+                {
+                    "decision": "HOLD",
+                    "rationale": "Weak volume and neutral funding keep the position near entry, so patience is supported but the failure level is key.",
+                    "structuredReview": {
+                        "headline": "Weak volume and neutral funding keep the position near entry.",
+                        "action": "Hold the current position and keep watching 15m failure at 62853.7.",
+                        "keyReasons": ["The position is profitable but close to failure."],
+                        "risks": ["A rebound through the failure level may trigger the stop."],
+                        "watchConditions": ["If 15m closes above 62853.7, the setup fails."],
+                    },
+                }
+            ],
+            locale="ko",
+        )
+    )
+
+    contract, payload = management.split("Payload:", 1)
+    data = json.loads(payload)
+    delta = data["currentReviewDelta"]
+    memory = data["recentReviewMemory"]
+    assert "Do not start any structuredReview field with the same opening phrase" in contract
+    assert "이번 리뷰가 이전 리뷰와 다른 이유" in contract
+    assert memory[0]["avoidRepeating"][0] == "Weak volume and neutral funding keep the position near entry."
+    assert delta["priceBox"]["distanceToStopR"] == pytest.approx(0.9127)
+    assert delta["strategyTriggers"]["failureLine"] == 62853.7
+
+
+def test_imbalance_position_management_event_uses_midpoint_distance_and_displacement_metrics():
+    snapshot = sample_snapshot()
+    snapshot["price"] = 62860.0
+    snapshot["timeframes"]["15m"]["close"] = 62860.0
+    snapshot["timeframes"]["15m"]["latestCandle"]["close"] = 62860.0
+    snapshot["timeframes"]["15m"]["latestCandle"]["volume"] = 1000.0
+    snapshot["timeframes"]["15m"]["latestCandle"]["takerBuyBaseVolume"] = 470.0
+    snapshot["timeframes"]["15m"]["volumeZscore"] = -0.65
+    snapshot["derivatives"]["fundingRate"] = 0.000005
+    snapshot["derivatives"]["takerBuySell"]["buyShare"] = 0.47
+    position = PaperPositionRecord(
+        trader_id="imbalance-hunter",
+        symbol="BTCUSDT",
+        status="open",
+        side="short",
+        quantity=Decimal("0.1"),
+        entry_price=Decimal("59213.0"),
+        leverage=Decimal("5"),
+        notional=Decimal("29606.5"),
+        margin=Decimal("5921.3"),
+        unrealized_pnl=Decimal("-18.2"),
+        take_profit_price=Decimal("58407.6"),
+        stop_loss_price=Decimal("62853.7"),
+    )
+
+    events = position_management_events("imbalance-hunter", position, snapshot)
+
+    assert events
+    event = events[0]
+    assert event.eventType == "displacement_origin_failed"
+    assert "imbalance" in event.reason.lower()
+    assert event.metrics["failureLine"] == 62853.7
+    assert event.metrics["imbalanceMidpoint"] == 59213.0
+    assert event.metrics["distanceToStopR"] == pytest.approx(-0.0017)
+    assert event.metrics["targetProgress"] == pytest.approx(-4.5282)
+    assert event.metrics["volumeZscore"] == -0.65
+    assert event.metrics["fundingRate"] == pytest.approx(0.000005)
+    assert event.metrics["takerBuyRatio"] == 0.47
+
+
+def test_imbalance_position_heartbeat_carries_stateful_review_metrics():
+    snapshot = sample_snapshot()
+    snapshot["price"] = 59531.0
+    snapshot["timeframes"]["15m"]["close"] = 59531.0
+    snapshot["timeframes"]["15m"]["latestCandle"]["close"] = 59531.0
+    snapshot["timeframes"]["15m"]["latestCandle"]["volume"] = 1000.0
+    snapshot["timeframes"]["15m"]["latestCandle"]["takerBuyBaseVolume"] = 470.0
+    snapshot["timeframes"]["15m"]["volumeZscore"] = -0.65
+    snapshot["derivatives"]["fundingRate"] = 0.000005
+    snapshot["derivatives"]["takerBuySell"]["buyShare"] = 0.47
+    position = PaperPositionRecord(
+        trader_id="imbalance-hunter",
+        symbol="BTCUSDT",
+        status="open",
+        side="short",
+        quantity=Decimal("0.1"),
+        entry_price=Decimal("59213.0"),
+        leverage=Decimal("5"),
+        notional=Decimal("29606.5"),
+        margin=Decimal("5921.3"),
+        unrealized_pnl=Decimal("-18.2"),
+        take_profit_price=Decimal("58407.6"),
+        stop_loss_price=Decimal("62853.7"),
+    )
+
+    event = heartbeat_event_for_position("imbalance-hunter", position, snapshot)
+
+    assert event.eventType == "imbalance_hunter_position_heartbeat"
+    assert "entry" in event.reason.lower()
+    assert "failure line" in event.reason.lower()
+    assert event.metrics["failureLine"] == 62853.7
+    assert event.metrics["imbalanceMidpoint"] == 59213.0
+    assert event.metrics["distanceToStopR"] == pytest.approx(0.9127)
+    assert event.metrics["volumeZscore"] == -0.65
+    assert event.metrics["fundingRate"] == pytest.approx(0.000005)
+    assert event.metrics["takerBuyRatio"] == 0.47
 
 
 def test_breakeven_profit_protection_prompt_has_dedicated_decision_contract():

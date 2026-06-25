@@ -57,7 +57,7 @@ class OpenAIProvider(BaseAIProvider):
                 {"role": "system", "content": "Return only strict JSON."},
                 {"role": "user", "content": position_management_review_prompt(payload)},
             ],
-            "temperature": 0.2,
+            "temperature": 0.35,
             "response_format": {"type": "json_object"},
         }
         async with httpx.AsyncClient(timeout=30) as client:

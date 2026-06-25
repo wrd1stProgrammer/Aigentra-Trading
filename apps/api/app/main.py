@@ -1159,6 +1159,27 @@ def heartbeat_event_for_position(trader_id: str, position: PaperPositionRecord, 
         "unrealizedPnl": float(position.unrealized_pnl or 0.0),
         "heartbeatSeconds": settings.position_management_open_heartbeat_seconds,
     }
+    if trader_id == "imbalance-hunter":
+        fifteen = snapshot.get("timeframes", {}).get("15m", {})
+        latest_15m = fifteen.get("latestCandle", {}) if isinstance(fifteen.get("latestCandle"), dict) else {}
+        close_15m = float(latest_15m.get("close") or fifteen.get("close") or price)
+        derivatives = snapshot.get("derivatives", {})
+        taker = derivatives.get("takerBuySell", {}) if isinstance(derivatives.get("takerBuySell"), dict) else {}
+        taker_buy_share = taker.get("buyShare")
+        if taker_buy_share is None:
+            buy_sell_ratio = float(taker.get("buySellRatio") or 0.0)
+            taker_buy_share = buy_sell_ratio / (1.0 + buy_sell_ratio) if buy_sell_ratio > 0 else 0.0
+        metrics.update(
+            {
+                "imbalanceMidpoint": entry,
+                "failureLine": stop,
+                "fifteenMinuteClose": close_15m,
+                "distanceToStopR": round(((price - stop) / risk) if position.side == "long" else ((stop - price) / risk), 4),
+                "volumeZscore": float(fifteen.get("volumeZscore") or 0.0),
+                "fundingRate": float(derivatives.get("fundingRate") or 0.0),
+                "takerBuyRatio": round(max(0.0, min(float(taker_buy_share or 0.0), 1.0)), 4),
+            }
+        )
     position_reasons = {
         "channel-rider": "Periodic agent review: actively decide if the channel trade should hold, protect profits, or exit early.",
         "volume-breaker": "Periodic agent review: actively reassess continuation strength and whether breakout momentum still justifies holding.",
@@ -1182,6 +1203,17 @@ def heartbeat_event_for_position(trader_id: str, position: PaperPositionRecord, 
         "atr-trail-commander": "Periodic agent review: actively trail ATR trend winners and avoid premature breakeven while HTF trend holds.",
     }
     reason = position_reasons.get(trader_id, "Periodic agent review: actively manage open paper position.")
+    if trader_id == "imbalance-hunter":
+        if progress_r >= 0:
+            reason = (
+                "Periodic agent review: Imbalance Hunter is working from entry; compare target progress with the failure line "
+                "before deciding whether patience, breakeven, or trailing is justified."
+            )
+        else:
+            reason = (
+                "Periodic agent review: Imbalance Hunter is still near entry and moving back toward the failure line; "
+                "decide whether the midpoint thesis deserves more patience or risk should be reduced."
+            )
     return ManagementEvent(
         eventType=f"{trader_id.replace('-', '_')}_position_heartbeat",
         phase="OPEN_POSITION",

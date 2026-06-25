@@ -694,6 +694,50 @@ def position_management_events(trader_id: str, position: PaperPositionRecord, sn
             events.append(ManagementEvent(eventType=event_names["position_fail"], phase="OPEN_POSITION", severity="HIGH", reason="Micro taker flow flipped against the scalp.", suggestedAction="CLOSE_POSITION", metrics=base_metrics()))
         elif progress_r >= float(holding_policy.breakeven_progress_r) or target_progress >= float(holding_policy.profit_protect_target_progress):
             events.append(ManagementEvent(eventType=event_names["protect"], phase="OPEN_POSITION", severity="MEDIUM", reason="Scalp reached fast de-risk zone.", suggestedAction="TAKE_PARTIAL_PROFIT", metrics=base_metrics()))
+    elif trader_id == "imbalance-hunter":
+        failure_line = stop
+        midpoint = entry
+        failed = (side == "long" and close_15m <= failure_line) or (side == "short" and close_15m >= failure_line)
+        losing_near_failure = progress_r < 0 and distance_to_stop_r <= 0.35
+        extension_stalled = target_progress >= float(holding_policy.profit_protect_target_progress) and volume_z <= 0
+        imbalance_metrics = {
+            "imbalanceMidpoint": midpoint,
+            "failureLine": failure_line,
+            "fifteenMinuteClose": close_15m,
+        }
+        if failed:
+            events.append(
+                ManagementEvent(
+                    eventType=event_names["position_fail"],
+                    phase="OPEN_POSITION",
+                    severity="HIGH",
+                    reason="Imbalance failure line was accepted against the displacement thesis.",
+                    suggestedAction="CLOSE_POSITION",
+                    metrics=base_metrics(imbalance_metrics),
+                )
+            )
+        elif losing_near_failure:
+            events.append(
+                ManagementEvent(
+                    eventType=event_names["position_fail"],
+                    phase="OPEN_POSITION",
+                    severity="HIGH",
+                    reason="Imbalance retest is drifting back toward the failure line before the displacement extends.",
+                    suggestedAction="REDUCE_RISK",
+                    metrics=base_metrics(imbalance_metrics),
+                )
+            )
+        elif extension_stalled:
+            events.append(
+                ManagementEvent(
+                    eventType=event_names["protect"],
+                    phase="OPEN_POSITION",
+                    severity="MEDIUM",
+                    reason="Imbalance extension reached profit-protection progress while volume stopped confirming continuation.",
+                    suggestedAction="MOVE_STOP_TO_BREAKEVEN",
+                    metrics=base_metrics(imbalance_metrics),
+                )
+            )
 
     if not events and target_progress >= float(holding_policy.profit_protect_target_progress):
         events.append(ManagementEvent(eventType="near_target_profit_protection", phase="OPEN_POSITION", severity="MEDIUM", reason="Position reached the trader-specific profit protection zone before full take profit.", suggestedAction="TAKE_PARTIAL_PROFIT", metrics=base_metrics()))

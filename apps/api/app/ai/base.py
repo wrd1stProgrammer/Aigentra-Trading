@@ -565,6 +565,94 @@ def trader_management_policy(trader_id: str) -> Dict[str, Any]:
     return policy
 
 
+def compact_text(value: Any, max_length: int = 220) -> Optional[str]:
+    if value is None:
+        return None
+    text = " ".join(str(value).split())
+    if not text:
+        return None
+    if len(text) <= max_length:
+        return text
+    return f"{text[: max_length - 1].rstrip()}…"
+
+
+def structured_review_memory(review: dict[str, Any]) -> list[str]:
+    structured = review.get("structuredReview") if isinstance(review.get("structuredReview"), dict) else {}
+    snippets: list[str] = []
+    for key in ("headline", "action", "managerNote"):
+        snippet = compact_text(structured.get(key), 180)
+        if snippet:
+            snippets.append(snippet)
+    for key in ("keyReasons", "risks", "watchConditions"):
+        values = structured.get(key)
+        if isinstance(values, list):
+            for item in values[:2]:
+                snippet = compact_text(item, 180)
+                if snippet:
+                    snippets.append(snippet)
+    rationale = compact_text(review.get("rationale"), 220)
+    if rationale:
+        snippets.append(rationale)
+    return snippets[:6]
+
+
+def recent_management_review_memory(reviews: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    memory: list[dict[str, Any]] = []
+    for review in reviews[:3]:
+        snippets = structured_review_memory(review)
+        if not snippets:
+            continue
+        memory.append(
+            {
+                "decision": review.get("decision"),
+                "actionType": review.get("actionType"),
+                "eventType": review.get("eventType"),
+                "createdAt": review.get("createdAt"),
+                "avoidRepeating": snippets[:4],
+            }
+        )
+    return memory
+
+
+def current_management_review_delta(payload: PositionManagementPayload) -> dict[str, Any]:
+    metrics = payload.event.metrics or {}
+    exposure = payload.exposure
+    price = metrics.get("price") or payload.marketSnapshot.get("price")
+    entry = metrics.get("entryPrice") or exposure.entryPrice or exposure.limitPrice
+    stop = metrics.get("stopLoss") or exposure.stopLoss
+    target = metrics.get("takeProfit") or exposure.takeProfit
+    return {
+        "currentDecisionFrame": {
+            "phase": payload.event.phase,
+            "eventType": payload.event.eventType,
+            "suggestedAction": payload.event.suggestedAction,
+            "eventReason": payload.event.reason,
+        },
+        "priceBox": {
+            "side": exposure.side,
+            "price": price,
+            "entry": entry,
+            "stop": stop,
+            "target": target,
+            "unrealizedPnl": metrics.get("unrealizedPnl") or exposure.unrealizedPnl,
+            "progressR": metrics.get("progressR"),
+            "targetProgress": metrics.get("targetProgress"),
+            "distanceToStopR": metrics.get("distanceToStopR"),
+        },
+        "strategyTriggers": {
+            "failureLine": metrics.get("failureLine") or stop,
+            "imbalanceMidpoint": metrics.get("imbalanceMidpoint") or entry,
+            "volumeZscore": metrics.get("volumeZscore"),
+            "fundingRate": metrics.get("fundingRate"),
+            "takerBuyRatio": metrics.get("takerBuyRatio"),
+        },
+        "writeThisReviewDifferently": (
+            "Use this review's current price, progress, distance to stop/failure line, and event reason as the new angle. "
+            "If the decision remains HOLD, explain what changed or did not change since the latest review before repeating any trigger."
+        ),
+    }
+
+
 def extract_json_object(text: str) -> Dict[str, Any]:
     try:
         return json.loads(text)
@@ -707,6 +795,8 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "event": payload.event.model_dump(),
         "exposure": payload.exposure.model_dump(),
         "recentManagementReviews": payload.recentManagementReviews,
+        "recentReviewMemory": recent_management_review_memory(payload.recentManagementReviews),
+        "currentReviewDelta": current_management_review_delta(payload),
         "recentTradeEvents": payload.recentTradeEvents,
         "siblingExposures": payload.siblingExposures,
         "accountState": payload.accountState,
@@ -757,6 +847,11 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         f"{STRUCTURED_REVIEW_QUALITY_CONTRACT}"
         "Translate indicators into plain meaning, and include raw numbers only when they support a clear action or trigger. "
         "Compare against recentManagementReviews and recentTradeEvents before writing. Do not reuse the same headline, rationale, or keyReasons from a recent review. "
+        "Use recentReviewMemory and currentReviewDelta before writing; the user must be able to tell 이번 리뷰가 이전 리뷰와 다른 이유 from the wording. "
+        "Do not start any structuredReview field with the same opening phrase, same first clause, or same number-plus-trigger pattern as recentReviewMemory. "
+        "For Imbalance Hunter, write around the imbalance midpoint, invalidation line, current distance to stop, and whether price is moving away from or back toward invalidation; do not keep repeating weak volume or neutral funding as the lead unless that is the new change. "
+        "For Korean output or later translation, prefer 무효화 가격, 무효화선, or 손절 기준 over the awkward phrase 실패 수준. "
+        "Make each structuredReview field useful by itself: headline states the fresh desk call, action states the management choice, keyReasons give evidence, risks name the failure path, watchConditions give triggers, and managerNote says how patient/aggressive to be until the next review. "
         "Never copy provider-failure language from previous records. If a recentManagementReview has provider_failed, fallback, provider-error, or failed-call wording, ignore it as invalid history. "
         "If nothing materially changed, still write a real trader desk note: mention the current price relative to entry/stop/target and the one concrete condition still being watched. "
         "Do not collapse active-position HOLD reviews into a single generic sentence or a vague phrase such as stable market / weak volume only. "
