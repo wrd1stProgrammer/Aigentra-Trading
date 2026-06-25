@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { ChartLineUp, Check, Clock, ShieldCheck, Star, TelegramLogo, TrendUp, InstagramLogo } from "@phosphor-icons/react";
 import { BrandMark } from "@/components/brand-mark";
-import { LandingCheckoutButton } from "@/components/landing-checkout-button";
 import type { LandingCopy } from "@/lib/marketing-copy";
+import { useAppContext } from "@/components/app-provider";
+import { LandingCheckoutButton } from "@/components/landing-checkout-button";
 
 const traderRows = [
   { name: "Channel Cartographer", state: "SHORT · 5x", pnl: "+1.33%" },
@@ -355,11 +356,14 @@ export function TradePlanPreview() {
 
 export function PricingCard({ 
   plan, 
-  featured
+  featured,
+  billingInterval
 }: { 
   readonly plan: LandingCopy["pricingPlans"][number]; 
   readonly featured: boolean;
+  readonly billingInterval: "yearly" | "monthly";
 }) {
+  const { locale } = useAppContext();
   const isFree = plan.price.toLowerCase() === "free";
   const badgeText = isFree ? "FREE" : "AIGENTRA PRO";
   const ctaClassName = `mt-8 inline-flex w-full items-center justify-center gap-2 rounded-full px-5 py-3.5 text-sm font-bold text-white transition active:scale-[0.99] duration-300 ${
@@ -367,6 +371,39 @@ export function PricingCard({
       ? "bg-emerald-500 shadow-neon-emerald hover:bg-emerald-400"
       : "bg-white/[0.06] border border-white/10 hover:bg-white/[0.1] hover:border-white/20"
   }`;
+
+  const isYearly = billingInterval === "yearly";
+  const originalPrice = isYearly ? "$348" : "$29";
+  const discountedPrice = isYearly ? "$15.83" : "$19";
+  const discountBadge = isYearly ? "45% OFF" : "34% OFF";
+
+  const cadenceLabel = locale === "ko" ? "/ 월" : "/ mo";
+  const explanation = isYearly
+    ? (locale === "ko" ? "연간 결제 시 총 $190 (매월 $15.83 상당)" : "Billed annually at $190/yr ($15.83/mo equivalent)")
+    : (locale === "ko" ? "정가 $29에서 34% 특별 할인 적용" : "Originally $29, special 34% discount applied");
+
+  const priceDisplay = isFree ? (
+    <div className="flex flex-wrap items-end gap-1.5">
+      <span className="text-3xl font-bold tracking-tight text-white font-mono sm:text-4xl">{plan.price}</span>
+      <span className="pb-1 text-zinc-500 text-xs font-semibold">{plan.cadence}</span>
+    </div>
+  ) : (
+    <div className="flex flex-col gap-1.5 rounded-xl bg-white/[0.015] border border-white/[0.04] p-4 text-left">
+      <div className="flex items-center gap-2">
+        <span className="text-zinc-500 line-through text-xs font-medium">{originalPrice}</span>
+        <span className="rounded bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[9px] font-bold text-emerald-400">
+          {discountBadge}
+        </span>
+      </div>
+      <div className="flex items-baseline gap-1">
+        <span className="text-2xl font-bold tracking-tight text-white font-mono">{discountedPrice}</span>
+        <span className="text-zinc-400 text-xs font-semibold">{cadenceLabel}</span>
+      </div>
+      <p className="text-[10px] text-zinc-400 leading-tight break-keep">
+        {explanation}
+      </p>
+    </div>
+  );
 
   return (
     <article className={`relative rounded-2xl border p-5 transition-all duration-300 hover:-translate-y-1 sm:p-6 md:p-8 flex flex-col justify-between h-full ${
@@ -392,11 +429,8 @@ export function PricingCard({
           <p className="mt-3 text-sm leading-6 text-zinc-400 break-keep flex-1">{plan.description}</p>
         </div>
 
-        <div className="mt-8 min-h-[72px] flex flex-col justify-end">
-          <div className="flex flex-wrap items-end gap-1.5">
-            <span className="text-3xl font-bold tracking-tight text-white font-mono sm:text-4xl">{plan.price}</span>
-            <span className="pb-1 text-zinc-500 text-xs font-semibold">{plan.cadence}</span>
-          </div>
+        <div className="mt-6 min-h-[82px] flex flex-col justify-end">
+          {priceDisplay}
         </div>
 
         {isFree ? (
