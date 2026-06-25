@@ -29,57 +29,30 @@ export function scenarioTimelineBody(scenario: TraderScenario, matchingReview: M
     case "review":
       {
         const briefText = managementReviewTimelineBody(scenario.reviewBrief ?? reviewBriefFromRecord(matchingReview));
-        if (briefText) return localizedTimelineText(briefText, scenario, t);
+        if (briefText) return localizedTimelineText(briefText);
       }
-      if (matchingReview?.rationale) return localizedTimelineText(matchingReview.rationale, scenario, t);
+      if (matchingReview?.rationale) return localizedTimelineText(matchingReview.rationale);
       if (Array.isArray(matchingReview?.reviewFacts) && matchingReview.reviewFacts.length) {
         return matchingReview.reviewFacts.map((fact) => t(fact.labelKey ?? `reviewFact.${fact.code}`)).join(", ");
       }
-      return localizedTimelineText(scenario.summary ?? scenario.rationale, scenario, t);
+      return localizedTimelineText(scenario.summary ?? scenario.rationale);
     case "position":
     case "order":
       {
         const briefText = managementReviewTimelineBody(scenario.reviewBrief ?? null);
-        if (briefText) return localizedTimelineText(briefText, scenario, t);
+        if (briefText) return localizedTimelineText(briefText);
       }
-      return localizedTimelineText(scenarioDetailRationaleText(scenario, t), scenario, t);
+      return localizedTimelineText(scenarioDetailRationaleText(scenario, t));
     case "event":
     case "strategy":
-      return localizedTimelineText(scenario.rationale ?? scenario.summary, scenario, t);
+      return localizedTimelineText(scenario.rationale ?? scenario.summary);
   }
 }
 
-function localizedTimelineText(value: string | null | undefined, scenario: TraderScenario, t: Translator) {
+function localizedTimelineText(value: string | null | undefined) {
   const text = cleanReviewDisplayText(value);
   if (!text) return "-";
-  if (isLocalizedScreen(t) && looksLikeEnglishProse(text)) {
-    return localizedTimelineFallback(scenario, t);
-  }
   return text;
-}
-
-function localizedTimelineFallback(scenario: TraderScenario, t: Translator) {
-  const key =
-    scenario.source === "review"
-      ? "scenario.fallback.managementReviewPendingTranslation"
-      : "scenario.fallback.entryReviewPendingTranslation";
-  const translated = t(key);
-  if (translated && translated !== key) return translated;
-  return cleanReviewDisplayText(scenarioDetailRationaleText(scenario, t)) || "-";
-}
-
-export function looksLikeEnglishProse(value: string) {
-  if (/[가-힣]/.test(value)) return false;
-  const words = value.match(/[A-Za-z]{3,}/g) ?? [];
-  if (words.length < 5) return false;
-  return /\b(the|and|with|but|while|entry|position|short|long|review|price|stop|target|market|confirm|support|approve|invalidate|invalidation)\b/i.test(
-    value
-  );
-}
-
-function isLocalizedScreen(t: Translator) {
-  const dashboard = t("nav.dashboard");
-  return dashboard !== "nav.dashboard" && dashboard !== "Dashboard";
 }
 
 function managementReviewTimelineBody(brief: ReviewBrief | null) {

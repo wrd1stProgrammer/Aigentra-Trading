@@ -563,6 +563,26 @@ def get_successful_translation_by_hash(
     ).scalar_one_or_none()
 
 
+def get_latest_successful_translation_for_source(
+    db: Session,
+    *,
+    source_type: str,
+    source_id: int,
+    locale: str,
+) -> Optional[AITranslationCacheRecord]:
+    return db.execute(
+        select(AITranslationCacheRecord)
+        .where(
+            AITranslationCacheRecord.source_type == source_type,
+            AITranslationCacheRecord.source_id == source_id,
+            AITranslationCacheRecord.locale == locale,
+            AITranslationCacheRecord.status == "ok",
+        )
+        .order_by(desc(AITranslationCacheRecord.updated_at), desc(AITranslationCacheRecord.id))
+        .limit(1)
+    ).scalar_one_or_none()
+
+
 def upsert_translation_cache_record(
     db: Session,
     *,

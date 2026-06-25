@@ -349,7 +349,7 @@ def test_leaderboard_fast_rejects_invalid_utc_month():
 
 
 def test_trader_detail_rebuilds_expired_cache(monkeypatch):
-    cache_key = ("channel-rider", "BTCUSDT", 20, 10, "en")
+    cache_key = ("channel-rider", "BTCUSDT", 20, 10, "en", main.TRADER_DETAIL_CACHE_VERSION)
     main.TRADER_DETAIL_CACHE.clear()
     main.TRADER_DETAIL_CACHE[cache_key] = (
         0,
@@ -430,7 +430,7 @@ def test_trader_detail_uses_snapshot_summary_without_full_recompute(monkeypatch)
 
 
 def test_trader_detail_refresh_query_replaces_cached_payload(monkeypatch):
-    cache_key = ("channel-rider", "BTCUSDT", 20, 10, "en")
+    cache_key = ("channel-rider", "BTCUSDT", 20, 10, "en", main.TRADER_DETAIL_CACHE_VERSION)
     main.TRADER_DETAIL_CACHE.clear()
     main.TRADER_DETAIL_CACHE[cache_key] = (
         time.monotonic() + 300,
@@ -468,6 +468,35 @@ def test_trader_detail_refresh_query_replaces_cached_payload(monkeypatch):
     assert data["cacheHit"] is False
     assert data["stale"] is False
     assert main.TRADER_DETAIL_CACHE[cache_key][1]["lastUpdatedAt"] == "forced-fresh-detail"
+
+
+def test_trader_detail_rejects_oversized_review_windows(monkeypatch):
+    main.TRADER_DETAIL_CACHE.clear()
+
+    async def fake_ensure_translations(*args, **kwargs):
+        return True
+
+    def fake_payload(db, trader_id, clean_symbol, trader, summaries=None, **kwargs):
+        return {
+            "symbol": clean_symbol,
+            "trader": trader,
+            "summaries": summaries or [],
+            "positions": [],
+            "orders": [],
+            "managementReviews": [],
+            "events": [],
+            "cacheHit": False,
+            "stale": False,
+        }
+
+    monkeypatch.setattr(main, "ensure_trader_detail_translations", fake_ensure_translations)
+    monkeypatch.setattr(main, "build_trader_detail_payload", fake_payload)
+
+    reviews_response = client.get("/api/league/traders/channel-rider?symbol=BTCUSDT&reviewsLimit=51")
+    events_response = client.get("/api/league/traders/channel-rider?symbol=BTCUSDT&eventsLimit=51")
+
+    assert reviews_response.status_code == 422
+    assert events_response.status_code == 422
 
 
 def test_league_overview_reviews_returns_one_slim_combined_page(temp_api_db):
@@ -590,3 +619,89 @@ def test_league_overview_reviews_filters_hidden_reviews_before_pagination(temp_a
     assert data["hasMore"] is False
     assert data["nextOffset"] == 2
     assert [review["decision"] for review in data["reviews"]] == ["ADJUST_AND_APPROVE", "HOLD"]
+
+
+def test_trader_detail_repairs_missing_korean_management_review_translation(temp_api_db, monkeypatch):
+    main.TRADER_DETAIL_CACHE.clear()
+    monkeypatch.setattr(main.settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(main.settings, "ai_translation_enabled", True)
+    monkeypatch.setattr(main.settings, "ai_translation_target_locales", ["ko"])
+    calls: list[str] = []
+
+    async def fake_translate_json_with_logging(
+        db,
+        *,
+        settings,
+        payload,
+        target_locale,
+        symbol,
+        trader_id,
+        provider=None,
+    ):
+        calls.append(target_locale)
+        assert target_locale == "ko"
+        assert symbol == "BTCUSDT"
+        assert trader_id == "imbalance-hunter"
+        return {
+            "event": {
+                **payload["event"],
+                "reason": "새 하락 변위가 숏 근거를 유지합니다.",
+            },
+            "review": {
+                **payload["review"],
+                "rationale": "새 하락 변위는 아직 숏 근거를 지지하지만, 손절 기준 접근 여부를 먼저 확인해야 합니다.",
+                "structuredReview": {
+                    **payload["review"]["structuredReview"],
+                    "headline": "숏 근거는 아직 살아 있습니다.",
+                    "action": "62853.7 위로 15분 종가가 닫히는지만 확인하세요.",
+                },
+            },
+            "appliedActions": payload.get("appliedActions", []),
+        }
+
+    monkeypatch.setattr("app.ai.translation_cache.translate_json_with_logging", fake_translate_json_with_logging)
+
+    with session_scope() as db:
+        db.add(
+            PositionManagementReviewRecord(
+                trader_id="imbalance-hunter",
+                symbol="BTCUSDT",
+                status="ok",
+                decision="HOLD",
+                action_type="HOLD",
+                phase="OPEN_POSITION",
+                event_type="position_heartbeat",
+                payload_json=to_json(
+                    {
+                        "event": {
+                            "eventType": "position_heartbeat",
+                            "phase": "OPEN_POSITION",
+                            "reason": "Fresh bearish displacement still supports the short.",
+                            "suggestedAction": "HOLD",
+                        },
+                        "review": {
+                            "decision": "HOLD",
+                            "rationale": "Fresh bearish displacement still supports the short, but repeated short losses require a cleaner invalidation check.",
+                            "structuredReview": {
+                                "headline": "Fresh bearish displacement still supports the short.",
+                                "action": "Keep watching 62853.7 as the invalidation trigger.",
+                                "riskLevel": "MEDIUM",
+                            },
+                        },
+                        "appliedActions": [],
+                    }
+                ),
+            )
+        )
+
+    response = client.get(
+        "/api/league/traders/imbalance-hunter?symbol=BTCUSDT&locale=ko&reviewsLimit=5&eventsLimit=1"
+    )
+
+    assert response.status_code == 200
+    review = response.json()["managementReviews"][0]
+    assert calls == ["ko"]
+    assert review["translation"]["status"] == "ok"
+    assert review["rationale"] == "새 하락 변위는 아직 숏 근거를 지지하지만, 손절 기준 접근 여부를 먼저 확인해야 합니다."
+    assert review["review"]["structuredReview"]["headline"] == "숏 근거는 아직 살아 있습니다."
+    assert "Fresh bearish displacement" not in str(review)

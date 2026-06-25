@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session, load_only, object_session
 from app.ai.factory import provider_status
 from app.ai.context import build_management_review_context, build_trade_review_context
 from app.ai.review_logging import run_position_management_with_logging, run_review_with_logging
-from app.ai.translation_cache import fanout_ai_translations, localized_payload_for_source
+from app.ai.translation_cache import ensure_localized_payload_for_source, fanout_ai_translations, localized_payload_for_source
 from app.clients.binance_client import ALLOWED_INTERVALS, ALLOWED_SYMBOLS
 from app.clients.market_data_client import MarketDataClient
 from app.core.config import VALID_AI_PROVIDERS, get_settings, normalize_ai_provider_name
@@ -248,7 +248,8 @@ REALTIME_EXECUTION_TASK: Optional[asyncio.Task] = None
 PRICE_SHOCK_STATE: dict[str, dict[str, Any]] = {}
 LEAGUE_BUNDLE_CACHE_TTL_SECONDS = 300
 LEAGUE_BUNDLE_CACHE: dict[tuple[str, bool, bool, str], tuple[float, dict[str, Any]]] = {}
-TRADER_DETAIL_CACHE: dict[tuple[str, str, int, int, str], tuple[float, dict[str, Any]]] = {}
+TRADER_DETAIL_CACHE_VERSION = "localized-review-v2"
+TRADER_DETAIL_CACHE: dict[tuple[str, str, int, int, str, str], tuple[float, dict[str, Any]]] = {}
 LEADERBOARD_REFRESHING: set[tuple[str, str]] = set()
 LEAGUE_BUNDLE_REFRESHING: set[tuple[str, bool, bool, str]] = set()
 TRADER_DETAIL_REFRESHING: set[tuple[str, str, str]] = set()
@@ -3158,6 +3159,99 @@ def trader_snapshot_summary(db: Session, trader_id: str, clean_symbol: str) -> O
     return leaderboard_snapshot_summary(record, record.rank or 0)
 
 
+async def ensure_record_review_translation(db: Session, record, *, locale: str) -> bool:
+    clean_locale = normalize_locale(locale)
+    if clean_locale == CANONICAL_AI_LOCALE:
+        return True
+    if str(getattr(record, "status", "ok")).lower() != "ok" or bool(getattr(record, "fallback", False)):
+        return True
+
+    payload = from_json(getattr(record, "payload_json", None)) or {}
+    if not isinstance(payload, dict) or not payload:
+        return True
+
+    source_type: str | None = None
+    source_id: int | None = None
+    source_payload: dict[str, Any] | None = None
+    if isinstance(record, PositionManagementReviewRecord):
+        source_type = AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT
+        source_id = record.id
+        source_payload = payload
+    elif isinstance(record, AIReviewRecord):
+        source_type = AI_TRANSLATION_SOURCE_AI_REVIEW
+        source_id = record.id
+        source_payload = payload
+    elif isinstance(record, (PaperOrderRecord, PaperPositionRecord, TradeEventRecord)):
+        ai_review_id = numeric_record_id(payload.get("aiReviewId"))
+        ai_review = record_payload(payload.get("aiReview"))
+        if ai_review_id is not None and ai_review is not None:
+            source_type = AI_TRANSLATION_SOURCE_AI_REVIEW
+            source_id = ai_review_id
+            source_payload = ai_review
+
+    if source_type is None or source_id is None or source_payload is None:
+        return True
+
+    _localized, meta = await ensure_localized_payload_for_source(
+        db,
+        settings=settings,
+        source_type=source_type,
+        source_id=source_id,
+        payload=source_payload,
+        locale=clean_locale,
+        symbol=getattr(record, "symbol", None),
+        trader_id=getattr(record, "trader_id", None),
+    )
+    return meta.get("status") in {"canonical", "ok"}
+
+
+def trader_detail_translation_records(
+    db: Session,
+    *,
+    trader_id: str,
+    clean_symbol: str,
+    reviews_limit: int,
+    events_limit: int,
+) -> list[Any]:
+    def fetch(model, *, limit: int, status: str | None = None) -> list[Any]:
+        stmt = select(model).where(model.trader_id == trader_id, model.symbol == clean_symbol)
+        if status is not None:
+            stmt = stmt.where(model.status == status)
+        return db.execute(stmt.order_by(desc(model.created_at), desc(model.id)).limit(max(1, min(limit, 1000)))).scalars().all()
+
+    records: list[Any] = []
+    records.extend(fetch(PaperPositionRecord, limit=12, status="open"))
+    records.extend(fetch(PaperPositionRecord, limit=20, status="closed"))
+    records.extend(fetch(PaperOrderRecord, limit=12, status="open"))
+    records.extend(fetch(PositionManagementReviewRecord, limit=reviews_limit))
+    records.extend(fetch(TradeEventRecord, limit=events_limit))
+    return records
+
+
+async def ensure_trader_detail_translations(
+    db: Session,
+    *,
+    trader_id: str,
+    clean_symbol: str,
+    locale: str,
+    reviews_limit: int,
+    events_limit: int,
+) -> bool:
+    clean_locale = normalize_locale(locale)
+    if clean_locale == CANONICAL_AI_LOCALE:
+        return True
+    ready = True
+    for record in trader_detail_translation_records(
+        db,
+        trader_id=trader_id,
+        clean_symbol=clean_symbol,
+        reviews_limit=reviews_limit,
+        events_limit=events_limit,
+    ):
+        ready = await ensure_record_review_translation(db, record, locale=clean_locale) and ready
+    return ready
+
+
 def build_trader_detail_payload(
     db: Session,
     trader_id: str,
@@ -3306,6 +3400,16 @@ def refresh_trader_detail_cache_background(trader_id: str, symbol: str, locale: 
             ).scalar_one_or_none():
                 refresh_leaderboard_snapshots(db, clean_symbol, {trader_id})
             snapshot_summary = trader_snapshot_summary(db, trader_id, clean_symbol)
+            translations_ready = asyncio.run(
+                ensure_trader_detail_translations(
+                    db,
+                    trader_id=trader_id,
+                    clean_symbol=clean_symbol,
+                    locale=clean_locale,
+                    reviews_limit=20,
+                    events_limit=10,
+                )
+            )
             payload = build_trader_detail_payload(
                 db,
                 trader_id,
@@ -3316,10 +3420,11 @@ def refresh_trader_detail_cache_background(trader_id: str, symbol: str, locale: 
                 events_limit=10,
                 locale=clean_locale,
             )
-            TRADER_DETAIL_CACHE[(trader_id, clean_symbol, 20, 10, clean_locale)] = (
-                time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS,
-                payload,
-            )
+            if translations_ready:
+                TRADER_DETAIL_CACHE[(trader_id, clean_symbol, 20, 10, clean_locale, TRADER_DETAIL_CACHE_VERSION)] = (
+                    time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS,
+                    payload,
+                )
     finally:
         TRADER_DETAIL_REFRESHING.discard(refresh_key)
 
@@ -4888,8 +4993,8 @@ async def league_trader_detail(
     symbol: str = Query("BTCUSDT"),
     locale: str = Query(CANONICAL_AI_LOCALE),
     refresh: bool = Query(False),
-    reviews_limit: int = Query(20, alias="reviewsLimit"),
-    events_limit: int = Query(10, alias="eventsLimit"),
+    reviews_limit: int = Query(20, ge=1, le=50, alias="reviewsLimit"),
+    events_limit: int = Query(10, ge=1, le=50, alias="eventsLimit"),
     db: Session = Depends(get_db),
 ):
     try:
@@ -4898,7 +5003,7 @@ async def league_trader_detail(
         raise HTTPException(status_code=404, detail="Trader not found.") from exc
     clean_symbol = normalize_symbol(symbol)
     clean_locale = normalize_locale(locale)
-    cache_key = (trader_id, clean_symbol, reviews_limit, events_limit, clean_locale)
+    cache_key = (trader_id, clean_symbol, reviews_limit, events_limit, clean_locale, TRADER_DETAIL_CACHE_VERSION)
     cached = TRADER_DETAIL_CACHE.get(cache_key)
     now = time.monotonic()
     cache_was_stale = bool(cached and cached[0] <= now)
@@ -4911,6 +5016,16 @@ async def league_trader_detail(
         refresh_trader_leaderboard_snapshot(db, trader_id, clean_symbol)
         db.commit()
     snapshot_summary = trader_snapshot_summary(db, trader_id, clean_symbol)
+    translations_ready = await ensure_trader_detail_translations(
+        db,
+        trader_id=trader_id,
+        clean_symbol=clean_symbol,
+        locale=clean_locale,
+        reviews_limit=reviews_limit,
+        events_limit=events_limit,
+    )
+    if clean_locale != CANONICAL_AI_LOCALE:
+        db.commit()
     payload = build_trader_detail_payload(
         db,
         trader_id,
@@ -4924,7 +5039,8 @@ async def league_trader_detail(
     if not any(summary.get("traderId") == trader_id for summary in payload["summaries"]):
         schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol, clean_locale)
     payload["scheduledRefresh"] = bool(cache_was_stale and not refresh)
-    TRADER_DETAIL_CACHE[cache_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
+    if translations_ready:
+        TRADER_DETAIL_CACHE[cache_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
     return payload
 
 

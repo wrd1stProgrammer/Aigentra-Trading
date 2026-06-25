@@ -277,6 +277,53 @@ def test_fallback_translation_records_are_retried(temp_db):
         assert localized["approvalReason"] == "ko: 승인 사유"
 
 
+def test_localized_payload_reuses_latest_source_translation_after_payload_shape_change(temp_db):
+    payload = {
+        "decision": "HOLD",
+        "confidence": 72,
+        "approvalReason": "Keep the short open while the invalidation level holds.",
+        "structuredReview": {
+            "headline": "Short is still valid.",
+            "action": "Keep watching the invalidation trigger.",
+            "riskLevel": "MEDIUM",
+        },
+    }
+    changed_payload = {
+        **payload,
+        "reviewFacts": [
+            {"code": "entryGeometryChecked", "labelKey": "reviewFact.entryGeometryChecked", "severity": "info"}
+        ],
+    }
+
+    with session_scope() as db:
+        asyncio.run(
+            fanout_ai_translations(
+                db,
+                settings=Settings(openai_api_key="test-key", ai_translation_enabled=True, ai_translation_target_locales=["ko"]),
+                source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+                source_id=808,
+                payload=payload,
+                symbol="BTCUSDT",
+                trader_id="imbalance-hunter",
+                provider=FakeTranslationProvider(),
+            )
+        )
+
+        localized, meta = localized_payload_for_source(
+            db,
+            source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+            source_id=808,
+            payload=changed_payload,
+            locale="ko",
+        )
+
+        assert meta["status"] == "ok"
+        assert meta["staleSourceHash"] is True
+        assert localized["approvalReason"] == "ko: translated approval reason"
+        assert localized["structuredReview"]["headline"] == "ko: translated headline"
+        assert localized["reviewFacts"] == changed_payload["reviewFacts"]
+
+
 def test_management_review_translation_uses_partial_overlay(temp_db):
     payload = {
         "event": {"reason": "Heartbeat review."},

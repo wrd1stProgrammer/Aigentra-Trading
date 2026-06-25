@@ -17,6 +17,7 @@ from app.locales import (
 )
 from app.repositories import (
     from_json,
+    get_latest_successful_translation_for_source,
     get_successful_translation_by_hash,
     get_translation_cache_record,
     sanitize_error_message,
@@ -110,18 +111,83 @@ def localized_payload_for_source(
         source_hash=source_hash,
         locale=requested_locale,
     )
+    if record is not None and record.status == "ok":
+        cached_payload = from_json(record.payload_json)
+        if isinstance(cached_payload, dict):
+            localized_payload = merge_translation_overlay(payload, scrub_translation_payload_for_source(source_type, cached_payload))
+            return localized_payload, {"status": "ok", "locale": requested_locale, "sourceHash": source_hash}
+    latest_record = get_latest_successful_translation_for_source(
+        db,
+        source_type=source_type,
+        source_id=int(source_id),
+        locale=requested_locale,
+    )
+    if latest_record is not None and latest_record.source_hash != source_hash:
+        cached_payload = from_json(latest_record.payload_json)
+        if isinstance(cached_payload, dict):
+            localized_payload = merge_translation_overlay(payload, scrub_translation_payload_for_source(source_type, cached_payload))
+            return localized_payload, {
+                "status": "ok",
+                "locale": requested_locale,
+                "sourceHash": source_hash,
+                "cachedSourceHash": latest_record.source_hash,
+                "staleSourceHash": True,
+            }
     if record is None:
         return payload, {"status": "missing", "locale": requested_locale, "fallbackLocale": CANONICAL_AI_LOCALE}
-    cached_payload = from_json(record.payload_json)
-    if isinstance(cached_payload, dict) and record.status == "ok":
-        localized_payload = merge_translation_overlay(payload, scrub_translation_payload_for_source(source_type, cached_payload))
-        return localized_payload, {"status": "ok", "locale": requested_locale, "sourceHash": source_hash}
     return payload, {
         "status": record.status or "fallback",
         "locale": requested_locale,
         "fallbackLocale": CANONICAL_AI_LOCALE,
         "sourceHash": source_hash,
     }
+
+
+async def ensure_localized_payload_for_source(
+    db: Session,
+    *,
+    settings: Settings,
+    source_type: str,
+    source_id: int | None,
+    payload: dict[str, Any],
+    locale: str,
+    symbol: str | None = None,
+    trader_id: str | None = None,
+    provider: AITranslationProvider | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    localized_payload, meta = localized_payload_for_source(
+        db,
+        source_type=source_type,
+        source_id=source_id,
+        payload=payload,
+        locale=locale,
+    )
+    requested_locale = normalize_locale(locale)
+    if requested_locale == CANONICAL_AI_LOCALE or source_id is None:
+        return localized_payload, meta
+    if meta.get("status") == "ok":
+        return localized_payload, meta
+    if not getattr(settings, "ai_translation_enabled", True) or not getattr(settings, "openai_api_key", ""):
+        return localized_payload, meta
+
+    await fanout_ai_translations(
+        db,
+        settings=settings,
+        source_type=source_type,
+        source_id=source_id,
+        payload=payload,
+        symbol=symbol,
+        trader_id=trader_id,
+        provider=provider,
+        target_locales=(requested_locale,),
+    )
+    return localized_payload_for_source(
+        db,
+        source_type=source_type,
+        source_id=source_id,
+        payload=payload,
+        locale=requested_locale,
+    )
 
 
 async def fanout_ai_translations(

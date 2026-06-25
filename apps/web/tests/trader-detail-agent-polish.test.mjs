@@ -24,11 +24,20 @@ const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf
 const statusFeedThreadSource = readFileSync(new URL("../components/trader-profile-detail/status-feed-thread.tsx", import.meta.url), "utf8");
 
 const overlayHelpers = loadTsModule("../components/live-candle-chart-overlays.ts");
+const reviewBrief = loadTsModule("../lib/review-brief.ts");
 const reviewDisplay = loadTsModule("../lib/review-display.ts");
 const scenarioCopy = loadTsModule("../components/trader-profile-detail/scenario-copy.ts", {
   "@/lib/review-display": reviewDisplay
 });
 const scenarioDedupe = loadTsModule("../components/trader-profile-detail/scenario-dedupe.ts");
+const scenarioFeed = loadTsModule("../components/trader-profile-detail/scenario-feed.ts", {
+  "@/lib/review-brief": reviewBrief,
+  "@/lib/review-display": reviewDisplay,
+  "@/components/trader-profile-detail/scenario-copy": scenarioCopy,
+  "@/components/trader-profile-detail/scenario-dedupe": {
+    dedupeScenarioTimelineScenarios: (scenarios) => Array.from(scenarios)
+  }
+});
 
 test("AI management scenarios normalize short English reason labels and expose four-level importance", () => {
   assert.match(dataSource, /scenarioDisplayText/, "scenario bodies should run through a display-text normalizer");
@@ -260,11 +269,35 @@ test("review facts replace user summary in visible review UI", () => {
   assert.doesNotMatch(i18nSource, /"aiReview\.userSummary"/);
 });
 
-test("latest scenario timeline suppresses raw English review prose on localized screens", () => {
-  assert.match(scenarioFeedSource, /localizedTimelineFallback/, "scenario timeline should have a locale-safe fallback for untranslated old AI prose");
-  assert.match(scenarioFeedSource, /looksLikeEnglishProse/, "scenario timeline should detect long English prose before showing localized rows");
-  assert.match(i18nSource, /"scenario\.fallback\.entryReviewPendingTranslation"/, "localized fallback copy should exist for untranslated entry reviews");
-  assert.match(i18nSource, /"scenario\.fallback\.managementReviewPendingTranslation"/, "localized fallback copy should exist for untranslated management reviews");
+test("latest scenario timeline relies on real localized review payloads instead of pending-translation placeholders", () => {
+  const copy = scenarioFeed.scenarioTimelineBody(
+    {
+      id: "review-translation-1",
+      source: "review",
+      phase: "OPEN_POSITION",
+      status: "HOLD",
+      side: "SHORT",
+      reviewBrief: {
+        verdict: "유지",
+        headline: "숏 근거는 아직 살아 있습니다.",
+        action: "62853.7 위로 15분 종가가 닫히는지만 확인하세요.",
+        keyReasons: ["새 하락 변위가 숏 근거를 유지합니다."],
+        risks: [],
+        watchConditions: [],
+        managerNote: null
+      }
+    },
+    undefined,
+    (key) => ({ "detail.noAiRationale": "AI 근거 없음" })[key] ?? key
+  );
+
+  assert.match(copy, /숏 근거는 아직 살아 있습니다/);
+  assert.match(copy, /62853\.7 위로 15분 종가/);
+  assert.doesNotMatch(copy, /번역.*준비|translation.*prepared|Fresh bearish displacement/i);
+  assert.doesNotMatch(scenarioFeedSource, /localizedTimelineFallback/, "scenario timeline should not mask backend translation misses with placeholder copy");
+  assert.doesNotMatch(scenarioFeedSource, /looksLikeEnglishProse/, "scenario timeline should not use language guessing as the localization contract");
+  assert.doesNotMatch(i18nSource, /"scenario\.fallback\.entryReviewPendingTranslation"/, "entry review pending-translation fallback copy should not ship");
+  assert.doesNotMatch(i18nSource, /"scenario\.fallback\.managementReviewPendingTranslation"/, "management review pending-translation fallback copy should not ship");
 });
 
 test("scenario modal uses a compact reference-style ratio and neutral rationale card", () => {
