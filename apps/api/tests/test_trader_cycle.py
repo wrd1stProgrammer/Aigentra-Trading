@@ -623,6 +623,9 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "not an automatic rejection" in entry_contract
     assert "apply the trader's postLossDiscipline strictly" not in entry_contract
     assert "For reversal, mean-reversion, divergence, or fade strategies" in entry_contract
+    assert "entry approval should read like a desk judgment, not a permission stamp" in entry_contract
+    assert "why this trade is worth taking now" in entry_contract
+    assert "how entry, stop, and target contain the risk" in entry_contract
     assert "reviewCode" in management
     assert "reviewFacts" in management
     assert "structuredReview" in management
@@ -636,6 +639,8 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "Start from the current exposure: entry, current price, stop, target, unrealized PnL" in management
     assert "Do not write checklist fragments such as structure and risk-reward are healthy" in management
     assert "Do not mention paper trading in structuredReview, rationale, counterThesis, or action reasons" in management
+    assert "For HOLD reviews, never stop at keep holding or continue monitoring" in management
+    assert "why no stop, leverage, partial-profit, or close action is justified right now" in management
     assert "This is paper trading only" not in management.split("Payload:", 1)[0]
 
 
@@ -697,6 +702,75 @@ def test_review_prompts_ban_generic_repeated_briefing_language():
         assert "거래량과 모멘텀은 중립적" in contract
         assert "Do not reuse those phrases or their close translations" in contract
         assert "headline, action, keyReasons, risks, watchConditions, and managerNote must each do a different job" in contract
+
+
+def test_review_prompts_require_plain_english_decision_flow_not_indicator_lists():
+    snapshot = sample_snapshot()
+    strategy = get_strategy("channel-rider")
+    entry = entry_approval_prompt(
+        TradeReviewPayload(
+            trader=strategy.profile,
+            symbol="BTCUSDT",
+            marketSnapshot=snapshot,
+            candidate=strategy.evaluate(snapshot),
+            locale="en",
+            recentAiReviews=[
+                {
+                    "decision": "APPROVE",
+                    "structuredReview": {
+                        "headline": "Higher-timeframe trend is confirmed and no invalidation signal is present.",
+                        "action": "Approve and keep monitoring.",
+                    },
+                }
+            ],
+        )
+    ).split("Payload:", 1)[0]
+    management = position_management_review_prompt(
+        PositionManagementPayload(
+            trader=strategy.profile,
+            symbol="BTCUSDT",
+            marketSnapshot=snapshot,
+            event=ManagementEvent(
+                eventType="position_heartbeat",
+                phase="OPEN_POSITION",
+                severity="MEDIUM",
+                reason="Periodic review while position is open.",
+                suggestedAction="HOLD",
+                metrics={"ema50_4h": 64115.22, "adx1h": 40.0, "stallPrice": 63900.0},
+            ),
+            exposure=ManagedExposure(
+                kind="position",
+                id=78,
+                status="open",
+                side="SHORT",
+                entryPrice=63880.0,
+                stopLoss=64180.0,
+                takeProfit=63120.0,
+                unrealizedPnl=18.5,
+            ),
+            recentManagementReviews=[
+                {
+                    "decision": "HOLD",
+                    "structuredReview": {
+                        "headline": "Higher-timeframe downtrend is confirmed and no failure signal is present.",
+                        "action": "Hold the position and continue monitoring.",
+                    },
+                    "rationale": "4H EMA50 64115.22 and 1H ADX 40 remain valid.",
+                }
+            ],
+            locale="en",
+        )
+    ).split("Payload:", 1)[0]
+
+    for contract in (entry, management):
+        assert "decision path, not an indicator checklist" in contract
+        assert "do not write two structuredReview fields that make the same claim" in contract
+        assert "explain what the number means for the trade before using it as a trigger" in contract
+        assert "higher-timeframe trend is confirmed" in contract
+        assert "no failure signal is present" in contract
+        assert "valid price structure" in contract
+        assert "risk-reward ratio is valid" in contract
+        assert "hold the position and continue monitoring" in contract
 
 
 def test_breakeven_profit_protection_prompt_has_dedicated_decision_contract():
