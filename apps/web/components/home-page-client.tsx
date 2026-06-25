@@ -102,7 +102,7 @@ export function HomePageClient() {
   const [activeFaqIndex, setActiveFaqIndex] = useState<number | null>(null);
   const [isAboutExpanded, setIsAboutExpanded] = useState(false);
   const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
-  const [billingInterval, setBillingInterval] = useState<"yearly" | "monthly">("yearly");
+
   const currentLanguage = LOCALE_OPTIONS.find((option) => option.locale === locale) ?? LOCALE_OPTIONS[0];
 
   return (
@@ -406,61 +406,15 @@ export function HomePageClient() {
               <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">[ PRICING ]</p>
               <h2 className="mt-5 text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl break-keep">{copy.pricingTitle}</h2>
               <p className="mx-auto mt-5 max-w-[64ch] text-base sm:text-lg leading-relaxed text-zinc-400 break-keep">{copy.pricingSubtitle}</p>
-
-              {/* Billing Toggle */}
-              <div className="mt-8 flex justify-center">
-                <div className="inline-flex items-center gap-1 rounded-full bg-white/[0.03] border border-white/[0.08] p-1">
-                  <button
-                    type="button"
-                    onClick={() => setBillingInterval("yearly")}
-                    className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-200 ${
-                      billingInterval === "yearly"
-                        ? "bg-emerald-500 text-zinc-950 shadow-sm"
-                        : "text-zinc-400 hover:text-white"
-                    }`}
-                  >
-                    {copy.billingAnnual}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setBillingInterval("monthly")}
-                    className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-200 ${
-                      billingInterval === "monthly"
-                        ? "bg-emerald-500 text-zinc-950 shadow-sm"
-                        : "text-zinc-400 hover:text-white"
-                    }`}
-                  >
-                    {copy.billingMonthly}
-                  </button>
-                </div>
-              </div>
             </div>
           </ScrollReveal>
 
-          <div className="mx-auto mt-12 grid max-w-[920px] gap-5 md:grid-cols-[1fr_0.86fr]">
-            {copy.pricingPlans.map((plan, index) => (
-              <ScrollReveal key={plan.name} className="w-full" delay={index * 150}>
-                <PricingCard plan={plan} featured={index === 0} billingInterval={billingInterval} />
-              </ScrollReveal>
-            ))}
-            <ScrollReveal delay={120}>
-              <div className="flex h-full flex-col justify-between rounded-2xl border border-white/[0.08] bg-white/[0.025] p-6 text-left shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)]">
-                <div>
-                  <p className="font-mono text-[10px] uppercase tracking-wider text-emerald-300">[ Included ]</p>
-                  <h3 className="mt-3 text-2xl font-bold text-white break-keep">{copy.pricingSupportTitle}</h3>
-                  <p className="mt-3 text-sm leading-6 text-zinc-400 break-keep">{copy.pricingSupportBody}</p>
-                </div>
-                <div className="mt-7 space-y-3 text-sm text-zinc-300">
-                  {copy.pricingSupportItems.map((item) => (
-                    <p key={item} className="flex gap-3">
-                      <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-300">
-                        <Check size={12} weight="bold" />
-                      </span>
-                      <span className="break-keep">{item}</span>
-                    </p>
-                  ))}
-                </div>
-              </div>
+          <div className="mx-auto mt-12 grid max-w-[920px] gap-6 md:grid-cols-2">
+            <ScrollReveal className="w-full" delay={150}>
+              <PricingCard plan={copy.pricingPlans[0]} featured={true} billingInterval="yearly" />
+            </ScrollReveal>
+            <ScrollReveal className="w-full" delay={300}>
+              <PricingCard plan={copy.pricingPlans[0]} featured={false} billingInterval="monthly" />
             </ScrollReveal>
           </div>
         </div>

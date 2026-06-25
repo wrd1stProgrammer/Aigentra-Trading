@@ -365,7 +365,34 @@ export function PricingCard({
 }) {
   const { locale } = useAppContext();
   const isFree = plan.price.toLowerCase() === "free";
-  const badgeText = isFree ? "FREE" : "AIGENTRA PRO";
+
+  const getCardTitle = () => {
+    if (isFree) return plan.name;
+    if (billingInterval === "yearly") {
+      switch (locale) {
+        case "ko": return "연간 결제";
+        case "ru": return "Годовой план";
+        case "pt-BR": return "Plano Anual";
+        case "tr": return "Yıllık Plan";
+        default: return "Yearly";
+      }
+    } else {
+      switch (locale) {
+        case "ko": return "월간 결제";
+        case "ru": return "Месячный план";
+        case "pt-BR": return "Plano Mensal";
+        case "tr": return "Aylık Plan";
+        default: return "Monthly";
+      }
+    }
+  };
+
+  const badgeText = isFree
+    ? "[ FREE ]"
+    : billingInterval === "yearly"
+      ? "[ BEST VALUE ]"
+      : "[ POPULAR ]";
+
   const ctaClassName = `mt-8 inline-flex w-full items-center justify-center gap-2 rounded-full px-5 py-3.5 text-sm font-bold text-white transition active:scale-[0.99] duration-300 ${
     featured
       ? "bg-emerald-500 shadow-neon-emerald hover:bg-emerald-400"
@@ -377,59 +404,90 @@ export function PricingCard({
   const discountedPrice = isYearly ? "$15.83" : "$19";
   const discountBadge = isYearly ? "45% OFF" : "34% OFF";
 
-  const cadenceLabel = locale === "ko" ? "/ 월" : "/ mo";
-  const explanation = isYearly
-    ? (locale === "ko" ? "연간 결제 시 총 $190 (매월 $15.83 상당)" : "Billed annually at $190/yr ($15.83/mo equivalent)")
-    : (locale === "ko" ? "정가 $29에서 34% 특별 할인 적용" : "Originally $29, special 34% discount applied");
+  let cadenceLabel = "/ mo";
+  if (locale === "ko") cadenceLabel = "/ 월";
+  else if (locale === "ru") cadenceLabel = "/ мес.";
+  else if (locale === "pt-BR") cadenceLabel = "/ mês";
+  else if (locale === "tr") cadenceLabel = "/ ay";
+
+  let explanation = "";
+  if (isYearly) {
+    switch (locale) {
+      case "ko":
+        explanation = "연간 결제 시 총 $190 (매월 $15.83 상당)";
+        break;
+      case "ru":
+        explanation = "Оплата раз в год $190 ($15.83/мес. эквивалент)";
+        break;
+      case "pt-BR":
+        explanation = "Cobrado anualmente a $190/ano (equivalente a $15.83/mês)";
+        break;
+      case "tr":
+        explanation = "Yıllık $190 olarak faturalandırılır ($15.83/ay eşdeğeri)";
+        break;
+      default:
+        explanation = "Billed annually at $190/yr ($15.83/mo equivalent)";
+    }
+  } else {
+    switch (locale) {
+      case "ko":
+        explanation = "정가 $29에서 34% 특별 할인 적용";
+        break;
+      case "ru":
+        explanation = "Обычная цена $29, скидка 34% включена";
+        break;
+      case "pt-BR":
+        explanation = "Preço original $29, desconto especial de 34% aplicado";
+        break;
+      case "tr":
+        explanation = "Orijinal fiyatı $29, %34 özel indirim uygulandı";
+        break;
+      default:
+        explanation = "Originally $29, special 34% discount applied";
+    }
+  }
 
   const priceDisplay = isFree ? (
     <div className="flex flex-wrap items-end gap-1.5">
-      <span className="text-3xl font-bold tracking-tight text-white font-mono sm:text-4xl">{plan.price}</span>
+      <span className="text-4xl font-bold tracking-tight text-white font-mono">{plan.price}</span>
       <span className="pb-1 text-zinc-500 text-xs font-semibold">{plan.cadence}</span>
     </div>
   ) : (
-    <div className="flex flex-col gap-1.5 rounded-xl bg-white/[0.015] border border-white/[0.04] p-4 text-left">
+    <div className="flex flex-col gap-2 text-left">
       <div className="flex items-center gap-2">
-        <span className="text-zinc-500 line-through text-xs font-medium">{originalPrice}</span>
-        <span className="rounded bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[9px] font-bold text-emerald-400">
+        <span className="text-zinc-500 line-through text-sm font-medium">{originalPrice}</span>
+        <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-[10px] font-bold text-emerald-400 font-mono">
           {discountBadge}
         </span>
       </div>
-      <div className="flex items-baseline gap-1">
-        <span className="text-2xl font-bold tracking-tight text-white font-mono">{discountedPrice}</span>
-        <span className="text-zinc-400 text-xs font-semibold">{cadenceLabel}</span>
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-5xl font-extrabold tracking-tight text-white font-mono">{discountedPrice}</span>
+        <span className="text-zinc-400 text-sm font-semibold">{cadenceLabel}</span>
       </div>
-      <p className="text-[10px] text-zinc-400 leading-tight break-keep">
+      <p className="text-xs text-zinc-400 leading-relaxed break-keep mt-1">
         {explanation}
       </p>
     </div>
   );
 
   return (
-    <article className={`relative rounded-2xl border p-5 transition-all duration-300 hover:-translate-y-1 sm:p-6 md:p-8 flex flex-col justify-between h-full ${
+    <article className={`relative rounded-2xl border p-6 transition-all duration-300 hover:-translate-y-1 sm:p-8 flex flex-col justify-between h-full ${
       featured
-        ? "border-emerald-500/50 bg-gradient-to-b from-[#0a2016] via-[#05160f] to-[#020605] shadow-[0_12px_40px_rgba(16,185,129,0.15),inset_0_1px_1px_rgba(255,255,255,0.06)] hover:border-emerald-500/60 lg:scale-105 z-10"
-        : "border-white/[0.08] bg-gradient-to-b from-[#131615] to-[#070908] shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] hover:border-emerald-500/20"
+        ? "border-emerald-500/40 bg-gradient-to-b from-[#0d261b] via-[#051710] to-[#020705] shadow-[0_20px_50px_rgba(16,185,129,0.12),inset_0_1px_1px_rgba(255,255,255,0.05)] hover:border-emerald-500/60 lg:scale-[1.03] z-10"
+        : "border-white/[0.06] bg-gradient-to-b from-[#111413] to-[#050706] shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)] hover:border-emerald-500/15"
     }`}>
-      {featured && (
-        <div className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-emerald-500 via-emerald-400 to-emerald-600 rounded-t-2xl shadow-[0_1px_10px_rgba(16,185,129,0.5)] pointer-events-none" />
-      )}
       <div>
-        <div className="min-h-[130px] flex flex-col justify-between">
+        <div className="min-h-[110px] flex flex-col justify-between">
           <div className="flex items-start justify-between gap-4">
-            <h3 className="text-2xl font-bold text-white tracking-tight">{plan.name}</h3>
-            <span className={`whitespace-nowrap font-mono text-[9px] px-2.5 py-0.5 rounded-full ${
-              featured
-                ? "text-emerald-300 bg-emerald-500/15 border border-emerald-500/30"
-                : "text-zinc-400 bg-white/5 border border-white/10"
-            }`}>
+            <h3 className="text-2xl font-extrabold text-white tracking-tight">{getCardTitle()}</h3>
+            <span className="whitespace-nowrap font-mono text-[10px] tracking-wider text-emerald-400 font-bold uppercase mt-1">
               {badgeText}
             </span>
           </div>
-          <p className="mt-3 text-sm leading-6 text-zinc-400 break-keep flex-1">{plan.description}</p>
+          <p className="mt-3 text-sm leading-relaxed text-zinc-400 break-keep flex-1">{plan.description}</p>
         </div>
 
-        <div className="mt-6 min-h-[82px] flex flex-col justify-end">
+        <div className="mt-6">
           {priceDisplay}
         </div>
 
@@ -442,9 +500,9 @@ export function PricingCard({
         )}
       </div>
 
-      <div className="mt-8 space-y-4 text-sm text-zinc-300">
+      <div className="mt-8 pt-6 border-t border-white/[0.06] space-y-4 text-sm text-zinc-300">
         {plan.features.map((feature) => (
-          <p key={feature} className="flex gap-3">
+          <p key={feature} className="flex gap-3 items-start">
             <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-300 mt-0.5">
               <Check size={12} weight="bold" />
             </span>

@@ -154,6 +154,7 @@ async def ensure_localized_payload_for_source(
     symbol: str | None = None,
     trader_id: str | None = None,
     provider: AITranslationProvider | None = None,
+    release_clean_transaction_before_call: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     localized_payload, meta = localized_payload_for_source(
         db,
@@ -180,6 +181,7 @@ async def ensure_localized_payload_for_source(
         trader_id=trader_id,
         provider=provider,
         target_locales=(requested_locale,),
+        release_clean_transaction_before_call=release_clean_transaction_before_call,
     )
     return localized_payload_for_source(
         db,
@@ -201,6 +203,7 @@ async def fanout_ai_translations(
     trader_id: str | None = None,
     provider: AITranslationProvider | None = None,
     target_locales: Sequence[str] | None = None,
+    release_clean_transaction_before_call: bool = False,
 ) -> None:
     if source_id is None:
         return
@@ -275,6 +278,8 @@ async def fanout_ai_translations(
             continue
         try:
             request_payload = translation_request_payload(source_type, payload)
+            if release_clean_transaction_before_call:
+                release_clean_session_transaction(db)
             translated = await translate_json_with_logging(
                 db,
                 settings=settings,
@@ -315,6 +320,14 @@ async def fanout_ai_translations(
                 trader_id=trader_id,
                 error_message=sanitize_error_message(str(exc)),
             )
+
+
+def release_clean_session_transaction(db: Session) -> None:
+    if not db.in_transaction():
+        return
+    if db.new or db.dirty or db.deleted:
+        return
+    db.commit()
 
 
 def merge_validated_translation(original: Any, translated: Any, path: tuple[str, ...] = ()) -> Any:

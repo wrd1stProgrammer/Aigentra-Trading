@@ -87,7 +87,7 @@ const copy = {
     proofTitle: "랭킹, 진입 계획, 관리 리뷰를 같은 흐름으로 봅니다.",
     proofSubtitle: "수익률만 보여주는 화면이 아니라, 왜 진입했고 어떤 조건에서 관리 중인지까지 남깁니다.",
     videoTitle: "리그 리플레이와 알림 흐름을 한 화면에서",
-    videoSubtitle: "계정 접속과 결제 관리는 Whop에서 진행됩니다.",
+    videoSubtitle: "1분 만에 가입하세요. 약정이 없습니다.",
     stats: [
       { label: "트레이더", value: "20", detail: "전략형 AI 에이전트" },
       { label: "시장", value: "BTC", detail: "OKX/Bitget public futures data" },
@@ -194,7 +194,7 @@ const copy = {
     proofTitle: "Ranking, entry plans, and management reviews stay in one flow.",
     proofSubtitle: "The product shows more than return. It keeps the reason, exposure state, and management context visible.",
     videoTitle: "Watch the league replay and alert flow in one frame",
-    videoSubtitle: "Access and billing are managed through Whop.",
+    videoSubtitle: "Sign up in 1 min. No commitment.",
     stats: [
       { label: "Traders", value: "20", detail: "strategy AI agents" },
       { label: "Market", value: "BTC", detail: "OKX/Bitget public futures data" },
@@ -301,7 +301,7 @@ const copy = {
     proofTitle: "Рейтинг, планы входа и управленческие ревью в одном потоке.",
     proofSubtitle: "Мы показываем не только доходность, но и причину входа, состояние экспозиции и контекст управления позицией.",
     videoTitle: "Реплей лиги и поток уведомлений в одном экране",
-    videoSubtitle: "Доступ и платежи управляются через Whop.",
+    videoSubtitle: "Регистрация за 1 минуту. Без обязательств.",
     stats: [
       { label: "Трейдеры", value: "20", detail: "стратегические AI-агенты" },
       { label: "Рынок", value: "BTC", detail: "публичные futures-данные OKX/Bitget" },
@@ -408,7 +408,7 @@ const copy = {
     proofTitle: "Ranking, planos de entrada e revisões de gestão no mesmo fluxo.",
     proofSubtitle: "A tela não mostra só retorno: ela preserva motivo, exposição e contexto de gestão da posição.",
     videoTitle: "Replay da liga e fluxo de alertas em uma só tela",
-    videoSubtitle: "Acesso e cobrança são gerenciados pelo Whop.",
+    videoSubtitle: "Inscreva-se em 1 min. Sem compromisso.",
     stats: [
       { label: "Traders", value: "20", detail: "agentes de IA estratégicos" },
       { label: "Mercado", value: "BTC", detail: "dados públicos de futuros OKX/Bitget" },
@@ -515,7 +515,7 @@ const copy = {
     proofTitle: "Sıralama, giriş planı ve yönetim incelemeleri aynı akışta.",
     proofSubtitle: "Sadece getiri değil; giriş nedeni, pozisyon durumu ve yönetim bağlamı da görünür kalır.",
     videoTitle: "Lig tekrarı ve alarm akışı tek ekranda",
-    videoSubtitle: "Erişim ve ödeme Whop üzerinden yönetilir.",
+    videoSubtitle: "1 dakikada üye olun. Taahhüt yok.",
     stats: [
       { label: "Trader", value: "20", detail: "strateji AI ajanları" },
       { label: "Piyasa", value: "BTC", detail: "OKX/Bitget public futures data" },

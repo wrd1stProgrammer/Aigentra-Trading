@@ -757,29 +757,33 @@ function ActiveTraderRow({ trader, locale, t }: { trader: ConsensusTrader; local
         : "bg-zinc-100 text-zinc-500 border-zinc-200 dark:bg-zinc-800/50 dark:text-zinc-400 dark:border-zinc-700/50";
 
   return (
-    <div className="relative rounded-xl border border-zinc-200 bg-white p-4 flex flex-col justify-between hover:border-zinc-300 hover:bg-zinc-50 transition-all duration-300 shadow-md dark:border-white/[0.06] dark:bg-[#0c0d0d] dark:hover:border-white/10 dark:hover:bg-[#111313]">
+    <div className={`relative rounded-xl border p-5 flex flex-col justify-between hover:translate-y-[-2px] transition-all duration-300 shadow-md ${
+      isLong
+        ? "border-zinc-200 bg-white hover:border-emerald-500/30 dark:border-emerald-500/10 dark:bg-gradient-to-b dark:from-[#0c0f0e] dark:to-[#050807] dark:hover:border-emerald-500/20"
+        : "border-zinc-200 bg-white hover:border-rose-500/30 dark:border-rose-500/10 dark:bg-gradient-to-b dark:from-[#110c0d] dark:to-[#080506] dark:hover:border-rose-500/20"
+    }`}>
       <div>
         {/* Header Info */}
         <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className={`shrink-0 size-8 rounded bg-gradient-to-br ${visual.tone} flex items-center justify-center text-[10px] font-mono font-bold text-white shadow-md`}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={`shrink-0 size-9 rounded-lg bg-gradient-to-br ${visual.tone} flex items-center justify-center text-xs font-mono font-bold text-white shadow-md`}>
               {visual.initials}
             </div>
             <div className="min-w-0">
-              <h4 className="text-xs font-bold text-zinc-950 truncate flex items-center gap-1.5 dark:text-white">
+              <h4 className="text-sm font-extrabold text-zinc-950 truncate flex items-center gap-1.5 dark:text-white">
                 {localizedName}
-                <span className="text-[10px] shrink-0" title="Flag">{flag}</span>
+                <span className="text-xs shrink-0" title="Flag">{flag}</span>
               </h4>
-              <p className="text-[9px] text-zinc-500 font-mono tracking-wider uppercase mt-0.5">{visual.alias}</p>
+              <p className="text-[10px] text-zinc-500 font-mono tracking-wider uppercase mt-0.5">{visual.alias}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[8px] font-extrabold uppercase border ${statusToneClass}`}>
+            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase border ${statusToneClass}`}>
               {activeState.label}
             </span>
             {activeState.status === "inPosition" && activeState.unrealizedPnl !== null && (
-              <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[8px] font-mono font-bold border ${
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-mono font-bold border ${
                 activeState.unrealizedPnl >= 0 
                   ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
                   : "bg-rose-500/10 text-rose-400 border-rose-500/20"
@@ -787,7 +791,7 @@ function ActiveTraderRow({ trader, locale, t }: { trader: ConsensusTrader; local
                 {activeState.detail}
               </span>
             )}
-            <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[8px] font-extrabold tracking-wider border ${
+            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-extrabold tracking-wider border ${
               isLong 
                 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
                 : "bg-rose-500/10 text-rose-400 border-rose-500/20"
@@ -799,22 +803,22 @@ function ActiveTraderRow({ trader, locale, t }: { trader: ConsensusTrader; local
 
         {/* Price Targets */}
         {(activeState.price || activeState.takeProfit || activeState.stopLoss) && (
-          <div className="mt-3 bg-zinc-50 border border-zinc-100 rounded-lg p-2 grid grid-cols-3 gap-2 text-center text-[9px] font-mono dark:bg-white/[0.01] dark:border-white/[0.04]">
+          <div className="mt-4 bg-zinc-50 border border-zinc-100 rounded-xl p-3.5 grid grid-cols-3 gap-2 text-center font-mono dark:bg-white/[0.015] dark:border-white/[0.06]">
             <div>
-              <p className="text-zinc-500 uppercase font-semibold">{t("detail.averageEntry")}</p>
-              <p className="mt-0.5 font-bold text-zinc-950 dark:text-zinc-200">
+              <p className="text-zinc-500 uppercase font-bold text-[10px] tracking-wider">{t("detail.averageEntry")}</p>
+              <p className="mt-1 text-[13px] sm:text-[14px] font-extrabold text-zinc-950 dark:text-zinc-200">
                 {activeState.price ? `$${formatNumber(activeState.price, 0, locale)}` : "-"}
               </p>
             </div>
             <div>
-              <p className="text-emerald-500/80 uppercase font-semibold">{t("detail.takeProfit")}</p>
-              <p className="mt-0.5 font-bold text-emerald-400">
+              <p className="text-emerald-500/80 uppercase font-bold text-[10px] tracking-wider">{t("detail.takeProfit")}</p>
+              <p className="mt-1 text-[13px] sm:text-[14px] font-extrabold text-emerald-400">
                 {activeState.takeProfit ? `$${formatNumber(activeState.takeProfit, 0, locale)}` : "-"}
               </p>
             </div>
             <div>
-              <p className="text-rose-500/80 uppercase font-semibold">{t("detail.stopLoss")}</p>
-              <p className="mt-0.5 font-bold text-rose-400">
+              <p className="text-rose-500/80 uppercase font-bold text-[10px] tracking-wider">{t("detail.stopLoss")}</p>
+              <p className="mt-1 text-[13px] sm:text-[14px] font-extrabold text-rose-400">
                 {activeState.stopLoss ? `$${formatNumber(activeState.stopLoss, 0, locale)}` : "-"}
               </p>
             </div>
@@ -822,32 +826,39 @@ function ActiveTraderRow({ trader, locale, t }: { trader: ConsensusTrader; local
         )}
 
         {/* Justification Box (진입이유) */}
-        <div className="mt-3">
-          <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider mb-1">{t("consensus.entryReason")}</p>
-          <div className={`border-l-2 ${isLong ? "border-emerald-500/40" : "border-rose-500/40"} pl-3 py-1 bg-zinc-50 rounded-r dark:bg-white/[0.01]`}>
-            <p className="text-xs text-zinc-700 leading-relaxed italic dark:text-zinc-300">
+        <div className="mt-4">
+          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">{t("consensus.entryReason")}</p>
+          <div className={`border-l-2 ${isLong ? "border-emerald-500/40" : "border-rose-500/40"} pl-3.5 py-1.5 bg-zinc-50 rounded-r dark:bg-white/[0.015]`}>
+            <p className="text-xs sm:text-[13px] text-zinc-800 leading-relaxed font-medium dark:text-zinc-200">
               “{rationale}”
             </p>
             {trader.activeScenario && (
-              <div className="mt-1.5 flex items-center justify-between text-[9px] text-zinc-500 font-mono">
-                <span>{formatProviderName(trader.activeScenario.provider || "System")}</span>
-                {trader.activeScenario.confidence && (
-                  <span className="font-bold text-zinc-400">{t("consensus.opinionConfidence")}: {trader.activeScenario.confidence}%</span>
-                )}
-              </div>
+              ((trader.activeScenario.provider && trader.activeScenario.provider.toLowerCase() !== "system") || trader.activeScenario.confidence) && (
+                <div className="mt-2 flex items-center justify-between text-[10px] text-zinc-500 font-mono">
+                  {trader.activeScenario.provider && trader.activeScenario.provider.toLowerCase() !== "system" ? (
+                    <span className="bg-white/5 border border-white/10 px-1.5 py-0.5 rounded text-[9px]">{formatProviderName(trader.activeScenario.provider)}</span>
+                  ) : (
+                    <span />
+                  )}
+                  {trader.activeScenario.confidence && (
+                    <span className="font-bold text-zinc-400/80">{t("consensus.opinionConfidence")}: {trader.activeScenario.confidence}%</span>
+                  )}
+                </div>
+              )
             )}
           </div>
         </div>
       </div>
 
-      <div className="mt-3 border-t border-zinc-100 pt-2 flex justify-end dark:border-white/[0.04]">
+      <div className="mt-4 border-t border-zinc-100 pt-3 flex justify-end dark:border-white/[0.04]">
         <Link 
           href={`/traders/${trader.id}`} 
-          className={`focus-ring inline-flex items-center gap-1 text-[10px] font-bold transition-colors ${
+          className={`focus-ring inline-flex items-center gap-1 text-xs font-bold transition-colors group ${
             isLong ? "text-emerald-400 hover:text-emerald-300" : "text-rose-400 hover:text-rose-300"
           }`}
         >
-          <span>{t("leaderboard.viewTrader")} →</span>
+          <span>{t("leaderboard.viewTrader")}</span>
+          <span className="transform group-hover:translate-x-0.5 transition-transform duration-200">→</span>
         </Link>
       </div>
     </div>

@@ -3159,16 +3159,10 @@ def trader_snapshot_summary(db: Session, trader_id: str, clean_symbol: str) -> O
     return leaderboard_snapshot_summary(record, record.rank or 0)
 
 
-async def ensure_record_review_translation(db: Session, record, *, locale: str) -> bool:
-    clean_locale = normalize_locale(locale)
-    if clean_locale == CANONICAL_AI_LOCALE:
-        return True
-    if str(getattr(record, "status", "ok")).lower() != "ok" or bool(getattr(record, "fallback", False)):
-        return True
-
+def record_review_translation_source(record) -> Optional[tuple[str, int, dict[str, Any]]]:
     payload = from_json(getattr(record, "payload_json", None)) or {}
     if not isinstance(payload, dict) or not payload:
-        return True
+        return None
 
     source_type: str | None = None
     source_id: int | None = None
@@ -3190,7 +3184,46 @@ async def ensure_record_review_translation(db: Session, record, *, locale: str) 
             source_payload = ai_review
 
     if source_type is None or source_id is None or source_payload is None:
+        return None
+    return source_type, source_id, source_payload
+
+
+def record_review_translation_ready(db: Session, record, *, locale: str) -> bool:
+    clean_locale = normalize_locale(locale)
+    if clean_locale == CANONICAL_AI_LOCALE:
         return True
+    if str(getattr(record, "status", "ok")).lower() != "ok" or bool(getattr(record, "fallback", False)):
+        return True
+    source = record_review_translation_source(record)
+    if source is None:
+        return True
+    source_type, source_id, source_payload = source
+    _localized, meta = localized_payload_for_source(
+        db,
+        source_type=source_type,
+        source_id=source_id,
+        payload=source_payload,
+        locale=clean_locale,
+    )
+    return meta.get("status") in {"canonical", "ok"}
+
+
+async def ensure_record_review_translation(
+    db: Session,
+    record,
+    *,
+    locale: str,
+    release_clean_transaction_before_call: bool = False,
+) -> bool:
+    clean_locale = normalize_locale(locale)
+    if clean_locale == CANONICAL_AI_LOCALE:
+        return True
+    if str(getattr(record, "status", "ok")).lower() != "ok" or bool(getattr(record, "fallback", False)):
+        return True
+    source = record_review_translation_source(record)
+    if source is None:
+        return True
+    source_type, source_id, source_payload = source
 
     _localized, meta = await ensure_localized_payload_for_source(
         db,
@@ -3201,6 +3234,7 @@ async def ensure_record_review_translation(db: Session, record, *, locale: str) 
         locale=clean_locale,
         symbol=getattr(record, "symbol", None),
         trader_id=getattr(record, "trader_id", None),
+        release_clean_transaction_before_call=release_clean_transaction_before_call,
     )
     return meta.get("status") in {"canonical", "ok"}
 
@@ -3228,6 +3262,30 @@ def trader_detail_translation_records(
     return records
 
 
+def trader_detail_translations_ready(
+    db: Session,
+    *,
+    trader_id: str,
+    clean_symbol: str,
+    locale: str,
+    reviews_limit: int,
+    events_limit: int,
+) -> bool:
+    clean_locale = normalize_locale(locale)
+    if clean_locale == CANONICAL_AI_LOCALE:
+        return True
+    return all(
+        record_review_translation_ready(db, record, locale=clean_locale)
+        for record in trader_detail_translation_records(
+            db,
+            trader_id=trader_id,
+            clean_symbol=clean_symbol,
+            reviews_limit=reviews_limit,
+            events_limit=events_limit,
+        )
+    )
+
+
 async def ensure_trader_detail_translations(
     db: Session,
     *,
@@ -3236,6 +3294,7 @@ async def ensure_trader_detail_translations(
     locale: str,
     reviews_limit: int,
     events_limit: int,
+    release_clean_transaction_before_call: bool = False,
 ) -> bool:
     clean_locale = normalize_locale(locale)
     if clean_locale == CANONICAL_AI_LOCALE:
@@ -3248,7 +3307,12 @@ async def ensure_trader_detail_translations(
         reviews_limit=reviews_limit,
         events_limit=events_limit,
     ):
-        ready = await ensure_record_review_translation(db, record, locale=clean_locale) and ready
+        ready = await ensure_record_review_translation(
+            db,
+            record,
+            locale=clean_locale,
+            release_clean_transaction_before_call=release_clean_transaction_before_call,
+        ) and ready
     return ready
 
 
@@ -3408,6 +3472,7 @@ def refresh_trader_detail_cache_background(trader_id: str, symbol: str, locale: 
                     locale=clean_locale,
                     reviews_limit=20,
                     events_limit=10,
+                    release_clean_transaction_before_call=True,
                 )
             )
             payload = build_trader_detail_payload(
@@ -5016,7 +5081,7 @@ async def league_trader_detail(
         refresh_trader_leaderboard_snapshot(db, trader_id, clean_symbol)
         db.commit()
     snapshot_summary = trader_snapshot_summary(db, trader_id, clean_symbol)
-    translations_ready = await ensure_trader_detail_translations(
+    translations_ready = trader_detail_translations_ready(
         db,
         trader_id=trader_id,
         clean_symbol=clean_symbol,
@@ -5024,6 +5089,8 @@ async def league_trader_detail(
         reviews_limit=reviews_limit,
         events_limit=events_limit,
     )
+    if clean_locale != CANONICAL_AI_LOCALE and not translations_ready:
+        schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol, clean_locale)
     if clean_locale != CANONICAL_AI_LOCALE:
         db.commit()
     payload = build_trader_detail_payload(

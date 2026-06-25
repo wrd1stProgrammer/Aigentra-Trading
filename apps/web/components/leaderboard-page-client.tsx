@@ -193,6 +193,7 @@ export function LeaderboardPageClient() {
     [leagueMonthOptions, selectedLeagueMonthParts.year]
   );
   const leaderboardBundleOptions = useMemo<LeaderboardBundleRequestOptions>(() => ({
+    includeRelated: false,
     leagueMonth: selectedLeagueMonth
   }), [selectedLeagueMonth]);
   const leaguePeriodLabel = selectedLeagueMonth ? `${selectedLeagueMonth} UTC` : t("leaderboard.currentLeague");
@@ -239,7 +240,7 @@ export function LeaderboardPageClient() {
   const activateCurrentLeague = useCallback(() => {
     setSelectedLeagueMonth(undefined);
     void queryClient.invalidateQueries({
-      queryKey: leaderboardBundleQueryKey("BTCUSDT", locale, { leagueMonth: undefined })
+      queryKey: leaderboardBundleQueryKey("BTCUSDT", locale, { includeRelated: false, leagueMonth: undefined })
     });
   }, [locale, queryClient]);
 
@@ -257,12 +258,12 @@ export function LeaderboardPageClient() {
       if (selectedLeagueMonth) {
         return cacheReady ? getCachedLeaderboardBundle("BTCUSDT", locale, leaderboardBundleOptions) ?? fallbackBundle : fallbackBundle;
       }
-      return cacheReady ? getCachedLeaderboardBundle("BTCUSDT", locale) ?? fallbackBundle : fallbackBundle;
+      return cacheReady ? getCachedLeaderboardBundle("BTCUSDT", locale, leaderboardBundleOptions) ?? fallbackBundle : fallbackBundle;
     }
   });
 
   const isFetching = btcQuery.isFetching;
-  const initialLoading = btcQuery.isFetching && (btcQuery.isPending || btcQuery.isPlaceholderData);
+  const initialLoading = btcQuery.isPending && btcQuery.isFetching;
   const bundle = useMemo<LeaderboardBundle>(() => {
     return btcQuery.data ?? fallbackBundle;
   }, [btcQuery.data, fallbackBundle]);

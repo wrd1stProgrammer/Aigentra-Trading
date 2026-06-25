@@ -59,6 +59,21 @@ class PartialTranslationProvider:
         return {"approvalReason": f"{target_locale}: 승인 사유"}
 
 
+class TransactionObservingTranslationProvider:
+    name = "openai"
+    model = "fake-translation"
+
+    def __init__(self, db) -> None:
+        self.db = db
+        self.saw_open_transaction = False
+
+    async def translate_json(self, *, payload: dict, target_locale: str) -> dict:
+        self.saw_open_transaction = self.db.in_transaction()
+        translated = dict(payload)
+        translated["approvalReason"] = f"{target_locale}: translated approval reason"
+        return translated
+
+
 @pytest.fixture()
 def temp_db(tmp_path):
     db_path = tmp_path / "translation-cache.db"
@@ -198,6 +213,37 @@ def test_fanout_translations_are_cached_and_reused(temp_db):
         )
         assert provider.calls == ["ko", "ru"]
         assert db.query(AITranslationCacheRecord).count() == 4
+
+
+def test_background_fanout_releases_clean_transaction_before_provider_call(temp_db):
+    payload = {"decision": "HOLD", "approvalReason": "Wait for more data."}
+    settings = Settings(
+        openai_api_key="test-key",
+        ai_translation_enabled=True,
+        ai_translation_target_locales=["ko"],
+        openai_translation_model="gpt-4.1-nano",
+    )
+
+    with session_scope() as db:
+        db.query(AITranslationCacheRecord).count()
+        assert db.in_transaction()
+        provider = TransactionObservingTranslationProvider(db)
+
+        asyncio.run(
+            fanout_ai_translations(
+                db,
+                settings=settings,
+                source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+                source_id=707,
+                payload=payload,
+                symbol="BTCUSDT",
+                trader_id="range-maker",
+                provider=provider,
+                release_clean_transaction_before_call=True,
+            )
+        )
+
+        assert provider.saw_open_transaction is False
 
 
 def test_fanout_translation_falls_back_without_openai_key(temp_db):

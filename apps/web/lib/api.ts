@@ -1,7 +1,16 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { Locale } from "@/lib/i18n";
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const DEFAULT_API_BASE_URL = "http://localhost:8000";
+const EXTERNAL_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
+const BROWSER_API_PROXY_BASE_URL = "/backend-api";
+
+function resolveApiBaseUrl() {
+  if (typeof window === "undefined") return EXTERNAL_API_BASE_URL;
+  return /^https?:\/\//i.test(EXTERNAL_API_BASE_URL) ? BROWSER_API_PROXY_BASE_URL : EXTERNAL_API_BASE_URL;
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 export const LEAGUE_QUERY_STALE_TIME_MS = 60_000;
 export const LEAGUE_QUERY_GC_TIME_MS = 10 * 60_000;
 export const LEAGUE_LIVE_REFETCH_INTERVAL_MS = 60_000;
@@ -768,7 +777,7 @@ export function getTraderPaperSummary(symbol: string) {
 }
 
 function leaderboardCacheKey(symbol: string, locale: Locale, options?: LeaderboardBundleRequestOptions) {
-  const includeRelated = options?.includeRelated ?? true;
+  const includeRelated = options?.includeRelated ?? false;
   const period = options?.leagueMonth ?? "current";
   return `leaderboard:${symbol}:${locale}:${period}:${includeRelated ? "related" : "summary"}`;
 }
@@ -777,7 +786,7 @@ export function getLeaderboardBundle(symbol: string, locale: Locale = "en", opti
   const params = new URLSearchParams({
     symbol,
     locale,
-    includeRelated: String(options?.includeRelated ?? true)
+    includeRelated: String(options?.includeRelated ?? false)
   });
   if (options?.leagueMonth) params.set("leagueMonth", options.leagueMonth);
   return request<LeaderboardBundle>(`/api/league/leaderboard-fast?${params.toString()}`).then((bundle) => {
@@ -835,7 +844,7 @@ export function getCachedTraderDetailBundle(traderId: string, symbol: string, re
 }
 
 export const leaderboardBundleQueryKey = (symbol: string, locale: Locale = "en", options?: LeaderboardBundleRequestOptions) =>
-  ["league", "leaderboard", symbol, locale, options?.includeRelated ?? true, options?.leagueMonth ?? "current"] as const;
+  ["league", "leaderboard", symbol, locale, options?.includeRelated ?? false, options?.leagueMonth ?? "current"] as const;
 
 export function leaderboardBundleQueryOptions(symbol: string, locale: Locale = "en", options?: LeaderboardBundleRequestOptions) {
   return {

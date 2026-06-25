@@ -5,6 +5,7 @@ import ts from "typescript";
 
 const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8");
 const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
+const nextConfigSource = readFileSync(new URL("../next.config.ts", import.meta.url), "utf8");
 const overlaySource = readFileSync(new URL("../components/page-loading-overlay.tsx", import.meta.url), "utf8");
 const overviewFilter = loadTsModule("../components/leaderboard-overview-filter.ts");
 const formatSource = readFileSync(new URL("../lib/format.ts", import.meta.url), "utf8");
@@ -115,7 +116,15 @@ test("league overview does not auto-paginate before the user scrolls the log", (
 test("leaderboard browser cache placeholders wait until after hydration", () => {
   assert.match(leaderboardSource, /const \[cacheReady, setCacheReady\] = useState\(false\)/, "leaderboard cache readiness should be client-state driven");
   assert.match(leaderboardSource, /useEffect\(\(\) => \{\s*setCacheReady\(true\);\s*\}, \[\]\);/s, "leaderboard cache should only activate after mount");
-  assert.match(leaderboardSource, /cacheReady \? getCachedLeaderboardBundle\("BTCUSDT", locale\)/, "localStorage-backed leaderboard cache should not run during hydration");
+  assert.match(leaderboardSource, /cacheReady \? getCachedLeaderboardBundle\("BTCUSDT", locale, leaderboardBundleOptions\)/, "localStorage-backed leaderboard cache should not run during hydration");
+});
+
+test("browser API calls use the same-origin backend proxy to avoid cold-load CORS retries", () => {
+  assert.match(apiSource, /const BROWSER_API_PROXY_BASE_URL = "\/backend-api"/, "browser fetches should use the Next proxy prefix");
+  assert.match(apiSource, /typeof window === "undefined"/, "server-side calls should keep using the external API base URL");
+  assert.match(apiSource, /\^https\?:\\\/\\\//, "absolute public API bases should be proxied in the browser");
+  assert.match(nextConfigSource, /source: "\/backend-api\/:path\*"/, "Next should expose a non-conflicting backend proxy route");
+  assert.match(nextConfigSource, /destination/, "backend proxy route should forward to the configured API origin");
 });
 
 test("leaderboard BTC and favorites filters render as compact standalone areas", () => {
@@ -134,6 +143,7 @@ test("leaderboard supports isolated UTC monthly league selection", () => {
   assert.match(apiSource, /leagueMonth\?: string/, "leaderboard API options should accept a UTC YYYY-MM month");
   assert.match(apiSource, /params\.set\("leagueMonth", options\.leagueMonth\)/, "leaderboard API should send the selected UTC month to the backend");
   assert.match(apiSource, /options\?\.leagueMonth \?\? "current"/, "browser cache and query keys should separate current and monthly bundles");
+  assert.match(leaderboardSource, /includeRelated: false/, "leaderboard first paint should use the summary bundle and load live context separately");
   assert.match(leaderboardSource, /data-testid="leaderboard-month-selector"/, "leaderboard should expose a stable monthly selector target");
   assert.match(leaderboardSource, /selectedLeagueMonth/, "leaderboard should keep selected month in component state");
   assert.match(leaderboardSource, /leagueMonth: selectedLeagueMonth/, "leaderboard query should be parameterized by the selected month");
@@ -161,6 +171,8 @@ test("monthly league rankings keep live exposure state separate from monthly ret
 test("leaderboard uses the shared full-screen loading overlay", () => {
   assert.match(leaderboardSource, /PageLoadingOverlay/, "leaderboard should render the shared loading overlay");
   assert.match(leaderboardSource, /common\.loadingLeagueData/, "leaderboard overlay should use localized loading copy");
+  assert.match(leaderboardSource, /const initialLoading = btcQuery\.isPending && btcQuery\.isFetching/, "placeholder data should not keep the full-screen overlay active");
+  assert.doesNotMatch(leaderboardSource, /initialLoading = btcQuery\.isFetching && \(btcQuery\.isPending \|\| btcQuery\.isPlaceholderData\)/, "locale/cache refreshes should not re-block the page");
   assert.match(overlaySource, /fixed inset-0/, "loading overlay should cover the viewport");
   assert.match(overlaySource, /createPortal/, "loading overlay should be portaled outside animated page containers");
   assert.match(overlaySource, /backdrop-blur-\[3px\]/, "loading overlay should blur the existing page");

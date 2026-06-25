@@ -621,12 +621,13 @@ def test_league_overview_reviews_filters_hidden_reviews_before_pagination(temp_a
     assert [review["decision"] for review in data["reviews"]] == ["ADJUST_AND_APPROVE", "HOLD"]
 
 
-def test_trader_detail_repairs_missing_korean_management_review_translation(temp_api_db, monkeypatch):
+def test_trader_detail_schedules_missing_korean_translation_repair_without_blocking(temp_api_db, monkeypatch):
     main.TRADER_DETAIL_CACHE.clear()
     monkeypatch.setattr(main.settings, "openai_api_key", "test-key")
     monkeypatch.setattr(main.settings, "ai_translation_enabled", True)
     monkeypatch.setattr(main.settings, "ai_translation_target_locales", ["ko"])
     calls: list[str] = []
+    scheduled: list[tuple[str, tuple]] = []
 
     async def fake_translate_json_with_logging(
         db,
@@ -659,7 +660,11 @@ def test_trader_detail_repairs_missing_korean_management_review_translation(temp
             "appliedActions": payload.get("appliedActions", []),
         }
 
+    def fake_schedule_thread_refresh(func, *args):
+        scheduled.append((func.__name__, args))
+
     monkeypatch.setattr("app.ai.translation_cache.translate_json_with_logging", fake_translate_json_with_logging)
+    monkeypatch.setattr(main, "schedule_thread_refresh", fake_schedule_thread_refresh)
 
     with session_scope() as db:
         db.add(
@@ -700,8 +705,6 @@ def test_trader_detail_repairs_missing_korean_management_review_translation(temp
 
     assert response.status_code == 200
     review = response.json()["managementReviews"][0]
-    assert calls == ["ko"]
-    assert review["translation"]["status"] == "ok"
-    assert review["rationale"] == "새 하락 변위는 아직 숏 근거를 지지하지만, 손절 기준 접근 여부를 먼저 확인해야 합니다."
-    assert review["review"]["structuredReview"]["headline"] == "숏 근거는 아직 살아 있습니다."
-    assert "Fresh bearish displacement" not in str(review)
+    assert calls == []
+    assert scheduled == [("refresh_trader_detail_cache_background", ("imbalance-hunter", "BTCUSDT", "ko"))]
+    assert review["translation"]["status"] == "missing"
