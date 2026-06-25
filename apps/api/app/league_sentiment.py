@@ -711,20 +711,46 @@ def fallback_league_sentiment_opinion(payload: LeagueSentimentPayload) -> League
         bias=bias,
         confidence=45 if bias in {"NEUTRAL", "MIXED"} else 58,
         riskLevel=risk,
-        headline="현재 시간대 종합 의견을 보수적으로 정리했습니다." if ko else "The current hourly opinion was built conservatively.",
+        headline=(
+            "지금은 새 방향보다 활성 셋업의 무효화 조건을 먼저 확인할 구간입니다."
+            if ko
+            else "For now, check active setup invalidation before reading this as a new direction."
+        ),
         summary=(
             f"활성/대기 기준 LONG {long_count}건, SHORT {short_count}건입니다. "
-            "AI 상세 해석 대신 검증된 DB 집계만 사용했으므로 방향 판단보다 리스크 확인에 초점을 둡니다."
+            "AI 상세 해석 대신 검증된 DB 집계만 사용했으므로 방향 판단보다 리스크 확인에 초점을 둡니다. "
+            "대기 주문은 아직 체결된 포지션이 아니므로, 실제 체결과 손절/익절 변화가 다음 판단의 핵심입니다."
             if ko
             else f"Current active/pending context has LONG {long_count} versus SHORT {short_count}. "
-            "Only verified database counts were used, so treat this as risk context rather than a strong directional call."
+            "Only verified database counts were used, so treat this as risk context rather than a strong directional call. "
+            "Pending entries are not filled exposure yet, so fills and new TP/SL changes matter most for the next read."
         ),
         keyDrivers=[
-            f"LONG {long_count}건 / SHORT {short_count}건" if ko else f"LONG {long_count} / SHORT {short_count}",
-            f"최근 익절 {take_profits}건 / 손절 {stop_losses}건" if ko else f"Recent TP {take_profits} / SL {stop_losses}",
+            (
+                f"LONG {long_count}건 / SHORT {short_count}건은 현재 리그가 어느 방향을 더 많이 준비하거나 보유 중인지 보여줍니다."
+                if ko
+                else f"LONG {long_count} / SHORT {short_count} shows which side has more active or planned exposure."
+            ),
+            (
+                f"최근 익절 {take_profits}건 / 손절 {stop_losses}건은 방향보다 리스크 강도를 조정하는 근거입니다."
+                if ko
+                else f"Recent TP {take_profits} / SL {stop_losses} adjusts risk confidence more than direction."
+            ),
         ],
-        risks=["모델 상세 해석 없이 집계 기반으로만 표시됩니다." if ko else "Shown from aggregate counts without model-level interpretation."],
-        watchConditions=["다음 UTC 정시 갱신 때 활성 방향과 손절/익절 변화 확인" if ko else "Check active direction and TP/SL changes at the next UTC hourly refresh."],
+        risks=[
+            (
+                "집계 기반 의견이라 대기 주문을 체결 포지션처럼 해석하면 방향성이 과장될 수 있습니다."
+                if ko
+                else "Because this is count-based, treating pending orders like filled positions can overstate direction."
+            )
+        ],
+        watchConditions=[
+            (
+                "다음 생성 전까지 활성 방향 수와 손절/익절 이벤트가 바뀌는지 확인"
+                if ko
+                else "Before the next generation, check whether active side counts or TP/SL events change."
+            )
+        ],
         action="새 포지션보다 기존 활성 셋업의 무효화 조건을 먼저 확인하세요." if ko else "Prioritize invalidation checks on active setups before chasing new direction.",
         longShortContext=f"LONG {long_count} / SHORT {short_count}",
         sourceCounts=dict(counts),

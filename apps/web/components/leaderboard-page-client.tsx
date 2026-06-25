@@ -14,8 +14,10 @@ import {
 } from "@phosphor-icons/react";
 import {
   getEquitySnapshots,
+  getActivePaperPositions,
   getCachedLeaderboardBundle,
   getLeagueOverviewReviews,
+  getPaperOrders,
   getRecentTradePlans,
   LEAGUE_LIVE_REFETCH_INTERVAL_MS,
   leaderboardBundleQueryKey,
@@ -50,9 +52,10 @@ import { LatestStatusFeedNote } from "@/components/trader-profile-detail/status-
 
 const SYMBOLS: LeagueSymbol[] = ["BTCUSDT"];
 const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_108px_108px_60px_80px_36px] gap-3";
-const OVERVIEW_INITIAL_LIMIT = 20;
+const OVERVIEW_INITIAL_LIMIT = 12;
 const OVERVIEW_PAGE_LIMIT = 10;
 const OVERVIEW_CACHE_TTL_MS = 60_000;
+const LIVE_EXPOSURE_LIMIT = 100;
 
 type OverviewActivityCache = {
   locale: Locale;
@@ -290,22 +293,40 @@ export function LeaderboardPageClient() {
   const traderNameMap = useMemo(() => new Map(visibleStandings.map((item) => [item.id, item.name])), [visibleStandings]);
   const latestStatusFeedByTrader = useMemo(() => buildLatestStatusFeedMap(bundle.statusFeeds ?? []), [bundle.statusFeeds]);
 
+  const liveExposurePositionsQuery = useQuery({
+    queryKey: ["paper", "positions", "active", "BTCUSDT", "leaderboard"],
+    queryFn: async () => unwrapPaperPositions(await getActivePaperPositions("BTCUSDT", undefined, LIVE_EXPOSURE_LIMIT)),
+    placeholderData: (previousData) => previousData ?? (!selectedLeagueMonth ? bundle.positions ?? [] : []),
+    staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
+    refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false
+  });
+  const liveExposureOrdersQuery = useQuery({
+    queryKey: ["paper", "orders", "open", "BTCUSDT", "leaderboard"],
+    queryFn: async () => unwrapPaperOrders(await getPaperOrders(LIVE_EXPOSURE_LIMIT, "BTCUSDT", "open")),
+    placeholderData: (previousData) => previousData ?? (!selectedLeagueMonth ? bundle.orders ?? [] : []),
+    staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
+    refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false
+  });
+  const liveExposurePositions = liveExposurePositionsQuery.data ?? (!selectedLeagueMonth ? bundle.positions ?? [] : []);
+  const liveExposureOrders = liveExposureOrdersQuery.data ?? (!selectedLeagueMonth ? bundle.orders ?? [] : []);
+
   // Fetch pending plans dynamically
   const pendingPlansQuery = useQuery({
     queryKey: ["league", "trade-plans", "BTCUSDT", "pending"],
     queryFn: async () => unwrapTradePlans(await getRecentTradePlans(100, "BTCUSDT", undefined, "PAPER_TRADING_PENDING")),
-    enabled: !selectedLeagueMonth,
     placeholderData: (previousData) => previousData ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false
   });
 
-  const pendingPlans = selectedLeagueMonth ? [] : pendingPlansQuery.data ?? [];
+  const pendingPlans = pendingPlansQuery.data ?? [];
 
   const exposureByTrader = useMemo(
-    () => buildExposureMap(bundle.positions ?? [], bundle.orders ?? [], pendingPlans),
-    [bundle.orders, bundle.positions, pendingPlans]
+    () => buildExposureMap(liveExposurePositions, liveExposureOrders, pendingPlans),
+    [liveExposureOrders, liveExposurePositions, pendingPlans]
   );
 
 
@@ -1184,6 +1205,16 @@ function unwrapEquitySnapshots(value: { snapshots?: EquitySnapshot[] } | EquityS
   return Array.isArray(value.snapshots) ? value.snapshots : [];
 }
 
+function unwrapPaperPositions(value: { positions?: PaperPosition[] } | PaperPosition[]) {
+  if (Array.isArray(value)) return value;
+  return Array.isArray(value.positions) ? value.positions : [];
+}
+
+function unwrapPaperOrders(value: { orders?: PaperOrder[] } | PaperOrder[]) {
+  if (Array.isArray(value)) return value;
+  return Array.isArray(value.orders) ? value.orders : [];
+}
+
 function unwrapTradePlans(value: unknown): Array<Record<string, any>> {
   if (Array.isArray(value)) return value as Array<Record<string, any>>;
   if (!value || typeof value !== "object") return [];
@@ -1408,6 +1439,7 @@ function OptionActivityStream({
   const [offset, setOffset] = useState(() => overviewActivityCache.offset);
   const [hasMore, setHasMore] = useState(() => overviewActivityCache.hasMore);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasOverviewUserScrolled, setHasOverviewUserScrolled] = useState(false);
 
   const isFetchingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1423,6 +1455,7 @@ function OptionActivityStream({
         overviewActivityCache.offset = 0;
         overviewActivityCache.hasMore = true;
         overviewActivityCache.fetchedAt = 0;
+        setHasOverviewUserScrolled(false);
       }
       const hasCachedReviews = overviewActivityCache.reviews.length > 0;
       const cacheIsFresh = (hasCachedReviews || !overviewActivityCache.hasMore) && Date.now() - overviewActivityCache.fetchedAt < OVERVIEW_CACHE_TTL_MS;
@@ -1497,9 +1530,15 @@ function OptionActivityStream({
     }
   }, [locale, offset, hasMore]);
 
+  const handleOverviewScroll = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || container.scrollTop <= 12) return;
+    setHasOverviewUserScrolled(true);
+  }, []);
+
   // Set up IntersectionObserver
   useEffect(() => {
-    if (!hasMore || isLoading) return;
+    if (!hasOverviewUserScrolled || !hasMore || isLoading) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -1520,7 +1559,7 @@ function OptionActivityStream({
     return () => {
       observer.disconnect();
     };
-  }, [loadMore, hasMore, isLoading]);
+  }, [loadMore, hasOverviewUserScrolled, hasMore, isLoading]);
 
   const logItems = useMemo(() => {
     const items: Array<{
@@ -1589,8 +1628,9 @@ function OptionActivityStream({
   return (
     <div className="overflow-hidden rounded-b-2xl p-3 text-left md:rounded-b-[22px] md:p-5">
       <div className="flex min-h-[238px] flex-col justify-between rounded-2xl border border-white/[0.07] bg-black/75 p-4 font-mono text-xs leading-5 text-zinc-300 shadow-inner md:min-h-[326px] md:p-5 md:text-[13px] md:leading-6">
-        <div 
+        <div
           ref={containerRef}
+          onScroll={handleOverviewScroll}
           className="max-h-[178px] space-y-1.5 overflow-y-auto pr-2 scroll-smooth scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10 md:max-h-[264px]"
         >
           {logItems.map((log) => {

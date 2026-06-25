@@ -266,35 +266,39 @@ class MockAIProvider(BaseAIProvider):
 
         risk_level = "HIGH" if losses >= 2 or bias == "RISK_OFF" else "MEDIUM"
         if locale == "ko":
-            headline = "Aigentra 트레이더들의 방향이 한 시간 단위로 다시 정리됐습니다."
+            direction = "롱" if bias == "LONG_BIASED" else "숏" if bias == "SHORT_BIASED" else "혼조" if bias == "MIXED" else "방어"
+            headline = f"지금은 새 방향을 쫓기보다 {direction} 쪽 활성 셋업이 무효화되는지 먼저 볼 구간입니다."
             summary = (
-                f"현재 활성 포지션 {active_count}건, 진입 대기 {pending_count}건을 기준으로 보면 LONG {long_count}건과 SHORT {short_count}건이 비교됩니다. "
-                "최근 익절과 손절 기록은 방향보다 리스크 판단에 더 크게 반영했습니다."
+                f"활성 포지션 {active_count}건과 진입 대기 {pending_count}건을 합치면 LONG {long_count}건, SHORT {short_count}건입니다. "
+                "이 수치는 리그 트레이더들이 어느 쪽에 실제 리스크를 걸었는지 보여주지만, 최근 익절/손절은 방향보다 신뢰도와 리스크 판단에 더 크게 반영했습니다. "
+                "따라서 지금은 한쪽 숫자만 보고 따라가기보다 체결 여부와 무효화 조건을 같이 봐야 합니다."
             )
-            action = "새로운 한 시간 캔들이 마감될 때까지 활성 포지션의 무효화 조건과 신규 대기 주문 체결 여부를 함께 확인하세요."
-            context = f"LONG {long_count}건 / SHORT {short_count}건, 최근 익절 {wins}건 / 손절 {losses}건입니다."
+            action = "다음 생성 전까지 활성 포지션의 손절/무효화 조건과 대기 주문이 실제 체결되는지만 우선 확인하세요."
+            context = f"LONG {long_count}건 / SHORT {short_count}건이며, 최근 결과는 익절 {wins}건 / 손절 {losses}건입니다."
             drivers = [
-                f"진입 중 포지션 {active_count}건",
-                f"진입 대기 주문 {pending_count}건",
-                f"최근 익절 {wins}건과 손절 {losses}건",
+                f"활성 포지션 {active_count}건은 이미 리스크가 걸린 트레이더 수라 현재 방향 압력을 보여줍니다.",
+                f"진입 대기 주문 {pending_count}건은 아직 확정 포지션이 아니므로 체결 전까지는 방향 신뢰도를 낮춥니다.",
+                f"최근 익절 {wins}건과 손절 {losses}건은 현재 리그가 과열인지, 방어가 필요한지 판단하는 근거입니다.",
             ]
-            risks = ["한쪽 방향으로 확실히 쏠리지 않으면 짧은 변동에 해석이 흔들릴 수 있습니다."]
-            watch = ["다음 1시간 마감 후 LONG/SHORT 활성 건수가 바뀌는지 확인하세요."]
+            risks = ["활성 수와 대기 수를 같은 강도로 보면 아직 체결되지 않은 셋업을 과신할 수 있습니다."]
+            watch = ["다음 생성 전까지 활성 LONG/SHORT 수가 바뀌는지, 손절 이벤트가 추가되는지 확인하세요."]
         else:
-            headline = "Aigentra trader context has been refreshed for the current hour."
+            direction = "long" if bias == "LONG_BIASED" else "short" if bias == "SHORT_BIASED" else "mixed" if bias == "MIXED" else "defensive"
+            headline = f"For now, watch whether the active {direction} setups stay valid before chasing a new direction."
             summary = (
-                f"The league currently has {active_count} active positions and {pending_count} pending entries, "
-                f"with LONG {long_count} versus SHORT {short_count}. Recent TP/SL history is used mostly as risk context."
+                f"The league has {active_count} active positions and {pending_count} pending entries, with LONG {long_count} versus SHORT {short_count}. "
+                "That shows where simulation traders have risk or planned risk, but recent TP/SL history is used mainly to adjust confidence and risk. "
+                "Do not read the side count alone as a signal; confirm whether pending entries fill and whether active invalidation levels hold."
             )
-            action = "Until the next hourly close, monitor invalidation levels and whether pending entries actually fill."
+            action = "Until the next generation, check active invalidation/stop levels first, then see whether pending entries actually fill."
             context = f"LONG {long_count} / SHORT {short_count}; recent TP {wins} / SL {losses}."
             drivers = [
-                f"{active_count} active positions",
-                f"{pending_count} pending entries",
-                f"{wins} recent take-profits and {losses} stop-losses",
+                f"{active_count} active positions show where traders already have risk on.",
+                f"{pending_count} pending entries can change the skew, but only after they fill.",
+                f"{wins} recent take-profits and {losses} stop-losses explain whether confidence should rise or become defensive.",
             ]
-            risks = ["If direction remains split, short-term moves can change the read quickly."]
-            watch = ["Check whether active LONG/SHORT counts change after the next hourly close."]
+            risks = ["Treating pending orders like filled exposure can make the read look stronger than it is."]
+            watch = ["Before the next generation, check whether active LONG/SHORT counts change or new stop-loss events appear."]
 
         return self.normalize_league_sentiment_result(
             {

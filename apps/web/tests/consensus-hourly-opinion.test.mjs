@@ -15,7 +15,9 @@ test("AI sentiment page renders a cached hourly Aigentra opinion before dense se
   assert.match(consensusSource, /placeholderData: \(previousData\) => previousData/, "opinion card should keep prior data visible during refreshes");
   assert.match(consensusSource, /data-testid="consensus-hourly-opinion"/, "opinion card should be a testable first-class surface");
   assert.match(opinionCardSource, /aigentra/i, "opinion card should be branded as an Aigentra aggregate opinion");
-  assert.match(opinionCardSource, /nextRefreshAt/, "opinion card should expose the exact next hourly refresh time");
+  assert.match(opinionCardSource, /formatMinutesUntil/, "opinion card should show how many minutes remain until the next generation");
+  assert.match(opinionCardSource, /data\?\.createdAt/, "opinion card should show when the current opinion was generated");
+  assert.doesNotMatch(opinionCardSource, /formatDateTime\(nextRefreshAt, locale\)/, "opinion card should not lead with a fixed next hourly timestamp");
   assert.match(opinionCardSource, /isLoading/, "opinion card should distinguish generated data from a loading placeholder");
   assert.match(opinionCardSource, /data-testid="consensus-opinion-loading"/, "opinion card should show an explicit loading state while generated data is unavailable");
   assert.match(consensusSource, /hourlyOpinionLoading/, "sentiment page should calculate a dedicated opinion loading state");
@@ -31,7 +33,9 @@ test("hourly opinion API contract is typed and localized", () => {
   assert.match(apiSource, /\/api\/league\/sentiment\/opinion/, "web API should target the backend hourly opinion endpoint");
   assert.doesNotMatch(apiSource, /dataQuality/, "web opinion type should not expose dataQuality");
   assert.match(i18nSource, /"consensus\.aigentraOpinion"/, "Korean copy should include the opinion title key");
-  assert.match(i18nSource, /"consensus\.nextOpinionRefresh"/, "copy should explain the hourly refresh");
+  assert.match(i18nSource, /"consensus\.nextOpinionCountdown"/, "copy should explain minutes until the next opinion generation");
+  assert.match(i18nSource, /"consensus\.opinionGeneratedAt"/, "copy should label when the current opinion was generated");
+  assert.doesNotMatch(i18nSource, /"consensus\.nextOpinionRefresh": "다음 정시 갱신"/, "Korean UI should not show the old fixed-hour refresh label");
   assert.doesNotMatch(i18nSource, /"consensus\.opinionDataQuality"/, "data-quality copy should be removed");
 });
 

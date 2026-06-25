@@ -635,10 +635,14 @@ def serialize_record_for_ui(record, *, include_payload: bool = False, locale: st
         data["appliedActions"] = payload.get("appliedActions") or []
         review = data["review"]
         if isinstance(review, dict):
-            data.setdefault("rationale", review.get("rationale"))
-            data.setdefault("reviewFacts", review.get("reviewFacts") or [])
-            data.setdefault("riskFlags", review.get("riskFlags") or [])
-            data.setdefault("riskLevel", review.get("riskLevel"))
+            data["rationale"] = review.get("rationale") or data.get("rationale")
+            data["reviewFacts"] = review.get("reviewFacts") or data.get("reviewFacts") or []
+            data["riskFlags"] = review.get("riskFlags") or data.get("riskFlags") or []
+            data["riskLevel"] = review.get("riskLevel") or data.get("riskLevel")
+            if review.get("structuredReview"):
+                data["structuredReview"] = review.get("structuredReview")
+            if review.get("userSummary"):
+                data["summary"] = review.get("userSummary")
     return data
 
 

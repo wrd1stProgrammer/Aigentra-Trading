@@ -101,6 +101,17 @@ test("league overview stream keeps a page cache and stops duplicate infinite loa
   assert.match(leaderboardSource, /setHasMore\(false\)/, "overview should stop observer retries after exhausted or failed loads");
 });
 
+test("league overview does not auto-paginate before the user scrolls the log", () => {
+  assert.match(leaderboardSource, /hasOverviewUserScrolled/, "overview should track whether the user actually scrolled the log");
+  assert.match(leaderboardSource, /handleOverviewScroll/, "overview should set the scroll gate from the log container");
+  assert.match(leaderboardSource, /onScroll=\{handleOverviewScroll\}/, "the log container should own the scroll gate");
+  assert.match(
+    leaderboardSource,
+    /if \(!hasOverviewUserScrolled \|\| !hasMore \|\| isLoading\) return;/,
+    "older pages should not auto-load while the initial sentinel is visible"
+  );
+});
+
 test("leaderboard browser cache placeholders wait until after hydration", () => {
   assert.match(leaderboardSource, /const \[cacheReady, setCacheReady\] = useState\(false\)/, "leaderboard cache readiness should be client-state driven");
   assert.match(leaderboardSource, /useEffect\(\(\) => \{\s*setCacheReady\(true\);\s*\}, \[\]\);/s, "leaderboard cache should only activate after mount");
@@ -128,6 +139,23 @@ test("leaderboard supports isolated UTC monthly league selection", () => {
   assert.match(leaderboardSource, /leagueMonth: selectedLeagueMonth/, "leaderboard query should be parameterized by the selected month");
   assert.match(leaderboardSource, /Date\.UTC/, "month options should be generated from UTC dates");
   assert.match(i18nSource, /"leaderboard\.monthlyLeague"/, "monthly selector copy should be localized");
+});
+
+test("monthly league rankings keep live exposure state separate from monthly returns", () => {
+  assert.match(leaderboardSource, /getActivePaperPositions/, "leaderboard should fetch live active positions independently of the monthly bundle");
+  assert.match(leaderboardSource, /getPaperOrders/, "leaderboard should fetch live open orders independently of the monthly bundle");
+  assert.match(leaderboardSource, /const liveExposurePositionsQuery = useQuery/, "live positions should have their own refreshable query");
+  assert.match(leaderboardSource, /const liveExposureOrdersQuery = useQuery/, "live orders should have their own refreshable query");
+  assert.match(
+    leaderboardSource,
+    /buildExposureMap\(liveExposurePositions, liveExposureOrders, pendingPlans\)/,
+    "ranking progress should use live exposure even when standings are monthly"
+  );
+  assert.doesNotMatch(
+    leaderboardSource,
+    /const pendingPlans = selectedLeagueMonth \? \[\] : pendingPlansQuery\.data \?\? \[\];/,
+    "monthly tabs should not blank live pending plan context"
+  );
 });
 
 test("leaderboard uses the shared full-screen loading overlay", () => {

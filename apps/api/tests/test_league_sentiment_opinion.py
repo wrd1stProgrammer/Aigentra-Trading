@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from app.ai.base import league_sentiment_prompt
 from app.ai.league_sentiment_models import LeagueSentimentOpinionResult
 from app.db import (
     AIReviewRecord,
@@ -18,6 +19,7 @@ from app.db import (
     reset_db_engine,
     session_scope,
 )
+from app.league_sentiment import build_league_sentiment_payload
 from app.main import app
 from app.repositories import to_json
 
@@ -335,3 +337,24 @@ def test_league_sentiment_opinion_uses_safe_fallback_when_provider_fails(temp_db
     assert data["opinion"]["fallback"] is True
     assert data["opinion"]["bias"] in {"LONG_BIASED", "SHORT_BIASED", "NEUTRAL", "MIXED", "RISK_OFF"}
     assert "provider failed" not in data["opinion"]["summary"].lower()
+
+
+def test_league_sentiment_prompt_prioritizes_user_usefulness_and_specificity(temp_db):
+    seed_sentiment_context()
+    with session_scope() as db:
+        payload = build_league_sentiment_payload(
+            db,
+            symbol="BTCUSDT",
+            locale="en",
+            interval_start=datetime(2026, 6, 18, 8, 0, tzinfo=timezone.utc),
+            interval_end=datetime(2026, 6, 18, 9, 0, tzinfo=timezone.utc),
+            now=datetime(2026, 6, 18, 8, 35, tzinfo=timezone.utc),
+            recent_hours=24,
+        )
+
+    prompt = league_sentiment_prompt(payload)
+
+    assert "Start with what the user should do now" in prompt
+    assert "Each keyDrivers item must connect one observed fact to why it matters" in prompt
+    assert "watchConditions must be concrete checks with a source, timeframe, or price area from the payload" in prompt
+    assert "Avoid generic sentences like 'monitor market conditions'" in prompt

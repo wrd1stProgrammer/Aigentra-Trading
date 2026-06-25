@@ -1,6 +1,7 @@
 "use client";
 
 import type React from "react";
+import { useEffect, useState } from "react";
 import { CircleNotch, ClockCounterClockwise, Gauge, ShieldWarning, TrendDown, TrendUp } from "@phosphor-icons/react";
 import { formatNumber, intlLocale } from "@/lib/format";
 import type { LeagueSentimentOpinionResponse } from "@/lib/api";
@@ -30,6 +31,13 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, isLoading = f
   const sourceCounts = opinion?.sourceCounts ?? {};
   const activeCount = (sourceCounts.activePositions ?? 0) + (sourceCounts.pendingOrders ?? 0);
   const nextRefreshAt = data?.nextRefreshAt ?? null;
+  const generatedAt = data?.createdAt ?? data?.updatedAt ?? data?.intervalStart ?? null;
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   return (
     <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-white/[0.08] dark:bg-white/[0.025]">
@@ -114,10 +122,16 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, isLoading = f
             <Metric label={t("consensus.opinionActiveSources")} value={shouldShowLoading ? "-" : String(activeCount)} />
             <Metric label={t("consensus.opinionLongShort")} value={shouldShowLoading ? "-" : opinion.longShortContext} compact />
             <Metric
-              label={t("consensus.nextOpinionRefresh")}
-              value={formatDateTime(nextRefreshAt, locale)}
-              detail={isFetching ? t("common.loading") : t("consensus.generatedAt")}
+              label={t("consensus.nextOpinionCountdown")}
+              value={shouldShowLoading ? "-" : formatMinutesUntil(nextRefreshAt, nowMs, t)}
+              detail={isFetching ? t("common.loading") : t("consensus.opinionRefreshBackground")}
               icon={<ClockCounterClockwise size={15} />}
+              compact
+            />
+            <Metric
+              label={t("consensus.opinionGeneratedAt")}
+              value={shouldShowLoading ? "-" : formatDateTime(generatedAt, locale)}
+              detail={data?.stale ? t("consensus.opinionStale") : undefined}
               compact
             />
           </div>
@@ -204,4 +218,13 @@ function formatDateTime(value: string | null, locale: Locale) {
     minute: "2-digit",
     timeZoneName: "short",
   }).format(date);
+}
+
+function formatMinutesUntil(value: string | null, nowMs: number, t: (key: string) => string) {
+  if (!value) return "-";
+  const target = new Date(value).getTime();
+  if (!Number.isFinite(target)) return "-";
+  const minutes = Math.max(0, Math.ceil((target - nowMs) / 60_000));
+  if (minutes <= 0) return t("consensus.opinionGeneratingNow");
+  return t("consensus.minutesRemaining").replace("{minutes}", String(minutes));
 }

@@ -35,11 +35,7 @@ export function ReviewBriefSummary({
       {showHeader ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="metric-label">{title}</div>
-          {verdict ? <StatusBadge tone="neutral">{verdict}</StatusBadge> : null}
-        </div>
-      ) : verdict ? (
-        <div className="flex justify-end">
-          <StatusBadge tone="neutral">{verdict}</StatusBadge>
+          {showHeader && verdict ? <StatusBadge tone="neutral">{verdict}</StatusBadge> : null}
         </div>
       ) : null}
       <p className={`${compact ? "text-xs leading-5" : "text-sm leading-6"} text-zinc-800 dark:text-zinc-100`}>

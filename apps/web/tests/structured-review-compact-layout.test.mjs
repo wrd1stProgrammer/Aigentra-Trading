@@ -23,6 +23,8 @@ test("structured reviews render as a short briefing plus manager note", () => {
 test("scenario modal suppresses duplicate management rationale heading inside the summary card", () => {
   assert.match(summarySource, /showHeader/, "shared review summary should support hiding its internal heading");
   assert.match(modalSource, /showHeader=\{false\}/, "scenario modal already labels the rationale section outside the summary");
+  assert.match(summarySource, /showHeader && verdict/, "embedded summaries should not render a separate verdict chip");
+  assert.doesNotMatch(summarySource, /: verdict \? \(/, "hidden headers should not fall back to a standalone verdict badge");
   assert.doesNotMatch(
     modalSource,
     /<ReviewBriefSummary brief=\{scenario\.reviewBrief\} title=\{rationaleLabel\} t=\{t\} \/>/,

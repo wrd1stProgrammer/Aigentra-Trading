@@ -260,6 +260,13 @@ test("review facts replace user summary in visible review UI", () => {
   assert.doesNotMatch(i18nSource, /"aiReview\.userSummary"/);
 });
 
+test("latest scenario timeline suppresses raw English review prose on localized screens", () => {
+  assert.match(scenarioFeedSource, /localizedTimelineFallback/, "scenario timeline should have a locale-safe fallback for untranslated old AI prose");
+  assert.match(scenarioFeedSource, /looksLikeEnglishProse/, "scenario timeline should detect long English prose before showing localized rows");
+  assert.match(i18nSource, /"scenario\.fallback\.entryReviewPendingTranslation"/, "localized fallback copy should exist for untranslated entry reviews");
+  assert.match(i18nSource, /"scenario\.fallback\.managementReviewPendingTranslation"/, "localized fallback copy should exist for untranslated management reviews");
+});
+
 test("scenario modal uses a compact reference-style ratio and neutral rationale card", () => {
   assert.match(modalSource, /max-w-\[920px\]/, "scenario modal should use a narrower reference-style width");
   assert.doesNotMatch(modalSource, /max-w-7xl/, "scenario modal should not use an oversized max width");

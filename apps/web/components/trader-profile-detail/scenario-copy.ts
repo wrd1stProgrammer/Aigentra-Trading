@@ -48,15 +48,37 @@ export function scenarioDisplayText(value: unknown, t: Translator) {
 }
 
 export function scenarioDetailRationaleText(scenario: TraderScenario, t: Translator): string {
+  const fallbackKey =
+    scenario.source === "review"
+      ? "scenario.fallback.managementReviewPendingTranslation"
+      : "scenario.fallback.entryReviewPendingTranslation";
+  const localizedFallback = t(fallbackKey);
   switch (scenario.source) {
     case "position":
     case "order":
-      return cleanReviewDisplayText(scenario.rationale, 0) || t("detail.noAiRationale");
+      return localizedRationaleText(cleanReviewDisplayText(scenario.rationale, 0), localizedFallback, fallbackKey, t);
     case "review":
     case "event":
     case "strategy":
-      return cleanReviewDisplayText(scenario.rationale, 0) || t("detail.noAiRationale");
+      return localizedRationaleText(cleanReviewDisplayText(scenario.rationale, 0), localizedFallback, fallbackKey, t);
   }
+}
+
+function localizedRationaleText(value: string, localizedFallback: string, fallbackKey: string, t: Translator) {
+  if (!value) return t("detail.noAiRationale");
+  if (isLocalizedScreen(t) && looksLikeEnglishReviewProse(value) && localizedFallback !== fallbackKey) return localizedFallback;
+  return value;
+}
+
+function looksLikeEnglishReviewProse(value: string) {
+  if (/[가-힣]/.test(value)) return false;
+  const words = value.match(/[A-Za-z]{3,}/g) ?? [];
+  return words.length >= 6 && /\b(the|and|with|but|entry|position|short|long|price|stop|target|market|approve|invalidation)\b/i.test(value);
+}
+
+function isLocalizedScreen(t: Translator) {
+  const dashboard = t("nav.dashboard");
+  return dashboard !== "nav.dashboard" && dashboard !== "Dashboard";
 }
 
 export function scenarioImportance(scenario: TraderScenario): ScenarioImportance {
