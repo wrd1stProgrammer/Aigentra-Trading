@@ -855,6 +855,72 @@ def test_imbalance_management_prompt_builds_delta_memory_from_recent_reviews():
     assert delta["strategyTriggers"]["failureLine"] == 62853.7
 
 
+def test_management_prompt_builds_generic_delta_memory_for_non_imbalance_traders():
+    snapshot = sample_snapshot()
+    snapshot["price"] = 68420.0
+    snapshot["timeframes"]["15m"]["close"] = 68420.0
+    snapshot["timeframes"]["15m"]["latestCandle"]["close"] = 68420.0
+    snapshot["timeframes"]["1h"]["channel"]["mid"] = 68400.0
+    position = PaperPositionRecord(
+        trader_id="channel-rider",
+        symbol="BTCUSDT",
+        status="open",
+        side="long",
+        quantity=Decimal("0.1"),
+        entry_price=Decimal("68100.0"),
+        leverage=Decimal("5"),
+        notional=Decimal("34050.0"),
+        margin=Decimal("6810.0"),
+        unrealized_pnl=Decimal("28.4"),
+        take_profit_price=Decimal("70000.0"),
+        stop_loss_price=Decimal("67200.0"),
+    )
+    event = heartbeat_event_for_position("channel-rider", position, snapshot)
+
+    management = position_management_review_prompt(
+        PositionManagementPayload(
+            trader=get_strategy("channel-rider").profile,
+            symbol="BTCUSDT",
+            marketSnapshot=snapshot,
+            event=event,
+            exposure=ManagedExposure(
+                kind="position",
+                id=532,
+                status="open",
+                side="LONG",
+                entryPrice=68100.0,
+                stopLoss=67200.0,
+                takeProfit=70000.0,
+                unrealizedPnl=28.4,
+            ),
+            recentManagementReviews=[
+                {
+                    "decision": "HOLD",
+                    "structuredReview": {
+                        "headline": "The channel long remains valid near the midline.",
+                        "action": "Hold and keep monitoring the channel boundary.",
+                        "keyReasons": ["Price is still above the lower channel."],
+                    },
+                    "rationale": "The channel long remains valid and needs patience.",
+                }
+            ],
+            locale="ko",
+        )
+    )
+
+    contract, payload = management.split("Payload:", 1)
+    data = json.loads(payload)
+    delta = data["currentReviewDelta"]
+    memory = data["recentReviewMemory"]
+    assert "For every trader" in contract
+    assert "For Imbalance Hunter" not in contract
+    assert memory[0]["avoidRepeating"][0] == "The channel long remains valid near the midline."
+    assert delta["managementAnchors"]["primaryLevel"] == 68400.0
+    assert delta["managementAnchors"]["primaryLevelName"] == "channelMid"
+    assert delta["managementAnchors"]["invalidationLine"] == 67200.0
+    assert delta["strategyTriggers"]["channelMid"] == 68400.0
+
+
 def test_imbalance_position_management_event_uses_midpoint_distance_and_displacement_metrics():
     snapshot = sample_snapshot()
     snapshot["price"] = 62860.0

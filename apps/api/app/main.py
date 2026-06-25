@@ -1159,6 +1159,16 @@ def heartbeat_event_for_position(trader_id: str, position: PaperPositionRecord, 
         "unrealizedPnl": float(position.unrealized_pnl or 0.0),
         "heartbeatSeconds": settings.position_management_open_heartbeat_seconds,
     }
+    one_hour = snapshot.get("timeframes", {}).get("1h", {})
+    channel = one_hour.get("channel", {}) if isinstance(one_hour.get("channel"), dict) else {}
+    if trader_id == "channel-rider":
+        metrics.update(
+            {
+                "channelLower": float(channel.get("lower") or price * 0.99),
+                "channelMid": float(channel.get("mid") or price),
+                "channelUpper": float(channel.get("upper") or price * 1.01),
+            }
+        )
     if trader_id == "imbalance-hunter":
         fifteen = snapshot.get("timeframes", {}).get("15m", {})
         latest_15m = fifteen.get("latestCandle", {}) if isinstance(fifteen.get("latestCandle"), dict) else {}

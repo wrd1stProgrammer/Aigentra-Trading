@@ -1,6 +1,6 @@
 import ast
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Final, Optional
 
 from app.ai.league_sentiment_models import LeagueSentimentOpinionResult, LeagueSentimentPayload
 from app.ai.review_prompt_quality import STRUCTURED_REVIEW_QUALITY_CONTRACT
@@ -614,6 +614,76 @@ def recent_management_review_memory(reviews: list[dict[str, Any]]) -> list[dict[
     return memory
 
 
+MANAGEMENT_PRIMARY_LEVEL_KEYS: Final = (
+    "channelMid",
+    "rangeMid",
+    "ema50",
+    "ema50_4h",
+    "ema20",
+    "vwap",
+    "sessionMid",
+    "imbalanceMidpoint",
+    "failureLine",
+    "invalidationLine",
+)
+
+
+MANAGEMENT_CONTEXT_METRIC_KEYS: Final = (
+    "channelLower",
+    "channelMid",
+    "channelUpper",
+    "rangeLower",
+    "rangeMid",
+    "rangeUpper",
+    "ema20",
+    "ema50",
+    "ema50_4h",
+    "vwap",
+    "sessionMid",
+    "imbalanceMidpoint",
+    "failureLine",
+    "invalidationLine",
+    "fifteenMinuteClose",
+    "volumeZscore",
+    "fundingRate",
+    "takerBuyRatio",
+    "adx1h",
+    "stallPrice",
+)
+
+
+def management_anchor_context(metrics: dict[str, Any], *, entry: Any, stop: Any) -> dict[str, Any]:
+    primary_name = "entry"
+    primary_level = entry
+    for key in MANAGEMENT_PRIMARY_LEVEL_KEYS:
+        value = metrics.get(key)
+        if value is None:
+            continue
+        primary_name = key
+        primary_level = value
+        break
+    return {
+        "primaryLevelName": primary_name,
+        "primaryLevel": primary_level,
+        "invalidationLine": metrics.get("failureLine") or metrics.get("invalidationLine") or stop,
+        "entryOrLimit": entry,
+        "mustNotRepeatRecentReview": True,
+    }
+
+
+def management_strategy_metrics(metrics: dict[str, Any], *, entry: Any, stop: Any) -> dict[str, Any]:
+    strategy_metrics = {
+        key: metrics.get(key)
+        for key in MANAGEMENT_CONTEXT_METRIC_KEYS
+        if metrics.get(key) is not None
+    }
+    return {
+        "failureLine": strategy_metrics.get("failureLine") or strategy_metrics.get("invalidationLine") or stop,
+        "imbalanceMidpoint": strategy_metrics.get("imbalanceMidpoint") or entry,
+        **strategy_metrics,
+    }
+
+
 def current_management_review_delta(payload: PositionManagementPayload) -> dict[str, Any]:
     metrics = payload.event.metrics or {}
     exposure = payload.exposure
@@ -639,15 +709,10 @@ def current_management_review_delta(payload: PositionManagementPayload) -> dict[
             "targetProgress": metrics.get("targetProgress"),
             "distanceToStopR": metrics.get("distanceToStopR"),
         },
-        "strategyTriggers": {
-            "failureLine": metrics.get("failureLine") or stop,
-            "imbalanceMidpoint": metrics.get("imbalanceMidpoint") or entry,
-            "volumeZscore": metrics.get("volumeZscore"),
-            "fundingRate": metrics.get("fundingRate"),
-            "takerBuyRatio": metrics.get("takerBuyRatio"),
-        },
+        "managementAnchors": management_anchor_context(metrics, entry=entry, stop=stop),
+        "strategyTriggers": management_strategy_metrics(metrics, entry=entry, stop=stop),
         "writeThisReviewDifferently": (
-            "Use this review's current price, progress, distance to stop/failure line, and event reason as the new angle. "
+            "Use this review's current price, progress, strategy-specific management anchor, distance to invalidation, and event reason as the new angle. "
             "If the decision remains HOLD, explain what changed or did not change since the latest review before repeating any trigger."
         ),
     }
@@ -849,7 +914,8 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "Compare against recentManagementReviews and recentTradeEvents before writing. Do not reuse the same headline, rationale, or keyReasons from a recent review. "
         "Use recentReviewMemory and currentReviewDelta before writing; the user must be able to tell 이번 리뷰가 이전 리뷰와 다른 이유 from the wording. "
         "Do not start any structuredReview field with the same opening phrase, same first clause, or same number-plus-trigger pattern as recentReviewMemory. "
-        "For Imbalance Hunter, write around the imbalance midpoint, invalidation line, current distance to stop, and whether price is moving away from or back toward invalidation; do not keep repeating weak volume or neutral funding as the lead unless that is the new change. "
+        "For every trader, write around that trader's managementAnchors and strategyTriggers: channel traders should discuss channel levels, trend traders should discuss trend/EMA anchors, range traders should discuss range levels, funding/orderflow traders should discuss crowding or flow anchors, and imbalance traders should discuss midpoint/invalidation anchors. "
+        "Do not keep repeating weak volume, neutral funding, valid structure, or the same level as the lead unless currentReviewDelta shows that factor is the new change. "
         "For Korean output or later translation, prefer 무효화 가격, 무효화선, or 손절 기준 over the awkward phrase 실패 수준. "
         "Make each structuredReview field useful by itself: headline states the fresh desk call, action states the management choice, keyReasons give evidence, risks name the failure path, watchConditions give triggers, and managerNote says how patient/aggressive to be until the next review. "
         "Never copy provider-failure language from previous records. If a recentManagementReview has provider_failed, fallback, provider-error, or failed-call wording, ignore it as invalid history. "
