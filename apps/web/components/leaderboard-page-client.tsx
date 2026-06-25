@@ -18,11 +18,13 @@ import {
   getLeagueOverviewReviews,
   getRecentTradePlans,
   LEAGUE_LIVE_REFETCH_INTERVAL_MS,
+  leaderboardBundleQueryKey,
   leaderboardBundleQueryOptions,
   prefetchLeaderboardBundle,
   prefetchTraderDetailBundle,
   type EquitySnapshot,
   type LeaderboardBundle,
+  type LeaderboardBundleRequestOptions,
   type PaperOrder,
   type PaperPosition,
   type TraderStatusFeed,
@@ -87,7 +89,7 @@ type TraderProgress = {
   leverage?: number | null;
 };
 
-type ReturnMetricKey = "cumulative" | "return7d" | "return24h" | "return30d";
+type ReturnMetricKey = "monthly" | "cumulative" | "return7d" | "return24h" | "return30d";
 
 type ReturnColumn = {
   readonly key: ReturnMetricKey;
@@ -116,6 +118,49 @@ function periodLabel(locale: Locale, period: keyof typeof periodLabels.en) {
   return (locale === "ko" ? periodLabels.ko : periodLabels.en)[period];
 }
 
+type LeagueMonthOption = {
+  readonly value: string;
+  readonly year: number;
+  readonly month: number;
+  readonly label: string;
+};
+
+function formatUtcLeagueMonth(year: number, month: number) {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function parseLeagueMonth(value?: string) {
+  const match = /^(\d{4})-(\d{2})$/.exec(value ?? "");
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2])
+  };
+}
+
+function buildLeagueMonthOptions(now = new Date()): LeagueMonthOption[] {
+  const currentYear = now.getUTCFullYear();
+  const currentMonth = now.getUTCMonth() + 1;
+  const options: LeagueMonthOption[] = [];
+  for (let year = currentYear; year >= currentYear - 2; year -= 1) {
+    for (let month = 12; month >= 1; month -= 1) {
+      if (year === currentYear && month > currentMonth) continue;
+      const monthDate = new Date(Date.UTC(year, month - 1, 1));
+      options.push({
+        value: formatUtcLeagueMonth(year, month),
+        year,
+        month,
+        label: `${monthDate.getUTCFullYear()}.${String(monthDate.getUTCMonth() + 1).padStart(2, "0")}`
+      });
+    }
+  }
+  return options;
+}
+
+function leaderboardBundlePeriodKey(bundle?: LeaderboardBundle) {
+  return bundle?.period?.type === "monthly" ? bundle.period.month : "current";
+}
+
 export function LeaderboardPageClient() {
   const { locale, t } = useAppContext();
   const queryClient = useQueryClient();
@@ -126,9 +171,28 @@ export function LeaderboardPageClient() {
   const [activeTraderId, setActiveTraderId] = useState<string | null>(null);
   const [isPeriodOpen, setIsPeriodOpen] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<"ALL" | "7D" | "30D" | "90D">("ALL");
+  const [selectedLeagueMonth, setSelectedLeagueMonth] = useState<string | undefined>(undefined);
   const [cacheReady, setCacheReady] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favoriteTraderIds, setFavoriteTraderIds] = useState<Set<string>>(() => new Set());
+
+  const leagueMonthOptions = useMemo(() => buildLeagueMonthOptions(), []);
+  const leagueYears = useMemo(() => [...new Set(leagueMonthOptions.map((option) => option.year))], [leagueMonthOptions]);
+  const fallbackLeagueMonth = leagueMonthOptions[0] ?? {
+    value: formatUtcLeagueMonth(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1),
+    year: new Date().getUTCFullYear(),
+    month: new Date().getUTCMonth() + 1,
+    label: ""
+  };
+  const selectedLeagueMonthParts = parseLeagueMonth(selectedLeagueMonth) ?? fallbackLeagueMonth;
+  const leagueMonthsForSelectedYear = useMemo(
+    () => leagueMonthOptions.filter((option) => option.year === selectedLeagueMonthParts.year),
+    [leagueMonthOptions, selectedLeagueMonthParts.year]
+  );
+  const leaderboardBundleOptions = useMemo<LeaderboardBundleRequestOptions>(() => ({
+    leagueMonth: selectedLeagueMonth
+  }), [selectedLeagueMonth]);
+  const leaguePeriodLabel = selectedLeagueMonth ? `${selectedLeagueMonth} UTC` : t("leaderboard.currentLeague");
 
   const fallbackBundle = useMemo<LeaderboardBundle>(() => ({
     symbol: "BTCUSDT",
@@ -169,10 +233,27 @@ export function LeaderboardPageClient() {
     });
   }, []);
 
+  const activateCurrentLeague = useCallback(() => {
+    setSelectedLeagueMonth(undefined);
+    void queryClient.invalidateQueries({
+      queryKey: leaderboardBundleQueryKey("BTCUSDT", locale, { leagueMonth: undefined })
+    });
+  }, [locale, queryClient]);
+
+  const activateSelectedLeagueMonth = useCallback(() => {
+    setSelectedLeagueMonth(formatUtcLeagueMonth(selectedLeagueMonthParts.year, selectedLeagueMonthParts.month));
+  }, [selectedLeagueMonthParts.month, selectedLeagueMonthParts.year]);
+
   const btcQuery = useQuery({
-    ...leaderboardBundleQueryOptions("BTCUSDT", locale),
+    ...leaderboardBundleQueryOptions("BTCUSDT", locale, leaderboardBundleOptions),
     placeholderData: (previousData) => {
-      if (previousData?.symbol === "BTCUSDT") return previousData;
+      const requestedPeriod = selectedLeagueMonth ?? "current";
+      if (previousData?.symbol === "BTCUSDT" && leaderboardBundlePeriodKey(previousData) === requestedPeriod) {
+        return previousData;
+      }
+      if (selectedLeagueMonth) {
+        return cacheReady ? getCachedLeaderboardBundle("BTCUSDT", locale, leaderboardBundleOptions) ?? fallbackBundle : fallbackBundle;
+      }
       return cacheReady ? getCachedLeaderboardBundle("BTCUSDT", locale) ?? fallbackBundle : fallbackBundle;
     }
   });
@@ -194,7 +275,10 @@ export function LeaderboardPageClient() {
     () => favoritesOnly ? visibleStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : visibleStandingsBase,
     [favoriteTraderIds, favoritesOnly, visibleStandingsBase]
   );
-  const returnColumns = useMemo(() => topReturnColumns(visibleStandings, t), [visibleStandings, t]);
+  const returnColumns = useMemo(
+    () => selectedLeagueMonth ? [fallbackReturnColumn("monthly", t), fallbackReturnColumn("cumulative", t)] : topReturnColumns(visibleStandings, t),
+    [selectedLeagueMonth, t, visibleStandings]
+  );
   const hiddenTraderCount = Math.max(0, standings.length - visibleStandingsBase.length);
   const activeTrader = visibleStandings.find((item) => item.id === activeTraderId) ?? visibleStandings[0] ?? null;
   const leader = visibleStandings[0] ?? null;
@@ -210,13 +294,14 @@ export function LeaderboardPageClient() {
   const pendingPlansQuery = useQuery({
     queryKey: ["league", "trade-plans", "BTCUSDT", "pending"],
     queryFn: async () => unwrapTradePlans(await getRecentTradePlans(100, "BTCUSDT", undefined, "PAPER_TRADING_PENDING")),
+    enabled: !selectedLeagueMonth,
     placeholderData: (previousData) => previousData ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false
   });
 
-  const pendingPlans = pendingPlansQuery.data ?? [];
+  const pendingPlans = selectedLeagueMonth ? [] : pendingPlansQuery.data ?? [];
 
   const exposureByTrader = useMemo(
     () => buildExposureMap(bundle.positions ?? [], bundle.orders ?? [], pendingPlans),
@@ -275,21 +360,15 @@ export function LeaderboardPageClient() {
       />
 
       <section 
-        className="order-2 relative overflow-hidden rounded-2xl border border-white/10 bg-[#070908] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] md:order-none md:rounded-[22px]"
+        className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#070908] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] md:rounded-[22px]"
         style={{
           backgroundImage: "linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px), radial-gradient(circle at 50% 25%, rgba(16,185,129,0.12), transparent 40%)",
           backgroundSize: "96px 96px, 96px 96px, auto"
         }}
       >
-        {/* Corner Markers / Notches */}
-        <div className="absolute top-0 left-0 h-3.5 w-[3px] bg-emerald-500 animate-pulse" />
-        <div className="absolute top-0 right-0 h-3.5 w-[3px] bg-emerald-500 animate-pulse" />
-        <div className="absolute bottom-0 left-0 h-3.5 w-[3px] bg-emerald-500 animate-pulse" />
-        <div className="absolute bottom-0 right-0 h-3.5 w-[3px] bg-emerald-500 animate-pulse" />
-
-        <div className="flex flex-col gap-2 border-b border-white/10 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-6 md:py-4">
+        <div className="flex flex-col gap-2 border-b border-white/10 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-7 md:py-5">
           <div>
-            <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-emerald-400 md:text-xs">[ LEAGUE OVERVIEW ]</p>
+            <p className="font-mono text-xs uppercase tracking-[0.16em] text-emerald-400 md:text-sm">[ LEAGUE OVERVIEW ]</p>
             <p className="mt-1 text-xs text-zinc-500 md:hidden">{t("leaderboard.latestActivity")}</p>
           </div>
         </div>
@@ -308,24 +387,93 @@ export function LeaderboardPageClient() {
         </ProtectedContentGate>
       </section>
 
-      <section className="order-1 grid w-full items-start gap-3 md:order-none md:gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
+      <section className="grid w-full items-start gap-3 md:gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
         <div className="data-card rounded-[22px] border-zinc-200/80 dark:border-white/[0.08] w-full min-w-0 overflow-hidden shadow-sm transition hover:border-emerald-500/20 duration-300">
             <div className="flex flex-row items-center justify-between gap-3 border-b px-4 py-3 md:px-6 md:py-4" style={{ borderColor: "var(--border)" }}>
-              {/* Left side: Horizontal Toggle Tabs */}
-              <div className="inline-flex w-fit rounded-full border border-white/10 p-1 bg-white/[0.02] backdrop-blur-md">
+              <div
+                data-testid="leaderboard-filter-rail"
+                className="flex min-w-0 flex-wrap items-center gap-2"
+                role="group"
+                aria-label={t("leaderboard.allTraders")}
+              >
+                <div
+                  data-testid="leaderboard-month-selector"
+                  className="inline-flex min-h-10 items-center gap-1 rounded-2xl border border-white/10 bg-white/[0.025] p-1 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]"
+                >
+                  <button
+                    type="button"
+                    onClick={activateCurrentLeague}
+                    className={`focus-ring min-h-8 rounded-xl px-3 text-[11px] font-bold transition ${
+                      selectedLeagueMonth
+                        ? "text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
+                        : "bg-white text-zinc-950 shadow-[0_0_0_1px_rgba(255,255,255,0.75)]"
+                    }`}
+                    aria-pressed={!selectedLeagueMonth}
+                  >
+                    {t("leaderboard.currentLeague")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={activateSelectedLeagueMonth}
+                    className={`focus-ring min-h-8 rounded-xl px-3 text-[11px] font-bold transition ${
+                      selectedLeagueMonth
+                        ? "bg-emerald-400 text-zinc-950 shadow-[0_0_0_1px_rgba(52,211,153,0.65)]"
+                        : "text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
+                    }`}
+                    aria-pressed={Boolean(selectedLeagueMonth)}
+                  >
+                    {t("leaderboard.monthlyLeague")}
+                  </button>
+                  <select
+                    aria-label={t("leaderboard.year")}
+                    className="focus-ring h-8 rounded-xl border border-white/10 bg-[#0c0d0d] px-2 text-xs font-bold text-zinc-100 outline-none"
+                    value={String(selectedLeagueMonthParts.year)}
+                    onChange={(event) => {
+                      const nextYear = Number(event.target.value);
+                      const nextOption =
+                        leagueMonthOptions.find((option) => option.year === nextYear && option.month === selectedLeagueMonthParts.month) ??
+                        leagueMonthOptions.find((option) => option.year === nextYear);
+                      if (nextOption) setSelectedLeagueMonth(nextOption.value);
+                    }}
+                  >
+                    {leagueYears.map((year) => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label={t("leaderboard.month")}
+                    className="focus-ring h-8 rounded-xl border border-white/10 bg-[#0c0d0d] px-2 text-xs font-bold text-zinc-100 outline-none"
+                    value={String(selectedLeagueMonthParts.month)}
+                    onChange={(event) => {
+                      const nextMonth = Number(event.target.value);
+                      setSelectedLeagueMonth(formatUtcLeagueMonth(selectedLeagueMonthParts.year, nextMonth));
+                    }}
+                  >
+                    {leagueMonthsForSelectedYear.map((option) => (
+                      <option key={option.value} value={option.month}>{option.label.slice(5)}</option>
+                    ))}
+                  </select>
+                  <span className="hidden max-w-28 truncate px-2 font-mono text-[10px] font-bold uppercase text-emerald-300 sm:inline">
+                    {leaguePeriodLabel}
+                  </span>
+                </div>
                 {(["BTC"] as const).map((tab) => {
-                  const active = activeTab === tab;
+                  const active = activeTab === tab && !favoritesOnly;
                   const label = tab;
                   return (
                     <button
                       key={tab}
                       type="button"
-                      onClick={() => setActiveTab(tab)}
-                      className={`focus-ring rounded-full px-4 py-2 text-xs font-bold transition duration-200 md:px-5 ${
+                      onClick={() => {
+                        setActiveTab(tab);
+                        setFavoritesOnly(false);
+                      }}
+                      className={`focus-ring min-h-10 rounded-2xl px-4 text-xs font-bold tabular-nums shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-[background-color,color,box-shadow,transform] duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.96] ${
                         active
-                          ? "bg-white text-zinc-950 shadow-sm"
-                          : "text-zinc-400 hover:text-white"
+                          ? "bg-white text-zinc-950 shadow-[0_0_0_1px_rgba(255,255,255,0.80),0_10px_24px_rgba(0,0,0,0.18)]"
+                          : "bg-white/[0.025] text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100 hover:shadow-[0_0_0_1px_rgba(255,255,255,0.14)]"
                       }`}
+                      aria-pressed={active}
                     >
                       {label}
                     </button>
@@ -333,16 +481,25 @@ export function LeaderboardPageClient() {
                 })}
                 <button
                   type="button"
-                  onClick={() => setFavoritesOnly((value) => !value)}
-                  className={`focus-ring inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold transition duration-200 ${
+                  onClick={() => setFavoritesOnly(true)}
+                  className={`focus-ring group inline-flex min-h-10 items-center justify-center gap-2 rounded-2xl px-3.5 text-xs font-bold shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-[background-color,color,box-shadow,transform] duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.96] ${
                     favoritesOnly
-                      ? "bg-amber-300 text-zinc-950 shadow-sm"
-                      : "text-zinc-400 hover:text-white"
+                      ? "bg-amber-300 text-zinc-950 shadow-[0_0_0_1px_rgba(251,191,36,0.55),0_10px_24px_rgba(0,0,0,0.20)]"
+                      : "bg-white/[0.025] text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100 hover:shadow-[0_0_0_1px_rgba(255,255,255,0.14)]"
                   }`}
                   aria-pressed={favoritesOnly}
                 >
-                  <Star size={14} weight={favoritesOnly ? "fill" : "bold"} />
+                  <Star className="transition-transform duration-200 ease-out group-hover:-rotate-6 group-hover:scale-110" size={14} weight={favoritesOnly ? "fill" : "bold"} />
                   {t("leaderboard.favorites")}
+                  {favoriteTraderIds.size ? (
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] leading-none tabular-nums ${
+                        favoritesOnly ? "bg-zinc-950/15 text-zinc-950" : "bg-white/[0.07] text-zinc-300"
+                      }`}
+                    >
+                      {favoriteTraderIds.size}
+                    </span>
+                  ) : null}
                 </button>
               </div>
 
@@ -543,13 +700,13 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, favoriteTra
 
   return (
     <div className="lg:hidden">
-      <div className="grid grid-cols-[38px_minmax(0,1fr)_88px_28px] items-center gap-2 border-b px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-500" style={{ borderColor: "var(--border)" }}>
+      <div className="grid grid-cols-[38px_minmax(0,1fr)_88px_28px] items-center gap-2 border-b border-zinc-200/40 dark:border-white/[0.06] px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-500">
         <span>{t("leaderboard.rank")}</span>
         <span>{t("leaderboard.trader")}</span>
         <span className="text-right">{primaryReturnColumn.label}</span>
         <span aria-hidden />
       </div>
-      <div className="divide-y" style={{ borderColor: "var(--border)" }}>
+      <div className="divide-y divide-zinc-200/40 dark:divide-white/[0.06]">
         {standings.map((trader) => {
             const progress = traderProgress(trader, exposureByTrader.get(trader.id), t, locale);
             const displayName = localizedTraderName(trader, t);
@@ -565,7 +722,6 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, favoriteTra
               >
                 <RankBadge rank={trader.rank} compact />
                 <div className="flex min-w-0 items-center gap-2.5">
-                  <TraderMark trader={trader} compact />
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-1.5">
                       <p className="truncate text-[15px] font-bold text-white">
@@ -789,6 +945,8 @@ function fallbackReturnColumn(key: ReturnMetricKey, t: (key: string) => string):
 
 function returnMetricLabel(key: ReturnMetricKey, t: (key: string) => string): string {
   switch (key) {
+    case "monthly":
+      return t("leaderboard.monthlyReturn");
     case "cumulative":
       return t("leaderboard.cumulativeReturn");
     case "return7d":
@@ -802,6 +960,8 @@ function returnMetricLabel(key: ReturnMetricKey, t: (key: string) => string): st
 
 function returnMetricValue(trader: TraderStanding, key: ReturnMetricKey): number {
   switch (key) {
+    case "monthly":
+      return trader.monthlyReturn;
     case "cumulative":
       return trader.returnPct;
     case "return7d":
@@ -860,7 +1020,7 @@ function StatusPill({ label, tone }: { label: string; tone: "good" | "bad" | "wa
         : tone === "warn"
           ? "bg-amber-500/14 text-amber-800 dark:text-amber-200"
           : "bg-[var(--surface-muted)] text-muted-app";
-  return <span className={`inline-flex max-w-full items-center rounded-md px-2 py-1 text-xs font-semibold ${toneClass}`}>{label}</span>;
+  return <span className={`inline-flex max-w-full items-center rounded-md px-2 py-1 text-xs font-semibold whitespace-nowrap ${toneClass}`}>{label}</span>;
 }
 
 function MiniCell({ label, value }: { label: string; value: string }) {
@@ -1427,11 +1587,11 @@ function OptionActivityStream({
   }, [reviewsList, traderNameMap, locale, t]);
 
   return (
-    <div className="overflow-hidden rounded-b-2xl p-3 text-left md:rounded-b-[22px] md:p-6">
-      <div className="flex flex-col justify-between rounded-xl border border-white/5 bg-black/60 p-3 font-mono text-xs text-zinc-300 shadow-inner md:p-4">
+    <div className="overflow-hidden rounded-b-2xl p-3 text-left md:rounded-b-[22px] md:p-5">
+      <div className="flex min-h-[238px] flex-col justify-between rounded-2xl border border-white/[0.07] bg-black/75 p-4 font-mono text-xs leading-5 text-zinc-300 shadow-inner md:min-h-[326px] md:p-5 md:text-[13px] md:leading-6">
         <div 
           ref={containerRef}
-          className="max-h-[132px] space-y-2 overflow-y-auto pr-2 scroll-smooth scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10 md:max-h-[220px]"
+          className="max-h-[178px] space-y-1.5 overflow-y-auto pr-2 scroll-smooth scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10 md:max-h-[264px]"
         >
           {logItems.map((log) => {
             let dotColor = "bg-emerald-400";
@@ -1449,7 +1609,7 @@ function OptionActivityStream({
               <Link
                 key={log.id}
                 href={`/leaderboard/${log.traderId}`}
-                className="-mx-2 flex flex-col gap-1 rounded border-b border-white/[0.02] px-2 py-2 pb-2 transition-colors last:border-0 last:pb-0 hover:bg-white/[0.03] sm:flex-row sm:items-start sm:gap-3 sm:py-1"
+                className="group -mx-2 flex flex-col gap-1 rounded-lg border-b border-white/[0.025] px-2 py-1.5 transition-colors last:border-0 hover:bg-white/[0.035] sm:flex-row sm:items-start sm:gap-2.5"
               >
                 <span className="flex items-center gap-2 sm:block">
                   <span className="shrink-0 select-none font-mono text-zinc-500 transition-colors group-hover:text-zinc-400">[{log.time}]</span>

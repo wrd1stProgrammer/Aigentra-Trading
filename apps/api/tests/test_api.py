@@ -1,11 +1,12 @@
 import time
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.db import AIReviewRecord, PositionManagementReviewRecord, init_db, reset_db_engine, session_scope
+from app.db import AIReviewRecord, EquitySnapshotRecord, PositionManagementReviewRecord, init_db, reset_db_engine, session_scope
 from app.main import app
 from app.repositories import to_json
 
@@ -216,7 +217,7 @@ def test_trader_current_state_reports_watching_without_exposure():
 
 
 def test_leaderboard_fast_serves_expired_cache_while_refreshing_in_background(monkeypatch):
-    cache_key = ("BTCUSDT", True, True, "en")
+    cache_key = ("BTCUSDT", True, True, "en", "current")
     main.LEAGUE_BUNDLE_CACHE.clear()
     main.LEAGUE_BUNDLE_CACHE[cache_key] = (
         0,
@@ -251,6 +252,100 @@ def test_leaderboard_fast_serves_expired_cache_while_refreshing_in_background(mo
     assert data["stale"] is True
     assert data["scheduledRefresh"] is True
     assert scheduled == [("BTCUSDT", True, True, "en")]
+
+
+def test_leaderboard_fast_returns_utc_monthly_league_without_live_cache_pollution(temp_api_db):
+    main.LEAGUE_BUNDLE_CACHE.clear()
+    may_start = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    june_start = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    with session_scope() as db:
+        db.add_all(
+            [
+                EquitySnapshotRecord(
+                    trader_id="channel-rider",
+                    symbol="BTCUSDT",
+                    status="recorded",
+                    cash_balance=Decimal("10000"),
+                    equity=Decimal("10000"),
+                    margin_used=Decimal("0"),
+                    realized_pnl=Decimal("0"),
+                    unrealized_pnl=Decimal("0"),
+                    total_fees=Decimal("0"),
+                    candle_time=may_start,
+                    created_at=may_start,
+                ),
+                EquitySnapshotRecord(
+                    trader_id="channel-rider",
+                    symbol="BTCUSDT",
+                    status="recorded",
+                    cash_balance=Decimal("11200"),
+                    equity=Decimal("11200"),
+                    margin_used=Decimal("0"),
+                    realized_pnl=Decimal("1200"),
+                    unrealized_pnl=Decimal("0"),
+                    total_fees=Decimal("1"),
+                    candle_time=june_start - timedelta(minutes=1),
+                    created_at=june_start - timedelta(minutes=1),
+                ),
+                EquitySnapshotRecord(
+                    trader_id="volume-breaker",
+                    symbol="BTCUSDT",
+                    status="recorded",
+                    cash_balance=Decimal("10000"),
+                    equity=Decimal("10000"),
+                    margin_used=Decimal("0"),
+                    realized_pnl=Decimal("0"),
+                    unrealized_pnl=Decimal("0"),
+                    total_fees=Decimal("0"),
+                    candle_time=may_start,
+                    created_at=may_start,
+                ),
+                EquitySnapshotRecord(
+                    trader_id="volume-breaker",
+                    symbol="BTCUSDT",
+                    status="recorded",
+                    cash_balance=Decimal("10400"),
+                    equity=Decimal("10400"),
+                    margin_used=Decimal("0"),
+                    realized_pnl=Decimal("400"),
+                    unrealized_pnl=Decimal("0"),
+                    total_fees=Decimal("1"),
+                    candle_time=june_start - timedelta(minutes=1),
+                    created_at=june_start - timedelta(minutes=1),
+                ),
+            ]
+        )
+
+    monthly = client.get("/api/league/leaderboard-fast?symbol=BTCUSDT&locale=ko&leagueMonth=2026-05")
+    live = client.get("/api/league/leaderboard-fast?symbol=BTCUSDT&locale=ko")
+
+    assert monthly.status_code == 200
+    monthly_data = monthly.json()
+    assert monthly_data["period"] == {
+        "type": "monthly",
+        "month": "2026-05",
+        "start": "2026-05-01T00:00:00+00:00",
+        "end": "2026-06-01T00:00:00+00:00",
+        "timezone": "UTC",
+    }
+    assert monthly_data["source"] == "equity_snapshots_monthly"
+    assert monthly_data["summaries"][0]["traderId"] == "channel-rider"
+    assert monthly_data["summaries"][0]["monthlyReturn"] == 12.0
+    assert monthly_data["summaries"][1]["monthlyReturn"] == 4.0
+    assert monthly_data["positions"] == []
+    assert monthly_data["orders"] == []
+
+    assert live.status_code == 200
+    live_data = live.json()
+    assert live_data["period"]["type"] == "current"
+    assert live_data["source"] != "equity_snapshots_monthly"
+
+
+def test_leaderboard_fast_rejects_invalid_utc_month():
+    response = client.get("/api/league/leaderboard-fast?symbol=BTCUSDT&leagueMonth=2026-13")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "leagueMonth must use UTC YYYY-MM format."
 
 
 def test_trader_detail_rebuilds_expired_cache(monkeypatch):

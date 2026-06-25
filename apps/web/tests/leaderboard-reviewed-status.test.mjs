@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import ts from "typescript";
 
 const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8");
+const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
 const overlaySource = readFileSync(new URL("../components/page-loading-overlay.tsx", import.meta.url), "utf8");
 const overviewFilter = loadTsModule("../components/leaderboard-overview-filter.ts");
 const formatSource = readFileSync(new URL("../lib/format.ts", import.meta.url), "utf8");
@@ -104,6 +105,29 @@ test("leaderboard browser cache placeholders wait until after hydration", () => 
   assert.match(leaderboardSource, /const \[cacheReady, setCacheReady\] = useState\(false\)/, "leaderboard cache readiness should be client-state driven");
   assert.match(leaderboardSource, /useEffect\(\(\) => \{\s*setCacheReady\(true\);\s*\}, \[\]\);/s, "leaderboard cache should only activate after mount");
   assert.match(leaderboardSource, /cacheReady \? getCachedLeaderboardBundle\("BTCUSDT", locale\)/, "localStorage-backed leaderboard cache should not run during hydration");
+});
+
+test("leaderboard BTC and favorites filters render as compact standalone areas", () => {
+  assert.match(leaderboardSource, /data-testid="leaderboard-filter-rail"/, "market and favorites filters should have a stable standalone rail target");
+  assert.doesNotMatch(leaderboardSource, /data-testid="leaderboard-market-toggle"/, "filter control should not use the previous segmented toggle target");
+  assert.doesNotMatch(leaderboardSource, /grid min-h-11 grid-cols-2 rounded-full/, "filters should not render as one wide segmented toggle");
+  assert.match(leaderboardSource, /setFavoritesOnly\(false\)/, "BTC area should return to the full BTC ranking");
+  assert.match(leaderboardSource, /setFavoritesOnly\(true\)/, "Favorites area should switch to favorite traders only");
+  assert.match(leaderboardSource, /hover:-translate-y-0\.5/, "standalone areas should lift subtly on hover");
+  assert.match(leaderboardSource, /group-hover:-rotate-6 group-hover:scale-110/, "Favorites icon should animate without adding a motion dependency");
+  assert.match(leaderboardSource, /active:scale-\[0\.96\]/, "areas should use tactile press feedback");
+  assert.match(leaderboardSource, /transition-\[background-color,color,box-shadow,transform\]/, "areas should animate only explicit safe properties");
+});
+
+test("leaderboard supports isolated UTC monthly league selection", () => {
+  assert.match(apiSource, /leagueMonth\?: string/, "leaderboard API options should accept a UTC YYYY-MM month");
+  assert.match(apiSource, /params\.set\("leagueMonth", options\.leagueMonth\)/, "leaderboard API should send the selected UTC month to the backend");
+  assert.match(apiSource, /options\?\.leagueMonth \?\? "current"/, "browser cache and query keys should separate current and monthly bundles");
+  assert.match(leaderboardSource, /data-testid="leaderboard-month-selector"/, "leaderboard should expose a stable monthly selector target");
+  assert.match(leaderboardSource, /selectedLeagueMonth/, "leaderboard should keep selected month in component state");
+  assert.match(leaderboardSource, /leagueMonth: selectedLeagueMonth/, "leaderboard query should be parameterized by the selected month");
+  assert.match(leaderboardSource, /Date\.UTC/, "month options should be generated from UTC dates");
+  assert.match(i18nSource, /"leaderboard\.monthlyLeague"/, "monthly selector copy should be localized");
 });
 
 test("leaderboard uses the shared full-screen loading overlay", () => {
