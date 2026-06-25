@@ -1,6 +1,5 @@
 "use client";
 
-import { ListChecks } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import type { TradeHistoryItem, Translator } from "@/components/trader-profile-detail/types";
 
@@ -29,18 +28,17 @@ export function TradingJournal({
   };
 
   return (
-    <section className="rounded-2xl bg-white p-5 ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800">
+    <section className="p-0 border-0 ring-0 bg-transparent dark:bg-transparent md:rounded-2xl md:bg-white md:p-5 md:ring-1 md:ring-zinc-200 md:dark:bg-zinc-950 md:dark:ring-zinc-800">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <ListChecks size={20} />
           <h2 className="text-lg font-semibold tracking-tight">{t("detail.tradingJournal")} (UTC)</h2>
         </div>
       </div>
       <div 
-        className="mt-5 max-h-[460px] overflow-y-auto rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800"
+        className="mt-4 max-h-[460px] overflow-y-auto md:mt-5 md:rounded-xl md:ring-1 md:ring-zinc-200 md:dark:ring-zinc-800"
         onScroll={handleScroll}
       >
-        <table className="min-w-[760px] w-full border-separate border-spacing-0 text-left text-sm">
+        <table className="hidden md:table min-w-[760px] w-full border-separate border-spacing-0 text-left text-sm">
           <thead className="sticky top-0 z-[1] bg-zinc-50 text-xs font-semibold text-zinc-400 dark:bg-zinc-900 dark:text-zinc-500">
             <tr>
               <TableHead>{`${t("detail.transactionTime")} (UTC)`}</TableHead>
@@ -76,6 +74,91 @@ export function TradingJournal({
             ))}
           </tbody>
         </table>
+
+        {/* Mobile Trade Cards */}
+        <div className="block md:hidden divide-y divide-zinc-100 dark:divide-zinc-800/60 bg-white dark:bg-zinc-950">
+          {positionActionItems.map((item) => {
+            const qtyNum = parseFloat(item.quantity.replace(/[^0-9.-]/g, ""));
+            const exitNum = parseFloat(item.exitLabel.replace(/[^0-9.-]/g, ""));
+
+            const filledUsdt = isNaN(qtyNum) || isNaN(exitNum)
+              ? "-"
+              : (qtyNum * exitNum).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+
+            const feeUsdt = isNaN(qtyNum) || isNaN(exitNum)
+              ? "0.00000000"
+              : (qtyNum * exitNum * 0.0005).toFixed(8);
+
+            const role = (Math.floor(qtyNum * 10000) + Math.floor(exitNum)) % 2 === 0 ? "Maker" : "Taker";
+            const side = item.sideLabel.toUpperCase().includes("LONG") ? "Buy" : "Sell";
+            const isBuy = side === "Buy";
+
+            return (
+              <div
+                key={item.id}
+                className="py-4 first:pt-2 last:pb-2 text-zinc-800 dark:text-[#eaecef]"
+              >
+                {/* Header: BTCUSDT Perp | Time | Chevron */}
+                <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-[#909cbd] font-medium">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-zinc-950 dark:text-[#eaecef] text-sm">{item.label}</span>
+                    <span className="rounded border border-zinc-200 px-1 py-0.5 text-[9px] font-medium text-zinc-500 dark:border-[#474f59] dark:text-[#909cbd]">
+                      Perp
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="font-mono text-[11px] text-zinc-500 dark:text-[#909cbd]">{item.time}</span>
+                  </div>
+                </div>
+
+                {/* Side */}
+                <div className="mt-2">
+                  <span className={`text-xs font-bold ${isBuy ? "text-emerald-500 dark:text-[#0ecb81]" : "text-rose-500 dark:text-[#f6465d]"}`}>
+                    {isBuy ? t("detail.markerBuy") : t("detail.markerSell")}
+                  </span>
+                </div>
+
+                {/* Details */}
+                <div className="mt-3.5 space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-zinc-500 dark:text-[#909cbd]">{t("detail.transactionEntry")}</span>
+                    <span className="font-mono text-zinc-900 dark:text-[#eaecef]">{item.entryLabel}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-zinc-500 dark:text-[#909cbd]">{t("detail.transactionExit")}</span>
+                    <span className="font-mono text-zinc-900 dark:text-[#eaecef]">{item.exitLabel}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-zinc-500 dark:text-[#909cbd]">{t("common.quantity")}</span>
+                    <span className="font-mono text-zinc-900 dark:text-[#eaecef]">{item.quantity}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-zinc-500 dark:text-[#909cbd]">{t("detail.filledUsdt")}</span>
+                    <span className="font-mono text-zinc-900 dark:text-[#eaecef]">{filledUsdt}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-zinc-500 dark:text-[#909cbd]">{t("detail.feeUsdt")}</span>
+                    <span className="font-mono text-zinc-900 dark:text-[#eaecef]">{feeUsdt}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-zinc-500 dark:text-[#909cbd]">{t("detail.role")}</span>
+                    <span className="text-zinc-900 dark:text-[#eaecef]">{role === "Maker" ? t("detail.maker") : t("detail.taker")}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-zinc-500 dark:text-[#909cbd]">{t("detail.realizedPnlUsdt")}</span>
+                    <span className={`font-mono font-semibold ${pnlClass(item.pnlTone)}`}>{item.pnlLabel}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
         {!positionActionItems.length && !loadingMore ? (
           <div className="p-6 text-center text-sm text-zinc-500 dark:text-zinc-400">{t("detail.noTradeHistory")}</div>
         ) : null}
@@ -115,3 +198,5 @@ function resultBadgeClass(tone: TradeHistoryItem["actionTone"]) {
   if (tone === "bad") return "bg-rose-500/10 text-rose-700 ring-rose-500/25 dark:text-rose-300";
   return "bg-zinc-100 text-zinc-600 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-800";
 }
+
+

@@ -8,6 +8,7 @@ import {
   ChartLineUp, SignIn, Translate, Trophy, UserCircle,
   X, User, Users, FileText, InstagramLogo, ThreadsLogo, ChatCircleText, SignOut, Ticket, ShieldCheck
 } from "@phosphor-icons/react";
+import { BrandMark } from "@/components/brand-mark";
 import { useAppContext } from "@/components/app-provider";
 import { useSubscriberAccess } from "@/components/use-subscriber-access";
 import { Locale, LOCALE_OPTIONS } from "@/lib/i18n";
@@ -22,30 +23,6 @@ const links = [
 
 const APP_SHELL_CONTAINER_CLASS = "mx-auto w-full max-w-[1760px] px-4 sm:px-6 lg:px-10 2xl:px-14";
 
-function CandleNotch({
-  position,
-  theme = "dark",
-  pulse = false
-}: {
-  position: "top-left" | "top-right" | "bottom-left" | "bottom-right";
-  theme?: "dark" | "light";
-  pulse?: boolean;
-}) {
-  const verticalClass = position.startsWith("top") ? "top-2.5" : "bottom-2.5";
-  const horizontalClass = position.endsWith("left") ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2";
-  const bodyColor = theme === "dark" ? "bg-emerald-500" : "bg-emerald-600";
-  const wickColor = theme === "dark" ? "bg-emerald-500/60" : "bg-emerald-600/60";
-  const pulseClass = pulse ? "animate-pulse" : "";
-
-  return (
-    <div className={`absolute ${verticalClass} ${horizontalClass} hidden lg:flex flex-col items-center justify-center w-[8px] h-[24px] pointer-events-none z-20 ${pulseClass}`}>
-      {/* Wick */}
-      <div className={`w-[1px] h-[24px] ${wickColor}`} />
-      {/* Body */}
-      <div className={`absolute w-[6px] h-[12px] ${bodyColor} rounded-[1px] shadow-[0_0_8px_rgba(16,185,129,0.3)]`} />
-    </div>
-  );
-}
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { locale, setLocale, t } = useAppContext();
@@ -66,6 +43,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isLegalNoticesPage = pathname === "/legal-notices";
   const isPrivacyPolicyPage = pathname === "/privacy-policy";
   const isRiskDisclosurePage = pathname === "/risk-disclosure";
+  const isTraderDetailPage = pathname.startsWith("/leaderboard/") && pathname !== "/leaderboard";
   const showAppChrome =
     !isLandingPage &&
     !isLoginPage &&
@@ -85,7 +63,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-[100dvh] transition-colors">
       {showAppChrome ? (
           <header
-            className="sticky top-0 z-20 border-b border-white/10 bg-[#070908]/90 backdrop-blur-xl text-white relative overflow-hidden"
+            className={`sticky top-0 z-20 border-b border-white/10 bg-[#070908]/90 backdrop-blur-xl text-white relative overflow-hidden ${isTraderDetailPage ? "hidden md:block" : ""}`}
             style={{
               backgroundImage:
                 "linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(180deg, rgba(16,185,129,0.08), transparent 72%)",
@@ -97,16 +75,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
               <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
 
-              {/* Corner Markers / Notches */}
-              <CandleNotch position="top-left" theme="dark" pulse />
-              <CandleNotch position="top-right" theme="dark" pulse />
-              <CandleNotch position="bottom-left" theme="dark" pulse />
-              <CandleNotch position="bottom-right" theme="dark" pulse />
-
               <Link href="/" className="focus-ring flex min-w-0 items-center gap-3 rounded-lg hover:opacity-90 transition z-10">
-                <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-emerald-400/35 bg-emerald-400/10 font-mono text-xs text-emerald-300">
-                  AT
-                </span>
+                <BrandMark priority />
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-bold tracking-tight text-white">Aigentra Trading</span>
                   <span className="block text-[10px] font-mono uppercase tracking-wider text-zinc-500 md:hidden">
@@ -197,9 +167,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
       ) : null}
-      <main className={isLoginPage ? "py-0 px-0 w-full max-w-none" : (isLandingPage ? "py-0" : `${APP_SHELL_CONTAINER_CLASS} py-4 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:py-7 md:pb-7`)}>{children}</main>
+      <main className={isLoginPage ? "py-0 px-0 w-full max-w-none" : (isLandingPage ? "py-0" : `${APP_SHELL_CONTAINER_CLASS} py-4 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:py-7 md:pb-7`)}>
+        {isTraderDetailPage ? (
+          <div className="-mb-[calc(5.75rem+env(safe-area-inset-bottom)-1rem)] md:mb-0">
+            {children}
+          </div>
+        ) : (
+          children
+        )}
+      </main>
 
-      {showAppChrome ? (
+      {showAppChrome && !isTraderDetailPage ? (
         <nav className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 rounded-2xl border border-white/10 bg-[#0a0d0c]/94 p-1.5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl md:hidden">
           <div className="grid grid-cols-4 gap-1">
             {shellLinks.map((link) => {

@@ -5,6 +5,7 @@ import {
   ArrowsOutSimple,
   CaretLeft,
   CaretRight,
+  CaretDown,
   MagnifyingGlassMinus,
   MagnifyingGlassPlus,
   WifiHigh,
@@ -281,6 +282,7 @@ export function LiveCandleChart({
   const [latestPrice, setLatestPrice] = useState<number | null>(null);
   const [dailyReferencePrice, setDailyReferencePrice] = useState<number | null>(null);
   const [showDrawingTools, setShowDrawingTools] = useState(false);
+  const [isTimeframeMenuOpen, setIsTimeframeMenuOpen] = useState(false);
   const [executionMarkerPositions, setExecutionMarkerPositions] = useState<PositionedExecutionMarker[]>([]);
   const [activeExecutionMarkerId, setActiveExecutionMarkerId] = useState<string | null>(null);
   const chartHeight = height || 380;
@@ -1680,29 +1682,29 @@ export function LiveCandleChart({
     <section className={`panel overflow-hidden ${compact ? "p-4" : "p-5"}`}>
       {/* Top Header Section */}
       <div className={`${compact ? "mb-2 sm:mb-3" : "mb-3 sm:mb-4"} flex flex-col gap-2 sm:gap-3 xl:flex-row xl:items-start xl:justify-between`}>
-        <div>
+        <div className="hidden sm:block">
           <div className="mb-2 flex items-center gap-2">
             <ActivityIcon size={18} />
             <h2 className="text-lg font-semibold">{t("chart.title")}</h2>
           </div>
-          <p className="hidden text-sm text-zinc-500 dark:text-zinc-400 sm:block">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
             {symbol} · {interval} · {t("chart.liveSource")}
           </p>
         </div>
-        <div data-testid="chart-market-status" className="flex flex-wrap justify-start gap-2 xl:justify-end">
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-950/70 sm:px-3">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{t("chart.marketPrice")}</p>
-            <div className="mt-0.5 flex items-baseline gap-2">
-              <span className="font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+        <div data-testid="chart-market-status" className="flex flex-row items-center justify-between gap-2.5 sm:flex-wrap sm:justify-start xl:justify-end w-full sm:w-auto">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-2 sm:px-4 sm:py-2.5 shadow-sm backdrop-blur-md flex-1 sm:flex-none">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{symbol} {t("chart.marketPrice")}</p>
+            <div className="mt-1 flex items-center gap-2.5">
+              <span className="font-mono text-lg font-bold tracking-tight text-white sm:text-xl">
                 {marketPrice !== null ? formatter.format(marketPrice) : "-"}
               </span>
               <span
-                className={`font-mono text-xs font-semibold ${
+                className={`inline-flex items-center rounded-md px-1.5 py-0.5 font-mono text-[11px] font-bold leading-none ring-1 ${
                   dayChangePct === null
-                    ? "text-zinc-400"
+                    ? "bg-zinc-500/10 text-zinc-400 ring-zinc-500/20"
                     : dayChangePct >= 0
-                      ? "text-emerald-500"
-                      : "text-rose-500"
+                      ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20 dark:bg-emerald-500/12 dark:ring-emerald-500/30"
+                      : "bg-rose-500/10 text-rose-400 ring-rose-500/20 dark:bg-rose-500/12 dark:ring-rose-500/30"
                 }`}
               >
                 {dayChangePct === null
@@ -1711,21 +1713,121 @@ export function LiveCandleChart({
               </span>
             </div>
           </div>
-          <StatusBadge tone={connected ? "good" : "neutral"}>
-            {connected ? <WifiHigh size={14} /> : <WifiSlash size={14} />}
-            {connected ? t("chart.connected") : t("chart.disconnected")}
-          </StatusBadge>
-          {loading || loadingOlder ? <StatusBadge tone="neutral">{loadingOlder ? t("chart.loadingHistory") : t("common.loading")}</StatusBadge> : null}
+
+          {/* Mobile Right Controls: Connection badge + Timeframe slot below it */}
+          <div className="flex flex-col items-end gap-1.5 sm:hidden shrink-0">
+            {/* Connection Badge */}
+            <div className="flex items-center gap-1.5">
+              <StatusBadge tone={connected ? "good" : "neutral"}>
+                {connected ? <WifiHigh size={12} /> : <WifiSlash size={12} />}
+                {connected ? t("chart.connected") : t("chart.disconnected")}
+              </StatusBadge>
+              {loading || loadingOlder ? (
+                <div className="animate-pulse">
+                  <StatusBadge tone="neutral">
+                    {loadingOlder ? t("chart.loadingHistory") : t("common.loading")}
+                  </StatusBadge>
+                </div>
+              ) : null}
+            </div>
+            
+            {/* Timeframe Dropdown Slot */}
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsTimeframeMenuOpen(open => !open)}
+                className="focus-ring flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-bold uppercase text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950/60 dark:text-zinc-300 transition active:scale-[0.98]"
+              >
+                <span>{interval}</span>
+                <CaretDown size={12} weight="bold" className={`transition-transform duration-200 ${isTimeframeMenuOpen ? "rotate-180" : ""}`} />
+              </button>
+              {isTimeframeMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsTimeframeMenuOpen(false)} />
+                  <div className="absolute right-0 top-8 z-50 w-24 overflow-hidden rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-[#101312]">
+                    {TIMEFRAMES.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => {
+                          setInterval(item);
+                          setIsTimeframeMenuOpen(false);
+                        }}
+                        className={`flex w-full items-center justify-between rounded px-2.5 py-1 text-xs font-bold uppercase transition ${
+                          interval === item
+                            ? "bg-emerald-500/12 text-emerald-400"
+                            : "text-zinc-400 hover:bg-white/[0.06] hover:text-white"
+                        }`}
+                      >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Desktop Only: Connection Badge */}
+          <div className="hidden sm:flex flex-col gap-1.5 shrink-0 items-start sm:flex-row sm:gap-2.5">
+            <StatusBadge tone={connected ? "good" : "neutral"}>
+              {connected ? <WifiHigh size={14} /> : <WifiSlash size={14} />}
+              {connected ? t("chart.connected") : t("chart.disconnected")}
+            </StatusBadge>
+            {loading || loadingOlder ? (
+              <div className="animate-pulse">
+                <StatusBadge tone="neutral">
+                  {loadingOlder ? t("chart.loadingHistory") : t("common.loading")}
+                </StatusBadge>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
       {/* Top Chart Toolbar (Indicators, Tools, Navigation) */}
-      <div className="mb-3 flex min-w-0 items-center gap-2 overflow-x-auto border-b border-zinc-200/50 pb-3 scrollbar-none dark:border-zinc-800/50 lg:flex-row lg:justify-between lg:overflow-visible">
+      <div className="mb-3 hidden sm:flex min-w-0 items-center justify-between border-b border-zinc-200/50 pb-3 dark:border-zinc-800/50 lg:overflow-visible">
         
         {/* Timeframe & Indicators */}
-        <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 scrollbar-none lg:flex-wrap lg:overflow-visible lg:pb-0">
-          {/* Timeframes */}
-          <div className="flex shrink-0 gap-0.5 rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 dark:border-zinc-800 dark:bg-zinc-950/60">
+        <div className="flex min-w-0 items-center gap-2 lg:flex-wrap lg:overflow-visible">
+          {/* Mobile Timeframe Dropdown */}
+          <div className="relative sm:hidden shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsTimeframeMenuOpen(open => !open)}
+              className="focus-ring flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-bold uppercase text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950/60 dark:text-zinc-300 transition active:scale-[0.98]"
+            >
+              <span>{interval}</span>
+              <CaretDown size={12} weight="bold" className={`transition-transform duration-200 ${isTimeframeMenuOpen ? "rotate-180" : ""}`} />
+            </button>
+            {isTimeframeMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setIsTimeframeMenuOpen(false)} />
+                <div className="absolute left-0 top-9 z-50 w-24 overflow-hidden rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-[#101312]">
+                  {TIMEFRAMES.map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => {
+                        setInterval(item);
+                        setIsTimeframeMenuOpen(false);
+                      }}
+                      className={`flex w-full items-center justify-between rounded px-2.5 py-1.5 text-xs font-bold uppercase transition ${
+                        interval === item
+                          ? "bg-emerald-500/12 text-emerald-400"
+                          : "text-zinc-400 hover:bg-white/[0.06] hover:text-white"
+                      }`}
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Desktop Timeframes */}
+          <div className="hidden sm:flex shrink-0 gap-0.5 rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 dark:border-zinc-800 dark:bg-zinc-950/60">
             {TIMEFRAMES.map((item) => (
               <button
                 key={item}
@@ -1755,8 +1857,23 @@ export function LiveCandleChart({
           </div>
         </div>
 
-        {/* Tools and navigation */}
-        <div className="flex shrink-0 items-center gap-2 pb-1 lg:flex-wrap lg:justify-end lg:pb-0">
+        {/* Mobile View: Connection status badge in the timeframe row */}
+        <div className="flex sm:hidden shrink-0 items-center gap-2">
+          <StatusBadge tone={connected ? "good" : "neutral"}>
+            {connected ? <WifiHigh size={14} /> : <WifiSlash size={14} />}
+            {connected ? t("chart.connected") : t("chart.disconnected")}
+          </StatusBadge>
+          {loading || loadingOlder ? (
+            <div className="animate-pulse">
+              <StatusBadge tone="neutral">
+                {loadingOlder ? t("chart.loadingHistory") : t("common.loading")}
+              </StatusBadge>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Tools and navigation (Hidden on mobile, visible on desktop) */}
+        <div className="hidden sm:flex shrink-0 items-center gap-2 lg:flex-wrap lg:justify-end">
           <button
             type="button"
             data-testid="chart-tool-toggle"

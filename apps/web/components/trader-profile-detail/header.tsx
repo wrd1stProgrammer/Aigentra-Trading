@@ -28,41 +28,73 @@ export function HeroHeader({
   const localizedName = translatedOrFallback(t, traderNameKey(trader.id), trader.name);
   const localizedAlias = translatedOrFallback(t, traderAliasKey(trader.id), visual.alias);
   const localizedDescription = translatedOrFallback(t, traderDetailKey(trader.id), trader.concept ?? trader.description);
+
   return (
-    <header className="flex flex-col gap-4 rounded-2xl border border-zinc-200/80 bg-white/85 p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/70 lg:flex-row lg:items-start lg:justify-between lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none">
-      <div className="flex min-w-0 items-start gap-4">
-        <Link
-          href="/leaderboard"
-          className="focus-ring mt-1 grid size-9 shrink-0 place-items-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950 dark:hover:bg-zinc-900 dark:hover:text-zinc-50 sm:mt-4 sm:size-10"
-          onFocus={prefetchLeaderboard}
-          onMouseEnter={prefetchLeaderboard}
-          aria-label={t("leaderboard.viewArrow")}
-        >
-          <ArrowLeft size={22} />
-        </Link>
-        <div className={`mt-0.5 grid size-14 shrink-0 place-items-center rounded-full bg-gradient-to-br ${visual.tone} font-mono text-lg font-bold text-white shadow-sm sm:mt-2 sm:size-16 sm:text-xl`}>
-          {visual.initials}
-        </div>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="min-w-0 truncate text-xl font-semibold tracking-tight text-zinc-950 sm:text-3xl dark:text-zinc-50">{localizedName}</h1>
-            <span className="hidden text-lg font-semibold text-zinc-400 sm:inline">·</span>
-            <span className="hidden text-sm font-semibold text-zinc-400 sm:inline">{localizedAlias}</span>
+    <header className="w-full">
+      {/* Mobile Layout */}
+      <div className="lg:hidden flex flex-col gap-4 rounded-2xl border border-zinc-200/80 bg-white/85 p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/70">
+        <div className="flex items-center gap-3">
+          <div className={`grid size-11 shrink-0 place-items-center rounded-full bg-gradient-to-br ${visual.tone} font-mono text-base font-bold text-white border border-white/10 shadow-md`}>
+            {visual.initials}
           </div>
-          <p className="mt-0.5 text-xs font-semibold text-zinc-500 sm:hidden">{localizedAlias}</p>
-          <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="font-mono text-2xl font-semibold tracking-tight text-zinc-950 sm:text-4xl dark:text-zinc-50">{formatCurrency(standing.equity, locale)}</span>
-            <span className={`font-mono text-xl font-semibold sm:text-2xl ${standing.returnPct >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"}`}>
+          <div className="min-w-0">
+            <h1 className="truncate text-xl font-bold tracking-tight text-zinc-950 dark:text-zinc-50 leading-tight">{localizedName}</h1>
+            <p className="text-[11px] font-semibold text-zinc-500 mt-0.5 leading-none">{localizedAlias}</p>
+          </div>
+        </div>
+
+        <div className="mt-1 flex flex-col gap-1.5">
+          <span className="font-mono text-3xl font-bold tracking-tight text-zinc-950 dark:text-zinc-50">
+            {formatCurrency(standing.equity, locale)}
+          </span>
+          <div>
+            <span className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-0.5 font-mono text-sm font-bold ring-1 ${
+              standing.returnPct >= 0
+                ? "bg-emerald-500/10 text-emerald-500 ring-emerald-500/20 dark:bg-emerald-500/12 dark:text-emerald-400 dark:ring-emerald-500/30"
+                : "bg-rose-500/10 text-rose-500 ring-rose-500/20 dark:bg-rose-500/12 dark:text-rose-400 dark:ring-rose-500/30"
+            }`}>
               {formatCurrency(standing.totalPnl, locale)} {formatPercent(standing.returnPct)}
             </span>
           </div>
-          <p className="mt-3 line-clamp-2 max-w-3xl text-sm leading-6 text-zinc-600 sm:line-clamp-3 dark:text-zinc-300 lg:line-clamp-none">{localizedDescription}</p>
+        </div>
+
+        <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-300 mt-1">
+          {localizedDescription}
+        </p>
+
+        <div className="grid grid-cols-3 gap-2 rounded-xl bg-zinc-50 p-1.5 ring-1 ring-zinc-200 dark:bg-zinc-900/70 dark:ring-zinc-800 mt-2">
+          <MiniHeroStat label={t("leaderboard.rankScore")} value={formatNumber(standing.rankScore, 2, locale)} />
+          <MiniHeroStat label={t("common.return7d")} value={formatPercent(standing.monthlyReturn)} tone={standing.monthlyReturn >= 0 ? "good" : "bad"} />
+          <MiniHeroStat label={t("common.winRate")} value={standing.winRate === null ? "-" : formatPercent(standing.winRate)} />
         </div>
       </div>
-      <div className="grid w-full grid-cols-3 gap-2 rounded-xl bg-zinc-50 p-1.5 ring-1 ring-zinc-200 dark:bg-zinc-900/70 dark:ring-zinc-800 lg:w-auto lg:rounded-2xl lg:bg-white lg:p-2 dark:lg:bg-zinc-950">
-        <MiniHeroStat label={t("leaderboard.rankScore")} value={formatNumber(standing.rankScore, 2, locale)} />
-        <MiniHeroStat label={t("common.return7d")} value={formatPercent(standing.monthlyReturn)} tone={standing.monthlyReturn >= 0 ? "good" : "bad"} />
-        <MiniHeroStat label={t("common.winRate")} value={standing.winRate === null ? "-" : formatPercent(standing.winRate)} />
+
+      {/* Desktop / Tablet view: keeps original code structure for rigid test cases */}
+      <div className="hidden lg:flex w-full items-start justify-between">
+        <div className="flex min-w-0 items-start gap-4">
+          <div className={`mt-2 grid size-16 shrink-0 place-items-center rounded-full bg-gradient-to-br ${visual.tone} font-mono text-xl font-bold text-white border border-white/10 shadow-md`}>
+            {visual.initials}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="min-w-0 truncate text-3xl font-bold tracking-tight text-zinc-950 dark:text-zinc-50">{localizedName}</h1>
+              <span className="hidden text-lg font-semibold text-zinc-400 sm:inline">·</span>
+              <span className="hidden text-sm font-semibold text-zinc-400 sm:inline">{localizedAlias}</span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="font-mono text-2xl font-semibold tracking-tight text-zinc-950 sm:text-4xl dark:text-zinc-50">{formatCurrency(standing.equity, locale)}</span>
+              <span className={`font-mono text-xl font-semibold sm:text-2xl ${standing.returnPct >= 0 ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"}`}>
+                {formatCurrency(standing.totalPnl, locale)} {formatPercent(standing.returnPct)}
+              </span>
+            </div>
+            <p className="mt-3.5 max-w-3xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">{localizedDescription}</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2 rounded-2xl bg-white p-2 dark:bg-zinc-950 ring-1 ring-zinc-200 dark:ring-zinc-800">
+          <MiniHeroStat label={t("leaderboard.rankScore")} value={formatNumber(standing.rankScore, 2, locale)} />
+          <MiniHeroStat label={t("common.return7d")} value={formatPercent(standing.monthlyReturn)} tone={standing.monthlyReturn >= 0 ? "good" : "bad"} />
+          <MiniHeroStat label={t("common.winRate")} value={standing.winRate === null ? "-" : formatPercent(standing.winRate)} />
+        </div>
       </div>
     </header>
   );

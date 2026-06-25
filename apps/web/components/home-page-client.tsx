@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, BellRinging, CaretDown, CaretUp, Check, Star, TelegramLogo, Translate, Trophy } from "@phosphor-icons/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { BrandMark } from "@/components/brand-mark";
 import { useAppContext } from "@/components/app-provider";
 import { PipelinePreview, PositionManagementPreview, ConsensusPreview, TradePlanPreview, AlertPreview, LandingFooter, PricingCard, VideoFrame } from "@/components/home-landing-visuals";
 import { landingCopy } from "@/lib/marketing-copy";
@@ -118,14 +119,11 @@ export function HomePageClient() {
           {/* Vertical grid lines */}
           <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />
           <div className="absolute inset-y-0 right-0 hidden w-px bg-white/10 lg:block" />
-          {/* Corner Markers / Notches */}
-          <CandleNotch position="top-left" theme="dark" pulse />
-          <CandleNotch position="top-right" theme="dark" pulse />
 
           {/* Header */}
           <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-5 pt-4">
             <Link href="/" className="focus-ring flex items-center gap-3 rounded-lg hover:opacity-90 transition">
-              <span className="grid size-9 place-items-center rounded-lg border border-emerald-400/35 bg-emerald-400/10 font-mono text-xs text-emerald-300">AT</span>
+              <BrandMark priority />
               <span className="text-base font-bold tracking-tight sm:text-lg">Aigentra Trading</span>
             </Link>
             <div className="flex shrink-0 items-center gap-2 sm:gap-4">

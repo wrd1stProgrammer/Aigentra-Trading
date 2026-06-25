@@ -14,11 +14,12 @@ test("AI sentiment page renders a cached hourly Aigentra opinion before dense se
   assert.match(consensusSource, /setQueryData\(hourlyOpinionQueryKey, freshOpinion\)/, "stale cached opinions should be replaced by a background fresh opinion");
   assert.match(consensusSource, /placeholderData: \(previousData\) => previousData/, "opinion card should keep prior data visible during refreshes");
   assert.match(consensusSource, /data-testid="consensus-hourly-opinion"/, "opinion card should be a testable first-class surface");
-  assert.match(opinionCardSource, /Aigentra/, "opinion card should be branded as an Aigentra aggregate opinion");
+  assert.match(opinionCardSource, /aigentra/i, "opinion card should be branded as an Aigentra aggregate opinion");
   assert.match(opinionCardSource, /nextRefreshAt/, "opinion card should expose the exact next hourly refresh time");
   assert.match(opinionCardSource, /isLoading/, "opinion card should distinguish generated data from a loading placeholder");
   assert.match(opinionCardSource, /data-testid="consensus-opinion-loading"/, "opinion card should show an explicit loading state while generated data is unavailable");
-  assert.match(consensusSource, /hourlyOpinionLoading/, "sentiment page should keep the opinion card loading until fresh generated data is ready");
+  assert.match(consensusSource, /hourlyOpinionLoading/, "sentiment page should calculate a dedicated opinion loading state");
+  assert.doesNotMatch(consensusSource, /hourlyOpinionLoading\s*=\s*[^;]*\.stale/, "stale cached opinions should stay visible while a fresh opinion is generated in the background");
   assert.doesNotMatch(opinionCardSource, /opinionDataQuality|dataQuality/, "opinion card should not render the removed data-quality panel");
 });
 

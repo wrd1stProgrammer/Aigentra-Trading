@@ -4,7 +4,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleNotch } from "@phosphor-icons/react";
 import { useAppContext } from "@/components/app-provider";
 import { ConsensusAveragePrices } from "@/components/consensus-average-prices";
 import { ConsensusHourlyOpinion } from "@/components/consensus-hourly-opinion";
@@ -351,11 +350,6 @@ export function ConsensusPageClient() {
   });
   const activePositions = activePositionsQuery.data ?? bundle.positions ?? [];
   const activeOrders = activeOrdersQuery.data ?? bundle.orders ?? [];
-  const liveDataRefreshing =
-    btcQuery.isFetching ||
-    activePositionsQuery.isFetching ||
-    activeOrdersQuery.isFetching ||
-    hourlyOpinionQuery.isFetching;
 
   const traders = bundle.traders?.length ? bundle.traders : (fallbackTraders as unknown as TraderProfile[]);
   const standings = useMemo(() => buildStandings(traders, bundle.summaries ?? []), [bundle.summaries, traders]);
@@ -513,7 +507,7 @@ export function ConsensusPageClient() {
     );
   }, [tradersWithStates]);
 
-  const hourlyOpinionLoading = hourlyOpinionQuery.isPending || !hourlyOpinionQuery.data?.opinion || Boolean(hourlyOpinionQuery.data.stale);
+  const hourlyOpinionLoading = hourlyOpinionQuery.isPending || !hourlyOpinionQuery.data?.opinion;
   const initialLoading = btcQuery.isFetching && (btcQuery.isPending || btcQuery.isPlaceholderData);
   const error = btcQuery.error ? t("common.liveDataUnavailable") : null;
 
@@ -534,22 +528,6 @@ export function ConsensusPageClient() {
           <p className="text-zinc-600 mt-1.5 max-w-xl text-sm leading-relaxed break-keep dark:text-zinc-400">
             {t("consensus.subtitle")}
           </p>
-        </div>
-        <div className="flex items-center gap-2.5 shrink-0 self-start md:self-center">
-          {liveDataRefreshing ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-zinc-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
-              <CircleNotch className="animate-spin" size={13} />
-              {t("common.loading")}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3.5 py-1.5 text-xs font-semibold text-emerald-400 border border-emerald-500/20">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              {t("consensus.liveMonitoring")}
-            </span>
-          )}
         </div>
       </div>
 

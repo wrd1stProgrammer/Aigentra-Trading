@@ -52,7 +52,7 @@ export function ScenarioModal({
         <div className="sticky top-0 z-[1] border-b border-zinc-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-zinc-800 dark:bg-[#0b0c10]/95 sm:px-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
-              <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-zinc-950 font-mono text-sm font-black text-white shadow-sm dark:bg-zinc-100 dark:text-zinc-950">
+              <div className="hidden size-11 shrink-0 place-items-center rounded-xl bg-zinc-950 font-mono text-sm font-black text-white shadow-sm dark:bg-zinc-100 dark:text-zinc-950 sm:grid">
                 {scenarioCode}
               </div>
               <div className="min-w-0">
@@ -85,24 +85,18 @@ export function ScenarioModal({
         </div>
 
         <div className="space-y-4 p-4 sm:p-5">
-          <DetailChart
-            symbol={symbol}
-            result={chartResult}
-            paperPositions={positions}
-            paperOrders={orders}
-            paperEvents={events}
-            managementReviews={reviews}
-            height={320}
-            compact
-            showPositionPanel={false}
-          />
-
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <MetricBox label={t("common.side")} value={side} />
-            <MetricBox label={t("common.price")} value={formatNumber(scenario.price, 0)} />
-            <MetricBox label={t("chart.stopLoss")} value={formatNumber(scenario.stop, 0)} />
-            <MetricBox label={t("chart.takeProfit")} value={formatNumber(scenario.target, 0)} />
-            <MetricBox label={t("common.quantity")} value={formatNumber(scenario.quantity)} />
+          <div className="hidden md:block">
+            <DetailChart
+              symbol={symbol}
+              result={chartResult}
+              paperPositions={positions}
+              paperOrders={orders}
+              paperEvents={events}
+              managementReviews={reviews}
+              height={320}
+              compact
+              showPositionPanel={false}
+            />
           </div>
 
           <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
@@ -119,6 +113,39 @@ export function ScenarioModal({
                 <p className="text-sm leading-7 text-zinc-800 dark:text-zinc-100">{scenarioDisplayText(scenarioDetailRationaleText(scenario, t), t)}</p>
               )}
             </div>
+          </div>
+
+          {/* Mobile compact metrics */}
+          <div className="grid grid-cols-2 gap-2 md:hidden">
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50/20 dark:bg-zinc-900/10">
+              <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{t("common.side")}</span>
+              <p className="mt-1 font-semibold text-zinc-950 dark:text-white text-sm">{side}</p>
+            </div>
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50/20 dark:bg-zinc-900/10">
+              <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{t("common.price")}</span>
+              <p className="mt-1 font-semibold font-mono text-zinc-950 dark:text-white text-sm">{formatNumber(scenario.price, 0)}</p>
+            </div>
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50/20 dark:bg-zinc-900/10">
+              <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{t("chart.stopLoss")}</span>
+              <p className="mt-1 font-semibold font-mono text-zinc-950 dark:text-white text-sm">{formatNumber(scenario.stop, 0)}</p>
+            </div>
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50/20 dark:bg-zinc-900/10">
+              <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{t("chart.takeProfit")}</span>
+              <p className="mt-1 font-semibold font-mono text-zinc-950 dark:text-white text-sm">{formatNumber(scenario.target, 0)}</p>
+            </div>
+            <div className="col-span-2 rounded-xl border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50/20 dark:bg-zinc-900/10 flex justify-between items-center">
+              <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{t("common.quantity")}</span>
+              <p className="font-semibold font-mono text-zinc-950 dark:text-white text-sm">{formatNumber(scenario.quantity)}</p>
+            </div>
+          </div>
+
+          {/* Desktop Metric Boxes */}
+          <div className="hidden md:grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <MetricBox label={t("common.side")} value={side} />
+            <MetricBox label={t("common.price")} value={formatNumber(scenario.price, 0)} />
+            <MetricBox label={t("chart.stopLoss")} value={formatNumber(scenario.stop, 0)} />
+            <MetricBox label={t("chart.takeProfit")} value={formatNumber(scenario.target, 0)} />
+            <MetricBox label={t("common.quantity")} value={formatNumber(scenario.quantity)} />
           </div>
         </div>
       </div>

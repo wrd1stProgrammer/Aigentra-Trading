@@ -18,7 +18,7 @@ import {
   getTraderTradeHistory,
   type MergedTradeHistoryItem
 } from "@/lib/api";
-import { formatCurrency, formatNumber, formatRelativeDateTime, intlLocale } from "@/lib/format";
+import { formatCurrency, formatDateTime, formatNumber, formatRelativeDateTime, intlLocale } from "@/lib/format";
 import { useAppContext } from "@/components/app-provider";
 import { buildScenarios, buildStandings, type LeagueSymbol, type TraderScenario } from "@/lib/league";
 import { fallbackTraders } from "@/lib/traders";
@@ -40,8 +40,11 @@ import {
   HeroHeader,
   ScenarioModal,
   TimelineRow,
-  TradingJournal
+  TradingJournal,
+  HoldingPanel,
+  AgentStatusPanel
 } from "@/components/trader-profile-detail/panels";
+import { PnlCalendarPanel } from "@/components/trader-profile-detail/pnl-calendar-panel";
 import { StatusFeedThread } from "@/components/trader-profile-detail/status-feed-thread";
 import { buildExecutionMarkers, defaultExecutionMarkerSelection } from "@/components/trader-profile-detail/execution-markers";
 import { ExecutionMarkerRail } from "@/components/trader-profile-detail/execution-marker-rail";
@@ -313,6 +316,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const [selectedDate, setSelectedDate] = useState<string>(() => toDateString(new Date()));
   const [weekStart, setWeekStart] = useState<Date>(() => getSunday(new Date()));
   const [clientHydrated, setClientHydrated] = useState(false);
+  const [mobileActiveTab, setMobileActiveTab] = useState<"feed" | "scenarios" | "holdings" | "journal" | "pnl" | "status">("scenarios");
   const historyLoadingRef = useRef(false);
   const historyContextKeyRef = useRef(`${traderId}:${symbol}`);
 
@@ -787,13 +791,11 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
           onOpenScenario={setSelectedScenario}
         />
       </div>
-      <div className="mt-3 xl:hidden">
-        <StatusFeedThread feeds={statusFeeds} locale={locale} t={t} />
-      </div>
 
-      <section className="mt-4 grid min-w-0 gap-4 xl:mt-5 xl:grid-cols-[minmax(0,1fr)_420px] xl:gap-5">
-        <div className="min-w-0 space-y-4 xl:space-y-5">
-          <section className="rounded-2xl bg-white px-4 py-5 ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800 sm:px-5 sm:py-6">
+      {/* Desktop View (Side-by-side Grid) */}
+      <section className="hidden xl:grid mt-4 grid-cols-[minmax(0,1fr)_420px] gap-5 mt-5">
+        <div className="min-w-0 space-y-5">
+          <section className="rounded-2xl bg-white px-5 py-6 ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold tracking-tight">{t("detail.scenarios")}</h2>
@@ -821,7 +823,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
 
             {/* Horizontal week calendar selector */}
             <div className="mt-6">
-              <div className="grid grid-cols-7 gap-2 md:gap-3 overflow-x-auto pb-1 scrollbar-none flex-nowrap flex md:grid">
+              <div className="grid grid-cols-7 gap-3 pb-2 scrollbar-none">
                 {Array.from({ length: 7 }).map((_, offset) => {
                   const cardDate = new Date(weekStart);
                   cardDate.setUTCDate(weekStart.getUTCDate() + offset);
@@ -850,7 +852,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                     <div
                       key={dateKey}
                       onClick={() => setSelectedDate(dateKey)}
-                      className={`flex-1 min-w-[80px] md:min-w-0 flex flex-col items-center justify-center p-3 rounded-xl border text-center transition cursor-pointer select-none ${
+                      className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition cursor-pointer select-none ${
                         isSelected
                           ? "bg-blue-50/50 border-blue-500 text-blue-900 dark:bg-blue-950/30 dark:border-blue-500 dark:text-blue-200"
                           : "bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-50 dark:bg-zinc-950 dark:border-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-900/50"
@@ -863,13 +865,13 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                       }`}>
                         {dayName}
                       </span>
-                      <span className="text-sm font-bold mt-1">
+                      <span className="text-sm font-bold mt-1 whitespace-nowrap">
                         {dateLabel}
                       </span>
-                      <span className={`text-[10px] mt-1.5 font-medium ${
+                      <span className={`text-[10px] mt-1.5 font-medium whitespace-nowrap ${
                         itemCount > 0
                           ? (isSelected ? "text-blue-600 dark:text-blue-400" : "text-emerald-600 dark:text-emerald-400 font-semibold")
-                          : "text-zinc-400 dark:text-zinc-600"
+                          : "text-zinc-400 dark:text-zinc-650"
                       }`}>
                         {subtext}
                       </span>
@@ -879,7 +881,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
               </div>
             </div>
 
-            <div data-testid="scenario-timeline" className="relative mt-6 max-h-[620px] overflow-y-auto pr-1 sm:mt-8 sm:max-h-[700px] sm:pr-2" onScroll={handleScenarioScroll}>
+            <div data-testid="scenario-timeline" className="relative mt-8 max-h-[700px] overflow-y-auto pr-2" onScroll={handleScenarioScroll}>
               {filteredTimelineItems.length > 0 ? (
                 <div className="timelineRail absolute left-[13px] top-3 h-[calc(100%-1.5rem)] w-px bg-zinc-200 dark:bg-zinc-800" />
               ) : null}
@@ -956,6 +958,254 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
           historyHasMore={historyHasMore}
           loadingMoreHistory={loadingMoreHistory}
         />
+      </section>
+
+      {/* Mobile View (Tab System) */}
+      <section className="xl:hidden mt-4 space-y-4">
+        {/* Mobile sliding tab menu */}
+        <div className="border-b border-zinc-200 dark:border-zinc-800/80 pb-0.5 overflow-x-auto scrollbar-none flex">
+          <div className="flex flex-row flex-nowrap gap-5 pb-2 text-sm font-semibold">
+            <button
+              type="button"
+              onClick={() => setMobileActiveTab("scenarios")}
+              className={`relative pb-2.5 transition shrink-0 ${mobileActiveTab === "scenarios" ? "text-zinc-950 font-bold dark:text-white" : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300"}`}
+            >
+              <span>{t("detail.scenarios")}</span>
+              {mobileActiveTab === "scenarios" && (
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-zinc-950 dark:bg-white" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileActiveTab("feed")}
+              className={`relative pb-2.5 transition shrink-0 ${mobileActiveTab === "feed" ? "text-zinc-950 font-bold dark:text-white" : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300"}`}
+            >
+              <span>{t("detail.statusFeed")}</span>
+              {mobileActiveTab === "feed" && (
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-zinc-950 dark:bg-white" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileActiveTab("holdings")}
+              className={`relative pb-2.5 transition shrink-0 ${mobileActiveTab === "holdings" ? "text-zinc-950 font-bold dark:text-white" : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300"}`}
+            >
+              <span>{t("detail.holdingStatus")}</span>
+              {mobileActiveTab === "holdings" && (
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-zinc-950 dark:bg-white" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileActiveTab("journal")}
+              className={`relative pb-2.5 transition shrink-0 ${mobileActiveTab === "journal" ? "text-zinc-950 font-bold dark:text-white" : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300"}`}
+            >
+              <span>{t("detail.tradingJournal")}</span>
+              {mobileActiveTab === "journal" && (
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-zinc-950 dark:bg-white" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileActiveTab("pnl")}
+              className={`relative pb-2.5 transition shrink-0 ${mobileActiveTab === "pnl" ? "text-zinc-950 font-bold dark:text-white" : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300"}`}
+            >
+              <span>{t("calendar.pnlTitle")}</span>
+              {mobileActiveTab === "pnl" && (
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-zinc-950 dark:bg-white" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileActiveTab("status")}
+              className={`relative pb-2.5 transition shrink-0 ${mobileActiveTab === "status" ? "text-zinc-950 font-bold dark:text-white" : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300"}`}
+            >
+              <span>{t("leaderboard.previewStatus")}</span>
+              {mobileActiveTab === "status" && (
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-zinc-950 dark:bg-white" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Tab contents */}
+        <div className="min-w-0">
+          {mobileActiveTab === "feed" && (
+            <StatusFeedThread feeds={statusFeeds} locale={locale} t={t} />
+          )}
+
+          {mobileActiveTab === "scenarios" && (
+            <section className="rounded-2xl bg-white px-4 py-5 ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800 sm:px-5 sm:py-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-semibold tracking-tight">{t("detail.scenarios")}</h2>
+                  <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t("detail.scenarioHint")}</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={handlePrevWeek}
+                    className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-500 dark:text-zinc-400 transition"
+                    title={t("detail.previousWeek")}
+                  >
+                    <CaretLeft size={20} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleNextWeek}
+                    className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-500 dark:text-zinc-400 transition"
+                    title={t("detail.nextWeek")}
+                  >
+                    <CaretRight size={20} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Horizontal week calendar selector */}
+              <div className="mt-6">
+                <div className="flex flex-row flex-nowrap md:grid md:grid-cols-7 gap-2 md:gap-3 overflow-x-auto pb-2 scrollbar-none">
+                  {Array.from({ length: 7 }).map((_, offset) => {
+                    const cardDate = new Date(weekStart);
+                    cardDate.setUTCDate(weekStart.getUTCDate() + offset);
+                    const dateKey = toDateString(cardDate);
+                    
+                    const itemCount = scenarioCountByDate.get(dateKey) ?? 0;
+                    
+                    const isSelected = selectedDate === dateKey;
+                    
+                    const dayName = new Intl.DateTimeFormat(intlLocale(locale), {
+                      weekday: "short",
+                      timeZone: "UTC"
+                    }).format(cardDate);
+                    
+                    const dateLabel = new Intl.DateTimeFormat(intlLocale(locale), {
+                      month: "short",
+                      day: "numeric",
+                      timeZone: "UTC"
+                    }).format(cardDate);
+                    
+                    const subtext = itemCount > 0
+                      ? `${formatNumber(itemCount, 0, locale)} ${t("detail.itemCountSuffix")}`
+                      : t("detail.noTrades");
+                    
+                    return (
+                      <div
+                        key={dateKey}
+                        onClick={() => setSelectedDate(dateKey)}
+                        className={`flex-1 min-w-[82px] shrink-0 md:min-w-0 flex flex-col items-center justify-center px-1.5 py-3 md:p-3 rounded-xl border text-center transition cursor-pointer select-none ${
+                          isSelected
+                            ? "bg-blue-50/50 border-blue-500 text-blue-900 dark:bg-blue-950/30 dark:border-blue-500 dark:text-blue-200"
+                            : "bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-50 dark:bg-zinc-950 dark:border-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-900/50"
+                        }`}
+                      >
+                        <span className={`text-[10px] md:text-xs font-semibold ${
+                          isSelected 
+                            ? "text-blue-600 dark:text-blue-400" 
+                            : "text-zinc-400 dark:text-zinc-500"
+                        }`}>
+                          {dayName}
+                        </span>
+                        <span className="text-xs md:text-sm font-bold mt-1 whitespace-nowrap">
+                          {dateLabel}
+                        </span>
+                        <span className={`text-[10px] mt-1.5 font-medium whitespace-nowrap ${
+                          itemCount > 0
+                            ? (isSelected ? "text-blue-600 dark:text-blue-400" : "text-emerald-600 dark:text-emerald-400 font-semibold")
+                            : "text-zinc-400 dark:text-zinc-650"
+                        }`}>
+                          {subtext}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div data-testid="scenario-timeline" className="relative mt-6 max-h-[620px] overflow-y-auto pr-1" onScroll={handleScenarioScroll}>
+                <div className="space-y-7">
+                  {filteredTimelineItems.map((item, index) => {
+                    if (!item.scenario) {
+                      return (
+                        <TimelineRow
+                          key={item.id}
+                          item={item}
+                          index={index}
+                        />
+                      );
+                    }
+                    const sourceKey = protectedScenarioSourceKey(traderId, symbol, item.scenario.id);
+                    const scenarioUnlocked = isProtectedSourceUnlocked(accessState, sourceKey);
+                    return (
+                      <ProtectedContentGate
+                        key={item.id}
+                        mode="coupon"
+                        sourceKey={sourceKey}
+                        sourceType="scenario"
+                        traderId={traderId}
+                        symbol={symbol}
+                        onUnlocked={() => setSelectedScenario(item.scenario ?? null)}
+                      >
+                        <TimelineRow
+                          item={item}
+                          index={index}
+                          onClick={scenarioUnlocked ? () => setSelectedScenario(item.scenario ?? null) : undefined}
+                        />
+                      </ProtectedContentGate>
+                    );
+                  })}
+                  {!filteredTimelineItems.length ? (
+                    <div className="rounded-xl border border-dashed border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+                      {t("detail.noScenariosOnDate")}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-6 border-t border-zinc-100 pt-4 flex justify-center dark:border-zinc-900">
+                <button
+                  type="button"
+                  className="focus-ring flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-zinc-500 hover:text-zinc-800 transition dark:text-zinc-400 dark:hover:text-zinc-200"
+                  onClick={loadMoreSelectedScenarios}
+                >
+                  <Clock size={14} />
+                  {t("detail.loadMoreSelectedScenarios")}
+                </button>
+              </div>
+            </section>
+          )}
+
+          {mobileActiveTab === "holdings" && (
+            <HoldingPanel
+              items={holdingItems}
+              asOf={formatDateTime(standing.summary?.updatedAt ?? latestPlan.createdAt, locale)}
+              t={t}
+            />
+          )}
+
+          {mobileActiveTab === "journal" && (
+            <TradingJournal
+              tradeHistoryItems={historyItems}
+              t={t}
+              onLoadMore={() => void loadHistory(false)}
+              hasMore={historyHasMore}
+              loadingMore={loadingMoreHistory}
+            />
+          )}
+
+          {mobileActiveTab === "pnl" && (
+            <PnlCalendarPanel calendar={pnlCalendar} locale={locale} t={t} />
+          )}
+
+          {mobileActiveTab === "status" && (
+            <AgentStatusPanel
+              standing={standing}
+              latestReview={latestReview}
+              latestPlan={latestPlan}
+              locale={locale}
+              t={t}
+            />
+          )}
+        </div>
       </section>
 
       {error ? <div className="mt-4 rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200">{error}</div> : null}

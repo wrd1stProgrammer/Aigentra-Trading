@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { CircleNotch, ClockCounterClockwise, Gauge, ShieldWarning, Sparkle, TrendDown, TrendUp } from "@phosphor-icons/react";
+import { CircleNotch, ClockCounterClockwise, Gauge, ShieldWarning, TrendDown, TrendUp } from "@phosphor-icons/react";
 import { formatNumber, intlLocale } from "@/lib/format";
 import type { LeagueSentimentOpinionResponse } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
@@ -37,11 +37,7 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, isLoading = f
         <div className="min-w-0 p-4 sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
-              <p className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-500">
-                <Sparkle size={13} weight="fill" />
-                Aigentra
-              </p>
-              <h2 className="mt-1.5 text-lg font-bold tracking-tight text-zinc-950 dark:text-white sm:mt-2 sm:text-2xl">
+              <h2 className="text-lg font-bold tracking-tight text-zinc-950 dark:text-white sm:text-2xl">
                 {t("consensus.aigentraOpinion")}
               </h2>
               <p className="mt-1 max-w-2xl text-xs leading-5 text-zinc-600 dark:text-zinc-400 sm:mt-1.5 sm:text-sm sm:leading-6">

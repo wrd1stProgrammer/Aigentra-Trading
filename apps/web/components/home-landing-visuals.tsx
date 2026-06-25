@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ChartLineUp, Check, Clock, ShieldCheck, Star, TelegramLogo, TrendUp, InstagramLogo } from "@phosphor-icons/react";
+import { BrandMark } from "@/components/brand-mark";
 import { LandingCheckoutButton } from "@/components/landing-checkout-button";
 import type { LandingCopy } from "@/lib/marketing-copy";
 
@@ -491,7 +492,7 @@ export function LandingFooter({ copy }: { readonly copy: LandingCopy }) {
       <div className="mx-auto grid max-w-[1500px] gap-10 border-b border-zinc-200 pb-12 sm:grid-cols-2 md:grid-cols-6 text-left">
         <div className="md:col-span-2">
           <div className="flex items-center gap-3">
-            <span className="grid size-9 place-items-center rounded-lg border border-emerald-400/35 bg-emerald-400/10 font-mono text-xs text-emerald-300">AT</span>
+            <BrandMark framed />
             <span className="text-xl font-bold tracking-tight text-zinc-900">Aigentra Trading</span>
           </div>
           <p className="mt-5 max-w-[32ch] text-sm leading-6 text-zinc-500">{copy.footerTagline}</p>
