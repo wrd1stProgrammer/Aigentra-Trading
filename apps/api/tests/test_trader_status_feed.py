@@ -1,6 +1,8 @@
 import asyncio
+import json
 from datetime import datetime, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
@@ -23,6 +25,7 @@ from app.trader_status_feed.constants import (
     STATUS_FEED_STATE_POSITION_ENTRY,
     STATUS_FEED_STATE_REVIEW_REJECTED,
 )
+from app.trader_status_feed.context import management_summary, review_summary
 from app.trader_status_feed.service import (
     create_status_feed_for_event,
 )
@@ -211,6 +214,73 @@ def test_status_feed_prompt_contract_uses_thread_voice_without_watch_label():
     assert "news_article" in contract["forbiddenStyles"]
     assert "analyst_report" in contract["forbiddenStyles"]
     assert "next_watch_label" in contract["forbiddenPhrases"]
+    assert contract["evidenceShape"] == "one_current_fact_one_decision_one_next_trigger"
+    assert contract["variationPolicy"] == "avoid_recent_wording_and_reasoning_reuse"
+    assert contract["languagePolicy"] == "english_only_no_mixed_language"
+
+
+def test_status_feed_prompt_requires_event_specific_non_repetitive_message():
+    prompt = status_feed_generator.STATUS_FEED_SYSTEM_PROMPT
+
+    assert "Do not reuse the same reason/action/watch pattern from recentStatusFeeds" in prompt
+    assert "Name one concrete input fact that changed or still matters" in prompt
+    assert "Use a different sentence shape for review_rejected, pending_entry, position_entry, and position_closed" in prompt
+
+
+def test_status_feed_context_keeps_structured_review_details_for_variation():
+    created_at = datetime(2026, 6, 25, 8, 30, tzinfo=timezone.utc)
+    ai_review = SimpleNamespace(
+        id=15,
+        created_at=created_at,
+        decision="APPROVE",
+        confidence=82,
+        risk_level="MEDIUM",
+        payload_json=json.dumps(
+            {
+                "approvalReason": "채널 하단 반등과 손절 위치가 맞습니다.",
+                "counterThesis": "15m 종가가 채널 하단 아래에 안착하면 취소입니다.",
+                "structuredReview": {
+                    "headline": "채널 하단 롱은 아직 근거가 있습니다.",
+                    "action": "대기 주문은 유지하되 손절 기준을 먼저 확인합니다.",
+                    "keyReasons": ["현재가가 계획 진입대 위에서 버티고 있습니다."],
+                    "risks": ["거래량이 줄면 반등 근거가 약해질 수 있습니다."],
+                    "watchConditions": ["15m 종가가 채널 하단 아래로 닫히면 취소합니다."],
+                    "managerNote": "가격이 기준선을 잃으면 기다리지 않습니다.",
+                },
+            },
+            ensure_ascii=False,
+        ),
+    )
+    management_review = SimpleNamespace(
+        id=16,
+        created_at=created_at,
+        event_type="position_heartbeat",
+        phase="OPEN_POSITION",
+        decision="HOLD",
+        action_type="HOLD",
+        payload_json=json.dumps(
+            {
+                "review": {
+                    "rationale": "현재가는 진입가 위이고 손절까지 여유가 있습니다.",
+                    "userSummary": "롱 유지",
+                    "structuredReview": {
+                        "headline": "롱은 아직 관리 범위 안에 있습니다.",
+                        "action": "손절은 유지하고 다음 15m 종가를 봅니다.",
+                        "keyReasons": ["현재가가 진입가 위에서 유지됩니다."],
+                        "risks": ["거래량이 더 줄면 상승 추진력이 약해집니다."],
+                        "watchConditions": ["15m 종가가 진입가 아래로 닫히면 축소합니다."],
+                        "managerNote": "손절을 넓히지 않습니다.",
+                    },
+                }
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+    assert review_summary(ai_review)["keyReasons"] == ["현재가가 계획 진입대 위에서 버티고 있습니다."]
+    assert review_summary(ai_review)["watchConditions"] == ["15m 종가가 채널 하단 아래로 닫히면 취소합니다."]
+    assert management_summary(management_review)["risks"] == ["거래량이 더 줄면 상승 추진력이 약해집니다."]
+    assert management_summary(management_review)["managerNote"] == "손절을 넓히지 않습니다."
 
 
 def test_mock_status_feed_generator_keeps_watch_empty_and_human_thread_like():

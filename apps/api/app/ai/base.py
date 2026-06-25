@@ -2,8 +2,9 @@ import ast
 import json
 from typing import Any, Dict, Optional
 
-from app.paper.holding_policy import trader_holding_policy
 from app.ai.league_sentiment_models import LeagueSentimentOpinionResult, LeagueSentimentPayload
+from app.ai.review_prompt_quality import STRUCTURED_REVIEW_QUALITY_CONTRACT
+from app.paper.holding_policy import trader_holding_policy
 from app.traders.models import (
     ManagementAction,
     PositionManagementPayload,
@@ -650,6 +651,7 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "watchConditions has up to 2 standalone trigger sentences, and managerNote is one concise desk note. Do not write raw JSON/Python list syntax inside any string. "
         "Each string should be readable if shown as part of one short paragraph, with no bullet prefixes and no repeated labels. "
         "Do not dump raw metrics without saying what they mean. Do not hide the actual trade reason behind generic learning or paper-trading language. "
+        f"{STRUCTURED_REVIEW_QUALITY_CONTRACT}"
         "approvalReason is a legacy compatibility field. For APPROVE or ADJUST_AND_APPROVE, write 1-2 compact sentences that mirror structuredReview and connect "
         "the trader thesis, entry/stop/target geometry, fee-aware RR, risk adjustment, and the main residual risk. "
         "For REJECT, DEFER, or NEEDS_MORE_DATA, approvalReason must explain the blocker and what evidence would change the decision. "
@@ -749,6 +751,7 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "Do not write checklist fragments such as structure and risk-reward are healthy, volume is weak, trend is bullish, valid geometry, or sound imbalance structure without explaining what that means for this position now. "
         "Before writing, answer three management questions internally: is the position currently winning, losing, protected, or waiting; does the original thesis still fit the newest candles and recent reviews; what exact next market event changes the action. "
         "Do not mention paper trading in structuredReview, rationale, counterThesis, or action reasons. "
+        f"{STRUCTURED_REVIEW_QUALITY_CONTRACT}"
         "Translate indicators into plain meaning, and include raw numbers only when they support a clear action or trigger. "
         "Compare against recentManagementReviews and recentTradeEvents before writing. Do not reuse the same headline, rationale, or keyReasons from a recent review. "
         "Never copy provider-failure language from previous records. If a recentManagementReview has provider_failed, fallback, provider-error, or failed-call wording, ignore it as invalid history. "

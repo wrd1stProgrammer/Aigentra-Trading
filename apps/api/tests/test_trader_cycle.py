@@ -639,6 +639,66 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "This is paper trading only" not in management.split("Payload:", 1)[0]
 
 
+def test_review_prompts_ban_generic_repeated_briefing_language():
+    snapshot = sample_snapshot()
+    entry = entry_approval_prompt(
+        TradeReviewPayload(
+            trader=get_strategy("channel-rider").profile,
+            symbol="BTCUSDT",
+            marketSnapshot=snapshot,
+            candidate=get_strategy("channel-rider").evaluate(snapshot),
+            locale="ko",
+            recentAiReviews=[
+                {
+                    "decision": "APPROVE",
+                    "structuredReview": {
+                        "headline": "시장 상황은 지지적이며 무효 신호는 감지되지 않음.",
+                        "action": "15분 종가가 기준선 아래로 떨어지면 포지션 유지 및 무효 신호 확인.",
+                    },
+                }
+            ],
+        )
+    )
+    management = position_management_review_prompt(
+        PositionManagementPayload(
+            trader=get_strategy("channel-rider").profile,
+            symbol="BTCUSDT",
+            marketSnapshot=snapshot,
+            event=ManagementEvent(
+                eventType="position_heartbeat",
+                phase="OPEN_POSITION",
+                severity="MEDIUM",
+                reason="Periodic review while position is open.",
+                suggestedAction="HOLD",
+            ),
+            exposure=ManagedExposure(
+                kind="position",
+                id=77,
+                status="open",
+                side="LONG",
+                entryPrice=66120.0,
+                stopLoss=65480.0,
+                takeProfit=67220.0,
+                unrealizedPnl=42.5,
+            ),
+            recentManagementReviews=[
+                {
+                    "decision": "HOLD",
+                    "rationale": "시장 상황은 지지적이며 무효 신호는 감지되지 않음.",
+                }
+            ],
+            locale="ko",
+        )
+    )
+
+    for contract in (entry.split("Payload:", 1)[0], management.split("Payload:", 1)[0]):
+        assert "시장 상황은 지지적" in contract
+        assert "무효 신호는 감지되지 않음" in contract
+        assert "거래량과 모멘텀은 중립적" in contract
+        assert "Do not reuse those phrases or their close translations" in contract
+        assert "headline, action, keyReasons, risks, watchConditions, and managerNote must each do a different job" in contract
+
+
 def test_breakeven_profit_protection_prompt_has_dedicated_decision_contract():
     management = position_management_review_prompt(
         PositionManagementPayload(

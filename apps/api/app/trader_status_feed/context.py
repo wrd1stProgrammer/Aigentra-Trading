@@ -25,7 +25,7 @@ def payload_from_record(record: Any) -> dict[str, Any]:
 def review_summary(record: AIReviewRecord) -> dict[str, Any]:
     payload = payload_from_record(record)
     structured = payload.get("structuredReview") if isinstance(payload.get("structuredReview"), dict) else {}
-    return {
+    summary = {
         "id": record.id,
         "createdAt": record.created_at.isoformat() if record.created_at else None,
         "decision": record.decision,
@@ -36,12 +36,15 @@ def review_summary(record: AIReviewRecord) -> dict[str, Any]:
         "headline": structured.get("headline"),
         "action": structured.get("action"),
     }
+    summary.update(structured_review_summary(structured))
+    return summary
 
 
 def management_summary(record: PositionManagementReviewRecord) -> dict[str, Any]:
     payload = payload_from_record(record)
     review = payload.get("review") if isinstance(payload.get("review"), dict) else {}
-    return {
+    structured = review.get("structuredReview") if isinstance(review.get("structuredReview"), dict) else {}
+    summary = {
         "id": record.id,
         "createdAt": record.created_at.isoformat() if record.created_at else None,
         "eventType": record.event_type,
@@ -51,6 +54,17 @@ def management_summary(record: PositionManagementReviewRecord) -> dict[str, Any]
         "rationale": review.get("rationale"),
         "userSummary": review.get("userSummary"),
     }
+    summary.update(structured_review_summary(structured))
+    return summary
+
+
+def structured_review_summary(structured: dict[str, Any]) -> dict[str, Any]:
+    fields = ("headline", "action", "keyReasons", "risks", "watchConditions", "managerNote")
+    return {key: structured[key] for key in fields if has_summary_value(structured.get(key))}
+
+
+def has_summary_value(value: Any) -> bool:
+    return value is not None and value != "" and value != []
 
 
 def feed_summary(record: TraderStatusFeedRecord) -> dict[str, Any]:

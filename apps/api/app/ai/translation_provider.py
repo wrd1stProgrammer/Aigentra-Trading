@@ -42,9 +42,19 @@ TRADER_STATUS_TRANSLATION_STYLE_CONTRACT: Final[dict[str, str | tuple[str, ...]]
     "contentKind": "trader_status_feed",
     "tone": "casual_trader_thread",
     "voice": "short first-person trader briefing, not a product explainer",
+    "languagePolicy": "korean_first_no_mixed_prose",
+    "preserveTokens": ("BTC", "USDT", "LONG", "SHORT", "TP", "SL", "PnL", "RSI", "EMA", "VWAP", "OI", "RR", "ADX", "ATR"),
     "forbiddenStyles": ("journalist_summary", "analyst_report", "formal_postmortem"),
     "forbiddenPhrases": ("next_watch_label", "next_confirmation_label", "what_to_watch"),
-    "avoidExamples": ("다음 확인", "핵심 신호", "주요 위험으로 보고 있습니다"),
+    "avoidExamples": (
+        "다음 확인",
+        "핵심 신호",
+        "주요 위험으로 보고 있습니다",
+        "시장 상황은 지지적",
+        "무효 신호는 감지되지 않음",
+        "거래량과 모멘텀은 중립적",
+        "Price remains",
+    ),
 }
 
 GENERIC_TRANSLATION_STYLE_CONTRACT: Final[dict[str, str | tuple[str, ...]]] = {
@@ -63,7 +73,8 @@ def translation_style_contract_for_payload(payload: dict[str, Any], target_local
         return TRADER_STATUS_TRANSLATION_STYLE_CONTRACT
     return {
         **TRADER_STATUS_TRANSLATION_STYLE_CONTRACT,
-        "avoidExamples": ("Next watch", "key signal", "core signal"),
+        "languagePolicy": "target_locale_first_no_mixed_source_prose",
+        "avoidExamples": ("Next watch", "key signal", "core signal", "Price remains"),
     }
 
 

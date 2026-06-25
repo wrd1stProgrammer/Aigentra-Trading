@@ -12,6 +12,9 @@ STATUS_FEED_STYLE_CONTRACT: Final[dict[str, str | tuple[str, ...]]] = {
     "voice": "first_person_or_close_desk_voice",
     "tone": "human_trader_briefing",
     "watchPolicy": "empty_string",
+    "evidenceShape": "one_current_fact_one_decision_one_next_trigger",
+    "variationPolicy": "avoid_recent_wording_and_reasoning_reuse",
+    "languagePolicy": "english_only_no_mixed_language",
     "forbiddenStyles": ("news_article", "analyst_report", "journalist_summary", "formal_postmortem"),
     "forbiddenPhrases": ("next_watch_label", "next_confirmation_label", "what_to_watch", "key_signal", "core_signal"),
 }
@@ -35,6 +38,10 @@ Rules:
 - Be casual and trader-like, but still professional and grounded.
 - Use the trader persona, current trigger, recent reviews, recent trade events, and recent feed notes.
 - Do not repeat a recent feed note.
+- Do not reuse the same reason/action/watch pattern from recentStatusFeeds, even when the stateKey is unchanged.
+- Name one concrete input fact that changed or still matters, such as price versus entry/stop/target, order status, rejected review reason, PnL, fill state, or invalidation.
+- Use a different sentence shape for review_rejected, pending_entry, position_entry, and position_closed.
+- For pending_entry, say why the order is still worth waiting for or what would cancel it. For position_entry, say what is being managed now. For review_rejected, say the blocker in plain words. For position_closed, say why the desk resets.
 - Do not invent prices, PnL, fills, or decisions not present in the input.
 - Do not give personalized financial advice, promises, guaranteed outcomes, or direct user commands.
 - Avoid emojis, hashtags, markdown, long explanations, semicolon-heavy clauses, and phrases like "key signal" or "core signal"."""

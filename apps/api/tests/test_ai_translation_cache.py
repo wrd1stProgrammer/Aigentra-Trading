@@ -378,3 +378,39 @@ def test_trader_status_feed_translation_uses_thread_style_contract():
     assert "next_watch_label" in contract["forbiddenPhrases"]
     assert "journalist_summary" in contract["forbiddenStyles"]
     assert "다음 확인" in contract["avoidExamples"]
+
+
+def test_trader_status_feed_translation_contract_blocks_mixed_language_and_boilerplate():
+    payload = {
+        "feedType": AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED,
+        "headline": "Long still open",
+        "message": "Price remains above the stop and I am waiting.",
+        "watch": "",
+        "stateKey": "position_entry",
+    }
+
+    contract = translation_style_contract_for_payload(payload, "ko")
+
+    assert contract["languagePolicy"] == "korean_first_no_mixed_prose"
+    assert "시장 상황은 지지적" in contract["avoidExamples"]
+    assert "무효 신호는 감지되지 않음" in contract["avoidExamples"]
+    assert "Price remains" in contract["avoidExamples"]
+    assert "LONG" in contract["preserveTokens"]
+    assert "SHORT" in contract["preserveTokens"]
+
+
+def test_non_korean_status_feed_translation_does_not_inherit_korean_language_policy():
+    payload = {
+        "feedType": AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED,
+        "headline": "Short still open",
+        "message": "Price remains under VWAP.",
+        "watch": "",
+        "stateKey": "position_entry",
+    }
+
+    contract = translation_style_contract_for_payload(payload, "pt-BR")
+
+    assert contract["languagePolicy"] == "target_locale_first_no_mixed_source_prose"
+    assert "시장 상황은 지지적" not in contract["avoidExamples"]
+    assert "Next watch" in contract["avoidExamples"]
+    assert "VWAP" in contract["preserveTokens"]
