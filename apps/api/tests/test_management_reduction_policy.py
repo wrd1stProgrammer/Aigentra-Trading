@@ -241,6 +241,29 @@ def test_management_review_cooldown_uses_protective_minimums():
     ) == 900
 
 
+def test_pending_stale_management_review_cooldown_uses_order_stale_window():
+    stale_event = ManagementEvent(
+        eventType="imbalance_retest_missed",
+        phase="PENDING_ORDER",
+        severity="MEDIUM",
+        reason="Pending imbalance retest became stale.",
+        suggestedAction="CANCEL_PENDING_ORDER",
+        metrics={"profileOrderStaleSeconds": 900},
+    )
+
+    assert management_review_cooldown_seconds(
+        stale_event,
+        profile={
+            "cooldown_seconds": 300,
+            "order_stale_seconds": 900,
+            "events": {"pending_stale": "imbalance_retest_missed"},
+        },
+        base_cooldown_seconds=300,
+        urgent_cooldown_seconds=60,
+        breakeven_cooldown_seconds=900,
+    ) == 900
+
+
 def test_legacy_position_floor_uses_filled_quantity_when_payload_lacks_initial_quantity(temp_db):
     with session_scope() as db:
         position = _create_open_position(db)

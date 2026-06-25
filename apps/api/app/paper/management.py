@@ -357,6 +357,10 @@ def management_review_cooldown_seconds(
     event_type = str(event.eventType or "")
     base = urgent_cooldown_seconds if event.severity.upper() == "HIGH" else base_cooldown_seconds
     cooldown = max(0, int(base or 0), profile_cooldown)
+    profile_events = profile.get("events") if isinstance(profile.get("events"), dict) else {}
+    if event_type == str(profile_events.get("pending_stale") or ""):
+        order_stale_seconds = int((event.metrics or {}).get("profileOrderStaleSeconds") or profile.get("order_stale_seconds") or 0)
+        return max(cooldown, order_stale_seconds)
     if event_type.endswith("_heartbeat"):
         heartbeat = int((event.metrics or {}).get("heartbeatSeconds") or 0)
         return max(cooldown, heartbeat)
@@ -469,6 +473,7 @@ def order_management_events(trader_id: str, order: PaperOrderRecord, snapshot: d
             "volumeZscore": volume_z,
             "fundingRate": funding,
             "takerBuyRatio": round(ratio, 4),
+            "profileOrderStaleSeconds": profile.get("order_stale_seconds"),
             **(extra or {}),
         }
 
