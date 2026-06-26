@@ -473,6 +473,27 @@ def test_trader_status_feed_translation_uses_thread_style_contract():
     assert "다음 확인" in contract["avoidExamples"]
 
 
+def test_ai_review_translation_uses_user_facing_review_style_contract():
+    payload = {
+        "decision": "HOLD",
+        "structuredReview": {
+            "headline": "SHORT is under pressure at 60553.9 against entry 59681.6.",
+            "action": "This review is tied to the latest event: periodic agent review.",
+            "managerNote": "Previous wording should not override the current risk box.",
+        },
+        "rationale": "Hold while watching the next invalidation trigger.",
+    }
+
+    contract = translation_style_contract_for_payload(payload, "ko")
+
+    assert contract["contentKind"] == "ai_trading_review"
+    assert contract["tone"] == "plain_user_trading_briefing"
+    assert "internal_event_log" in contract["forbiddenStyles"]
+    assert "Latest event" in contract["avoidExamples"]
+    assert "이 검토는 최신 이벤트" in contract["avoidExamples"]
+    assert "고차원 손상" in contract["avoidExamples"]
+
+
 def test_trader_status_feed_translation_contract_blocks_mixed_language_and_boilerplate():
     payload = {
         "feedType": AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED,

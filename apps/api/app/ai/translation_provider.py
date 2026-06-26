@@ -66,7 +66,38 @@ GENERIC_TRANSLATION_STYLE_CONTRACT: Final[dict[str, str | tuple[str, ...]]] = {
 }
 
 
+AI_REVIEW_TRANSLATION_STYLE_CONTRACT: Final[dict[str, str | tuple[str, ...]]] = {
+    "contentKind": "ai_trading_review",
+    "tone": "plain_user_trading_briefing",
+    "voice": "direct trading desk explanation for a normal user, not an internal system log",
+    "languagePolicy": "target_locale_first_no_mixed_source_prose",
+    "preserveTokens": ("BTC", "USDT", "LONG", "SHORT", "TP", "SL", "PnL", "RSI", "EMA", "VWAP", "OI", "RR", "ADX", "ATR"),
+    "forbiddenStyles": ("internal_event_log", "literal_machine_translation", "developer_note", "stiff_research_report"),
+    "forbiddenPhrases": (
+        "latest_event_label",
+        "previous_wording_label",
+        "risk_box_label",
+        "high_dimensional_damage",
+        "translation_prepared",
+    ),
+    "avoidExamples": (
+        "Latest event",
+        "This review is tied to the latest event",
+        "previous wording",
+        "risk box",
+        "higher-timeframe damage",
+        "이 검토는 최신 이벤트",
+        "이전 검토 문구",
+        "현재 위험 박스",
+        "고차원 손상",
+        "번역 준비",
+    ),
+}
+
+
 def translation_style_contract_for_payload(payload: dict[str, Any], target_locale: str) -> dict[str, str | tuple[str, ...]]:
+    if is_ai_review_translation_payload(payload):
+        return AI_REVIEW_TRANSLATION_STYLE_CONTRACT
     if payload.get("feedType") != AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED:
         return GENERIC_TRANSLATION_STYLE_CONTRACT
     if target_locale == "ko":
@@ -76,6 +107,20 @@ def translation_style_contract_for_payload(payload: dict[str, Any], target_local
         "languagePolicy": "target_locale_first_no_mixed_source_prose",
         "avoidExamples": ("Next watch", "key signal", "core signal", "Price remains"),
     }
+
+
+def is_ai_review_translation_payload(payload: dict[str, Any]) -> bool:
+    return any(
+        key in payload
+        for key in (
+            "structuredReview",
+            "approvalReason",
+            "counterThesis",
+            "rationale",
+            "review",
+            "appliedActions",
+        )
+    )
 
 
 class OpenAIJSONTranslationProvider:

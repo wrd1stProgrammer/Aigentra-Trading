@@ -2,6 +2,7 @@ import json
 import pytest
 from decimal import Decimal
 
+import app.main as main_module
 from app.ai.mock_provider import MockAIProvider
 from app.ai.base import (
     entry_approval_prompt,
@@ -15,7 +16,6 @@ from app.market.snapshot import classify_market_regime, derivative_context
 from app.main import (
     enforce_pending_order_cancel_event,
     heartbeat_event_for_position,
-    refresh_repetitive_position_management_review,
     refresh_stale_position_management_review,
     trade_plan_from_review,
 )
@@ -883,6 +883,16 @@ def test_prompts_directly_ban_latest_repeated_trend_sentinel_review_copy():
     for contract in (entry_contract, management_contract):
         assert "repeat-suppression is mandatory" in contract
         assert "a materially different first sentence" in contract
+        assert "Never expose internal event plumbing" in contract
+        assert "Do not write phrases such as Latest event" in contract
+        assert "Do not mention previous wording" in contract
+
+
+def test_management_reviews_do_not_use_post_provider_repetitive_rewrite_guard():
+    assert not hasattr(main_module, "refresh_repetitive_position_management_review")
+    source = main_module.run_management_reviews.__code__.co_names
+    assert "refresh_repetitive_position_management_review" not in source
+    assert "REPETITIVE_STRUCTURED_REVIEW_REFRESHED" not in str(main_module.__dict__)
 
 
 def test_imbalance_management_prompt_builds_delta_memory_from_recent_reviews():
@@ -1093,7 +1103,7 @@ def test_imbalance_position_heartbeat_carries_stateful_review_metrics():
 
     assert event.eventType == "imbalance_hunter_position_heartbeat"
     assert "entry" in event.reason.lower()
-    assert "failure line" in event.reason.lower()
+    assert "invalidation line" in event.reason.lower()
     assert event.metrics["failureLine"] == 62853.7
     assert event.metrics["imbalanceMidpoint"] == 59213.0
     assert event.metrics["distanceToStopR"] == pytest.approx(0.9127)
@@ -1180,63 +1190,14 @@ def test_stale_position_management_review_is_refreshed_from_live_metrics():
     assert "64,038.4" not in " ".join(refreshed.structuredReview.keyReasons)
     assert "STALE_STRUCTURED_REVIEW_REFRESHED" in refreshed.riskFlags
     assert "Current price 62,301.4" in refreshed.rationale
-
-
-def test_repetitive_position_management_review_is_refreshed_before_storage():
-    repeated_structured = {
-        "headline": "The position remains within the confirmed bearish trend on higher timeframes; no change needed.",
-        "action": "Continue monitoring without adjusting stops or leverage; no change unless higher timeframe support weakens.",
-        "keyReasons": ["Trend is confirmed on higher timeframes with valid price structure and risk-reward ratio."],
-        "risks": ["If 4H closes above EMA50 64115.22, the bearish structure may invalidate, requiring reassessment."],
-        "watchConditions": ["Exit if 4H closes above EMA50 64115.22. Monitor 1H ADX for any drop below 40."],
-        "managerNote": "Current setup remains valid; no urgent action needed. Continue to observe higher timeframe signals.",
-    }
-    review = PositionManagementResult(
-        decision="HOLD",
-        confidence=72,
-        riskLevel="MEDIUM",
-        structuredReview=StructuredReview(**repeated_structured),
-        actions=[],
-        riskChange="UNCHANGED",
-        nextReviewInSeconds=1500,
-        rationale="The position remains aligned with the long-term bearish trend supported by higher timeframe structure.",
-        counterThesis="4H close above EMA50 invalidates the short.",
-        provider="openai",
-        model="gpt-4.1-mini",
+    refreshed_text = " ".join(
+        [
+            refreshed.structuredReview.headline or "",
+            refreshed.structuredReview.action or "",
+            *refreshed.structuredReview.keyReasons,
+            refreshed.structuredReview.managerNote or "",
+        ]
     )
-    event = ManagementEvent(
-        eventType="trend_sentinel_position_heartbeat",
-        phase="OPEN_POSITION",
-        reason="Periodic agent review: actively decide whether to keep trailing a trend or exit on higher-timeframe damage.",
-        metrics={
-            "price": 60271.0,
-            "entryPrice": 59681.6,
-            "stopLoss": 61057.6,
-            "takeProfit": 58304.2,
-            "progressR": -0.4286,
-            "unrealizedPnl": -42.0,
-        },
-    )
-    exposure = ManagedExposure(
-        kind="position",
-        id=1464,
-        status="open",
-        side="SHORT",
-        entryPrice=59681.6,
-        stopLoss=61057.6,
-        takeProfit=58304.2,
-        unrealizedPnl=-42.0,
-    )
-
-    refreshed = refresh_repetitive_position_management_review(
-        review,
-        event=event,
-        exposure=exposure,
-        recent_reviews=[{"structuredReview": repeated_structured, "rationale": review.rationale}],
-    )
-
-    assert refreshed.structuredReview is not None
-    combined = " ".join([refreshed.structuredReview.headline or "", refreshed.structuredReview.action or "", refreshed.rationale])
-    assert "60,271" in combined
-    assert "confirmed bearish trend on higher timeframes" not in combined
-    assert "REPETITIVE_STRUCTURED_REVIEW_REFRESHED" in refreshed.riskFlags
+    assert "Latest event" not in refreshed_text
+    assert "previous wording" not in refreshed_text.lower()
+    assert "risk box" not in refreshed_text.lower()

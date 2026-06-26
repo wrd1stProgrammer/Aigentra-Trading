@@ -1106,28 +1106,28 @@ def heartbeat_event_for_order(trader_id: str, order: PaperOrderRecord, snapshot:
         "heartbeatSeconds": settings.position_management_pending_heartbeat_seconds,
     }
     pending_reasons = {
-        "channel-rider": "Periodic agent review: decide whether the channel-edge pending order still deserves patience or should be cancelled/adjusted.",
-        "volume-breaker": "Periodic agent review: reassess whether the retest order still has real breakout confirmation.",
-        "pullback-architect": "Periodic agent review: reassess staged pullback orders and whether remaining scales should stay active.",
-        "leverage-hunter": "Periodic agent review: reassess crowding/funding trigger while pending leverage entry waits.",
-        "liquidity-reaper": "Periodic agent review: reassess whether the wick/sweep entry still has reversal quality.",
-        "volatility-squeezer": "Periodic agent review: decide whether the squeeze expansion is still alive or the pending pullback entry should expire.",
-        "trend-sentinel": "Periodic agent review: reassess whether a slow trend-continuation order still deserves patience.",
-        "range-maker": "Periodic agent review: decide whether the range edge is still valid or a breakout risk cancels the order.",
-        "funding-contrarian": "Periodic agent review: reassess whether the funding edge still exists before fading crowding.",
-        "orderflow-sniper": "Periodic agent review: expire stale microstructure entries quickly if orderflow edge decays.",
-        "donchian-breakout": "Periodic agent review: decide whether the broken Donchian boundary still deserves a retest entry or should be cancelled.",
-        "ichimoku-cloud-pilot": "Periodic agent review: reassess cloud-proxy trend quality and whether the continuation pullback is still valid.",
-        "vwap-reclaimer": "Periodic agent review: decide whether fair-value reclaim/rejection still holds or the mean edge has decayed.",
-        "wyckoff-spring": "Periodic agent review: reassess whether the spring/upthrust trap still has reclaim/failure quality before fill.",
-        "rsi-divergence-scout": "Periodic agent review: reassess divergence confirmation and whether structure still supports the reversal entry.",
-        "session-raider": "Periodic agent review: expire session orders fast if the liquidity transition window or impulse is gone.",
-        "imbalance-hunter": "Periodic agent review: decide whether the imbalance midpoint retest is still respected or failed.",
-        "momentum-ignition": "Periodic agent review: reassess ignition flow quickly; do not keep pending momentum entries after flow flips.",
-        "bollinger-reversion": "Periodic agent review: decide whether band reversion remains valid or a band-walk trend cancels the order.",
-        "atr-trail-commander": "Periodic agent review: reassess whether the ATR pullback order still fits the larger BTC trend.",
+        "channel-rider": "Decide whether the channel-edge pending order still deserves patience or should be cancelled or adjusted.",
+        "volume-breaker": "Check whether the retest order still has real breakout confirmation.",
+        "pullback-architect": "Reassess staged pullback orders and whether remaining scale entries should stay active.",
+        "leverage-hunter": "Reassess the crowding and funding trigger while the leverage entry waits.",
+        "liquidity-reaper": "Check whether the wick or sweep entry still has reversal quality.",
+        "volatility-squeezer": "Decide whether squeeze expansion is still alive or the pending pullback entry should expire.",
+        "trend-sentinel": "Reassess whether a slow trend-continuation order still deserves patience.",
+        "range-maker": "Decide whether the range edge is still valid or breakout risk should cancel the order.",
+        "funding-contrarian": "Check whether the funding edge still exists before fading crowding.",
+        "orderflow-sniper": "Expire stale microstructure entries quickly if orderflow edge decays.",
+        "donchian-breakout": "Decide whether the broken Donchian boundary still deserves a retest entry or should be cancelled.",
+        "ichimoku-cloud-pilot": "Reassess cloud-proxy trend quality and whether the continuation pullback is still valid.",
+        "vwap-reclaimer": "Decide whether fair-value reclaim or rejection still holds, or whether the mean edge has decayed.",
+        "wyckoff-spring": "Reassess whether the spring or upthrust trap still has reclaim or failure quality before fill.",
+        "rsi-divergence-scout": "Reassess divergence confirmation and whether structure still supports the reversal entry.",
+        "session-raider": "Expire session orders fast if the liquidity transition window or impulse is gone.",
+        "imbalance-hunter": "Decide whether the imbalance midpoint retest is still respected or has failed.",
+        "momentum-ignition": "Reassess ignition flow quickly; do not keep pending momentum entries after flow flips.",
+        "bollinger-reversion": "Decide whether band reversion remains valid or a band-walk trend should cancel the order.",
+        "atr-trail-commander": "Reassess whether the ATR pullback order still fits the larger BTC trend.",
     }
-    reason = pending_reasons.get(trader_id, "Periodic agent review: reassess pending paper order.")
+    reason = pending_reasons.get(trader_id, "Reassess whether the pending order still deserves patience or should be cancelled.")
     return ManagementEvent(
         eventType=f"{trader_id.replace('-', '_')}_pending_heartbeat",
         phase="PENDING_ORDER",
@@ -1189,37 +1189,37 @@ def heartbeat_event_for_position(trader_id: str, position: PaperPositionRecord, 
             }
         )
     position_reasons = {
-        "channel-rider": "Periodic agent review: actively decide if the channel trade should hold, protect profits, or exit early.",
-        "volume-breaker": "Periodic agent review: actively reassess continuation strength and whether breakout momentum still justifies holding.",
-        "pullback-architect": "Periodic agent review: actively manage staged pullback exposure, remaining orders, stop, and profit protection.",
-        "leverage-hunter": "Periodic agent review: actively manage squeeze/crowding risk with faster risk reduction if flow shifts.",
-        "liquidity-reaper": "Periodic agent review: actively decide whether the sweep reversal is still valid or profit should be protected.",
-        "volatility-squeezer": "Periodic agent review: actively protect squeeze profits if expansion stalls or trails cleanly if volatility persists.",
-        "trend-sentinel": "Periodic agent review: actively decide whether to keep trailing a trend or exit on higher-timeframe damage.",
-        "range-maker": "Periodic agent review: actively de-risk at range midpoint and close if the range breaks.",
-        "funding-contrarian": "Periodic agent review: actively harvest funding normalization or reduce if the crowded side accelerates again.",
-        "orderflow-sniper": "Periodic agent review: actively manage fast scalp exposure with no patience for flow flips.",
-        "donchian-breakout": "Periodic agent review: actively manage range expansion, retest validity, and ATR trailing after breakout.",
-        "ichimoku-cloud-pilot": "Periodic agent review: actively decide whether cloud trend integrity still supports holding or adding.",
-        "vwap-reclaimer": "Periodic agent review: actively protect fair-value reclaim trades when price stalls around the mean.",
-        "wyckoff-spring": "Periodic agent review: actively decide whether the spring/upthrust trap is still working or should be exited.",
-        "rsi-divergence-scout": "Periodic agent review: actively monitor whether divergence reversal is confirmed or momentum re-accelerated.",
-        "session-raider": "Periodic agent review: actively manage session momentum and close if the window edge has expired.",
-        "imbalance-hunter": "Periodic agent review: actively monitor imbalance midpoint respect and displacement extension.",
-        "momentum-ignition": "Periodic agent review: actively ride clean ignition but reduce immediately if OI/taker flow flips.",
-        "bollinger-reversion": "Periodic agent review: actively take midpoint profits or exit if band-walk trend starts.",
-        "atr-trail-commander": "Periodic agent review: actively trail ATR trend winners and avoid premature breakeven while HTF trend holds.",
+        "channel-rider": "Decide if the channel trade should hold, protect profits, or exit early.",
+        "volume-breaker": "Reassess continuation strength and whether breakout momentum still justifies holding.",
+        "pullback-architect": "Manage staged pullback exposure, remaining orders, stop, and profit protection.",
+        "leverage-hunter": "Manage squeeze and crowding risk with faster risk reduction if flow shifts.",
+        "liquidity-reaper": "Decide whether the sweep reversal is still valid or profit should be protected.",
+        "volatility-squeezer": "Protect squeeze profits if expansion stalls, or trail cleanly if volatility persists.",
+        "trend-sentinel": "Decide whether to keep trailing the trend or exit if the higher-timeframe trend weakens.",
+        "range-maker": "De-risk at range midpoint and close if the range breaks.",
+        "funding-contrarian": "Harvest funding normalization or reduce if the crowded side accelerates again.",
+        "orderflow-sniper": "Manage fast scalp exposure with no patience for flow flips.",
+        "donchian-breakout": "Manage range expansion, retest validity, and ATR trailing after breakout.",
+        "ichimoku-cloud-pilot": "Decide whether cloud trend integrity still supports holding or adding.",
+        "vwap-reclaimer": "Protect fair-value reclaim trades when price stalls around the mean.",
+        "wyckoff-spring": "Decide whether the spring or upthrust trap is still working or should be exited.",
+        "rsi-divergence-scout": "Monitor whether divergence reversal is confirmed or momentum re-accelerates.",
+        "session-raider": "Manage session momentum and close if the window edge has expired.",
+        "imbalance-hunter": "Monitor imbalance midpoint respect and displacement extension.",
+        "momentum-ignition": "Ride clean ignition but reduce immediately if OI or taker flow flips.",
+        "bollinger-reversion": "Take midpoint profits or exit if a band-walk trend starts.",
+        "atr-trail-commander": "Trail ATR trend winners and avoid premature breakeven while the higher-timeframe trend holds.",
     }
-    reason = position_reasons.get(trader_id, "Periodic agent review: actively manage open paper position.")
+    reason = position_reasons.get(trader_id, "Manage the open position from the current price, stop, target, and latest market evidence.")
     if trader_id == "imbalance-hunter":
         if progress_r >= 0:
             reason = (
-                "Periodic agent review: Imbalance Hunter is working from entry; compare target progress with the failure line "
+                "Imbalance Hunter is working from entry; compare target progress with the invalidation line "
                 "before deciding whether patience, breakeven, or trailing is justified."
             )
         else:
             reason = (
-                "Periodic agent review: Imbalance Hunter is still near entry and moving back toward the failure line; "
+                "Imbalance Hunter is still near entry and moving back toward the invalidation line; "
                 "decide whether the midpoint thesis deserves more patience or risk should be reduced."
             )
     return ManagementEvent(
@@ -1258,7 +1258,7 @@ def refresh_stale_position_management_review(
         action=management_action_sentence(action_type, position_state),
         keyReasons=[
             management_price_box_sentence(price=price, entry=entry, stop=stop, target=target, pnl=pnl, progress_r=progress_r),
-            f"Latest event: {event.reason}",
+            management_live_context_sentence(action_type, side=side, position_state=position_state),
         ],
         risks=[management_risk_sentence(side=side, stop=stop, target=target)],
         watchConditions=[management_watch_sentence(side=side, stop=stop, target=target, entry=entry)],
@@ -1275,52 +1275,6 @@ def refresh_stale_position_management_review(
             "structuredReview": structured,
             "rationale": rationale,
             "riskFlags": unique_strings([*review.riskFlags, "STALE_STRUCTURED_REVIEW_REFRESHED"]),
-        }
-    )
-
-
-def refresh_repetitive_position_management_review(
-    review: PositionManagementResult,
-    *,
-    event: ManagementEvent,
-    exposure: ManagedExposure,
-    recent_reviews: list[dict[str, Any]],
-) -> PositionManagementResult:
-    if not structured_review_repeats_recent(review.structuredReview, review.rationale, recent_reviews):
-        return review
-    metrics = event.metrics
-    price = numeric_metric(metrics, "price")
-    entry = numeric_metric(metrics, "entryPrice") or exposure.entryPrice or exposure.limitPrice
-    stop = numeric_metric(metrics, "stopLoss") or exposure.stopLoss
-    target = numeric_metric(metrics, "takeProfit") or exposure.takeProfit
-    pnl = numeric_metric(metrics, "unrealizedPnl") or exposure.unrealizedPnl
-    progress_r = numeric_metric(metrics, "progressR")
-    side = str(exposure.side or "").upper() or "POSITION"
-    action_type = primary_action_type(review) or review.decision
-    position_state = management_position_state(side=side, price=price, entry=entry)
-    structured = StructuredReview(
-        verdict=review.decision.replace("_", " ").title(),
-        headline=f"{side} is {position_state} at {format_management_price(price)} against entry {format_management_price(entry)}.",
-        action=management_action_sentence(action_type, position_state),
-        keyReasons=[
-            management_price_box_sentence(price=price, entry=entry, stop=stop, target=target, pnl=pnl, progress_r=progress_r),
-            f"This review is tied to the latest event: {event.reason}",
-        ],
-        risks=[management_risk_sentence(side=side, stop=stop, target=target)],
-        watchConditions=[management_watch_sentence(side=side, stop=stop, target=target, entry=entry)],
-        managerNote=management_note_sentence(action_type, side=side),
-    )
-    rationale = " ".join(
-        [
-            management_price_box_sentence(price=price, entry=entry, stop=stop, target=target, pnl=pnl, progress_r=progress_r),
-            management_watch_sentence(side=side, stop=stop, target=target, entry=entry),
-        ]
-    )
-    return review.model_copy(
-        update={
-            "structuredReview": structured,
-            "rationale": rationale,
-            "riskFlags": unique_strings([*review.riskFlags, "REPETITIVE_STRUCTURED_REVIEW_REFRESHED"]),
         }
     )
 
@@ -1381,63 +1335,6 @@ def structured_review_texts(structured_review: Optional[StructuredReview]) -> li
     return [value for value in values if value]
 
 
-def structured_review_repeats_recent(
-    structured_review: Optional[StructuredReview],
-    rationale: Optional[str],
-    recent_reviews: list[dict[str, Any]],
-) -> bool:
-    current_texts = structured_review_texts(structured_review) + ([rationale] if rationale else [])
-    current_fingerprints = [review_text_fingerprint(value) for value in current_texts]
-    current_fingerprints = [value for value in current_fingerprints if len(value) >= 32]
-    if not current_fingerprints:
-        return False
-    for recent in recent_reviews[:5]:
-        recent_texts = recent_review_texts(recent)
-        for recent_text in recent_texts:
-            recent_fingerprint = review_text_fingerprint(recent_text)
-            if len(recent_fingerprint) < 32:
-                continue
-            if any(review_fingerprints_too_similar(current, recent_fingerprint) for current in current_fingerprints):
-                return True
-    return False
-
-
-def recent_review_texts(review: dict[str, Any]) -> list[str]:
-    structured = review.get("structuredReview")
-    values: list[Any] = [review.get("rationale"), review.get("counterThesis")]
-    if isinstance(structured, dict):
-        values.extend(
-            [
-                structured.get("verdict"),
-                structured.get("headline"),
-                structured.get("action"),
-                *list(structured.get("keyReasons") or []),
-                *list(structured.get("risks") or []),
-                *list(structured.get("watchConditions") or []),
-                structured.get("managerNote"),
-            ]
-        )
-    return [value for value in values if isinstance(value, str) and value.strip()]
-
-
-def review_text_fingerprint(value: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"[\d,.:;()/_+-]+", " ", value.lower())).strip()
-
-
-def review_fingerprints_too_similar(current: str, recent: str) -> bool:
-    if current == recent:
-        return True
-    shorter, longer = sorted((current, recent), key=len)
-    if len(shorter) >= 48 and shorter in longer:
-        return True
-    current_words = {word for word in current.split() if len(word) >= 4}
-    recent_words = {word for word in recent.split() if len(word) >= 4}
-    if len(current_words) < 6 or len(recent_words) < 6:
-        return False
-    overlap = len(current_words & recent_words) / max(1, min(len(current_words), len(recent_words)))
-    return overlap >= 0.72
-
-
 def numeric_metric(metrics: dict[str, Any], key: str) -> Optional[float]:
     value = metrics.get(key)
     try:
@@ -1483,6 +1380,17 @@ def management_action_sentence(action_type: Optional[str], position_state: str) 
     if "move stop" in action or "breakeven" in action:
         return "Protect the position by keeping the stop tight; do not move risk farther away."
     return f"Hold the position for now because it is {position_state}, while watching the next invalidation trigger."
+
+
+def management_live_context_sentence(action_type: Optional[str], *, side: str, position_state: str) -> str:
+    action = str(action_type or "HOLD").replace("_", " ").lower()
+    if "close" in action or "reduce" in action:
+        return f"The {side} is {position_state}, so the review focuses on whether risk should be cut instead of simply waiting."
+    if "cancel" in action:
+        return f"The open {side} should be judged separately from any stale extra order that no longer improves the setup."
+    if "move stop" in action or "breakeven" in action or "trail" in action:
+        return f"The {side} is {position_state}, so the next decision is about protecting profit without loosening risk."
+    return f"The {side} is {position_state}, so the review focuses on whether the original thesis still deserves patience."
 
 
 def management_price_box_sentence(
@@ -1534,7 +1442,7 @@ def management_watch_sentence(
 
 
 def management_note_sentence(action_type: Optional[str], *, side: str) -> str:
-    return f"Keep the next {side} decision tied to the live price, stop, and target. Older review wording should not override the current risk box."
+    return f"Keep the next {side} decision anchored to live price, stop, and target; avoid widening risk without a fresh thesis."
 
 
 def unique_strings(values: list[str]) -> list[str]:
@@ -1779,12 +1687,6 @@ async def run_management_reviews(
         try:
             review = await run_position_management_with_logging(db, payload, clean_provider, settings=settings)
             review = refresh_stale_position_management_review(review, event=event, exposure=exposure)
-            review = refresh_repetitive_position_management_review(
-                review,
-                event=event,
-                exposure=exposure,
-                recent_reviews=management_context.get("recentManagementReviews", []),
-            )
             review = enforce_pending_order_cancel_event(review, event=event, exposure=exposure)
             if event.eventType == PRICE_SHOCK_EVENT_TYPE:
                 review.nextReviewInSeconds = max(60, int(settings.price_shock_review_seconds or 120))
