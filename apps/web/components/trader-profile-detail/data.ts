@@ -479,12 +479,39 @@ function reviewTitleTopic(scenario: TraderScenario, t: Translator) {
   if (haystack.includes("CLOSE") || haystack.includes("POSITION_CLOSED")) return t("detail.reviewTitle.positionClose");
   if (haystack.includes("MOVE_STOP") || haystack.includes("BREAKEVEN")) return t("detail.reviewTitle.stopAdjust");
   if (haystack.includes("REDUCE")) return t("detail.reviewTitle.riskReduce");
-  if (haystack.includes("익절") || haystack.includes("목표") || haystack.includes("TAKE_PROFIT") || haystack.includes("TARGET")) return t("detail.reviewTitle.profitWatch");
+  if (haystack.includes("PENDING_ORDER")) return t("detail.reviewTitle.pendingEntry");
+  if (hasNearEntryReviewSignal(haystack)) return t("detail.reviewTitle.nearEntry");
+  if (hasProfitProtectionReviewSignal(haystack)) return t("detail.reviewTitle.profitProtect");
   if (haystack.includes("거래량") || haystack.includes("VOLUME") || haystack.includes("Z_SCORE")) return t("detail.reviewTitle.volumeCaution");
   if (haystack.includes("손절") || haystack.includes("STOP") || haystack.includes("INVALID") || haystack.includes("무효화")) return t("detail.reviewTitle.stopWatch");
-  if (haystack.includes("PENDING_ORDER")) return t("detail.reviewTitle.pendingEntry");
+  if (haystack.includes("익절") || haystack.includes("목표") || haystack.includes("TAKE_PROFIT") || haystack.includes("TARGET")) return t("detail.reviewTitle.profitWatch");
   if (haystack.includes("OPEN_POSITION") || haystack.includes("HOLD")) return t("detail.reviewTitle.positionHold");
   return t("detail.reviewTitle.marketWatch");
+}
+
+function hasNearEntryReviewSignal(haystack: string) {
+  return (
+    haystack.includes("진입_부근") ||
+    haystack.includes("진입가와_가깝") ||
+    haystack.includes("초기_단계") ||
+    haystack.includes("NEAR_ENTRY") ||
+    haystack.includes("EARLY") ||
+    haystack.includes("PROGRESSR")
+  );
+}
+
+function hasProfitProtectionReviewSignal(haystack: string) {
+  return (
+    haystack.includes("TAKE_PARTIAL_PROFIT") ||
+    haystack.includes("PARTIAL_TAKE_PROFIT") ||
+    haystack.includes("LET_PROFIT_RUN") ||
+    haystack.includes("TRAIL_STOP") ||
+    haystack.includes("이익_보호") ||
+    haystack.includes("수익_보호") ||
+    haystack.includes("일부_익절") ||
+    haystack.includes("트레일링") ||
+    haystack.includes("PROFIT_PROTECTION")
+  );
 }
 
 function reviewTitleHaystack(scenario: TraderScenario) {

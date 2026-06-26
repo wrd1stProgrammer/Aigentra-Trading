@@ -42,6 +42,24 @@ const scenarioFeed = loadTsModule("../components/trader-profile-detail/scenario-
     dedupeScenarioTimelineScenarios: (scenarios) => Array.from(scenarios)
   }
 });
+const detailData = loadTsModule("../components/trader-profile-detail/data.ts", {
+  "@/components/trader-profile-detail/scenario-copy": scenarioCopy,
+  "@/components/trader-profile-detail/scenario-feed": {
+    latestScenarioFeedScenarios: () => [],
+    scenarioTimelineBody: () => ""
+  },
+  "@/components/trader-profile-detail/timeline-sort": {
+    sortTimelineItemsByRecency: (items) => items,
+    timelineTimeValue: () => 0
+  },
+  "@/lib/format": {
+    formatCurrency: (value) => String(value),
+    formatNumber: (value) => String(value),
+    formatPercent: (value) => `${value}%`,
+    formatRelativeDateTime: () => ""
+  },
+  "@/lib/status": { statusLabel: (value) => String(value ?? "") }
+});
 
 test("AI management scenarios normalize short English reason labels and expose four-level importance", () => {
   assert.match(dataSource, /scenarioDisplayText/, "scenario bodies should run through a display-text normalizer");
@@ -528,6 +546,84 @@ test("trader detail browser cache placeholders wait until after hydration", () =
   assert.match(profileSource, /const \[clientHydrated, setClientHydrated\] = useState\(false\)/, "detail cache readiness should be client-state driven");
   assert.match(profileSource, /useEffect\(\(\) => \{\s*setClientHydrated\(true\);\s*\}, \[\]\);/s, "detail cache should only activate after mount");
   assert.match(profileSource, /clientHydrated \? getCachedTraderDetailBundle/, "localStorage-backed detail cache should not run during hydration");
+});
+
+test("management review titles distinguish repeated Korean profit labels", () => {
+  const t = (key) =>
+    ({
+      "detail.sideShort": "숏",
+      "detail.reviewTitle.nearEntry": "진입부근 관리",
+      "detail.reviewTitle.profitProtect": "이익 보호",
+      "detail.reviewTitle.stopWatch": "손절 점검",
+      "detail.reviewTitle.profitWatch": "익절권 확인",
+      "detail.reviewTitle.positionHold": "포지션 유지",
+      "detail.reviewTitle.marketWatch": "시장 확인"
+    })[key] ?? key;
+
+  const nearEntryStopReview = {
+    source: "review",
+    side: "SHORT",
+    status: "HOLD",
+    phase: "OPEN_POSITION",
+    eventType: "trend_sentinel_position_heartbeat",
+    reviewBrief: {
+      headline: "숏은 진입 부근의 작은 수익 구간입니다.",
+      action: "손절이나 익절을 조정하지 말고 무효화선을 먼저 확인하세요.",
+      keyReasons: ["현재가는 진입가와 가깝고 progressR은 +0.18로 초기 단계입니다."],
+      watchConditions: ["61,057.6 위 15m 종가면 손절 기준을 우선하세요."]
+    }
+  };
+  const profitProtectionReview = {
+    source: "review",
+    side: "SHORT",
+    status: "TAKE_PARTIAL_PROFIT",
+    phase: "OPEN_POSITION",
+    eventType: "trend_sentinel_position_heartbeat",
+    reviewBrief: {
+      headline: "숏이 첫 목표 쪽으로 충분히 진행되어 이익 보호를 검토합니다.",
+      action: "일부 익절 또는 트레일링을 검토하세요.",
+      keyReasons: ["목표 진행률이 충분해 수익 보호가 우선입니다."]
+    }
+  };
+
+  const nearEntryTitle = detailData.managementReviewScenarioTitle(nearEntryStopReview, t);
+  const profitTitle = detailData.managementReviewScenarioTitle(profitProtectionReview, t);
+
+  assert.equal(nearEntryTitle, "숏 진입부근 관리");
+  assert.equal(profitTitle, "숏 이익 보호");
+  assert.notEqual(nearEntryTitle, profitTitle);
+  assert.notEqual(nearEntryTitle, "숏 익절권 확인");
+});
+
+test("management review titles stay compact", () => {
+  const t = (key) =>
+    ({
+      "detail.sideShort": "Short",
+      "detail.reviewTitle.nearEntry": "Near-entry management",
+      "detail.reviewTitle.profitProtect": "Profit protection",
+      "detail.reviewTitle.stopWatch": "Stop check",
+      "detail.reviewTitle.profitWatch": "Profit zone",
+      "detail.reviewTitle.positionHold": "Position hold",
+      "detail.reviewTitle.marketWatch": "Market check"
+    })[key] ?? key;
+
+  const title = detailData.managementReviewScenarioTitle(
+    {
+      source: "review",
+      side: "SHORT",
+      status: "HOLD",
+      phase: "OPEN_POSITION",
+      reviewBrief: {
+        headline:
+          "The short is a small near-entry winner, but the higher timeframe is not aligned and the full explanation belongs in the body.",
+        action: "Hold without moving stop or target while price stays below invalidation."
+      }
+    },
+    t
+  );
+
+  assert.equal(title, "Short Near-entry management");
+  assert.ok(title.length <= 32);
 });
 
 function loadTsModule(relativePath, requireStubs = {}) {

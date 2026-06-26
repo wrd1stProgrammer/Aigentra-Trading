@@ -931,6 +931,66 @@ def test_position_management_prompt_requires_live_position_first_desk_briefing()
     assert "why not close, why not move the stop, why not take profit, and what exact trigger changes the decision" in prompt
 
 
+def test_position_management_prompt_bans_repeated_title_labels_and_entry_price_confusion():
+    payload = PositionManagementPayload(
+        trader=get_strategy("trend-sentinel").profile,
+        symbol="BTCUSDT",
+        marketSnapshot={"symbol": "BTCUSDT", "price": 59440.0, "timeframes": {}, "derivatives": {}},
+        event=ManagementEvent(
+            eventType="trend_sentinel_position_heartbeat",
+            phase="OPEN_POSITION",
+            severity="MEDIUM",
+            reason="Manage a short that is only slightly in profit while higher timeframes are not aligned.",
+            suggestedAction="HOLD",
+            metrics={
+                "price": 59440.0,
+                "entryPrice": 59681.63,
+                "stopLoss": 61057.6,
+                "takeProfit": 57043.9,
+                "progressR": 0.18,
+                "targetProgress": 0.09,
+                "unrealizedPnl": 122.0,
+                "ema50_4h": 64115.22,
+            },
+        ),
+        exposure=ManagedExposure(
+            kind="position",
+            id=367,
+            status="open",
+            side="SHORT",
+            entryPrice=59681.63,
+            stopLoss=61057.6,
+            takeProfit=57043.9,
+            unrealizedPnl=122.0,
+        ),
+        recentManagementReviews=[
+            {
+                "decision": "HOLD",
+                "eventType": "trend_sentinel_position_heartbeat",
+                "structuredReview": {
+                    "headline": "숏 익절권 확인",
+                    "action": "현재 숏 포지션을 유지하며 손절 또는 이익 실현을 조정하지 마세요.",
+                    "keyReasons": ["진입가 59,440 근처에서 약간의 수익이 발생한 숏 포지션입니다."],
+                },
+            }
+        ],
+        locale="ko",
+    )
+
+    prompt = position_management_review_prompt(payload)
+    contract, raw_payload = prompt.split("Payload:", 1)
+    data = json.loads(raw_payload)
+
+    assert data["recentReviewMemory"][0]["avoidRepeating"][0] == "숏 익절권 확인"
+    assert data["currentReviewDelta"]["priceBox"]["price"] == 59440.0
+    assert data["currentReviewDelta"]["priceBox"]["entry"] == 59681.63
+    assert "headline must not be a reusable status label" in contract
+    assert "숏 익절권 확인" in contract
+    assert "Never call the current price the entry price" in contract
+    assert "If higher timeframes oppose the open position direction" in contract
+    assert "counter-trend or tactical position" in contract
+
+
 def test_management_reviews_do_not_use_post_provider_repetitive_rewrite_guard():
     assert not hasattr(main_module, "refresh_repetitive_position_management_review")
     source = main_module.run_management_reviews.__code__.co_names
