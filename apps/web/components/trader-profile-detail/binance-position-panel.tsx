@@ -313,6 +313,7 @@ function findScenario(scenarios: readonly TraderScenario[], source: TraderScenar
 
 function scenarioFromPosition(position: PaperPosition): TraderScenario {
   const payload = recordValue(position.payload);
+  const rationale = scenarioRationaleFromPayload(payload, position.closeReason);
   return {
     id: `position-${String(position.id ?? position.symbol)}`,
     title: "Active simulated position",
@@ -326,9 +327,9 @@ function scenarioFromPosition(position: PaperPosition): TraderScenario {
     leverage: firstFiniteNumber(position.leverage, recordValue(payload?.leveragePlan)?.suggestedLeverage),
     riskPercent: firstFiniteNumber(payload?.riskPercent),
     entryWeight: firstFiniteNumber(payload?.entryWeight, payload?.weight),
-    rationale: scenarioRationaleFromPayload(payload, position.closeReason),
+    rationale,
     summary: scenarioSummaryFromPayload(payload),
-    reviewBrief: reviewBriefFromRecord({ payload }),
+    reviewBrief: entryApprovalRationale(payload) ? null : reviewBriefFromRecord({ payload }),
     createdAt: firstString(position.updatedAt, position.openedAt, position.createdAt),
     source: "position"
   };
@@ -336,6 +337,7 @@ function scenarioFromPosition(position: PaperPosition): TraderScenario {
 
 function scenarioFromOrder(order: DisplayPaperOrder): TraderScenario {
   const payload = recordValue(order.payload);
+  const rationale = scenarioRationaleFromPayload(payload);
   return {
     id: `order-${String(order.id ?? order.symbol)}`,
     title: firstString(payload?.entryReason) ?? "Pending entry order",
@@ -349,12 +351,17 @@ function scenarioFromOrder(order: DisplayPaperOrder): TraderScenario {
     leverage: firstFiniteNumber(order.leverage, recordValue(payload?.leveragePlan)?.suggestedLeverage),
     riskPercent: firstFiniteNumber(payload?.riskPercent),
     entryWeight: firstFiniteNumber(payload?.entryWeight, payload?.weight, recordValue(payload?.entry)?.weight),
-    rationale: scenarioRationaleFromPayload(payload),
+    rationale,
     summary: scenarioSummaryFromPayload(payload),
-    reviewBrief: reviewBriefFromRecord({ payload }),
+    reviewBrief: entryApprovalRationale(payload) ? null : reviewBriefFromRecord({ payload }),
     createdAt: firstString(order.updatedAt, order.createdAt),
     source: "order"
   };
+}
+
+function entryApprovalRationale(payload: Record<string, any> | null | undefined): string | null {
+  const aiReview = recordValue(payload?.aiReview);
+  return firstString(payload?.aiApprovalReason, aiReview?.approvalReason);
 }
 
 function formatLeverage(value: number | null) {

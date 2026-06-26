@@ -7,6 +7,13 @@ from app.ai.league_sentiment_models import LeagueSentimentOpinionResult, LeagueS
 from app.traders.models import PositionManagementPayload, PositionManagementResult, TradeReviewPayload, TradeReviewResult
 
 
+OPENAI_JSON_SYSTEM_PROMPT = (
+    "Return only strict JSON. Obey every field contract in the user prompt. "
+    "If the payload includes recentEntryReviewMemory or recentReviewMemory, the avoidRepeating snippets are forbidden wording: "
+    "write a fresh first sentence and use the newest price, entry, stop, target, PnL, fill state, or invalidation context."
+)
+
+
 class OpenAIProvider(BaseAIProvider):
     name = "openai"
 
@@ -31,10 +38,11 @@ class OpenAIProvider(BaseAIProvider):
         body: Dict[str, Any] = {
             "model": self.trade_review_model,
             "messages": [
-                {"role": "system", "content": "Return only strict JSON."},
+                {"role": "system", "content": OPENAI_JSON_SYSTEM_PROMPT},
                 {"role": "user", "content": entry_approval_prompt(payload)},
             ],
-            "temperature": 0.2,
+            "temperature": 0.35,
+            "frequency_penalty": 0.25,
             "response_format": {"type": "json_object"},
         }
         async with httpx.AsyncClient(timeout=30) as client:
@@ -54,10 +62,11 @@ class OpenAIProvider(BaseAIProvider):
         body: Dict[str, Any] = {
             "model": self.position_management_model,
             "messages": [
-                {"role": "system", "content": "Return only strict JSON."},
+                {"role": "system", "content": OPENAI_JSON_SYSTEM_PROMPT},
                 {"role": "user", "content": position_management_review_prompt(payload)},
             ],
             "temperature": 0.35,
+            "frequency_penalty": 0.25,
             "response_format": {"type": "json_object"},
         }
         async with httpx.AsyncClient(timeout=30) as client:
@@ -77,7 +86,7 @@ class OpenAIProvider(BaseAIProvider):
         body: Dict[str, Any] = {
             "model": self.league_sentiment_model,
             "messages": [
-                {"role": "system", "content": "Return only strict JSON."},
+                {"role": "system", "content": "Return only strict JSON. Obey every field contract in the user prompt."},
                 {"role": "user", "content": league_sentiment_prompt(payload)},
             ],
             "temperature": 0.2,

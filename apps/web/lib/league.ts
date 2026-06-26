@@ -278,7 +278,8 @@ export function buildScenarios(args: {
 
   for (const position of args.positions) {
     const payload = (position.payload ?? {}) as Record<string, any>;
-    const reviewBrief = reviewBriefFromRecord({ payload });
+    const rationale = scenarioRationaleFromPayload(payload, position.closeReason);
+    const reviewBrief = entryApprovalRationale(payload) ? null : reviewBriefFromRecord({ payload });
     scenarios.push({
       id: `position-${position.id}`,
       title: "Active simulated position",
@@ -293,7 +294,7 @@ export function buildScenarios(args: {
       riskPercent: firstNumber(payload.riskPercent),
       entryWeight: firstNumber(payload.entryWeight, payload.weight),
       reviewBrief,
-      rationale: scenarioRationaleFromPayload(payload, position.closeReason),
+      rationale,
       summary: scenarioSummaryFromPayload(payload),
       createdAt: position.openedAt ?? position.createdAt ?? position.updatedAt ?? null,
       source: "position"
@@ -302,7 +303,8 @@ export function buildScenarios(args: {
 
   for (const order of args.orders) {
     const payload = (order.payload ?? {}) as Record<string, any>;
-    const reviewBrief = reviewBriefFromRecord({ payload });
+    const rationale = scenarioRationaleFromPayload(payload);
+    const reviewBrief = entryApprovalRationale(payload) ? null : reviewBriefFromRecord({ payload });
     scenarios.push({
       id: `order-${order.id}`,
       title: payload.entryReason ?? "Pending entry order",
@@ -317,7 +319,7 @@ export function buildScenarios(args: {
       riskPercent: firstNumber(payload.riskPercent),
       entryWeight: firstNumber(payload.entryWeight, payload.weight, payload.entry?.weight),
       reviewBrief,
-      rationale: scenarioRationaleFromPayload(payload),
+      rationale,
       summary: scenarioSummaryFromPayload(payload),
       createdAt: order.updatedAt ?? order.createdAt,
       source: "order"
@@ -484,6 +486,11 @@ export function scenarioRationaleFromPayload(payload: Record<string, any> | null
     payload?.aiCounterThesis,
     ...fallbacks
   );
+}
+
+function entryApprovalRationale(payload: Record<string, any> | null | undefined): string | null {
+  const aiReview = recordValue(payload?.aiReview);
+  return firstString(payload?.aiApprovalReason, aiReview?.approvalReason);
 }
 
 export function scenarioSummaryFromPayload(payload: Record<string, any> | null | undefined, ...fallbacks: Array<unknown>): string | null {

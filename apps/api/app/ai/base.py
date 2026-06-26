@@ -614,6 +614,29 @@ def recent_management_review_memory(reviews: list[dict[str, Any]]) -> list[dict[
     return memory
 
 
+def recent_entry_review_memory(reviews: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    memory: list[dict[str, Any]] = []
+    for review in reviews[:4]:
+        snippets = structured_review_memory(review)
+        approval_reason = compact_text(review.get("approvalReason"), 220)
+        if approval_reason:
+            snippets.append(approval_reason)
+        counter_thesis = compact_text(review.get("counterThesis"), 180)
+        if counter_thesis:
+            snippets.append(counter_thesis)
+        if not snippets:
+            continue
+        memory.append(
+            {
+                "decision": review.get("decision"),
+                "reviewCode": review.get("reviewCode"),
+                "createdAt": review.get("createdAt"),
+                "avoidRepeating": snippets[:5],
+            }
+        )
+    return memory[:4]
+
+
 MANAGEMENT_PRIMARY_LEVEL_KEYS: Final = (
     "channelMid",
     "rangeMid",
@@ -743,6 +766,7 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "locale": locale,
         "candidate": payload.candidate.model_dump(),
         "recentAiReviews": payload.recentAiReviews,
+        "recentEntryReviewMemory": recent_entry_review_memory(payload.recentAiReviews),
         "recentManagementReviews": payload.recentManagementReviews,
         "activeExposure": payload.activeExposure,
         "recentTradeEvents": payload.recentTradeEvents,
@@ -804,6 +828,10 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "watchConditions has up to 2 standalone trigger sentences, and managerNote is one concise desk note. Do not write raw JSON/Python list syntax inside any string. "
         "For this first-pass review, entry approval should read like a desk judgment, not a permission stamp: explain why this trade is worth taking now, "
         "how entry, stop, and target contain the risk, and which specific market event would turn approval into defer, reject, or adjustment. "
+        "For APPROVE or ADJUST_AND_APPROVE, the first sentence of structuredReview.headline must answer why enter now: name the active trader thesis, the entry location, "
+        "and the evidence that makes this entry worth taking at the current moment. Do not lead with leverage criticism, generic trend validity, or broad risk/reward language. "
+        "Use recentEntryReviewMemory before writing; each avoidRepeating snippet is forbidden as wording and as sentence structure. "
+        "If the new decision is similar to a recent approval, distinguish it by the changed price, entry fill status, target distance, invalidation distance, or recent trade result. "
         "Each string should be readable if shown as part of one short paragraph, with no bullet prefixes and no repeated labels. "
         "Do not dump raw metrics without saying what they mean. Do not hide the actual trade reason behind generic learning or paper-trading language. "
         f"{STRUCTURED_REVIEW_QUALITY_CONTRACT}"

@@ -1279,6 +1279,52 @@ def refresh_stale_position_management_review(
     )
 
 
+def refresh_repetitive_position_management_review(
+    review: PositionManagementResult,
+    *,
+    event: ManagementEvent,
+    exposure: ManagedExposure,
+    recent_reviews: list[dict[str, Any]],
+) -> PositionManagementResult:
+    if not structured_review_repeats_recent(review.structuredReview, review.rationale, recent_reviews):
+        return review
+    metrics = event.metrics
+    price = numeric_metric(metrics, "price")
+    entry = numeric_metric(metrics, "entryPrice") or exposure.entryPrice or exposure.limitPrice
+    stop = numeric_metric(metrics, "stopLoss") or exposure.stopLoss
+    target = numeric_metric(metrics, "takeProfit") or exposure.takeProfit
+    pnl = numeric_metric(metrics, "unrealizedPnl") or exposure.unrealizedPnl
+    progress_r = numeric_metric(metrics, "progressR")
+    side = str(exposure.side or "").upper() or "POSITION"
+    action_type = primary_action_type(review) or review.decision
+    position_state = management_position_state(side=side, price=price, entry=entry)
+    structured = StructuredReview(
+        verdict=review.decision.replace("_", " ").title(),
+        headline=f"{side} is {position_state} at {format_management_price(price)} against entry {format_management_price(entry)}.",
+        action=management_action_sentence(action_type, position_state),
+        keyReasons=[
+            management_price_box_sentence(price=price, entry=entry, stop=stop, target=target, pnl=pnl, progress_r=progress_r),
+            f"This review is tied to the latest event: {event.reason}",
+        ],
+        risks=[management_risk_sentence(side=side, stop=stop, target=target)],
+        watchConditions=[management_watch_sentence(side=side, stop=stop, target=target, entry=entry)],
+        managerNote=management_note_sentence(action_type, side=side),
+    )
+    rationale = " ".join(
+        [
+            management_price_box_sentence(price=price, entry=entry, stop=stop, target=target, pnl=pnl, progress_r=progress_r),
+            management_watch_sentence(side=side, stop=stop, target=target, entry=entry),
+        ]
+    )
+    return review.model_copy(
+        update={
+            "structuredReview": structured,
+            "rationale": rationale,
+            "riskFlags": unique_strings([*review.riskFlags, "REPETITIVE_STRUCTURED_REVIEW_REFRESHED"]),
+        }
+    )
+
+
 def enforce_pending_order_cancel_event(
     review: PositionManagementResult,
     *,
@@ -1333,6 +1379,63 @@ def structured_review_texts(structured_review: Optional[StructuredReview]) -> li
         structured_review.managerNote,
     ]
     return [value for value in values if value]
+
+
+def structured_review_repeats_recent(
+    structured_review: Optional[StructuredReview],
+    rationale: Optional[str],
+    recent_reviews: list[dict[str, Any]],
+) -> bool:
+    current_texts = structured_review_texts(structured_review) + ([rationale] if rationale else [])
+    current_fingerprints = [review_text_fingerprint(value) for value in current_texts]
+    current_fingerprints = [value for value in current_fingerprints if len(value) >= 32]
+    if not current_fingerprints:
+        return False
+    for recent in recent_reviews[:5]:
+        recent_texts = recent_review_texts(recent)
+        for recent_text in recent_texts:
+            recent_fingerprint = review_text_fingerprint(recent_text)
+            if len(recent_fingerprint) < 32:
+                continue
+            if any(review_fingerprints_too_similar(current, recent_fingerprint) for current in current_fingerprints):
+                return True
+    return False
+
+
+def recent_review_texts(review: dict[str, Any]) -> list[str]:
+    structured = review.get("structuredReview")
+    values: list[Any] = [review.get("rationale"), review.get("counterThesis")]
+    if isinstance(structured, dict):
+        values.extend(
+            [
+                structured.get("verdict"),
+                structured.get("headline"),
+                structured.get("action"),
+                *list(structured.get("keyReasons") or []),
+                *list(structured.get("risks") or []),
+                *list(structured.get("watchConditions") or []),
+                structured.get("managerNote"),
+            ]
+        )
+    return [value for value in values if isinstance(value, str) and value.strip()]
+
+
+def review_text_fingerprint(value: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[\d,.:;()/_+-]+", " ", value.lower())).strip()
+
+
+def review_fingerprints_too_similar(current: str, recent: str) -> bool:
+    if current == recent:
+        return True
+    shorter, longer = sorted((current, recent), key=len)
+    if len(shorter) >= 48 and shorter in longer:
+        return True
+    current_words = {word for word in current.split() if len(word) >= 4}
+    recent_words = {word for word in recent.split() if len(word) >= 4}
+    if len(current_words) < 6 or len(recent_words) < 6:
+        return False
+    overlap = len(current_words & recent_words) / max(1, min(len(current_words), len(recent_words)))
+    return overlap >= 0.72
 
 
 def numeric_metric(metrics: dict[str, Any], key: str) -> Optional[float]:
@@ -1676,6 +1779,12 @@ async def run_management_reviews(
         try:
             review = await run_position_management_with_logging(db, payload, clean_provider, settings=settings)
             review = refresh_stale_position_management_review(review, event=event, exposure=exposure)
+            review = refresh_repetitive_position_management_review(
+                review,
+                event=event,
+                exposure=exposure,
+                recent_reviews=management_context.get("recentManagementReviews", []),
+            )
             review = enforce_pending_order_cancel_event(review, event=event, exposure=exposure)
             if event.eventType == PRICE_SHOCK_EVENT_TYPE:
                 review.nextReviewInSeconds = max(60, int(settings.price_shock_review_seconds or 120))

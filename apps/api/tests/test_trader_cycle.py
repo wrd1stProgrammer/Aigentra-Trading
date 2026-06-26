@@ -15,6 +15,7 @@ from app.market.snapshot import classify_market_regime, derivative_context
 from app.main import (
     enforce_pending_order_cancel_event,
     heartbeat_event_for_position,
+    refresh_repetitive_position_management_review,
     refresh_stale_position_management_review,
     trade_plan_from_review,
 )
@@ -597,7 +598,7 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
                 }
             ],
         )
-    )
+    ).split("Payload:", 1)[0]
     management = position_management_review_prompt(
         PositionManagementPayload(
             trader=strategy.profile,
@@ -780,6 +781,108 @@ def test_review_prompts_require_plain_english_decision_flow_not_indicator_lists(
         assert "valid price structure" in contract
         assert "risk-reward ratio is valid" in contract
         assert "hold the position and continue monitoring" in contract
+
+
+def test_prompts_directly_ban_latest_repeated_trend_sentinel_review_copy():
+    snapshot = sample_snapshot()
+    snapshot["price"] = 60271.0
+    snapshot["timeframes"]["1h"]["ema50"] = 64115.22
+    strategy = get_strategy("trend-sentinel")
+    candidate = strategy.evaluate(snapshot)
+
+    entry_prompt = entry_approval_prompt(
+        TradeReviewPayload(
+            trader=strategy.profile,
+            symbol="BTCUSDT",
+            marketSnapshot=snapshot,
+            candidate=candidate,
+            locale="en",
+            recentAiReviews=[
+                {
+                    "decision": "ADJUST_AND_APPROVE",
+                    "approvalReason": (
+                        "The 4h and 1d bearish structure supports the short, and the entry/stop/target "
+                        "geometry is valid with fee-aware RR just meeting the minimum."
+                    ),
+                    "structuredReview": {
+                        "headline": "The short setup is structurally valid, but 8x leverage is too aggressive for a moderate reward-to-risk and mixed lower-timeframe confirmation.",
+                        "action": "Approve only with reduced leverage and tighter execution discipline; keep the first limit and cancel the immediate second fill if price does not reject cleanly.",
+                        "keyReasons": [
+                            "The 4h and 1d trends still support a short continuation, and the stop and targets are placed correctly for a pending short.",
+                            "The fee-aware RR clears the minimum, but only modestly, so the trade needs smaller size and cleaner confirmation to stay durable.",
+                        ],
+                    },
+                }
+            ],
+        )
+    )
+    management_prompt_text = position_management_review_prompt(
+        PositionManagementPayload(
+            trader=strategy.profile,
+            symbol="BTCUSDT",
+            marketSnapshot=snapshot,
+            event=ManagementEvent(
+                eventType="trend_sentinel_position_heartbeat",
+                phase="OPEN_POSITION",
+                severity="MEDIUM",
+                reason="Periodic agent review: actively decide whether to keep trailing a trend or exit on higher-timeframe damage.",
+                suggestedAction="HOLD",
+                metrics={
+                    "price": 60271.0,
+                    "entryPrice": 59681.6,
+                    "stopLoss": 61057.6,
+                    "takeProfit": 58304.2,
+                    "progressR": -0.4286,
+                    "targetProgress": -0.4286,
+                    "ema50_4h": 64115.22,
+                    "adx1h": 40.0,
+                    "stallPrice": 63900.0,
+                },
+            ),
+            exposure=ManagedExposure(
+                kind="position",
+                id=1464,
+                status="open",
+                side="SHORT",
+                entryPrice=59681.6,
+                stopLoss=61057.6,
+                takeProfit=58304.2,
+                unrealizedPnl=-42.0,
+            ),
+            recentManagementReviews=[
+                {
+                    "decision": "HOLD",
+                    "eventType": "trend_sentinel_position_heartbeat",
+                    "structuredReview": {
+                        "headline": "The position remains within the confirmed bearish trend on higher timeframes; no change needed.",
+                        "action": "Continue monitoring without adjusting stops or leverage; no change unless higher timeframe support weakens.",
+                        "keyReasons": ["Trend is confirmed on higher timeframes with valid price structure and risk-reward ratio."],
+                        "risks": ["If 4H closes above EMA50 64115.22, the bearish structure may invalidate, requiring reassessment."],
+                        "watchConditions": [
+                            "Exit if 4H closes above EMA50 64115.22. Monitor 1H ADX for any drop below 40; if price stalls above 63900 for more than 2 hours, consider partial profit and trailing only if ADX remains strong."
+                        ],
+                        "managerNote": "Current setup remains valid; no urgent action needed. Continue to observe higher timeframe signals.",
+                    },
+                    "rationale": "The position remains aligned with the long-term bearish trend supported by higher timeframe structure.",
+                }
+            ],
+            locale="en",
+        )
+    )
+
+    entry_contract, entry_payload = entry_prompt.split("Payload:", 1)
+    management_contract, management_payload = management_prompt_text.split("Payload:", 1)
+    entry_data = json.loads(entry_payload)
+    management_data = json.loads(management_payload)
+
+    assert entry_data["recentEntryReviewMemory"][0]["avoidRepeating"][0].startswith("The short setup is structurally valid")
+    assert management_data["recentReviewMemory"][0]["avoidRepeating"][0].startswith(
+        "The position remains within the confirmed bearish trend"
+    )
+
+    for contract in (entry_contract, management_contract):
+        assert "repeat-suppression is mandatory" in contract
+        assert "a materially different first sentence" in contract
 
 
 def test_imbalance_management_prompt_builds_delta_memory_from_recent_reviews():
@@ -1077,3 +1180,63 @@ def test_stale_position_management_review_is_refreshed_from_live_metrics():
     assert "64,038.4" not in " ".join(refreshed.structuredReview.keyReasons)
     assert "STALE_STRUCTURED_REVIEW_REFRESHED" in refreshed.riskFlags
     assert "Current price 62,301.4" in refreshed.rationale
+
+
+def test_repetitive_position_management_review_is_refreshed_before_storage():
+    repeated_structured = {
+        "headline": "The position remains within the confirmed bearish trend on higher timeframes; no change needed.",
+        "action": "Continue monitoring without adjusting stops or leverage; no change unless higher timeframe support weakens.",
+        "keyReasons": ["Trend is confirmed on higher timeframes with valid price structure and risk-reward ratio."],
+        "risks": ["If 4H closes above EMA50 64115.22, the bearish structure may invalidate, requiring reassessment."],
+        "watchConditions": ["Exit if 4H closes above EMA50 64115.22. Monitor 1H ADX for any drop below 40."],
+        "managerNote": "Current setup remains valid; no urgent action needed. Continue to observe higher timeframe signals.",
+    }
+    review = PositionManagementResult(
+        decision="HOLD",
+        confidence=72,
+        riskLevel="MEDIUM",
+        structuredReview=StructuredReview(**repeated_structured),
+        actions=[],
+        riskChange="UNCHANGED",
+        nextReviewInSeconds=1500,
+        rationale="The position remains aligned with the long-term bearish trend supported by higher timeframe structure.",
+        counterThesis="4H close above EMA50 invalidates the short.",
+        provider="openai",
+        model="gpt-4.1-mini",
+    )
+    event = ManagementEvent(
+        eventType="trend_sentinel_position_heartbeat",
+        phase="OPEN_POSITION",
+        reason="Periodic agent review: actively decide whether to keep trailing a trend or exit on higher-timeframe damage.",
+        metrics={
+            "price": 60271.0,
+            "entryPrice": 59681.6,
+            "stopLoss": 61057.6,
+            "takeProfit": 58304.2,
+            "progressR": -0.4286,
+            "unrealizedPnl": -42.0,
+        },
+    )
+    exposure = ManagedExposure(
+        kind="position",
+        id=1464,
+        status="open",
+        side="SHORT",
+        entryPrice=59681.6,
+        stopLoss=61057.6,
+        takeProfit=58304.2,
+        unrealizedPnl=-42.0,
+    )
+
+    refreshed = refresh_repetitive_position_management_review(
+        review,
+        event=event,
+        exposure=exposure,
+        recent_reviews=[{"structuredReview": repeated_structured, "rationale": review.rationale}],
+    )
+
+    assert refreshed.structuredReview is not None
+    combined = " ".join([refreshed.structuredReview.headline or "", refreshed.structuredReview.action or "", refreshed.rationale])
+    assert "60,271" in combined
+    assert "confirmed bearish trend on higher timeframes" not in combined
+    assert "REPETITIVE_STRUCTURED_REVIEW_REFRESHED" in refreshed.riskFlags

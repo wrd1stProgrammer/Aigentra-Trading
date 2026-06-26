@@ -25,6 +25,10 @@ const statusFeedThreadSource = readFileSync(new URL("../components/trader-profil
 
 const overlayHelpers = loadTsModule("../components/live-candle-chart-overlays.ts");
 const reviewBrief = loadTsModule("../lib/review-brief.ts");
+const league = loadTsModule("../lib/league.ts", {
+  "@/lib/review-brief": reviewBrief,
+  "@/lib/traders": { fallbackTraders: [] }
+});
 const reviewDisplay = loadTsModule("../lib/review-display.ts");
 const scenarioCopy = loadTsModule("../components/trader-profile-detail/scenario-copy.ts", {
   "@/lib/review-display": reviewDisplay
@@ -298,6 +302,48 @@ test("latest scenario timeline relies on real localized review payloads instead 
   assert.doesNotMatch(scenarioFeedSource, /looksLikeEnglishProse/, "scenario timeline should not use language guessing as the localization contract");
   assert.doesNotMatch(i18nSource, /"scenario\.fallback\.entryReviewPendingTranslation"/, "entry review pending-translation fallback copy should not ship");
   assert.doesNotMatch(i18nSource, /"scenario\.fallback\.managementReviewPendingTranslation"/, "management review pending-translation fallback copy should not ship");
+});
+
+test("approved entry scenarios prioritize the saved entry reason over generic structured risk copy", () => {
+  const scenarios = league.buildScenarios({
+    trader: { id: "trend-sentinel", currentPlan: "wait", baseRiskPercent: 0.5, description: "Trend" },
+    positions: [
+      {
+        id: 77,
+        side: "SHORT",
+        status: "open",
+        entryPrice: 59681.6,
+        stopLossPrice: 61057.6,
+        takeProfitPrice: 58304.2,
+        quantity: 0.42,
+        payload: {
+          aiReview: {
+            approvalReason:
+              "진입 승인 이유: 4H 하락 추세가 유지되는 중 되돌림 상단에서 숏을 잡았고, 손절은 되돌림 무효화선 위에 있으며 첫 익절까지의 거리가 수수료를 감안해도 남아 있습니다.",
+            structuredReview: {
+              headline:
+                "숏 설정은 구조적으로 유효하지만, 8배 레버리지는 중간 수준의 수익-위험 비율과 혼합 하위 프레임 확인에 대해 너무 공격적입니다.",
+              action:
+                "레버리지를 낮추고 실행 규칙을 엄격히 하며, 첫 제한은 유지하고 가격이 명확히 거부되지 않으면 두 번째 채우기를 취소하십시오.",
+              keyReasons: ["4시간과 일간 차트는 여전히 숏 연속을 지지합니다."],
+              risks: ["8배에서는 작은 반등이 빠른 스톱아웃으로 바뀔 수 있습니다."],
+              watchConditions: ["EMA50 회복 여부"],
+              managerNote: "유효한 숏 아이디어이지만 최대 레버리지는 아닙니다."
+            }
+          },
+          entryReason: "Continuation confirmation"
+        },
+        openedAt: "2026-06-26T07:00:00Z"
+      }
+    ],
+    orders: [],
+    reviews: [],
+    events: []
+  });
+
+  assert.equal(scenarios[0].source, "position");
+  assert.match(scenarios[0].rationale, /진입 승인 이유/);
+  assert.equal(scenarios[0].reviewBrief, null);
 });
 
 test("scenario modal uses a compact reference-style ratio and neutral rationale card", () => {

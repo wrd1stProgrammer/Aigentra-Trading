@@ -235,7 +235,7 @@ test("position panel exposes detail callbacks for positions and orders", () => {
 
 test("position panel fallback detail scenarios keep structured AI review copy", () => {
   assert.match(panelSource, /import \{ reviewBriefFromRecord \} from "@\/lib\/review-brief"/);
-  assert.match(panelSource, /reviewBrief:\s*reviewBriefFromRecord\(\{ payload \}\)/);
+  assert.match(panelSource, /reviewBrief:\s*entryApprovalRationale\(payload\)\s*\?\s*null\s*:\s*reviewBriefFromRecord\(\{ payload \}\)/);
 });
 
 test("scenario modal does not show entry summary as management rationale", () => {
@@ -363,7 +363,8 @@ test("latest scenario feed prefers structured readable review text when availabl
   );
   assert.match(copy, /가격 구조로 신중한 접근 필요/);
   assert.match(copy, /약한 거래량 주의/);
-  assert.doesNotMatch(copy, /;|지오메트리|무효화|모니터링/);
+  assert.match(copy, /무효화 신호 확인/);
+  assert.doesNotMatch(copy, /;|지오메트리|실패 수준|모니터링/);
   assert.doesNotMatch(copy, /포지션 유지 중\. 핵심 조건만 확인합니다/);
 });
 
