@@ -1,9 +1,13 @@
 import pytest
+from pathlib import Path
 
 from app.ai.league_sentiment_models import LeagueSentimentPayload
 from app.ai.openai_provider import OpenAIProvider
 from app.traders.models import ManagedExposure, ManagementEvent, PositionManagementPayload, TradeReviewPayload
 from app.traders.registry import get_strategy
+
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def sample_review_payload() -> TradeReviewPayload:
@@ -28,6 +32,14 @@ def sample_review_payload() -> TradeReviewPayload:
         candidate=candidate,
         locale="en",
     )
+
+
+def test_production_examples_use_mini_for_position_management_reviews():
+    production_env = (REPO_ROOT / "deploy/ec2/production.env.example").read_text()
+    local_env = (REPO_ROOT / "apps/api/.env.example").read_text()
+
+    assert "OPENAI_POSITION_MANAGEMENT_MODEL=gpt-4.1-mini" in production_env
+    assert "OPENAI_POSITION_MANAGEMENT_MODEL=gpt-4.1-mini" in local_env
 
 
 def sample_management_payload() -> PositionManagementPayload:

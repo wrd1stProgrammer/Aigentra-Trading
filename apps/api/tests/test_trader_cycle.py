@@ -888,6 +888,49 @@ def test_prompts_directly_ban_latest_repeated_trend_sentinel_review_copy():
         assert "Do not mention previous wording" in contract
 
 
+def test_position_management_prompt_requires_live_position_first_desk_briefing():
+    payload = PositionManagementPayload(
+        trader=get_strategy("trend-sentinel").profile,
+        symbol="BTCUSDT",
+        marketSnapshot={"symbol": "BTCUSDT", "price": 60187.3, "timeframes": {}, "derivatives": {}},
+        event=ManagementEvent(
+            eventType="trend_sentinel_position_heartbeat",
+            phase="OPEN_POSITION",
+            severity="HIGH",
+            reason="Decide whether to keep trailing the trend or exit if the higher-timeframe trend weakens.",
+            suggestedAction="HOLD",
+            metrics={
+                "price": 60187.3,
+                "entryPrice": 59681.6,
+                "stopLoss": 61057.6,
+                "takeProfit": 57043.9,
+                "progressR": -0.37,
+                "targetProgress": -0.19,
+                "unrealizedPnl": -255.59,
+            },
+        ),
+        exposure=ManagedExposure(
+            kind="position",
+            id=366,
+            status="open",
+            side="SHORT",
+            entryPrice=59681.6,
+            stopLoss=61057.6,
+            takeProfit=57043.9,
+            unrealizedPnl=-255.59,
+        ),
+        locale="en",
+    )
+
+    prompt = position_management_review_prompt(payload)
+
+    assert "POSITION-FIRST DESK BRIEFING" in prompt
+    assert "lead with price versus entry, stop, target, PnL, progressR, and targetProgress" in prompt
+    assert "Do not lead with overall trend alignment, valid structure, risk-reward ratio, or no invalidation signal" in prompt
+    assert "If progressR is between -0.25 and 0.25" in prompt
+    assert "why not close, why not move the stop, why not take profit, and what exact trigger changes the decision" in prompt
+
+
 def test_management_reviews_do_not_use_post_provider_repetitive_rewrite_guard():
     assert not hasattr(main_module, "refresh_repetitive_position_management_review")
     source = main_module.run_management_reviews.__code__.co_names
