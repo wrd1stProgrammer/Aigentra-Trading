@@ -356,6 +356,7 @@ def handle_take_profit_exit(
             position.take_profit_price = Decimal(str(next_tp["price"]))
         else:
             position.take_profit_price = None
+        _move_stop_to_breakeven(db, position, parsed_candle, result, reason="first_take_profit_breakeven")
 
 
 def process_candle(db: Session, trader_id: str, symbol: str, candle: Union[Candle, dict[str, Any]]) -> PaperEngineResult:
@@ -710,6 +711,32 @@ def _maybe_move_stop_to_breakeven(
     if not should_move:
         return
 
+    _move_stop_to_breakeven(
+        db,
+        position,
+        candle,
+        result,
+        reason="strategy_holding_policy_breakeven",
+        payload_extra={"holdingPolicy": policy.as_prompt_dict()},
+    )
+
+
+def _move_stop_to_breakeven(
+    db: Session,
+    position: PaperPositionRecord,
+    candle: Candle,
+    result: PaperEngineResult,
+    *,
+    reason: str,
+    payload_extra: Optional[dict[str, Any]] = None,
+) -> None:
+    if position.stop_loss_price is None:
+        return
+    if position.side == "long" and position.stop_loss_price >= position.entry_price:
+        return
+    if position.side == "short" and position.stop_loss_price <= position.entry_price:
+        return
+
     previous_stop = position.stop_loss_price
     position.stop_loss_price = position.entry_price
     position.updated_at = utc_now()
@@ -726,8 +753,8 @@ def _maybe_move_stop_to_breakeven(
             "paperOnly": True,
             "previousStop": previous_stop,
             "newStop": position.entry_price,
-            "reason": "strategy_holding_policy_breakeven",
-            "holdingPolicy": policy.as_prompt_dict(),
+            "reason": reason,
+            **(payload_extra or {}),
         },
     )
     result.events.append(event)

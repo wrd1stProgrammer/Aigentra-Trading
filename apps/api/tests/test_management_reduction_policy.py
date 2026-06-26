@@ -6,8 +6,6 @@ from sqlalchemy import select
 from app.db import PaperPositionRecord, init_db, reset_db_engine, session_scope
 from app.paper.engine import PaperEngineResult, place_paper_order, process_candle
 from app.paper.management import (
-    BREAKEVEN_PROFIT_PROTECTION_EVENT_TYPE,
-    breakeven_profit_protection_event,
     management_review_cooldown_seconds,
 )
 from app.paper.repositories import create_trade_event, upsert_risk_settings
@@ -157,58 +155,6 @@ def test_reduction_does_not_leave_position_below_meaningful_runner_floor(temp_db
         assert "minimum runner" in decision.reason
 
 
-def test_breakeven_review_event_triggers_after_half_target_progress(temp_db):
-    with session_scope() as db:
-        position = _create_open_position(db)
-        position.entry_price = Decimal("100")
-        position.stop_loss_price = Decimal("90")
-        position.take_profit_price = Decimal("120")
-        db.flush()
-
-        event = breakeven_profit_protection_event("paper-trader", position, {"price": 110.1})
-
-        assert event is not None
-        assert event.eventType == BREAKEVEN_PROFIT_PROTECTION_EVENT_TYPE
-        assert event.suggestedAction == "MOVE_STOP_TO_BREAKEVEN"
-        assert event.metrics["halfwayPrice"] == 110
-
-
-def test_breakeven_review_event_triggers_after_partial_take_profit_fill(temp_db):
-    with session_scope() as db:
-        position = _create_open_position(db)
-        position.entry_price = Decimal("100")
-        position.stop_loss_price = Decimal("90")
-        position.take_profit_price = Decimal("140")
-        position.payload_json = to_json({
-            "takeProfits": [
-                {"price": 120, "weight": 0.5, "status": "filled", "reason": "TP1"},
-                {"price": 140, "weight": 0.5, "status": "pending", "reason": "TP2"},
-            ]
-        })
-        db.flush()
-
-        event = breakeven_profit_protection_event("paper-trader", position, {"price": 112})
-
-        assert event is not None
-        assert event.eventType == BREAKEVEN_PROFIT_PROTECTION_EVENT_TYPE
-        assert event.metrics["trigger"] == "partial_take_profit_filled"
-        assert event.metrics["filledTakeProfitIndex"] == 0
-        assert event.metrics["takeProfit"] == 120
-
-
-def test_breakeven_review_event_does_not_repeat_after_stop_reaches_entry(temp_db):
-    with session_scope() as db:
-        position = _create_open_position(db)
-        position.entry_price = Decimal("100")
-        position.stop_loss_price = Decimal("100")
-        position.take_profit_price = Decimal("120")
-        db.flush()
-
-        event = breakeven_profit_protection_event("paper-trader", position, {"price": 111})
-
-        assert event is None
-
-
 def test_management_review_cooldown_uses_protective_minimums():
     high_risk_event = ManagementEvent(
         eventType="near_stop_risk_reduction",
@@ -217,27 +163,12 @@ def test_management_review_cooldown_uses_protective_minimums():
         reason="Close to stop.",
         suggestedAction="REDUCE_RISK",
     )
-    breakeven_event = ManagementEvent(
-        eventType=BREAKEVEN_PROFIT_PROTECTION_EVENT_TYPE,
-        phase="OPEN_POSITION",
-        severity="MEDIUM",
-        reason="Halfway to target.",
-        suggestedAction="MOVE_STOP_TO_BREAKEVEN",
-    )
 
     assert management_review_cooldown_seconds(
         high_risk_event,
         profile={"cooldown_seconds": 240},
         base_cooldown_seconds=300,
         urgent_cooldown_seconds=60,
-        breakeven_cooldown_seconds=900,
-    ) == 900
-    assert management_review_cooldown_seconds(
-        breakeven_event,
-        profile={"cooldown_seconds": 240},
-        base_cooldown_seconds=300,
-        urgent_cooldown_seconds=60,
-        breakeven_cooldown_seconds=900,
     ) == 900
 
 
@@ -260,7 +191,6 @@ def test_pending_stale_management_review_cooldown_uses_order_stale_window():
         },
         base_cooldown_seconds=300,
         urgent_cooldown_seconds=60,
-        breakeven_cooldown_seconds=900,
     ) == 900
 
 

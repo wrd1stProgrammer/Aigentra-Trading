@@ -11,7 +11,6 @@ from app.repositories import from_json
 from app.traders.models import ManagedExposure, ManagementEvent
 
 
-BREAKEVEN_PROFIT_PROTECTION_EVENT_TYPE = "breakeven_profit_protection_review"
 PROTECTIVE_REVIEW_MIN_COOLDOWN_SECONDS = 900
 
 
@@ -236,27 +235,6 @@ def as_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-COMPLETED_TAKE_PROFIT_STATUSES = {"FILLED", "DONE", "COMPLETED", "HIT", "TRIGGERED", "TP_FILLED", "TAKE_PROFIT"}
-
-
-def _completed_take_profit(payload: dict[str, Any]) -> dict[str, Any] | None:
-    targets = payload.get("takeProfits")
-    if not isinstance(targets, list):
-        return None
-    completed: list[dict[str, Any]] = []
-    for index, item in enumerate(targets):
-        if not isinstance(item, dict):
-            continue
-        status = str(item.get("status") or item.get("state") or "").strip().upper()
-        if status not in COMPLETED_TAKE_PROFIT_STATUSES:
-            continue
-        price = as_float(item.get("price") or item.get("targetPrice"), 0.0)
-        if price <= 0:
-            continue
-        completed.append({**item, "index": index, "price": price, "status": status})
-    return completed[-1] if completed else None
-
-
 def aware_datetime(value: Optional[datetime]) -> datetime:
     if value is None:
         return datetime.now(timezone.utc)
@@ -351,7 +329,6 @@ def management_review_cooldown_seconds(
     profile: dict[str, Any],
     base_cooldown_seconds: int,
     urgent_cooldown_seconds: int,
-    breakeven_cooldown_seconds: int,
 ) -> int:
     profile_cooldown = max(0, int(profile.get("cooldown_seconds") or 0))
     event_type = str(event.eventType or "")
@@ -364,84 +341,9 @@ def management_review_cooldown_seconds(
     if event_type.endswith("_heartbeat"):
         heartbeat = int((event.metrics or {}).get("heartbeatSeconds") or 0)
         return max(cooldown, heartbeat)
-    if event_type == BREAKEVEN_PROFIT_PROTECTION_EVENT_TYPE:
-        return max(cooldown, int(breakeven_cooldown_seconds or 0), PROTECTIVE_REVIEW_MIN_COOLDOWN_SECONDS)
     if event_type in {"near_target_profit_protection", "near_stop_risk_reduction"}:
         return max(cooldown, PROTECTIVE_REVIEW_MIN_COOLDOWN_SECONDS)
     return cooldown
-
-
-def breakeven_profit_protection_event(
-    trader_id: str,
-    position: PaperPositionRecord,
-    snapshot: dict,
-) -> ManagementEvent | None:
-    side = (position.side or "").lower()
-    if side not in {"long", "short"}:
-        return None
-    price = as_float(snapshot.get("price"))
-    entry = as_float(position.entry_price)
-    stop = as_float(position.stop_loss_price, entry)
-    take_profit = as_float(position.take_profit_price, entry)
-    if price <= 0 or entry <= 0 or take_profit <= 0:
-        return None
-    payload = payload_dict(position)
-    completed_target = _completed_take_profit(payload)
-    trigger = "halfway_to_take_profit"
-    if completed_target is not None:
-        take_profit = as_float(completed_target.get("price"), take_profit)
-        trigger = "partial_take_profit_filled"
-    target_distance = abs(take_profit - entry)
-    if target_distance <= 0:
-        return None
-    if side == "long":
-        if stop >= entry:
-            return None
-        halfway_price = entry + (target_distance * 0.5)
-        crossed_halfway = (price >= halfway_price and take_profit > entry) or completed_target is not None
-        target_progress = (price - entry) / target_distance
-    else:
-        if stop <= entry:
-            return None
-        halfway_price = entry - (target_distance * 0.5)
-        crossed_halfway = (price <= halfway_price and take_profit < entry) or completed_target is not None
-        target_progress = (entry - price) / target_distance
-    if not crossed_halfway:
-        return None
-    risk = abs(entry - stop) or max(price * 0.004, 1.0)
-    progress_r = ((price - entry) / risk) if side == "long" else ((entry - price) / risk)
-    reason = (
-        "A partial take-profit has already filled while the stop is still beyond breakeven; "
-        "review whether to move the stop to average entry or keep the original risk room."
-        if trigger == "partial_take_profit_filled"
-        else (
-            "Price has crossed at least halfway from average entry to take-profit while the stop is still beyond breakeven; "
-            "review whether to move the stop to average entry or keep the original risk room."
-        )
-    )
-    return ManagementEvent(
-        eventType=BREAKEVEN_PROFIT_PROTECTION_EVENT_TYPE,
-        phase="OPEN_POSITION",
-        severity="MEDIUM",
-        reason=reason,
-        suggestedAction="MOVE_STOP_TO_BREAKEVEN",
-        metrics={
-            "price": price,
-            "entryPrice": entry,
-            "stopLoss": stop,
-            "takeProfit": take_profit,
-            "halfwayPrice": halfway_price,
-            "targetProgress": round(target_progress, 4),
-            "progressR": round(progress_r, 4),
-            "unrealizedPnl": as_float(position.unrealized_pnl, 0.0),
-            "side": side.upper(),
-            "traderId": trader_id,
-            "positionId": position.id,
-            "trigger": trigger,
-            "filledTakeProfitIndex": completed_target.get("index") if completed_target else None,
-            "filledTakeProfitPrice": completed_target.get("price") if completed_target else None,
-        },
-    )
 
 
 def order_management_events(trader_id: str, order: PaperOrderRecord, snapshot: dict) -> list[ManagementEvent]:

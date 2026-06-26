@@ -475,6 +475,11 @@ def test_partial_take_profit_reduces_position_size(temp_db):
         assert position.status == "open"
         assert rounded(position.quantity) == Decimal("0.5000")
         assert rounded(position.take_profit_price) == Decimal("120.0000")
+        assert rounded(position.stop_loss_price) == Decimal("100.0000")
+        assert [event.event_type for event in second.events] == [
+            "take_partial_profit",
+            "stop_moved_to_breakeven",
+        ]
         
         third = process_candle(
             db,
@@ -486,6 +491,58 @@ def test_partial_take_profit_reduces_position_size(temp_db):
         db.refresh(position)
         assert position.status == "closed"
         assert position.close_reason == "take_profit"
+
+
+def test_short_partial_take_profit_moves_stop_to_breakeven(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)
+
+        from app.repositories import to_json
+        order_payload = {
+            "initialQuantity": 1.0,
+            "takeProfits": [
+                {"price": 90.0, "weight": 0.5, "status": "pending", "reason": "TP1"},
+                {"price": 80.0, "weight": 0.5, "status": "pending", "reason": "TP2"},
+            ],
+        }
+
+        order = place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="short",
+            quantity=1.0,
+            leverage=10,
+            take_profit_price=90.0,
+            stop_loss_price=105.0,
+        )
+        order.payload_json = to_json(order_payload)
+        db.flush()
+
+        process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 99, "close": 100},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+
+        result = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 85, "close": 91},
+        )
+
+        db.refresh(position)
+        assert position.status == "open"
+        assert rounded(position.quantity) == Decimal("0.5000")
+        assert rounded(position.take_profit_price) == Decimal("80.0000")
+        assert rounded(position.stop_loss_price) == Decimal("100.0000")
+        assert [event.event_type for event in result.events] == [
+            "take_partial_profit",
+            "stop_moved_to_breakeven",
+        ]
 
 
 def test_close_position_cancels_remaining_orders_for_same_plan(temp_db):

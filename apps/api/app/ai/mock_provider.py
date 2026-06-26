@@ -210,7 +210,7 @@ class MockAIProvider(BaseAIProvider):
             {"code": "holding_policy_checked", "labelKey": "reviewFact.holdingPolicyChecked", "severity": "info"},
             {"code": "hard_rules_priority", "labelKey": "reviewFact.hardRulesPriority", "severity": "warn"},
         ]
-        next_review_seconds = 120 if event.eventType == "common_price_shock" else 900 if event.eventType == "breakeven_profit_protection_review" else 300
+        next_review_seconds = 120 if event.eventType == "common_price_shock" else 300
         return self.normalize_management_result(
             {
                 "decision": suggested if suggested in {"HOLD", "CANCEL_PENDING_ORDER", "ADJUST_PENDING_ORDER", "MOVE_STOP", "MOVE_STOP_TO_BREAKEVEN", "TRAIL_STOP", "TAKE_PARTIAL_PROFIT", "CLOSE_POSITION", "REDUCE_RISK", "ADD_TO_POSITION", "PYRAMID_POSITION", "LET_PROFIT_RUN", "NEEDS_MORE_DATA"} else "HOLD",
