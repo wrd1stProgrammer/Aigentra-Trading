@@ -137,6 +137,10 @@ def sample_snapshot():
     }
 
 
+def prompt_payload(prompt: str) -> dict:
+    return json.loads(prompt.split("Payload:", 1)[1])
+
+
 def test_pending_order_cancel_event_overrides_hold_review():
     review = PositionManagementResult(
         decision="HOLD",
@@ -989,6 +993,145 @@ def test_position_management_prompt_bans_repeated_title_labels_and_entry_price_c
     assert "Never call the current price the entry price" in contract
     assert "If higher timeframes oppose the open position direction" in contract
     assert "counter-trend or tactical position" in contract
+
+
+def test_position_management_prompt_sends_slim_exposure_and_entry_thesis_context():
+    previous_entry_review = (
+        "The short setup is structurally valid, but 8x leverage is too aggressive. "
+        "This long approval report is intentionally bulky and should never be copied into a management prompt."
+    )
+    payload = PositionManagementPayload(
+        trader=get_strategy("trend-sentinel").profile,
+        symbol="BTCUSDT",
+        marketSnapshot={"symbol": "BTCUSDT", "price": 59659.9, "timeframes": {}, "derivatives": {}},
+        event=ManagementEvent(
+            eventType="trend_sentinel_position_heartbeat",
+            phase="OPEN_POSITION",
+            severity="MEDIUM",
+            reason="Manage the open short after TP1 filled and the stop moved to breakeven.",
+            suggestedAction="HOLD",
+            metrics={
+                "price": 59659.9,
+                "entryPrice": 60347.5,
+                "stopLoss": 60347.5,
+                "takeProfit": 59109.6,
+                "progressR": 2.88,
+                "targetProgress": 0.56,
+                "unrealizedPnl": 275.4,
+            },
+        ),
+        exposure=ManagedExposure(
+            kind="position",
+            id=919,
+            status="open",
+            side="SHORT",
+            entryPrice=60347.5,
+            stopLoss=60347.5,
+            takeProfit=59109.6,
+            leverage=5,
+            unrealizedPnl=275.4,
+            payload={
+                "aiReview": previous_entry_review,
+                "aiReviewFacts": [{"code": "old_fact", "detail": "old detailed review fact"}],
+                "aiStructuredReview": {
+                    "headline": "Old approval headline that should not steer management.",
+                    "managerNote": "Old approval manager note should stay out of the prompt.",
+                },
+                "aiApprovalReason": "Trend continuation entry after rejection near EMA.",
+                "aiCounterThesis": "A reclaim above the invalidation line would cancel the short thesis.",
+                "candidateSetupType": "trend_continuation_short",
+                "plannedEntryPrice": 60347.5,
+                "plannedStopLoss": 61337.8,
+                "riskPercent": 0.8,
+                "plannedMargin": 1200.0,
+                "notionalExposurePercent": 41.2,
+                "orderIntent": {"type": "scale_limit", "verbose": "not needed now"},
+                "leveragePlan": {"suggestedLeverage": 8, "verbose": "not needed now"},
+                "takeProfits": [
+                    {"price": 59109.6, "weight": 0.5, "reason": "first channel target", "status": "filled"},
+                    {"price": 57043.9, "weight": 0.5, "reason": "trend extension target", "status": "open"},
+                ],
+            },
+        ),
+        recentManagementReviews=[
+            {
+                "decision": "HOLD",
+                "actionType": "HOLD",
+                "eventType": "trend_sentinel_position_heartbeat",
+                "createdAt": "2026-06-26T00:00:00Z",
+                "rationale": "Old repeated management rationale SHOULD_NOT_LEAK_RECENT_REVIEW",
+                "structuredReview": {
+                    "headline": "Old repeated management headline SHOULD_NOT_LEAK_RECENT_REVIEW",
+                    "action": "Keep repeating the old line.",
+                },
+                "providerPayload": {
+                    "rawCompletion": "INTERNAL_PROVIDER_COMPLETION_SHOULD_NOT_LEAK",
+                },
+            }
+        ],
+        locale="en",
+    )
+
+    data = prompt_payload(position_management_review_prompt(payload))
+    prompt_json = json.dumps(data, ensure_ascii=False)
+
+    assert "entryThesis" in data
+    assert data["entryThesis"]["setupType"] == "trend_continuation_short"
+    assert data["entryThesis"]["approvalSummary"] == "Trend continuation entry after rejection near EMA."
+    assert data["entryThesis"]["takeProfits"][0]["status"] == "filled"
+    assert data["exposure"]["entryPrice"] == 60347.5
+    assert "payload" not in data["exposure"]
+    assert previous_entry_review not in prompt_json
+    assert "aiReviewFacts" not in prompt_json
+    assert "aiStructuredReview" not in prompt_json
+    assert "plannedMargin" not in prompt_json
+    assert "notionalExposurePercent" not in prompt_json
+    assert "orderIntent" not in prompt_json
+    assert "leveragePlan" not in prompt_json
+    assert data["recentManagementReviews"] == [
+        {
+            "decision": "HOLD",
+            "actionType": "HOLD",
+            "eventType": "trend_sentinel_position_heartbeat",
+            "createdAt": "2026-06-26T00:00:00Z",
+        }
+    ]
+    assert "providerPayload" not in prompt_json
+    assert "INTERNAL_PROVIDER_COMPLETION_SHOULD_NOT_LEAK" not in prompt_json
+
+
+def test_position_management_prompt_bans_profit_certainty_and_current_price_as_entry():
+    payload = PositionManagementPayload(
+        trader=get_strategy("channel-rider").profile,
+        symbol="BTCUSDT",
+        marketSnapshot={"symbol": "BTCUSDT", "price": 59659.9, "timeframes": {}, "derivatives": {}},
+        event=ManagementEvent(
+            eventType="channel_stop_tightened",
+            phase="OPEN_POSITION",
+            severity="MEDIUM",
+            reason="TP1 was reached and stop is now at breakeven.",
+            suggestedAction="HOLD",
+            metrics={"price": 59659.9, "entryPrice": 60347.5, "stopLoss": 60347.5, "takeProfit": 59109.6},
+        ),
+        exposure=ManagedExposure(
+            kind="position",
+            id=920,
+            status="open",
+            side="SHORT",
+            entryPrice=60347.5,
+            stopLoss=60347.5,
+            takeProfit=59109.6,
+        ),
+        locale="en",
+    )
+
+    contract = position_management_review_prompt(payload).split("Payload:", 1)[0]
+
+    assert "Do not say profit is locked, secured, guaranteed, confirmed, or preserved" in contract
+    assert "profit remains unrealized" in contract
+    assert "Never write near entry at <current price>" in contract
+    assert "current price X versus entry Y" in contract
+    assert "For SHORT positions, do not use downside risk to mean loss risk" in contract
 
 
 def test_management_reviews_do_not_use_post_provider_repetitive_rewrite_guard():

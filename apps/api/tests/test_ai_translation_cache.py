@@ -494,6 +494,33 @@ def test_ai_review_translation_uses_user_facing_review_style_contract():
     assert "고차원 손상" in contract["avoidExamples"]
 
 
+def test_ai_review_translation_contract_preserves_korean_trading_semantics():
+    payload = {
+        "decision": "HOLD",
+        "structuredReview": {
+            "headline": "SHORT has unrealized profit and the stop is now at breakeven.",
+            "action": "Keep the position open while loss risk is controlled.",
+        },
+        "rationale": "The thesis remains valid unless price reclaims the stop.",
+    }
+
+    contract = translation_style_contract_for_payload(payload, "ko")
+    term_rules = " ".join(contract["koreanTermRules"])
+    forbidden = " ".join(contract["forbiddenPhrases"])
+    examples = " ".join(contract["avoidExamples"])
+
+    assert "unrealized profit -> 미실현 이익" in term_rules
+    assert "breakeven stop -> 본절 손절" in term_rules
+    assert "stop loss -> 손절가/손절선" in term_rules
+    assert "thesis -> 논리/가설" in term_rules
+    assert "이익이 확정적" in forbidden
+    assert "정지 손실" in forbidden
+    assert "손실 제한" in forbidden
+    assert "하락 위험" in forbidden
+    assert "세타" in forbidden
+    assert "locked in profit -> 수익 확정이 아니라 손실 위험을 줄인 상태" in examples
+
+
 def test_trader_status_feed_translation_contract_blocks_mixed_language_and_boilerplate():
     payload = {
         "feedType": AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED,

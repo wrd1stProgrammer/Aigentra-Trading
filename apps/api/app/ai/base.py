@@ -7,6 +7,7 @@ from app.ai.review_prompt_quality import STRUCTURED_REVIEW_QUALITY_CONTRACT
 from app.paper.holding_policy import trader_holding_policy
 from app.traders.models import (
     ManagementAction,
+    ManagedExposure,
     PositionManagementPayload,
     PositionManagementResult,
     TradeReviewPayload,
@@ -614,6 +615,26 @@ def recent_management_review_memory(reviews: list[dict[str, Any]]) -> list[dict[
     return memory
 
 
+def recent_management_review_context(reviews: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    context: list[dict[str, Any]] = []
+    for review in reviews[:3]:
+        compact: dict[str, Any] = {}
+        for key in (
+            "decision",
+            "actionType",
+            "eventType",
+            "reviewCode",
+            "riskChange",
+            "createdAt",
+        ):
+            value = review.get(key)
+            if value is not None and value != "":
+                compact[key] = value
+        if compact:
+            context.append(compact)
+    return context
+
+
 def recent_entry_review_memory(reviews: list[dict[str, Any]]) -> list[dict[str, Any]]:
     memory: list[dict[str, Any]] = []
     for review in reviews[:4]:
@@ -675,6 +696,40 @@ MANAGEMENT_CONTEXT_METRIC_KEYS: Final = (
 )
 
 
+MANAGEMENT_EXPOSURE_CONTEXT_KEYS: Final = (
+    "kind",
+    "id",
+    "status",
+    "side",
+    "quantity",
+    "entryPrice",
+    "limitPrice",
+    "stopLoss",
+    "takeProfit",
+    "leverage",
+    "unrealizedPnl",
+    "createdAt",
+    "updatedAt",
+)
+
+
+ENTRY_THESIS_TEXT_KEYS: Final = (
+    "entryReason",
+    "setupReason",
+    "thesis",
+    "rationale",
+)
+
+
+ENTRY_THESIS_TAKE_PROFIT_KEYS: Final = (
+    "price",
+    "weight",
+    "quantityFraction",
+    "reason",
+    "status",
+)
+
+
 def management_anchor_context(metrics: dict[str, Any], *, entry: Any, stop: Any) -> dict[str, Any]:
     primary_name = "entry"
     primary_level = entry
@@ -705,6 +760,95 @@ def management_strategy_metrics(metrics: dict[str, Any], *, entry: Any, stop: An
         "imbalanceMidpoint": strategy_metrics.get("imbalanceMidpoint") or entry,
         **strategy_metrics,
     }
+
+
+def compact_management_exposure(exposure: ManagedExposure) -> dict[str, Any]:
+    raw = exposure.model_dump()
+    return {
+        key: raw[key]
+        for key in MANAGEMENT_EXPOSURE_CONTEXT_KEYS
+        if key in raw and raw[key] is not None
+    }
+
+
+def compact_take_profit_context(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    take_profits: list[dict[str, Any]] = []
+    for item in value[:4]:
+        if not isinstance(item, dict):
+            continue
+        compact = {
+            key: compact_text(item[key], 120) if key == "reason" else item[key]
+            for key in ENTRY_THESIS_TAKE_PROFIT_KEYS
+            if key in item and item[key] is not None
+        }
+        if compact:
+            take_profits.append(compact)
+    return take_profits
+
+
+def compact_management_entry_thesis(exposure: ManagedExposure) -> dict[str, Any]:
+    source = exposure.payload if isinstance(exposure.payload, dict) else {}
+    thesis: dict[str, Any] = {}
+    review = source.get("aiReview") if isinstance(source.get("aiReview"), dict) else {}
+    for source_key, output_key in (
+        ("aiReviewDecision", "decision"),
+        ("aiReviewConfidence", "confidence"),
+        ("aiRiskLevel", "riskLevel"),
+        ("aiReviewCode", "reviewCode"),
+    ):
+        value = source.get(source_key)
+        if value is not None:
+            thesis[output_key] = value
+    for source_key, output_key in (
+        ("decision", "decision"),
+        ("confidence", "confidence"),
+        ("riskLevel", "riskLevel"),
+        ("reviewCode", "reviewCode"),
+    ):
+        value = review.get(source_key)
+        if output_key not in thesis and value is not None:
+            thesis[output_key] = value
+    setup_type = source.get("candidateSetupType") or source.get("setupType")
+    if setup_type:
+        thesis["setupType"] = setup_type
+    for key in ENTRY_THESIS_TEXT_KEYS:
+        text = compact_text(source.get(key), 180)
+        if text:
+            thesis["entryReason"] = text
+            break
+    approval_summary = compact_text(source.get("aiApprovalReason"), 180)
+    if approval_summary:
+        thesis["approvalSummary"] = approval_summary
+    counter_thesis = compact_text(source.get("aiCounterThesis"), 180)
+    if counter_thesis:
+        thesis["counterThesis"] = counter_thesis
+    for source_key, output_key in (
+        ("plannedEntryPrice", "plannedEntryPrice"),
+        ("plannedStopLoss", "plannedStopLoss"),
+        ("plannedTakeProfit", "plannedTakeProfit"),
+        ("riskPercent", "riskPercent"),
+        ("entryIndex", "entryIndex"),
+        ("entryWeight", "entryWeight"),
+        ("effectiveEntryWeight", "effectiveEntryWeight"),
+    ):
+        value = source.get(source_key)
+        if value is not None:
+            thesis[output_key] = value
+    take_profits = compact_take_profit_context(source.get("takeProfits"))
+    if take_profits:
+        thesis["takeProfits"] = take_profits
+    target = source.get("target")
+    if isinstance(target, dict):
+        target_context = {
+            key: compact_text(target[key], 120) if key == "reason" else target[key]
+            for key in ENTRY_THESIS_TAKE_PROFIT_KEYS
+            if key in target and target[key] is not None
+        }
+        if target_context:
+            thesis["target"] = target_context
+    return thesis
 
 
 def current_management_review_delta(payload: PositionManagementPayload) -> dict[str, Any]:
@@ -876,8 +1020,9 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "symbol": payload.symbol,
         "locale": locale,
         "event": payload.event.model_dump(),
-        "exposure": payload.exposure.model_dump(),
-        "recentManagementReviews": payload.recentManagementReviews,
+        "exposure": compact_management_exposure(payload.exposure),
+        "entryThesis": compact_management_entry_thesis(payload.exposure),
+        "recentManagementReviews": recent_management_review_context(payload.recentManagementReviews),
         "recentReviewMemory": recent_management_review_memory(payload.recentManagementReviews),
         "currentReviewDelta": current_management_review_delta(payload),
         "recentTradeEvents": payload.recentTradeEvents,
@@ -917,6 +1062,11 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "Write structuredReview as a compact position management briefing for a normal user who wants to understand the current position and what to watch next. "
         "POSITION-FIRST DESK BRIEFING: for open positions, lead with price versus entry, stop, target, PnL, progressR, and targetProgress before any indicator, trend, or risk-reward claim. "
         "Do not lead with overall trend alignment, valid structure, risk-reward ratio, or no invalidation signal; those are supporting facts only after the live position state is clear. "
+        "The exposure payload is intentionally compact. Use entryThesis only as short background for why the trade was originally allowed; do not reconstruct the whole old approval review from memory or write as if the entry approval is the current management decision. "
+        "Do not say profit is locked, secured, guaranteed, confirmed, or preserved unless recentTradeEvents or entryThesis.takeProfits show an actual filled partial/closed profit. "
+        "If only the stop moved to breakeven, say loss risk is reduced or removed while profit remains unrealized; do not imply realized profit. "
+        "Never write near entry at <current price> or call current price the entry price. Always separate current price X versus entry Y when both are available. "
+        "For SHORT positions, do not use downside risk to mean loss risk; say loss risk, rebound-to-stop risk, or remaining stop risk so translation cannot become 하락 위험. "
         "If progressR is between -0.25 and 0.25, describe the trade as near entry or early in the move, not strongly winning, safely valid, or urgently invalidated. "
         "Every HOLD review must answer why not close, why not move the stop, why not take profit, and what exact trigger changes the decision. "
         "Write as a trader desk note for the user, not as a research report: current state first, management choice second, evidence third, trigger last. "
@@ -938,7 +1088,7 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "Do not mention paper trading in structuredReview, rationale, counterThesis, or action reasons. "
         f"{STRUCTURED_REVIEW_QUALITY_CONTRACT}"
         "Translate indicators into plain meaning, and include raw numbers only when they support a clear action or trigger. "
-        "Compare against recentManagementReviews and recentTradeEvents before writing. Do not reuse the same headline, rationale, or keyReasons from a recent review. "
+        "Compare against compact recentManagementReviews, recentReviewMemory, and recentTradeEvents before writing. Do not reuse the same headline, rationale, or keyReasons from a recent review. "
         "Use recentReviewMemory and currentReviewDelta before writing; the user must be able to tell 이번 리뷰가 이전 리뷰와 다른 이유 from the wording. "
         "Do not start any structuredReview field with the same opening phrase, same first clause, or same number-plus-trigger pattern as recentReviewMemory. "
         "For every trader, write around that trader's managementAnchors and strategyTriggers: channel traders should discuss channel levels, trend traders should discuss trend/EMA anchors, range traders should discuss range levels, funding/orderflow traders should discuss crowding or flow anchors, and imbalance traders should discuss midpoint/invalidation anchors. "
