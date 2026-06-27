@@ -119,12 +119,15 @@ test("subscriber preferences are account-backed instead of browser-only localSto
   const accountRouteSource = readFileSync(new URL("../app/api/subscriber/preferences/route.ts", import.meta.url), "utf8");
   const accountPageSource = readFileSync(new URL("../app/account/page.tsx", import.meta.url), "utf8");
   const syncHookSource = readFileSync(new URL("../components/use-subscriber-preference-sync.ts", import.meta.url), "utf8");
+  const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8");
 
   assert.match(accountRouteSource, /auth\(\)/, "preference API should be protected by Auth.js session");
   assert.match(accountRouteSource, /saveSubscriberPreferences/, "preference API should persist changes through the backend service");
   assert.match(accountPageSource, /loadSubscriberPreferences/, "account page should hydrate initial preferences from server persistence");
   assert.match(syncHookSource, /\/api\/subscriber\/preferences/, "account UI should save preference edits through the account API");
   assert.doesNotMatch(accountSource, /localStorage/, "subscriber preferences should not be browser-only state");
+  assert.match(leaderboardSource, /\/api\/subscriber\/preferences/, "leaderboard favorites should use the same account preference API");
+  assert.doesNotMatch(leaderboardSource, /aigentra:leaderboard:favorites/, "leaderboard should not keep a browser-global favorite cache");
 });
 
 test("app locale hydrates from signed-in subscriber preferences", () => {

@@ -27,12 +27,16 @@ test("leaderboard preview omits the lower current-state block", () => {
 });
 
 test("league overview stream is restricted to AI review records", () => {
+  assert.match(leaderboardSource, /data-testid="league-overview-section"/, "overview section should have a stable first-load target");
+  assert.match(leaderboardSource, /data-testid="league-overview-stream"/, "overview stream should have a stable first-load target");
+  assert.match(leaderboardSource, /preferCached: true/, "initial overview load should prefer cached data and background warm cold misses");
+  assert.match(leaderboardSource, /page\.warming/, "overview should retry instead of resolving an empty cold-cache warming response");
   assert.match(leaderboardSource, /const aiReviewLogsOnly = reviewsList/, "overview should derive log rows only from loaded AI review records");
   assert.doesNotMatch(leaderboardSource, /pendingPlans\.forEach/, "pending trade plans must not appear in League Overview");
   assert.doesNotMatch(leaderboardSource, /fallback-1/, "League Overview must not show synthetic scanner fallback rows");
   assert.doesNotMatch(leaderboardSource, /type: "PLAN"/, "League Overview should not emit plan log rows");
   assert.match(leaderboardSource, /review\.traderId \?\? review\.trader_id/, "overview review rows should handle backend snake_case trader ids");
-  assert.match(leaderboardSource, /getLeagueOverviewReviews\(limit, offset, locale\)/, "overview should load one combined localized review page");
+  assert.match(leaderboardSource, /getLeagueOverviewReviews\(limit, offset, locale, undefined, undefined, options\)/, "overview should load one combined localized review page");
   assert.doesNotMatch(leaderboardSource, /getManagementReviews\(limit, offset/, "overview should not fetch a separate management page");
   assert.doesNotMatch(leaderboardSource, /getAiReviews\(limit, offset/, "overview should not fetch a separate entry-review page");
   assert.match(leaderboardSource, /record\.reviews/, "overview should extract combined review records from the overview API");
@@ -171,11 +175,23 @@ test("monthly league rankings keep live exposure state separate from monthly ret
 test("leaderboard uses the shared full-screen loading overlay", () => {
   assert.match(leaderboardSource, /PageLoadingOverlay/, "leaderboard should render the shared loading overlay");
   assert.match(leaderboardSource, /common\.loadingLeagueData/, "leaderboard overlay should use localized loading copy");
-  assert.match(leaderboardSource, /const initialLoading = btcQuery\.isPending && btcQuery\.isFetching/, "placeholder data should not keep the full-screen overlay active");
-  assert.doesNotMatch(leaderboardSource, /initialLoading = btcQuery\.isFetching && \(btcQuery\.isPending \|\| btcQuery\.isPlaceholderData\)/, "locale/cache refreshes should not re-block the page");
+  assert.match(
+    leaderboardSource,
+    /const initialLoading = btcQuery\.isPending && btcQuery\.isFetching && !btcQuery\.isPlaceholderData/,
+    "placeholder data should let the leaderboard and overview render while live data refreshes"
+  );
   assert.match(overlaySource, /fixed inset-0/, "loading overlay should cover the viewport");
   assert.match(overlaySource, /createPortal/, "loading overlay should be portaled outside animated page containers");
   assert.match(overlaySource, /backdrop-blur-\[3px\]/, "loading overlay should blur the existing page");
+});
+
+test("leaderboard favorites are account-backed and clear on logout", () => {
+  assert.doesNotMatch(leaderboardSource, /aigentra:leaderboard:favorites/, "leaderboard must not use a browser-global favorites key");
+  assert.doesNotMatch(leaderboardSource, /localStorage\.getItem\("aigentra:leaderboard:favorites"/, "leaderboard must not hydrate favorites from global localStorage");
+  assert.doesNotMatch(leaderboardSource, /localStorage\.setItem\("aigentra:leaderboard:favorites"/, "leaderboard must not persist favorites to global localStorage");
+  assert.match(leaderboardSource, /\/api\/subscriber\/preferences/, "leaderboard should hydrate favorites from the signed-in subscriber preference API");
+  assert.match(leaderboardSource, /session\.status === "unauthenticated"/, "leaderboard should explicitly clear favorite state after logout");
+  assert.match(leaderboardSource, /favoriteTraderIds: \[\.\.\.next\]/, "favorite toggles should save the next account-scoped favorite list");
 });
 
 test("leaderboard preview renders the latest trader status feed", () => {

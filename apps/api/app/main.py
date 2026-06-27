@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import inspect
 import os
 import re
 import time
@@ -20,12 +21,20 @@ from sqlalchemy.orm import Session, load_only, object_session
 from app.ai.factory import provider_status
 from app.ai.context import build_management_review_context, build_trade_review_context
 from app.ai.review_logging import run_position_management_with_logging, run_review_with_logging
-from app.ai.translation_cache import ensure_localized_payload_for_source, fanout_ai_translations, localized_payload_for_source
+from app.ai.translation_cache import (
+    ensure_localized_payload_for_source,
+    fanout_ai_translations,
+    localized_payload_for_source,
+    merge_translation_overlay,
+    scrub_translation_payload_for_source,
+    stable_source_hash,
+)
 from app.clients.binance_client import ALLOWED_INTERVALS, ALLOWED_SYMBOLS
 from app.clients.market_data_client import MarketDataClient
 from app.core.config import VALID_AI_PROVIDERS, get_settings, normalize_ai_provider_name
 from app.db import (
     AIReviewRecord,
+    AITranslationCacheRecord,
     APICallLogRecord,
     CandidateTradeRecord,
     EquitySnapshotRecord,
@@ -54,6 +63,7 @@ from app.locales import (
     AI_TRANSLATION_SOURCE_AI_REVIEW,
     AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
     CANONICAL_AI_LOCALE,
+    SUPPORTED_LOCALES,
     normalize_locale as normalize_supported_locale,
 )
 from app.market.data_cache import KLINE_CACHE as MARKET_KLINE_CACHE
@@ -246,10 +256,13 @@ REALTIME_EXECUTION_TASK: Optional[asyncio.Task] = None
 PRICE_SHOCK_STATE: dict[str, dict[str, Any]] = {}
 LEAGUE_BUNDLE_CACHE_TTL_SECONDS = 300
 LEAGUE_BUNDLE_CACHE: dict[tuple[str, bool, bool, str], tuple[float, dict[str, Any]]] = {}
+OVERVIEW_REVIEWS_CACHE_TTL_SECONDS = LEAGUE_BUNDLE_CACHE_TTL_SECONDS
+OVERVIEW_REVIEWS_CACHE: dict[tuple[int, int, Optional[str], Optional[str], str], tuple[float, dict[str, Any]]] = {}
 TRADER_DETAIL_CACHE_VERSION = "localized-review-v2"
 TRADER_DETAIL_CACHE: dict[tuple[str, str, int, int, str, str], tuple[float, dict[str, Any]]] = {}
 LEADERBOARD_REFRESHING: set[tuple[str, str]] = set()
 LEAGUE_BUNDLE_REFRESHING: set[tuple[str, bool, bool, str]] = set()
+OVERVIEW_REVIEWS_REFRESHING: set[tuple[int, int, Optional[str], Optional[str], str]] = set()
 TRADER_DETAIL_REFRESHING: set[tuple[str, str, str]] = set()
 
 
@@ -262,12 +275,19 @@ def invalidate_league_cache(symbol: Optional[str] = None, trader_id: Optional[st
     if symbol is None:
         for key in list(LEAGUE_BUNDLE_CACHE):
             mark_stale(LEAGUE_BUNDLE_CACHE, key)
+        for key in list(OVERVIEW_REVIEWS_CACHE):
+            mark_stale(OVERVIEW_REVIEWS_CACHE, key)
         for key in list(TRADER_DETAIL_CACHE):
             mark_stale(TRADER_DETAIL_CACHE, key)
         return
     for key in list(LEAGUE_BUNDLE_CACHE):
         if key[0] == symbol:
             mark_stale(LEAGUE_BUNDLE_CACHE, key)
+    for key in list(OVERVIEW_REVIEWS_CACHE):
+        key_symbol = key[2]
+        key_trader_id = key[3]
+        if key_symbol in {None, symbol} and (trader_id is None or key_trader_id in {None, trader_id}):
+            mark_stale(OVERVIEW_REVIEWS_CACHE, key)
     for key in list(TRADER_DETAIL_CACHE):
         if key[1] == symbol and (trader_id is None or key[0] == trader_id):
             mark_stale(TRADER_DETAIL_CACHE, key)
@@ -287,6 +307,12 @@ def schedule_thread_refresh(func, *args) -> None:
             func(*args)
         except Exception:
             return
+
+
+async def run_maybe_threaded(func, *args, **kwargs):
+    if inspect.iscoroutinefunction(func):
+        return await func(*args, **kwargs)
+    return await asyncio.to_thread(func, *args, **kwargs)
 
 
 def cleanup_stale_running_runs(max_age_minutes: int = 15) -> int:
@@ -488,6 +514,7 @@ def normalize_provider(provider: Optional[str]) -> str:
 
 
 SLIM_EXCLUDED_COLUMNS = {"payload_json", "raw_json"}
+OVERVIEW_EXCLUDED_COLUMNS = {"raw_json"}
 OVERVIEW_OK_STATUSES = ("ok", "success", "completed")
 OVERVIEW_ENTRY_DECISIONS = ("APPROVE", "ADJUST_AND_APPROVE", "APPROVED")
 OVERVIEW_MANAGEMENT_DECISIONS = (
@@ -517,8 +544,16 @@ def slim_select(model):
     return select(model).options(load_only(*slim_load_columns(model)))
 
 
+def overview_load_columns(model) -> list[Any]:
+    return [getattr(model, column.name) for column in model.__table__.columns if column.name not in OVERVIEW_EXCLUDED_COLUMNS]
+
+
+def overview_select(model):
+    return select(model).options(load_only(*overview_load_columns(model)))
+
+
 def overview_filtered_select(source: str, model):
-    stmt = slim_select(model).where(
+    stmt = overview_select(model).where(
         func.lower(model.status).in_(OVERVIEW_OK_STATUSES),
         model.fallback.is_(False),
         model.error_message.is_(None),
@@ -531,6 +566,66 @@ def overview_filtered_select(source: str, model):
             func.upper(model.action_type).in_(OVERVIEW_MANAGEMENT_DECISIONS),
         )
     )
+
+
+def overview_translation_source(record, overview_source: str) -> str | None:
+    if overview_source == "entry_review" and isinstance(record, AIReviewRecord):
+        return AI_TRANSLATION_SOURCE_AI_REVIEW
+    if overview_source == "management_review" and isinstance(record, PositionManagementReviewRecord):
+        return AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT
+    return None
+
+
+def overview_translation_overlays(
+    db: Session,
+    page_candidates: list[tuple[str, Any]],
+    *,
+    locale: str,
+) -> dict[tuple[str, int], tuple[dict[str, Any], dict[str, Any]]]:
+    requested_locale = normalize_locale(locale)
+    if requested_locale == CANONICAL_AI_LOCALE or not page_candidates:
+        return {}
+
+    sources: dict[tuple[str, int], tuple[str, dict[str, Any], str]] = {}
+    for overview_source, record in page_candidates:
+        source_type = overview_translation_source(record, overview_source)
+        payload = from_json(getattr(record, "payload_json", None))
+        if source_type is None or record.id is None or not isinstance(payload, dict):
+            continue
+        sources[(overview_source, record.id)] = (source_type, payload, stable_source_hash(payload))
+
+    if not sources:
+        return {}
+
+    source_types = sorted({source_type for source_type, _payload, _source_hash in sources.values()})
+    source_ids = sorted({source_id for _overview_source, source_id in sources.keys()})
+    records = db.execute(
+        select(AITranslationCacheRecord).where(
+            AITranslationCacheRecord.source_type.in_(source_types),
+            AITranslationCacheRecord.source_id.in_(source_ids),
+            AITranslationCacheRecord.locale == requested_locale,
+            AITranslationCacheRecord.status == "ok",
+        )
+    ).scalars().all()
+    cache_by_source = {
+        (record.source_type, record.source_id, record.source_hash): record
+        for record in records
+    }
+
+    overlays: dict[tuple[str, int], tuple[dict[str, Any], dict[str, Any]]] = {}
+    for key, (source_type, payload, source_hash) in sources.items():
+        cached = cache_by_source.get((source_type, key[1], source_hash))
+        if cached is None:
+            continue
+        cached_payload = from_json(cached.payload_json)
+        if not isinstance(cached_payload, dict):
+            continue
+        localized_payload = merge_translation_overlay(payload, scrub_translation_payload_for_source(source_type, cached_payload))
+        overlays[key] = (
+            localized_payload,
+            {"status": "ok", "locale": requested_locale, "sourceHash": source_hash},
+        )
+    return overlays
 
 
 def snake_to_camel(value: str) -> str:
@@ -2014,25 +2109,21 @@ def list_overview_review_records(
 
     candidates.sort(key=lambda item: (item[1].created_at, item[1].id), reverse=True)
     page_candidates = candidates[safe_offset:safe_offset + safe_limit]
-    full_records: dict[tuple[str, int], Any] = {}
-    for source, model in (
-        ("entry_review", AIReviewRecord),
-        ("management_review", PositionManagementReviewRecord),
-    ):
-        source_ids = [record.id for item_source, record in page_candidates if item_source == source]
-        if not source_ids:
-            continue
-        records = db.execute(select(model).where(model.id.in_(source_ids))).scalars().all()
-        full_records.update({(source, record.id): record for record in records})
+    translation_overlays = overview_translation_overlays(db, page_candidates, locale=locale)
 
-    reviews = [
-        serialize_overview_review_record(
-            full_records.get((source, record.id), record),
-            overview_source=source,
-            locale=locale,
+    reviews = []
+    for source, record in page_candidates:
+        localized_payload, translation_meta = translation_overlays.get((source, record.id), (None, None))
+        reviews.append(
+            serialize_overview_review_record(
+                record,
+                overview_source=source,
+                locale=locale,
+                payload_override=localized_payload,
+                translation_meta=translation_meta,
+                include_cached_translation=False,
+            )
         )
-        for source, record in page_candidates
-    ]
     return {
         "reviews": reviews,
         "nextOffset": safe_offset + len(reviews),
@@ -2040,13 +2131,134 @@ def list_overview_review_records(
     }
 
 
-def serialize_overview_review_record(record, *, overview_source: str, locale: str = CANONICAL_AI_LOCALE) -> dict[str, Any]:
+def overview_review_cache_key(
+    *,
+    limit: int = 20,
+    offset: int = 0,
+    symbol: Optional[str] = None,
+    trader_id: Optional[str] = None,
+    locale: str = CANONICAL_AI_LOCALE,
+) -> tuple[int, int, Optional[str], Optional[str], str]:
+    clean_symbol = normalize_symbol(symbol) if symbol else None
+    clean_locale = normalize_locale(locale)
+    return (max(1, min(limit, 50)), max(0, offset), clean_symbol, trader_id, clean_locale)
+
+
+def cached_overview_review_records(
+    db: Session | None = None,
+    *,
+    limit: int = 20,
+    offset: int = 0,
+    symbol: Optional[str] = None,
+    trader_id: Optional[str] = None,
+    locale: str = CANONICAL_AI_LOCALE,
+    prefer_cached: bool = False,
+) -> dict[str, Any]:
+    key = overview_review_cache_key(limit=limit, offset=offset, symbol=symbol, trader_id=trader_id, locale=locale)
+    cached = OVERVIEW_REVIEWS_CACHE.get(key)
+    if cached and cached[0] > time.monotonic():
+        return cached[1]
+    if cached:
+        if key not in OVERVIEW_REVIEWS_REFRESHING:
+            OVERVIEW_REVIEWS_REFRESHING.add(key)
+            schedule_thread_refresh(
+                refresh_overview_review_cache_background,
+                key[0],
+                key[1],
+                key[2],
+                key[3],
+                key[4],
+        )
+        return cached[1]
+    if prefer_cached:
+        if key not in OVERVIEW_REVIEWS_REFRESHING:
+            OVERVIEW_REVIEWS_REFRESHING.add(key)
+            schedule_thread_refresh(
+                refresh_overview_review_cache_background,
+                key[0],
+                key[1],
+                key[2],
+                key[3],
+                key[4],
+            )
+        return {
+            "reviews": [],
+            "nextOffset": key[1],
+            "hasMore": True,
+            "warming": True,
+        }
+    if db is None:
+        with session_scope() as scoped_db:
+            return cached_overview_review_records(
+                scoped_db,
+                limit=key[0],
+                offset=key[1],
+                symbol=key[2],
+                trader_id=key[3],
+                locale=key[4],
+                prefer_cached=prefer_cached,
+            )
+    payload = list_overview_review_records(
+        db,
+        limit=key[0],
+        offset=key[1],
+        symbol=key[2],
+        trader_id=key[3],
+        locale=key[4],
+    )
+    OVERVIEW_REVIEWS_CACHE[key] = (time.monotonic() + OVERVIEW_REVIEWS_CACHE_TTL_SECONDS, payload)
+    return payload
+
+
+def refresh_overview_review_cache_background(
+    limit: int,
+    offset: int,
+    symbol: Optional[str],
+    trader_id: Optional[str],
+    locale: str,
+) -> None:
+    key = (max(1, min(limit, 50)), max(0, offset), symbol, trader_id, normalize_locale(locale))
+    try:
+        with session_scope() as db:
+            payload = list_overview_review_records(
+                db,
+                limit=key[0],
+                offset=key[1],
+                symbol=key[2],
+                trader_id=key[3],
+                locale=key[4],
+            )
+            OVERVIEW_REVIEWS_CACHE[key] = (time.monotonic() + OVERVIEW_REVIEWS_CACHE_TTL_SECONDS, payload)
+    finally:
+        OVERVIEW_REVIEWS_REFRESHING.discard(key)
+
+
+def overview_review_warm_locales() -> set[str]:
+    return {
+        *SUPPORTED_LOCALES,
+        *(normalize_locale(item) for item in settings.ai_translation_target_locales),
+    }
+
+
+def warm_overview_review_cache(db: Session, clean_symbol: str) -> None:
+    for locale in overview_review_warm_locales():
+        cached_overview_review_records(db, limit=20, offset=0, symbol=clean_symbol, locale=locale)
+
+
+def serialize_overview_review_record(
+    record,
+    *,
+    overview_source: str,
+    locale: str = CANONICAL_AI_LOCALE,
+    payload_override: dict[str, Any] | None = None,
+    translation_meta: dict[str, Any] | None = None,
+    include_cached_translation: bool = True,
+) -> dict[str, Any]:
     data = serialize_record_slim(record)
     data["overviewSource"] = overview_source
-    payload = from_json(getattr(record, "payload_json", None)) or {}
-    translation_meta = None
+    payload = payload_override if payload_override is not None else from_json(getattr(record, "payload_json", None)) or {}
     record_session = object_session(record)
-    if isinstance(payload, dict) and record_session is not None:
+    if include_cached_translation and isinstance(payload, dict) and record_session is not None:
         if isinstance(record, AIReviewRecord):
             payload, translation_meta = localized_payload_for_source(
                 db=record_session,
@@ -3543,6 +3755,10 @@ def warm_initial_league_cache() -> None:
         clean_symbol = normalize_symbol(symbol)
         try:
             with session_scope() as db:
+                try:
+                    warm_overview_review_cache(db, clean_symbol)
+                except Exception:
+                    pass
                 known_trader_ids = {trader.id for trader in list_traders()}
                 existing_ids = {
                     trader_id
@@ -4159,7 +4375,7 @@ async def auto_management_loop() -> None:
             }
         )
         try:
-            await run_management_once()
+            await run_maybe_threaded(run_management_once)
         except Exception as exc:
             AUTO_MANAGEMENT_STATE.update(
                 {
@@ -4233,7 +4449,7 @@ async def auto_scanner_loop() -> None:
             }
         )
         try:
-            await run_scanner_once()
+            await run_maybe_threaded(run_scanner_once)
         except Exception as exc:
             AUTO_SCANNER_STATE.update(
                 {
@@ -5057,15 +5273,15 @@ async def league_overview_reviews(
     symbol: Optional[str] = Query(None),
     trader_id: Optional[str] = Query(None),
     locale: str = Query(CANONICAL_AI_LOCALE),
-    db: Session = Depends(get_db),
+    prefer_cached: bool = Query(False),
 ):
-    return list_overview_review_records(
-        db,
+    return cached_overview_review_records(
         limit=limit,
         offset=offset,
         symbol=symbol,
         trader_id=trader_id,
         locale=normalize_locale(locale),
+        prefer_cached=prefer_cached,
     )
 
 

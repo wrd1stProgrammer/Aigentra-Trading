@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.db import AIReviewRecord, EquitySnapshotRecord, PositionManagementReviewRecord, init_db, reset_db_engine, session_scope
 from app.main import app
-from app.repositories import to_json
+from app.repositories import to_json, upsert_translation_cache_record
 
 
 client = TestClient(app)
@@ -23,8 +23,10 @@ def ops_headers() -> dict[str, str]:
 def temp_api_db(tmp_path):
     db_path = tmp_path / "api-test.db"
     reset_db_engine(f"sqlite:///{db_path}")
+    main.OVERVIEW_REVIEWS_CACHE.clear()
     init_db()
     yield db_path
+    main.OVERVIEW_REVIEWS_CACHE.clear()
     reset_db_engine("sqlite:///:memory:")
     init_db()
 
@@ -499,27 +501,50 @@ def test_trader_detail_rejects_oversized_review_windows(monkeypatch):
     assert events_response.status_code == 422
 
 
-def test_league_overview_reviews_returns_one_slim_combined_page(temp_api_db):
+def test_league_overview_reviews_returns_one_slim_combined_page(temp_api_db, monkeypatch):
     now = datetime(2026, 6, 19, 12, 0, tzinfo=timezone.utc)
     large_payload_blob = "x" * 10_000
+    translation_cache_calls = 0
+
+    def fake_localized_payload_for_source(*args, **kwargs):
+        nonlocal translation_cache_calls
+        translation_cache_calls += 1
+        raise AssertionError("overview review stream must not block first paint on per-row translation cache lookups")
+
+    monkeypatch.setattr(main, "localized_payload_for_source", fake_localized_payload_for_source)
+
     with session_scope() as db:
+        translated_entry_record_id = None
         for index in range(15):
-            db.add(
-                AIReviewRecord(
-                    trader_id="session-raider",
-                    symbol="BTCUSDT",
-                    created_at=now - timedelta(minutes=index * 2),
-                    decision="APPROVE",
-                    risk_level="medium",
-                    payload_json=to_json(
-                        {
-                            "approvalReason": f"entry review {index}",
-                            "structuredReview": {"headline": f"entry headline {index}"},
-                            "largeDebugPayload": large_payload_blob,
-                        }
-                    ),
-                )
+            entry_payload = {
+                "approvalReason": f"entry review {index}",
+                "structuredReview": {"headline": f"entry headline {index}"},
+                "largeDebugPayload": large_payload_blob,
+            }
+            entry_record = AIReviewRecord(
+                trader_id="session-raider",
+                symbol="BTCUSDT",
+                created_at=now - timedelta(minutes=index * 2),
+                decision="APPROVE",
+                risk_level="medium",
+                payload_json=to_json(entry_payload),
             )
+            db.add(entry_record)
+            db.flush()
+            if index == 0:
+                translated_entry_record_id = entry_record.id
+                upsert_translation_cache_record(
+                    db,
+                    source_type=main.AI_TRANSLATION_SOURCE_AI_REVIEW,
+                    source_id=entry_record.id,
+                    source_hash=main.stable_source_hash(entry_payload),
+                    locale="ko",
+                    status="ok",
+                    payload={
+                        "approvalReason": "한국어 진입 검토 0",
+                        "structuredReview": {"headline": "한국어 진입 헤드라인 0"},
+                    },
+                )
             db.add(
                 PositionManagementReviewRecord(
                     trader_id="volatility-squeezer",
@@ -555,6 +580,10 @@ def test_league_overview_reviews_returns_one_slim_combined_page(temp_api_db):
     assert {review["overviewSource"] for review in data["reviews"]} == {"entry_review", "management_review"}
     assert "payload" not in data["reviews"][0]
     assert "largeDebugPayload" not in str(data)
+    assert translation_cache_calls == 0
+    translated_review = next(review for review in data["reviews"] if review["id"] == translated_entry_record_id)
+    assert translated_review["rationale"] == "한국어 진입 검토 0"
+    assert translated_review["translation"]["status"] == "ok"
 
     second_page = client.get("/api/league/overview-reviews?limit=10&offset=20&locale=ko")
     assert second_page.status_code == 200
@@ -619,6 +648,66 @@ def test_league_overview_reviews_filters_hidden_reviews_before_pagination(temp_a
     assert data["hasMore"] is False
     assert data["nextOffset"] == 2
     assert [review["decision"] for review in data["reviews"]] == ["ADJUST_AND_APPROVE", "HOLD"]
+
+
+def test_overview_warmup_primes_all_supported_locale_first_pages(temp_api_db, monkeypatch):
+    warmed: list[tuple[int, int, str | None, str]] = []
+
+    def fake_cached_overview_review_records(db, *, limit, offset, symbol=None, trader_id=None, locale="en"):
+        warmed.append((limit, offset, symbol, locale))
+        return {"reviews": [], "nextOffset": 0, "hasMore": False}
+
+    monkeypatch.setattr(main, "cached_overview_review_records", fake_cached_overview_review_records)
+    monkeypatch.setattr(main.settings, "ai_translation_target_locales", ["ko"])
+
+    with session_scope() as db:
+        main.warm_overview_review_cache(db, "BTCUSDT")
+
+    assert {locale for _limit, _offset, _symbol, locale in warmed} == set(main.SUPPORTED_LOCALES)
+    assert all((limit, offset, symbol) == (20, 0, "BTCUSDT") for limit, offset, symbol, _locale in warmed)
+
+
+def test_overview_stale_cache_is_served_before_background_refresh(temp_api_db, monkeypatch):
+    key = (20, 0, "BTCUSDT", None, "ko")
+    main.OVERVIEW_REVIEWS_CACHE[key] = (0, {"reviews": [{"id": 1}], "nextOffset": 1, "hasMore": False})
+    scheduled: list[tuple[int, int, str | None, str | None, str]] = []
+
+    def fake_schedule_thread_refresh(func, limit, offset, symbol, trader_id, locale):
+        scheduled.append((limit, offset, symbol, trader_id, locale))
+
+    def fail_sync_rebuild(*args, **kwargs):
+        raise AssertionError("stale overview cache should be served before synchronous rebuild")
+
+    monkeypatch.setattr(main, "schedule_thread_refresh", fake_schedule_thread_refresh)
+    monkeypatch.setattr(main, "list_overview_review_records", fail_sync_rebuild)
+
+    with session_scope() as db:
+        payload = main.cached_overview_review_records(db, limit=20, offset=0, symbol="BTCUSDT", locale="ko")
+
+    assert payload["reviews"] == [{"id": 1}]
+    assert scheduled == [(20, 0, "BTCUSDT", None, "ko")]
+    assert key in main.OVERVIEW_REVIEWS_REFRESHING
+    main.OVERVIEW_REVIEWS_REFRESHING.clear()
+
+
+def test_overview_prefer_cached_returns_warming_without_sync_db_on_cold_cache(temp_api_db, monkeypatch):
+    scheduled: list[tuple[int, int, str | None, str | None, str]] = []
+
+    def fake_schedule_thread_refresh(func, limit, offset, symbol, trader_id, locale):
+        scheduled.append((limit, offset, symbol, trader_id, locale))
+
+    def fail_sync_rebuild(*args, **kwargs):
+        raise AssertionError("preferCached overview miss should warm in the background")
+
+    monkeypatch.setattr(main, "schedule_thread_refresh", fake_schedule_thread_refresh)
+    monkeypatch.setattr(main, "list_overview_review_records", fail_sync_rebuild)
+
+    response = client.get("/api/league/overview-reviews?limit=20&offset=0&symbol=BTCUSDT&locale=ko&prefer_cached=true")
+
+    assert response.status_code == 200
+    assert response.json() == {"reviews": [], "nextOffset": 0, "hasMore": True, "warming": True}
+    assert scheduled == [(20, 0, "BTCUSDT", None, "ko")]
+    main.OVERVIEW_REVIEWS_REFRESHING.clear()
 
 
 def test_trader_detail_schedules_missing_korean_translation_repair_without_blocking(temp_api_db, monkeypatch):

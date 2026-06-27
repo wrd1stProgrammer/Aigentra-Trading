@@ -327,10 +327,28 @@ def telegram_event_type_for(event: TradeEventRecord) -> Optional[str]:
     if event.event_type == "order_filled":
         return "position_entry"
     if event.event_type == "position_closed":
+        if is_partial_close_event(event):
+            return None
         return closed_position_event_type(event)
     if event.event_type == "order_rejected":
         return "risk"
     return None
+
+
+def is_partial_close_event(event: TradeEventRecord) -> bool:
+    payload = from_json(event.payload_json)
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("partial") is True or payload.get("isPartial") is True:
+        return True
+    if payload.get("positionClosed") is False or payload.get("isFullClose") is False:
+        return True
+    remaining_quantity = normalized_decimal(payload.get("remainingQuantity") or payload.get("remaining_quantity"))
+    if remaining_quantity is not None and remaining_quantity > 0:
+        return True
+    raw_position_status = payload.get("positionStatus") or payload.get("position_status")
+    position_status = normalize_text(raw_position_status).upper() if raw_position_status is not None else ""
+    return bool(position_status and position_status not in {"CLOSED", "DONE", "EXITED"})
 
 
 def closed_position_event_type(event: TradeEventRecord) -> str:
@@ -338,11 +356,20 @@ def closed_position_event_type(event: TradeEventRecord) -> str:
     reason = payload.get("reason") if isinstance(payload, dict) else None
     if reason == "take_profit":
         return "take_profit"
-    if reason in {"stop_loss", "early_thesis_failure"}:
+    if reason in {"stop_loss", "early_thesis_failure", "breakeven", "stop_at_entry"}:
         return "stop_loss"
     if event.realized_pnl is not None and Decimal(event.realized_pnl) > 0:
         return "take_profit"
     return "stop_loss"
+
+
+def normalized_decimal(value: Any) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except Exception:
+        return None
 
 
 def telegram_event_type_for_management_review(review: PositionManagementReviewRecord) -> Optional[str]:

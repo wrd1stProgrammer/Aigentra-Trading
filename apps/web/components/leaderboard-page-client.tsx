@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSession } from "next-auth/react";
 import { useCallback, useMemo, useState, useEffect, useRef, type MouseEvent } from "react";
 import {
   ArrowRight,
@@ -49,6 +50,7 @@ import {
   type OverviewReviewRecord
 } from "@/components/leaderboard-overview-filter";
 import { LatestStatusFeedNote } from "@/components/trader-profile-detail/status-feed-thread";
+import type { SubscriberPreferences } from "@/lib/subscriber-preferences";
 
 const SYMBOLS: LeagueSymbol[] = ["BTCUSDT"];
 const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_108px_108px_60px_80px_36px] gap-3";
@@ -167,6 +169,7 @@ function leaderboardBundlePeriodKey(bundle?: LeaderboardBundle) {
 export function LeaderboardPageClient() {
   const { locale, t } = useAppContext();
   const queryClient = useQueryClient();
+  const session = useSession();
   const { data: access } = useSubscriberAccess();
   
   // Custom filter state
@@ -174,12 +177,14 @@ export function LeaderboardPageClient() {
   const [activeTraderId, setActiveTraderId] = useState<string | null>(null);
   const [isPeriodOpen, setIsPeriodOpen] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<"ALL" | "7D" | "30D" | "90D">("ALL");
-  const [selectedLeagueMonth, setSelectedLeagueMonth] = useState<string | undefined>(undefined);
+  const [selectedLeagueMonth, setSelectedLeagueMonth] = useState<string | undefined>("2026-06");
   const [cacheReady, setCacheReady] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favoriteTraderIds, setFavoriteTraderIds] = useState<Set<string>>(() => new Set());
 
-  const leagueMonthOptions = useMemo(() => buildLeagueMonthOptions(), []);
+  const leagueMonthOptions = useMemo(() => {
+    return buildLeagueMonthOptions().filter((option) => option.year === 2026 && option.month === 6);
+  }, []);
   const leagueYears = useMemo(() => [...new Set(leagueMonthOptions.map((option) => option.year))], [leagueMonthOptions]);
   const fallbackLeagueMonth = leagueMonthOptions[0] ?? {
     value: formatUtcLeagueMonth(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1),
@@ -213,16 +218,41 @@ export function LeaderboardPageClient() {
     setCacheReady(true);
   }, []);
 
+  const subscriberPreferencesQueryKey = useMemo(
+    () => ["subscriber", "preferences", "leaderboard", access?.userId ?? "", access?.email ?? ""] as const,
+    [access?.email, access?.userId]
+  );
+
+  const subscriberPreferencesQuery = useQuery<SubscriberPreferences | null>({
+    queryKey: subscriberPreferencesQueryKey,
+    queryFn: async () => {
+      if (!access?.email) return null;
+      const response = await fetch("/api/subscriber/preferences", { cache: "no-store" });
+      if (response.status === 401) return null;
+      if (!response.ok) throw new Error("subscriber_preferences_unavailable");
+      return await response.json() as SubscriberPreferences;
+    },
+    enabled: session.status !== "loading" && Boolean(access?.email),
+    staleTime: 30_000,
+    retry: false
+  });
+
+  const subscriberPreferences = subscriberPreferencesQuery.data;
+  const favoritePreferenceKey = subscriberPreferences?.favoriteTraderIds.join("\u0000") ?? "";
+
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem("aigentra:leaderboard:favorites");
-      if (raw) setFavoriteTraderIds(new Set(JSON.parse(raw)));
-    } catch {
+    if (session.status === "unauthenticated" || !access?.email) {
       setFavoriteTraderIds(new Set());
+      setFavoritesOnly(false);
+      return;
     }
-  }, []);
+    if (subscriberPreferences) {
+      setFavoriteTraderIds(new Set(subscriberPreferences.favoriteTraderIds));
+    }
+  }, [access?.email, favoritePreferenceKey, session.status, subscriberPreferences]);
 
   const toggleFavoriteTrader = useCallback((traderId: string) => {
+    if (!access?.email || !subscriberPreferences) return;
     setFavoriteTraderIds((current) => {
       const next = new Set(current);
       if (next.has(traderId)) {
@@ -230,12 +260,21 @@ export function LeaderboardPageClient() {
       } else {
         next.add(traderId);
       }
-      try {
-        window.localStorage.setItem("aigentra:leaderboard:favorites", JSON.stringify([...next]));
-      } catch {}
+      void saveLeaderboardFavoritePreferences(subscriberPreferences, [...next], locale)
+        .then((savedPreferences) => {
+          if (!savedPreferences) {
+            void subscriberPreferencesQuery.refetch();
+            return;
+          }
+          queryClient.setQueryData(subscriberPreferencesQueryKey, savedPreferences);
+          setFavoriteTraderIds(new Set(savedPreferences.favoriteTraderIds));
+        })
+        .catch(() => {
+          void subscriberPreferencesQuery.refetch();
+        });
       return next;
     });
-  }, []);
+  }, [access?.email, locale, queryClient, subscriberPreferences, subscriberPreferencesQuery, subscriberPreferencesQueryKey]);
 
   const activateCurrentLeague = useCallback(() => {
     setSelectedLeagueMonth(undefined);
@@ -263,7 +302,7 @@ export function LeaderboardPageClient() {
   });
 
   const isFetching = btcQuery.isFetching;
-  const initialLoading = btcQuery.isPending && btcQuery.isFetching;
+  const initialLoading = btcQuery.isPending && btcQuery.isFetching && !btcQuery.isPlaceholderData;
   const bundle = useMemo<LeaderboardBundle>(() => {
     return btcQuery.data ?? fallbackBundle;
   }, [btcQuery.data, fallbackBundle]);
@@ -381,7 +420,8 @@ export function LeaderboardPageClient() {
         detail={t("common.loadingLiveDataDetail")}
       />
 
-      <section 
+      <section
+        data-testid="league-overview-section"
         className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#070908] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] md:rounded-[22px]"
         style={{
           backgroundImage: "linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px), radial-gradient(circle at 50% 25%, rgba(16,185,129,0.12), transparent 40%)",
@@ -411,103 +451,110 @@ export function LeaderboardPageClient() {
 
       <section className="grid w-full items-start gap-3 md:gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
         <div className="data-card rounded-[22px] border-zinc-200/80 dark:border-white/[0.08] w-full min-w-0 overflow-hidden shadow-sm transition hover:border-emerald-500/20 duration-300">
-            <div className="flex flex-row items-center justify-between gap-3 border-b px-4 py-3 md:px-6 md:py-4" style={{ borderColor: "var(--border)" }}>
+            {/* Desktop Layout */}
+            <div className="hidden md:flex md:flex-row md:items-center md:justify-between w-full px-4 py-3 md:px-6 md:py-4 border-b border-white/[0.06] bg-[#080909]">
               <div
                 data-testid="leaderboard-filter-rail"
-                className="flex min-w-0 flex-wrap items-center gap-2"
+                className="flex flex-wrap items-center gap-3"
                 role="group"
                 aria-label={t("leaderboard.allTraders")}
               >
+                {/* Segmented control for League Type */}
                 <div
                   data-testid="leaderboard-month-selector"
-                  className="inline-flex min-h-10 items-center gap-1 rounded-2xl border border-white/10 bg-white/[0.025] p-1 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]"
+                  className="inline-flex items-center gap-1 rounded-xl bg-white/[0.02] border border-white/[0.08] p-1 shadow-[inset_0_1px_1px_rgba(255,255,255,0.01)]"
                 >
                   <button
                     type="button"
-                    onClick={activateCurrentLeague}
-                    className={`focus-ring min-h-8 rounded-xl px-3 text-[11px] font-bold transition ${
-                      selectedLeagueMonth
-                        ? "text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
-                        : "bg-white text-zinc-950 shadow-[0_0_0_1px_rgba(255,255,255,0.75)]"
-                    }`}
-                    aria-pressed={!selectedLeagueMonth}
-                  >
-                    {t("leaderboard.currentLeague")}
-                  </button>
-                  <button
-                    type="button"
                     onClick={activateSelectedLeagueMonth}
-                    className={`focus-ring min-h-8 rounded-xl px-3 text-[11px] font-bold transition ${
+                    className={`focus-ring rounded-lg px-3 py-1.5 text-xs font-bold transition duration-200 ${
                       selectedLeagueMonth
-                        ? "bg-emerald-400 text-zinc-950 shadow-[0_0_0_1px_rgba(52,211,153,0.65)]"
-                        : "text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
+                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-sm"
+                        : "text-zinc-400 hover:text-white"
                     }`}
                     aria-pressed={Boolean(selectedLeagueMonth)}
                   >
                     {t("leaderboard.monthlyLeague")}
                   </button>
-                  <select
-                    aria-label={t("leaderboard.year")}
-                    className="focus-ring h-8 rounded-xl border border-white/10 bg-[#0c0d0d] px-2 text-xs font-bold text-zinc-100 outline-none"
-                    value={String(selectedLeagueMonthParts.year)}
-                    onChange={(event) => {
-                      const nextYear = Number(event.target.value);
-                      const nextOption =
-                        leagueMonthOptions.find((option) => option.year === nextYear && option.month === selectedLeagueMonthParts.month) ??
-                        leagueMonthOptions.find((option) => option.year === nextYear);
-                      if (nextOption) setSelectedLeagueMonth(nextOption.value);
-                    }}
+                  <button
+                    type="button"
+                    onClick={activateCurrentLeague}
+                    className={`focus-ring rounded-lg px-3 py-1.5 text-xs font-bold transition duration-200 ${
+                      selectedLeagueMonth
+                        ? "text-zinc-400 hover:text-white"
+                        : "bg-white text-zinc-950 shadow-sm"
+                    }`}
+                    aria-pressed={!selectedLeagueMonth}
                   >
-                    {leagueYears.map((year) => (
-                      <option key={year} value={year}>{year}</option>
-                    ))}
-                  </select>
-                  <select
-                    aria-label={t("leaderboard.month")}
-                    className="focus-ring h-8 rounded-xl border border-white/10 bg-[#0c0d0d] px-2 text-xs font-bold text-zinc-100 outline-none"
-                    value={String(selectedLeagueMonthParts.month)}
-                    onChange={(event) => {
-                      const nextMonth = Number(event.target.value);
-                      setSelectedLeagueMonth(formatUtcLeagueMonth(selectedLeagueMonthParts.year, nextMonth));
-                    }}
-                  >
-                    {leagueMonthsForSelectedYear.map((option) => (
-                      <option key={option.value} value={option.month}>{option.label.slice(5)}</option>
-                    ))}
-                  </select>
-                  <span className="hidden max-w-28 truncate px-2 font-mono text-[10px] font-bold uppercase text-emerald-300 sm:inline">
-                    {leaguePeriodLabel}
+                    {t("leaderboard.currentLeague")}
+                  </button>
+                </div>
+
+                {/* Display Year/Month Dropdowns as independent filters */}
+                {selectedLeagueMonth && (
+                  <div className="flex items-center gap-2 animate-fade-in">
+                    <div className="relative inline-flex items-center rounded-xl border border-white/[0.08] bg-[#0c0d0d] px-2.5 py-1">
+                      <select
+                        aria-label={t("leaderboard.year")}
+                        className="focus-ring bg-transparent pr-5 text-xs font-bold text-zinc-100 outline-none appearance-none cursor-pointer"
+                        value={String(selectedLeagueMonthParts.year)}
+                        onChange={(event) => {
+                          const nextYear = Number(event.target.value);
+                          const nextOption =
+                            leagueMonthOptions.find((option) => option.year === nextYear && option.month === selectedLeagueMonthParts.month) ??
+                            leagueMonthOptions.find((option) => option.year === nextYear);
+                          if (nextOption) setSelectedLeagueMonth(nextOption.value);
+                        }}
+                      >
+                        {leagueYears.map((year) => (
+                          <option key={year} value={year}>{year}</option>
+                        ))}
+                      </select>
+                      <CaretDown size={13} className="absolute right-2 text-zinc-500 pointer-events-none" />
+                    </div>
+
+                    <div className="relative inline-flex items-center rounded-xl border border-white/[0.08] bg-[#0c0d0d] px-2.5 py-1">
+                      <select
+                        aria-label={t("leaderboard.month")}
+                        className="focus-ring bg-transparent pr-5 text-xs font-bold text-zinc-100 outline-none appearance-none cursor-pointer"
+                        value={String(selectedLeagueMonthParts.month)}
+                        onChange={(event) => {
+                          const nextMonth = Number(event.target.value);
+                          setSelectedLeagueMonth(formatUtcLeagueMonth(selectedLeagueMonthParts.year, nextMonth));
+                        }}
+                      >
+                        {leagueMonthsForSelectedYear.map((option) => (
+                          <option key={option.value} value={option.month}>
+                            {locale === "ko" ? `${option.month}월` : "June"}
+                          </option>
+                        ))}
+                      </select>
+                      <CaretDown size={13} className="absolute right-2 text-zinc-500 pointer-events-none" />
+                    </div>
+                  </div>
+                )}
+
+                {/* Market Tag (styled as static/tab segmented item) */}
+                <div className="inline-flex items-center rounded-xl bg-white/[0.02] border border-white/[0.08] p-1">
+                  <span className="px-3.5 py-1 text-xs font-extrabold text-white">
+                    BTC
                   </span>
                 </div>
-                {(["BTC"] as const).map((tab) => {
-                  const active = activeTab === tab && !favoritesOnly;
-                  const label = tab;
-                  return (
-                    <button
-                      key={tab}
-                      type="button"
-                      onClick={() => {
-                        setActiveTab(tab);
-                        setFavoritesOnly(false);
-                      }}
-                      className={`focus-ring min-h-10 rounded-2xl px-4 text-xs font-bold tabular-nums shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-[background-color,color,box-shadow,transform] duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.96] ${
-                        active
-                          ? "bg-white text-zinc-950 shadow-[0_0_0_1px_rgba(255,255,255,0.80),0_10px_24px_rgba(0,0,0,0.18)]"
-                          : "bg-white/[0.025] text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100 hover:shadow-[0_0_0_1px_rgba(255,255,255,0.14)]"
-                      }`}
-                      aria-pressed={active}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
+
+                {/* Favorites button (styled as a sleek active toggle button) */}
                 <button
                   type="button"
-                  onClick={() => setFavoritesOnly(true)}
-                  className={`focus-ring group inline-flex min-h-10 items-center justify-center gap-2 rounded-2xl px-3.5 text-xs font-bold shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-[background-color,color,box-shadow,transform] duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.96] ${
+                  onClick={() => {
+                    if (favoritesOnly) {
+                      setFavoritesOnly(false);
+                    } else {
+                      setFavoritesOnly(true);
+                    }
+                  }}
+                  className={`focus-ring group inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-3.5 text-xs font-bold transition-[background-color,color,box-shadow,transform] duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.96] ${
                     favoritesOnly
                       ? "bg-amber-300 text-zinc-950 shadow-[0_0_0_1px_rgba(251,191,36,0.55),0_10px_24px_rgba(0,0,0,0.20)]"
-                      : "bg-white/[0.025] text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100 hover:shadow-[0_0_0_1px_rgba(255,255,255,0.14)]"
+                      : "bg-white/[0.02] text-zinc-400 border border-white/[0.08] hover:bg-white/[0.06] hover:text-zinc-100 hover:shadow-[0_0_0_1px_rgba(255,255,255,0.14)]"
                   }`}
                   aria-pressed={favoritesOnly}
                 >
@@ -515,7 +562,7 @@ export function LeaderboardPageClient() {
                   {t("leaderboard.favorites")}
                   {favoriteTraderIds.size ? (
                     <span
-                      className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] leading-none tabular-nums ${
+                      className={`rounded px-1.5 py-0.5 font-mono text-[10px] leading-none tabular-nums ${
                         favoritesOnly ? "bg-zinc-950/15 text-zinc-950" : "bg-white/[0.07] text-zinc-300"
                       }`}
                     >
@@ -559,6 +606,164 @@ export function LeaderboardPageClient() {
                             className={`w-full text-left rounded-md px-3 py-1.5 text-xs font-medium transition ${
                               selectedPeriod === p 
                                 ? "bg-emerald-500/10 text-emerald-400" 
+                                : "text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                            }`}
+                          >
+                            {periodLabel(locale, p)}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Mobile Layout */}
+            <div className="flex flex-col gap-2.5 w-full md:hidden px-4 py-3 border-b border-white/[0.06] bg-[#080909]">
+              {/* Row 1: Segmented league control (flex-grow) & BTC market tag */}
+              <div
+                data-testid="leaderboard-filter-rail"
+                className="flex items-center gap-2 w-full"
+              >
+                <div
+                  data-testid="leaderboard-month-selector"
+                  className="inline-flex flex-1 items-center gap-1 rounded-xl bg-white/[0.02] border border-white/[0.08] p-1 shadow-[inset_0_1px_1px_rgba(255,255,255,0.01)]"
+                >
+                  <button
+                    type="button"
+                    onClick={activateSelectedLeagueMonth}
+                    className={`focus-ring flex-1 text-center rounded-lg py-1.5 text-xs font-bold transition duration-200 ${
+                      selectedLeagueMonth
+                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-sm"
+                        : "text-zinc-400 hover:text-white"
+                    }`}
+                    aria-pressed={Boolean(selectedLeagueMonth)}
+                  >
+                    {t("leaderboard.monthlyLeague")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={activateCurrentLeague}
+                    className={`focus-ring flex-1 text-center rounded-lg py-1.5 text-xs font-bold transition duration-200 ${
+                      selectedLeagueMonth
+                        ? "text-zinc-400 hover:text-white"
+                        : "bg-white text-zinc-950 shadow-sm"
+                    }`}
+                    aria-pressed={!selectedLeagueMonth}
+                  >
+                    {t("leaderboard.currentLeague")}
+                  </button>
+                </div>
+
+                <div className="inline-flex items-center justify-center rounded-xl bg-white/[0.02] border border-white/[0.08] p-1 h-[34px] px-3.5">
+                  <span className="text-xs font-extrabold text-white">
+                    BTC
+                  </span>
+                </div>
+              </div>
+
+              {/* Row 2: Year & Month dropdown selects side-by-side (only visible when Monthly League is selected) */}
+              {selectedLeagueMonth && (
+                <div className="grid grid-cols-2 gap-2 animate-fade-in w-full">
+                  <div className="relative flex items-center justify-between rounded-xl border border-white/[0.08] bg-[#0c0d0d] px-3 py-2">
+                    <select
+                      aria-label={t("leaderboard.year")}
+                      className="focus-ring w-full bg-transparent text-xs font-bold text-zinc-100 outline-none appearance-none cursor-pointer pr-6"
+                      value={String(selectedLeagueMonthParts.year)}
+                      onChange={(event) => {
+                        const nextYear = Number(event.target.value);
+                        const nextOption =
+                          leagueMonthOptions.find((option) => option.year === nextYear && option.month === selectedLeagueMonthParts.month) ??
+                          leagueMonthOptions.find((option) => option.year === nextYear);
+                        if (nextOption) setSelectedLeagueMonth(nextOption.value);
+                      }}
+                    >
+                      {leagueYears.map((year) => (
+                        <option key={year} value={year}>{year}</option>
+                      ))}
+                    </select>
+                    <CaretDown size={13} className="absolute right-3 text-zinc-500 pointer-events-none" />
+                  </div>
+
+                  <div className="relative flex items-center justify-between rounded-xl border border-white/[0.08] bg-[#0c0d0d] px-3 py-2">
+                    <select
+                      aria-label={t("leaderboard.month")}
+                      className="focus-ring w-full bg-transparent text-xs font-bold text-zinc-100 outline-none appearance-none cursor-pointer pr-6"
+                      value={String(selectedLeagueMonthParts.month)}
+                      onChange={(event) => {
+                        const nextMonth = Number(event.target.value);
+                        setSelectedLeagueMonth(formatUtcLeagueMonth(selectedLeagueMonthParts.year, nextMonth));
+                      }}
+                    >
+                      {leagueMonthsForSelectedYear.map((option) => (
+                        <option key={option.value} value={option.month}>
+                          {locale === "ko" ? `${option.month}월` : "June"}
+                        </option>
+                      ))}
+                    </select>
+                    <CaretDown size={13} className="absolute right-3 text-zinc-500 pointer-events-none" />
+                  </div>
+                </div>
+              )}
+
+              {/* Row 3: Favorites toggle button & Calendar period selector */}
+              <div className="grid grid-cols-2 gap-2 w-full">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (favoritesOnly) {
+                      setFavoritesOnly(false);
+                    } else {
+                      setFavoritesOnly(true);
+                    }
+                  }}
+                  className={`focus-ring group inline-flex h-9 items-center justify-center gap-2 rounded-xl text-xs font-bold transition-[background-color,color,box-shadow,transform] duration-200 ease-out active:scale-[0.96] ${
+                    favoritesOnly
+                      ? "bg-amber-300 text-zinc-950 shadow-[0_0_0_1px_rgba(251,191,36,0.55)]"
+                      : "bg-white/[0.02] text-zinc-400 border border-white/[0.08] hover:bg-white/[0.06] hover:text-zinc-100"
+                  }`}
+                  aria-pressed={favoritesOnly}
+                >
+                  <Star className="transition-transform duration-200 ease-out group-hover:-rotate-6 group-hover:scale-110" size={14} weight={favoritesOnly ? "fill" : "bold"} />
+                  {t("leaderboard.favorites")}
+                  {favoriteTraderIds.size ? (
+                    <span
+                      className={`rounded px-1.5 py-0.5 font-mono text-[10px] leading-none tabular-nums ${
+                        favoritesOnly ? "bg-zinc-950/15 text-zinc-950" : "bg-white/[0.07] text-zinc-300"
+                      }`}
+                    >
+                      {favoriteTraderIds.size}
+                    </span>
+                  ) : null}
+                </button>
+
+                <div className="relative w-full">
+                  <button
+                    type="button"
+                    onClick={() => setIsPeriodOpen(!isPeriodOpen)}
+                    className="focus-ring inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.02] text-xs font-semibold hover:bg-white/[0.06] transition"
+                  >
+                    <Calendar size={14} className="text-emerald-400" />
+                    <span>{periodLabel(locale, selectedPeriod)}</span>
+                    <CaretDown size={12} className="text-zinc-400" />
+                  </button>
+
+                  {isPeriodOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setIsPeriodOpen(false)} />
+                      <div className="absolute right-0 mt-1.5 w-full rounded-lg border border-white/10 bg-[#0c0d0d] p-1 shadow-lg z-20">
+                        {(["ALL", "7D", "30D", "90D"] as const).map((p) => (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => {
+                              setSelectedPeriod(p);
+                              setIsPeriodOpen(false);
+                            }}
+                            className={`w-full text-left rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                              selectedPeriod === p
+                                ? "bg-emerald-500/10 text-emerald-400"
                                 : "text-zinc-400 hover:bg-white/[0.04] hover:text-white"
                             }`}
                           >
@@ -1225,6 +1430,24 @@ function unwrapTradePlans(value: unknown): Array<Record<string, any>> {
   return [];
 }
 
+async function saveLeaderboardFavoritePreferences(
+  preferences: SubscriberPreferences,
+  next: string[],
+  locale: Locale
+) {
+  const response = await fetch("/api/subscriber/preferences", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...preferences,
+      favoriteTraderIds: [...next],
+      locale
+    })
+  });
+  if (!response.ok) return null;
+  return await response.json() as SubscriberPreferences;
+}
+
 function traderName(id: string | null | undefined, t: (key: string) => string, traderNameMap: Map<string, string>) {
   if (!id) return "-";
   const localizationKey = traderNameKey(id);
@@ -1379,13 +1602,14 @@ function extractOverviewReviews(value: unknown): OverviewReviewRecord[] {
   return [];
 }
 
-async function loadOverviewReviewPage(limit: number, offset: number, locale: Locale) {
-  const response = await getLeagueOverviewReviews(limit, offset, locale);
+async function loadOverviewReviewPage(limit: number, offset: number, locale: Locale, options?: { readonly preferCached?: boolean }) {
+  const response = await getLeagueOverviewReviews(limit, offset, locale, undefined, undefined, options);
   const reviews = mergeOverviewReviews([], extractOverviewReviews(response));
   return {
     reviews,
     nextOffset: Number.isFinite(response.nextOffset) ? response.nextOffset : offset + reviews.length,
-    hasMore: response.hasMore
+    hasMore: response.hasMore,
+    warming: response.warming === true
   };
 }
 
@@ -1440,6 +1664,7 @@ function OptionActivityStream({
   const [offset, setOffset] = useState(() => overviewActivityCache.offset);
   const [hasMore, setHasMore] = useState(() => overviewActivityCache.hasMore);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasLoadError, setHasLoadError] = useState(false);
   const [hasOverviewUserScrolled, setHasOverviewUserScrolled] = useState(false);
 
   const isFetchingRef = useRef(false);
@@ -1448,6 +1673,7 @@ function OptionActivityStream({
 
   useEffect(() => {
     let active = true;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const refreshOverviewActivityCache = async () => {
       if (isFetchingRef.current) return;
       if (overviewActivityCache.locale !== locale) {
@@ -1468,9 +1694,19 @@ function OptionActivityStream({
       }
       isFetchingRef.current = true;
       setIsLoading(!hasCachedReviews);
+      let keepLoadingForWarmup = false;
+      setHasLoadError(false);
       try {
-        const page = await loadOverviewReviewPage(OVERVIEW_INITIAL_LIMIT, 0, locale);
+        const page = await loadOverviewReviewPage(OVERVIEW_INITIAL_LIMIT, 0, locale, { preferCached: true });
         const fetchedReviews = page.reviews;
+        if (page.warming && fetchedReviews.length === 0) {
+          overviewActivityCache.fetchedAt = 0;
+          if (active) {
+            keepLoadingForWarmup = true;
+            retryTimer = setTimeout(refreshOverviewActivityCache, 1500);
+          }
+          return;
+        }
         const mergedReviews = mergeOverviewReviews(overviewActivityCache.reviews, fetchedReviews);
         overviewActivityCache.reviews = mergedReviews;
         overviewActivityCache.offset = Math.max(hasCachedReviews ? overviewActivityCache.offset : 0, page.nextOffset);
@@ -1485,15 +1721,19 @@ function OptionActivityStream({
         console.error("Failed to load initial reviews:", err);
         overviewActivityCache.hasMore = false;
         overviewActivityCache.fetchedAt = Date.now();
-        if (active) setHasMore(false);
+        if (active) {
+          setHasMore(false);
+          setHasLoadError(true);
+        }
       } finally {
         isFetchingRef.current = false;
-        if (active) setIsLoading(false);
+        if (active && !keepLoadingForWarmup) setIsLoading(false);
       }
     };
     refreshOverviewActivityCache();
     return () => {
       active = false;
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [locale]);
 
@@ -1525,6 +1765,7 @@ function OptionActivityStream({
       console.error("Failed to load more reviews:", err);
       overviewActivityCache.hasMore = false;
       setHasMore(false);
+      setHasLoadError(true);
     } finally {
       isFetchingRef.current = false;
       setIsLoading(false);
@@ -1626,14 +1867,33 @@ function OptionActivityStream({
     return items;
   }, [reviewsList, traderNameMap, locale, t]);
 
+  const showInitialState = logItems.length === 0;
+
   return (
     <div className="overflow-hidden rounded-b-2xl p-3 text-left md:rounded-b-[22px] md:p-5">
       <div className="flex min-h-[238px] flex-col justify-between rounded-2xl border border-white/[0.07] bg-black/75 p-4 font-mono text-xs leading-5 text-zinc-300 shadow-inner md:min-h-[326px] md:p-5 md:text-[13px] md:leading-6">
         <div
+          data-testid="league-overview-stream"
           ref={containerRef}
           onScroll={handleOverviewScroll}
           className="max-h-[178px] space-y-1.5 overflow-y-auto pr-2 scroll-smooth scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10 md:max-h-[264px]"
         >
+          {showInitialState && isLoading ? (
+            <div className="flex min-h-[120px] items-center justify-center gap-2 text-zinc-500">
+              <CircleNotch className="animate-spin animate-duration-1000 text-emerald-400" size={13} />
+              <span>{t("leaderboard.loadingOlderLogs")}</span>
+            </div>
+          ) : null}
+          {showInitialState && !isLoading && hasLoadError ? (
+            <div className="flex min-h-[120px] items-center justify-center px-4 text-center font-sans text-xs text-zinc-500">
+              {t("common.liveDataUnavailable")}
+            </div>
+          ) : null}
+          {showInitialState && !isLoading && !hasLoadError ? (
+            <div className="flex min-h-[120px] items-center justify-center px-4 text-center font-sans text-xs text-zinc-500">
+              {t("leaderboard.endOfActivity")}
+            </div>
+          ) : null}
           {logItems.map((log) => {
             let dotColor = "bg-emerald-400";
             if (log.importance === "critical") {

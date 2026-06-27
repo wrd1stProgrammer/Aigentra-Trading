@@ -141,10 +141,18 @@ def compose_event_message(preferences: TelegramPreferences, event: TradeEventRec
     trader_name = localized_trader_name(event.trader_id, preferences.locale)
     label = telegram_event_label(telegram_event_type, preferences.locale)
     price = f"{float(event.price):,.1f}" if event.price is not None else "-"
-    pnl = f"{float(event.realized_pnl):+,.2f}" if event.realized_pnl else "-"
+    pnl = f"{float(event.realized_pnl):+,.2f}" if event.realized_pnl is not None else "-"
     payload = from_json(event.payload_json)
     if isinstance(payload, dict):
         payload = localized_trade_event_payload(event, payload, preferences.locale)
+    if event.event_type == "position_closed":
+        return "\n".join(
+            [
+                f"[AI Trader League] {label}",
+                f"{trader_name} · {event.symbol or '-'}",
+                *full_close_result_lines(event, payload if isinstance(payload, dict) else {}, preferences.locale, price, pnl),
+            ]
+        )
     review_lines = entry_review_lines(payload, preferences.locale) if isinstance(payload, dict) else []
     if review_lines:
         return "\n".join(
@@ -168,6 +176,120 @@ def compose_event_message(preferences: TelegramPreferences, event: TradeEventRec
             f"PnL: {pnl}",
         ]
     )
+
+
+def full_close_result_lines(
+    event: TradeEventRecord,
+    payload: dict[str, Any],
+    locale: str,
+    price: str,
+    pnl: str,
+) -> list[str]:
+    copy = full_close_copy(locale)
+    reason = text_value(payload.get("reason"))
+    outcome = full_close_outcome(locale, reason, event.realized_pnl)
+    side = text_value(payload.get("side")) or "-"
+    entry = format_price(first_number(payload.get("entryPrice"), payload.get("entry_price")))
+    stop = format_price(first_number(payload.get("stopLoss"), payload.get("stop_loss")))
+    target = format_price(first_number(payload.get("takeProfit"), payload.get("take_profit"), payload.get("target")))
+
+    return [
+        copy["headline"].format(outcome=outcome),
+        copy["result"].format(price=price, pnl=pnl),
+        copy["position"].format(side=side.upper(), entry=entry, stop=stop, target=target),
+    ]
+
+
+def full_close_outcome(locale: str, reason: str | None, realized_pnl: Any) -> str:
+    copy = full_close_outcome_copy(locale)
+    normalized_reason = (reason or "").strip().lower()
+    if normalized_reason in {"breakeven", "stop_at_entry"}:
+        return copy["breakeven"]
+    if normalized_reason == "take_profit":
+        return copy["take_profit"]
+    if normalized_reason in {"stop_loss", "early_thesis_failure"}:
+        return copy["stop_loss"]
+    try:
+        pnl = Decimal(str(realized_pnl)) if realized_pnl is not None else Decimal("0")
+    except Exception:
+        pnl = Decimal("0")
+    if abs(pnl) <= Decimal("0.00000001"):
+        return copy["breakeven"]
+    if pnl > 0:
+        return copy["profit"]
+    return copy["loss"]
+
+
+def full_close_copy(locale: str) -> dict[str, str]:
+    copy = {
+        "en": {
+            "headline": "Position closed. Final result: {outcome}.",
+            "result": "Exit price: {price} · Realized PnL: {pnl}",
+            "position": "Box: {side} from entry {entry}, stop {stop}, target {target}.",
+        },
+        "ko": {
+            "headline": "포지션 종료. 최종 결과: {outcome}.",
+            "result": "종료 가격: {price} · 실현 손익: {pnl}",
+            "position": "관리 기준: {side} 진입 {entry}, 손절 {stop}, 목표 {target}.",
+        },
+        "ru": {
+            "headline": "Позиция закрыта. Итоговый результат: {outcome}.",
+            "result": "Цена выхода: {price} · Реализованный PnL: {pnl}",
+            "position": "План: {side} от входа {entry}, стоп {stop}, цель {target}.",
+        },
+        "pt-BR": {
+            "headline": "Posição encerrada. Resultado final: {outcome}.",
+            "result": "Preço de saída: {price} · PnL realizado: {pnl}",
+            "position": "Caixa de risco: {side} da entrada {entry}, stop {stop}, alvo {target}.",
+        },
+        "tr": {
+            "headline": "Pozisyon kapandı. Nihai sonuç: {outcome}.",
+            "result": "Çıkış fiyatı: {price} · Gerçekleşen PnL: {pnl}",
+            "position": "Risk kutusu: {side} giriş {entry}, stop {stop}, hedef {target}.",
+        },
+    }
+    return copy.get(locale, copy["en"])
+
+
+def full_close_outcome_copy(locale: str) -> dict[str, str]:
+    copy = {
+        "en": {
+            "take_profit": "target reached",
+            "stop_loss": "stop loss",
+            "breakeven": "breakeven exit",
+            "profit": "closed in profit",
+            "loss": "closed in loss",
+        },
+        "ko": {
+            "take_profit": "익절 완료",
+            "stop_loss": "손절 종료",
+            "breakeven": "본절 종료",
+            "profit": "수익 종료",
+            "loss": "손실 종료",
+        },
+        "ru": {
+            "take_profit": "цель достигнута",
+            "stop_loss": "стоп-лосс",
+            "breakeven": "выход в безубыток",
+            "profit": "закрыто с прибылью",
+            "loss": "закрыто с убытком",
+        },
+        "pt-BR": {
+            "take_profit": "alvo atingido",
+            "stop_loss": "stop loss",
+            "breakeven": "saída no breakeven",
+            "profit": "encerrada com lucro",
+            "loss": "encerrada com perda",
+        },
+        "tr": {
+            "take_profit": "hedefe ulaştı",
+            "stop_loss": "zarar kes",
+            "breakeven": "başa baş çıkış",
+            "profit": "karla kapandı",
+            "loss": "zararla kapandı",
+        },
+    }
+    return copy.get(locale, copy["en"])
 
 
 def compose_management_message(

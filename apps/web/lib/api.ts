@@ -806,11 +806,19 @@ export function getLeagueSentimentOpinion(
   return request<LeagueSentimentOpinionResponse>(`/api/league/sentiment/opinion?${params.toString()}`);
 }
 
-export function getLeagueOverviewReviews(limit = 20, offset = 0, locale: Locale = "en", symbol?: string, traderId?: string) {
+export function getLeagueOverviewReviews(
+  limit = 20,
+  offset = 0,
+  locale: Locale = "en",
+  symbol?: string,
+  traderId?: string,
+  options?: { readonly preferCached?: boolean }
+) {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset), locale });
   if (symbol) params.set("symbol", symbol);
   if (traderId) params.set("trader_id", traderId);
-  return request<{ reviews: Record<string, any>[]; nextOffset: number; hasMore: boolean }>(
+  if (options?.preferCached) params.set("prefer_cached", "true");
+  return request<{ reviews: Record<string, any>[]; nextOffset: number; hasMore: boolean; warming?: boolean }>(
     `/api/league/overview-reviews?${params.toString()}`
   );
 }

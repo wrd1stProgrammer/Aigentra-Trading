@@ -256,6 +256,169 @@ def test_trade_events_enqueue_matching_telegram_alerts(temp_db, monkeypatch):
     assert "BTCUSDT" in sent_messages[0]["text"]
 
 
+@pytest.mark.parametrize(
+    ("reason", "realized_pnl", "event_types", "expected_type", "expected_phrase"),
+    [
+        ("stop_loss", Decimal("-32.10"), ["stop_loss"], "stop_loss", "포지션 종료"),
+        ("breakeven", Decimal("0"), ["stop_loss"], "stop_loss", "본절"),
+        ("take_profit", Decimal("145.25"), ["take_profit"], "take_profit", "최종 결과"),
+        ("manual_close", Decimal("12.00"), ["take_profit"], "take_profit", "포지션 종료"),
+    ],
+)
+def test_full_position_close_events_send_result_telegram_alerts(
+    temp_db,
+    monkeypatch,
+    reason,
+    realized_pnl,
+    event_types,
+    expected_type,
+    expected_phrase,
+):
+    sent_messages = []
+
+    def fake_send_telegram_message(*, bot_token, chat_id, text):
+        sent_messages.append({"bot_token": bot_token, "chat_id": chat_id, "text": text})
+        return {"ok": True}
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setattr("app.subscribers.send_telegram_message", fake_send_telegram_message)
+
+    with session_scope() as db:
+        upsert_subscriber_preferences(
+            db,
+            user_id=f"close-{reason}",
+            email=f"close-{reason}@example.com",
+            favorite_trader_ids=["trend-sentinel"],
+            telegram_settings=TelegramSettingsInput(
+                enabled=True,
+                chat_id="333",
+                event_types=event_types,
+                min_return_pct=0,
+            ),
+            locale="ko",
+        )
+        create_trade_event(
+            db,
+            trader_id="trend-sentinel",
+            symbol="BTCUSDT",
+            event_type="position_closed",
+            price=Decimal("59109.6"),
+            quantity=Decimal("0.2"),
+            realized_pnl=realized_pnl,
+            payload={
+                "side": "short",
+                "reason": reason,
+                "entryPrice": "60347.5",
+                "stopLoss": "60347.5" if reason == "breakeven" else "61057.6",
+                "takeProfit": "59109.6",
+            },
+        )
+        delivery = db.query(TelegramAlertDeliveryRecord).one()
+
+        assert delivery.telegram_event_type == expected_type
+        assert delivery.status == "sent"
+
+    assert len(sent_messages) == 1
+    text = sent_messages[0]["text"]
+    assert "추세 감시관" in text
+    assert expected_phrase in text
+    assert "결과" in text
+    assert 1 <= len(text) <= 4096
+
+
+def test_partial_take_profit_event_does_not_send_full_close_alert(temp_db, monkeypatch):
+    sent_messages = []
+
+    def fake_send_telegram_message(*, bot_token, chat_id, text):
+        sent_messages.append({"bot_token": bot_token, "chat_id": chat_id, "text": text})
+        return {"ok": True}
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setattr("app.subscribers.send_telegram_message", fake_send_telegram_message)
+
+    with session_scope() as db:
+        upsert_subscriber_preferences(
+            db,
+            user_id="partial",
+            email="partial@example.com",
+            favorite_trader_ids=["trend-sentinel"],
+            telegram_settings=TelegramSettingsInput(
+                enabled=True,
+                chat_id="333",
+                event_types=["take_profit", "stop_loss"],
+                min_return_pct=0,
+            ),
+            locale="ko",
+        )
+        create_trade_event(
+            db,
+            trader_id="trend-sentinel",
+            symbol="BTCUSDT",
+            event_type="take_partial_profit",
+            price=Decimal("58304.2"),
+            quantity=Decimal("0.1"),
+            realized_pnl=Decimal("55.50"),
+            payload={"side": "short", "reason": "take_profit", "remainingQuantity": "0.1"},
+        )
+
+        assert db.query(TelegramAlertDeliveryRecord).count() == 0
+
+    assert sent_messages == []
+
+
+@pytest.mark.parametrize(
+    ("locale", "expected_label", "expected_phrase"),
+    [
+        ("en", "Take Profit", "Position closed"),
+        ("ko", "익절완료", "포지션 종료"),
+        ("ru", "Тейк-профит", "Позиция закрыта"),
+        ("pt-BR", "Take profit", "Posição encerrada"),
+        ("tr", "Kar alındı", "Pozisyon kapandı"),
+    ],
+)
+def test_localized_full_close_result_messages(temp_db, monkeypatch, locale, expected_label, expected_phrase):
+    sent_messages = []
+
+    def fake_send_telegram_message(*, bot_token, chat_id, text):
+        sent_messages.append({"bot_token": bot_token, "chat_id": chat_id, "text": text})
+        return {"ok": True}
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setattr("app.subscribers.send_telegram_message", fake_send_telegram_message)
+
+    with session_scope() as db:
+        upsert_subscriber_preferences(
+            db,
+            user_id=f"locale-{locale}",
+            email=f"locale-{locale}@example.com",
+            favorite_trader_ids=["trend-sentinel"],
+            telegram_settings=TelegramSettingsInput(
+                enabled=True,
+                chat_id="444",
+                event_types=["take_profit"],
+                min_return_pct=0,
+            ),
+            locale=locale,
+        )
+        create_trade_event(
+            db,
+            trader_id="trend-sentinel",
+            symbol="BTCUSDT",
+            event_type="position_closed",
+            price=Decimal("59109.6"),
+            quantity=Decimal("0.2"),
+            realized_pnl=Decimal("145.25"),
+            payload={"side": "short", "reason": "take_profit", "entryPrice": "60347.5", "takeProfit": "59109.6"},
+        )
+
+    assert len(sent_messages) == 1
+    text = sent_messages[0]["text"]
+    assert expected_label in text
+    assert expected_phrase in text
+    assert "Reason: take_profit" not in text
+    assert 1 <= len(text) <= 4096
+
+
 def test_telegram_subscriber_matching_respects_favorites_and_event_types(temp_db):
     with session_scope() as db:
         upsert_subscriber_preferences(
