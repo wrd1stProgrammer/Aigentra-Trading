@@ -73,12 +73,10 @@ async def test_codex_cli_client_invokes_safe_exec_and_parses_jsonl(tmp_path, mon
     record = json.loads(record_path.read_text())
     argv = record["argv"]
     assert result == {"decision": "HOLD"}
-    assert argv[1:3] == ["exec", "--json"]
+    assert argv[1:5] == ["--ask-for-approval", "never", "exec", "--json"]
     assert "--ephemeral" in argv
     assert "--sandbox" in argv
     assert "read-only" in argv
-    assert "--ask-for-approval" in argv
-    assert "never" in argv
     assert "--ignore-rules" in argv
     assert "--skip-git-repo-check" in argv
     assert "--output-schema" in argv

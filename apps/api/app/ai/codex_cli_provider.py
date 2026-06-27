@@ -114,13 +114,13 @@ class CodexCliClient:
     def _command_args(self, *, schema_path: Path, model: str, system_prompt: str) -> list[str]:
         args = [
             self.config.command,
+            "--ask-for-approval",
+            "never",
             "exec",
             "--json",
             "--ephemeral",
             "--sandbox",
             "read-only",
-            "--ask-for-approval",
-            "never",
             "--ignore-rules",
             "--skip-git-repo-check",
             "--output-schema",
