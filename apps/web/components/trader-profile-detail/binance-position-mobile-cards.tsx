@@ -35,7 +35,8 @@ export function MobilePositionCards({
   t,
   liveMarkPrice,
   onOpenPosition,
-  onOpenOrder
+  onOpenOrder,
+  isSubscribed = true
 }: {
   readonly activeTab: "positions" | "orders";
   readonly positions: readonly PaperPosition[];
@@ -45,6 +46,7 @@ export function MobilePositionCards({
   readonly liveMarkPrice?: number | null;
   readonly onOpenPosition?: (position: PaperPosition) => void;
   readonly onOpenOrder?: (order: DisplayPaperOrder) => void;
+  readonly isSubscribed?: boolean;
 }) {
   return (
     <div data-testid="mobile-position-cards" className="divide-y divide-zinc-800/40 px-4 md:hidden">
@@ -57,6 +59,7 @@ export function MobilePositionCards({
               t={t}
               liveMarkPrice={liveMarkPrice}
               onOpen={onOpenPosition}
+              isSubscribed={isSubscribed}
             />
           ))
         : orders.map((order, index) => (
@@ -66,6 +69,7 @@ export function MobilePositionCards({
               locale={locale}
               t={t}
               onOpen={onOpenOrder}
+              isSubscribed={isSubscribed}
             />
           ))}
       {activeTab === "positions" && !positions.length ? <EmptyMobileCard>{t("detail.noOpenPositionRows")}</EmptyMobileCard> : null}
@@ -79,13 +83,15 @@ function MobilePositionCard({
   locale,
   t,
   liveMarkPrice,
-  onOpen
+  onOpen,
+  isSubscribed = true
 }: {
   readonly position: PaperPosition;
   readonly locale: Locale;
   readonly t: Translator;
   readonly liveMarkPrice?: number | null;
   readonly onOpen?: (position: PaperPosition) => void;
+  readonly isSubscribed?: boolean;
 }) {
   const side = normalizedSide(position.side);
   const quantity = positionQuantity(position);
@@ -239,8 +245,9 @@ function MobilePositionCard({
           {onOpen && (
             <button
               type="button"
-              onClick={() => onOpen(position)}
-              className="text-[11px] font-semibold text-amber-500 hover:text-amber-400 transition active:scale-95"
+              disabled={!isSubscribed}
+              onClick={() => isSubscribed && onOpen(position)}
+              className="text-[11px] font-semibold text-amber-500 hover:text-amber-400 transition active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none"
             >
               {t("detail.rowDetail")} &gt;
             </button>
@@ -255,12 +262,14 @@ function MobileOrderCard({
   order,
   locale,
   t,
-  onOpen
+  onOpen,
+  isSubscribed = true
 }: {
   readonly order: DisplayPaperOrder;
   readonly locale: Locale;
   readonly t: Translator;
   readonly onOpen?: (order: DisplayPaperOrder) => void;
+  readonly isSubscribed?: boolean;
 }) {
   const side = normalizedSide(order.side);
   const payload = recordValue(order.payload);
@@ -396,8 +405,9 @@ function MobileOrderCard({
         <div className="mt-3 flex justify-end pt-2.5 border-t border-zinc-800/40 text-xs">
           <button
             type="button"
-            onClick={() => onOpen(order)}
-            className="text-[11px] font-semibold text-amber-500 hover:text-amber-400 transition active:scale-95"
+            disabled={!isSubscribed}
+            onClick={() => isSubscribed && onOpen(order)}
+            className="text-[11px] font-semibold text-amber-500 hover:text-amber-400 transition active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none"
           >
             {t("detail.rowDetail")} &gt;
           </button>

@@ -27,6 +27,7 @@ class WhopCheckoutPayload(BaseModel):
     userId: str
     email: str
     locale: str = "ko"
+    planKey: str = ""
     redirectUrl: str = ""
     sourceUrl: str = ""
 
@@ -43,6 +44,7 @@ def create_checkout(
             user_id=payload.userId,
             email=payload.email,
             locale=payload.locale,
+            plan_key=payload.planKey,
             redirect_url=payload.redirectUrl,
             source_url=payload.sourceUrl,
             settings=get_settings(),

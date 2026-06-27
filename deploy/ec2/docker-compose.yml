@@ -48,6 +48,8 @@ services:
       ENABLE_AUTO_SCANNER: "false"
     ports:
       - "127.0.0.1:8000:8000"
+    volumes:
+      - /opt/aigentra-trading/.codex:/srv/aigentra/.codex:rw
     depends_on:
       redis:
         condition: service_healthy
@@ -76,6 +78,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       REDIS_MARKET_CACHE_ENABLED: "true"
       ENABLE_AUTO_SCANNER: ${ENABLE_AUTO_SCANNER:-true}
+    volumes:
+      - /opt/aigentra-trading/.codex:/srv/aigentra/.codex:rw
     command: ["python", "-m", "app.worker"]
     depends_on:
       redis:

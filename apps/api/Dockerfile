@@ -7,6 +7,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /srv/aigentra
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh; \
+    CODEX_BIN="$(PATH="/root/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH" command -v codex || true)"; \
+    if [ -z "$CODEX_BIN" ]; then \
+        CODEX_BIN="$(find /root /usr/local -type f -name codex -perm /111 2>/dev/null | head -n 1)"; \
+    fi; \
+    test -n "$CODEX_BIN"; \
+    install -m 0755 "$CODEX_BIN" /usr/local/bin/codex; \
+    /usr/local/bin/codex --version
+
 RUN addgroup --system app && adduser --system --ingroup app app
 
 COPY apps/api/requirements.txt apps/api/requirements.txt
@@ -16,7 +30,7 @@ COPY alembic.ini alembic.ini
 COPY apps/api/alembic apps/api/alembic
 COPY apps/api/app apps/api/app
 
-RUN mkdir -p apps/api/data && chown -R app:app /srv/aigentra
+RUN mkdir -p apps/api/data .codex && chown -R app:app /srv/aigentra
 
 USER app
 

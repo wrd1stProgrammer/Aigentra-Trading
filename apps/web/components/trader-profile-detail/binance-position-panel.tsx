@@ -41,7 +41,8 @@ export function BinancePositionPanel({
   latestPlan,
   scenarios = [],
   onOpenScenario,
-  liveMarkPrice
+  liveMarkPrice,
+  isSubscribed = true
 }: {
   readonly symbol: LeagueSymbol;
   readonly positions: readonly PaperPosition[];
@@ -50,6 +51,7 @@ export function BinancePositionPanel({
   readonly scenarios?: readonly TraderScenario[];
   readonly onOpenScenario?: (scenario: TraderScenario) => void;
   readonly liveMarkPrice?: number | null;
+  readonly isSubscribed?: boolean;
 }) {
   const { locale, t } = useAppContext();
   const openPositions = useMemo(() => positions.filter((position) => matchesSymbol(position.symbol, symbol) && isOpenChartExposure(position)), [positions, symbol]);
@@ -80,6 +82,7 @@ export function BinancePositionPanel({
         liveMarkPrice={liveMarkPrice}
         onOpenPosition={onOpenScenario ? openScenarioForPosition : undefined}
         onOpenOrder={onOpenScenario ? openScenarioForOrder : undefined}
+        isSubscribed={isSubscribed}
       />
       <div className="hidden overflow-x-auto md:block">
         {activeTab === "positions" ? (
@@ -99,7 +102,7 @@ export function BinancePositionPanel({
             </thead>
             <tbody>
               {openPositions.map((position, index) => (
-                <PositionRow key={`position-${position.id ?? index}`} position={position} locale={locale} t={t} liveMarkPrice={liveMarkPrice} onOpenScenario={onOpenScenario ? openScenarioForPosition : undefined} />
+                <PositionRow key={`position-${position.id ?? index}`} position={position} locale={locale} t={t} liveMarkPrice={liveMarkPrice} onOpenScenario={onOpenScenario ? openScenarioForPosition : undefined} isSubscribed={isSubscribed} />
               ))}
             </tbody>
           </table>
@@ -122,7 +125,7 @@ export function BinancePositionPanel({
             </thead>
             <tbody>
               {openOrders.map((order, index) => (
-                <OrderRow key={`order-${order.id ?? index}`} order={order} locale={locale} t={t} onOpenScenario={onOpenScenario ? openScenarioForOrder : undefined} />
+                <OrderRow key={`order-${order.id ?? index}`} order={order} locale={locale} t={t} onOpenScenario={onOpenScenario ? openScenarioForOrder : undefined} isSubscribed={isSubscribed} />
               ))}
             </tbody>
           </table>
@@ -162,13 +165,15 @@ function PositionRow({
   locale,
   t,
   liveMarkPrice,
-  onOpenScenario
+  onOpenScenario,
+  isSubscribed = true
 }: {
   readonly position: PaperPosition;
   readonly locale: Locale;
   readonly t: (key: string) => string;
   readonly liveMarkPrice?: number | null;
   readonly onOpenScenario?: (position: PaperPosition) => void;
+  readonly isSubscribed?: boolean;
 }) {
   const side = normalizedSide(position.side);
   const quantity = positionQuantity(position);
@@ -216,7 +221,7 @@ function PositionRow({
         </div>
       </PositionCell>
       <PositionCell>
-        <DetailButton label={t("detail.rowDetail")} disabled={!onOpenScenario} testId="position-scenario-detail" onClick={() => onOpenScenario?.(position)} />
+        <DetailButton label={t("detail.rowDetail")} disabled={!isSubscribed || !onOpenScenario} testId="position-scenario-detail" onClick={() => onOpenScenario?.(position)} />
       </PositionCell>
     </tr>
   );
@@ -226,12 +231,14 @@ function OrderRow({
   order,
   locale,
   t,
-  onOpenScenario
+  onOpenScenario,
+  isSubscribed = true
 }: {
   readonly order: DisplayPaperOrder;
   readonly locale: Locale;
   readonly t: (key: string) => string;
   readonly onOpenScenario?: (order: DisplayPaperOrder) => void;
+  readonly isSubscribed?: boolean;
 }) {
   const side = normalizedSide(order.side);
   const payload = recordValue(order.payload);
@@ -268,7 +275,7 @@ function OrderRow({
       <PositionCell className="font-mono text-zinc-400">{statusLabel(order.status, t)}</PositionCell>
       <PositionCell className="font-mono text-zinc-500 dark:text-zinc-400">{formatClockTime(orderTime, locale)}</PositionCell>
       <PositionCell>
-        <DetailButton label={t("detail.rowDetail")} disabled={!onOpenScenario} testId="order-scenario-detail" onClick={() => onOpenScenario?.(order)} />
+        <DetailButton label={t("detail.rowDetail")} disabled={!isSubscribed || !onOpenScenario} testId="order-scenario-detail" onClick={() => onOpenScenario?.(order)} />
       </PositionCell>
     </tr>
   );

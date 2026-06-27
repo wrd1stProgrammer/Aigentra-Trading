@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.ai.translation_provider import AITranslationProvider, translate_json_with_logging
+from app.ai.translation_provider import AITranslationProvider, get_translation_provider, translate_json_with_logging
 from app.core.config import Settings
 from app.locales import (
     AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT,
@@ -260,7 +260,10 @@ async def fanout_ai_translations(
                 error_message="AI translation is disabled.",
             )
             continue
-        if not getattr(settings, "openai_api_key", ""):
+        active_provider = provider
+        if active_provider is None and getattr(settings, "ai_translation_provider", "openai") == "codex_cli":
+            active_provider = get_translation_provider(settings)
+        if not active_provider and not getattr(settings, "openai_api_key", ""):
             upsert_translation_cache_record(
                 db,
                 source_type=source_type,
@@ -269,7 +272,7 @@ async def fanout_ai_translations(
                 locale=locale,
                 status="fallback",
                 payload=scrub_translation_payload_for_source(source_type, payload),
-                provider="openai",
+                provider=getattr(settings, "ai_translation_provider", "openai"),
                 model=getattr(settings, "openai_translation_model", "translation"),
                 symbol=symbol,
                 trader_id=trader_id,
@@ -287,7 +290,7 @@ async def fanout_ai_translations(
                 target_locale=locale,
                 symbol=symbol,
                 trader_id=trader_id,
-                provider=provider,
+                provider=active_provider,
             )
             safe_payload = merge_validated_translation(request_payload, translated)
             safe_payload = scrub_translation_payload_for_source(source_type, safe_payload)
@@ -299,8 +302,8 @@ async def fanout_ai_translations(
                 locale=locale,
                 status="ok",
                 payload=safe_payload,
-                provider=getattr(provider, "name", "openai"),
-                model=getattr(provider, "model", getattr(settings, "openai_translation_model", "translation")),
+                provider=getattr(active_provider, "name", "openai"),
+                model=getattr(active_provider, "model", getattr(settings, "openai_translation_model", "translation")),
                 symbol=symbol,
                 trader_id=trader_id,
                 raw={"translated": translated},
@@ -314,8 +317,8 @@ async def fanout_ai_translations(
                 locale=locale,
                 status="fallback",
                 payload=scrub_translation_payload_for_source(source_type, payload),
-                provider=getattr(provider, "name", "openai"),
-                model=getattr(provider, "model", getattr(settings, "openai_translation_model", "translation")),
+                provider=getattr(active_provider, "name", "openai"),
+                model=getattr(active_provider, "model", getattr(settings, "openai_translation_model", "translation")),
                 symbol=symbol,
                 trader_id=trader_id,
                 error_message=sanitize_error_message(str(exc)),

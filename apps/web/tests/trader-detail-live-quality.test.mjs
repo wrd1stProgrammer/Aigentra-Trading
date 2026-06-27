@@ -57,12 +57,13 @@ test("trader detail header keeps execution rail without monitoring tabs", () => 
   assert.doesNotMatch(pageSource, /detail\.monitoring/, "detail page should not render the old monitoring tab label");
 });
 
-test("detail bundle uses cached placeholder data without blocking live fetch", () => {
+test("detail bundle uses cached placeholder data without treating it as live fetch completion", () => {
   assert.match(apiSource, /getCachedTraderDetailBundle/, "detail bundle cache reader should exist");
   assert.match(apiSource, /TRADER_DETAIL_BROWSER_CACHE_MS = 60_000/, "detail trading-state placeholders should expire faster than static leaderboard placeholders");
   assert.match(apiSource, /getCachedTraderDetailBundle[\s\S]*TRADER_DETAIL_BROWSER_CACHE_MS/, "detail cache reader should use the short trading-state TTL");
   assert.doesNotMatch(pageSource, /initialData/, "placeholder/fallback data must not be treated as fresh live data");
   assert.match(pageSource, /placeholderData[\s\S]*getCachedTraderDetailBundle/, "detail page should use browser cache only as placeholder data");
+  assert.match(pageSource, /hydratedDetailContextKey/, "detail page should track when a real network bundle has hydrated the current trader context");
 });
 
 test("trader detail does not auto-expand heavy review limits before user scroll", () => {
@@ -73,7 +74,11 @@ test("trader detail does not auto-expand heavy review limits before user scroll"
 
 test("trader detail shows centered loading affordances for review and chart data", () => {
   assert.match(pageSource, /PageLoadingOverlay/, "trader detail should use the shared centered loading overlay");
-  assert.match(pageSource, /const initialLoading = loading;/, "detail overlay should not block cached placeholder data while live data is syncing");
+  assert.match(
+    pageSource,
+    /const initialLoading = detailQuery\.isFetching && hydratedDetailContextKey !== detailContextKey;/,
+    "detail overlay should stay active until a real bundle hydrates the current trader context"
+  );
   assert.match(pageSource, /common\.loadingTraderDetailData/, "detail loading copy should be localized");
   assert.match(chartSource, /showInitialChartSpinner/, "live chart should expose an initial candle-loading spinner state");
   assert.match(chartSource, /CircleNotch/, "chart loading UI should use a visible spinner instead of only skeleton pulses");

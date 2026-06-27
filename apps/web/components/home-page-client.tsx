@@ -197,9 +197,12 @@ export function HomePageClient() {
             </div>
           </div>
 
-          <div data-testid="landing-product-proof" className="relative mx-auto max-w-[1100px] animate-fade-in-up animation-delay-500">
+          <div data-testid="landing-product-proof" className="relative mx-auto w-full max-w-[1240px] animate-fade-in-up animation-delay-500">
             <div data-testid="landing-video-placeholder">
-            <VideoFrame title={copy.videoTitle} subtitle={copy.videoSubtitle} />
+              <VideoFrame
+                title={copy.videoTitle}
+                src="/landing/aigentra-landing-video1.mp4"
+              />
             </div>
           </div>
         </div>
@@ -311,9 +314,12 @@ export function HomePageClient() {
                 {copy.getStartedCta}
                 <ArrowRight size={16} weight="bold" />
               </Link>
-              <div data-testid="landing-second-video" className="mt-14 text-left">
-                <VideoFrame title={copy.secondVideoTitle} subtitle={copy.alertsSubtitle} compact />
-              </div>
+            </div>
+            <div data-testid="landing-second-video" className="mx-auto mt-14 w-full max-w-[1240px] text-left">
+              <VideoFrame
+                title={copy.secondVideoTitle}
+                src="/landing/aigentra-landing-video2.mp4"
+              />
             </div>
           </ScrollReveal>
 

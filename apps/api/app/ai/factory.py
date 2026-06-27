@@ -5,11 +5,12 @@ from app.ai.gemini_provider import GeminiProvider
 from app.ai.grok_provider import GrokProvider
 from app.ai.mock_provider import MockAIProvider
 from app.ai.openai_provider import OpenAIProvider
-from app.core.config import Settings
+from app.ai.codex_cli_provider import CodexCliAIProvider, CodexCliClient, CodexCliConfig, FallbackAIProvider
+from app.core.config import Settings, normalize_ai_provider_name
 
 
 def provider_status(settings: Settings, selected_override: str = None) -> Dict[str, dict]:
-    selected = (selected_override or settings.ai_provider or "mock").lower()
+    selected = normalize_ai_provider_name(selected_override or settings.ai_provider or "mock")
     providers = {
         "mock": {"configured": True, "model": "mock-reviewer-v1"},
         "openai": {
@@ -18,6 +19,16 @@ def provider_status(settings: Settings, selected_override: str = None) -> Dict[s
             "tradeReviewModel": settings.openai_trade_review_model or settings.openai_model,
             "positionManagementModel": settings.openai_position_management_model or settings.openai_model,
             "leagueSentimentModel": settings.openai_league_sentiment_model or settings.openai_model,
+        },
+        "codex_cli": {
+            "configured": bool(settings.codex_cli_command),
+            "model": settings.codex_cli_model or "codex-cli-default",
+            "tradeReviewModel": settings.codex_cli_trade_review_model or settings.codex_cli_model or "codex-cli-default",
+            "positionManagementModel": settings.codex_cli_position_management_model
+            or settings.codex_cli_model
+            or "codex-cli-default",
+            "leagueSentimentModel": settings.codex_cli_league_sentiment_model or settings.codex_cli_model or "codex-cli-default",
+            "fallbackProvider": settings.codex_cli_fallback_provider,
         },
         "gemini": {
             "configured": bool(settings.gemini_api_key),
@@ -52,6 +63,25 @@ def get_ai_provider(settings: Settings, provider_override: str = None):
             position_management_model=settings.openai_position_management_model,
             league_sentiment_model=settings.openai_league_sentiment_model,
         )
+    if provider == "codex_cli" and settings.codex_cli_command:
+        primary = CodexCliAIProvider(
+            client=CodexCliClient(
+                CodexCliConfig(
+                    command=settings.codex_cli_command,
+                    model=settings.codex_cli_model,
+                    timeout_seconds=float(settings.codex_cli_timeout_seconds or 120.0),
+                    workdir=settings.codex_cli_workdir,
+                    codex_home=settings.codex_cli_home,
+                    access_token=settings.codex_cli_access_token,
+                )
+            ),
+            model=settings.codex_cli_model,
+            trade_review_model=settings.codex_cli_trade_review_model,
+            position_management_model=settings.codex_cli_position_management_model,
+            league_sentiment_model=settings.codex_cli_league_sentiment_model,
+        )
+        fallback_name = settings.codex_cli_fallback_provider if settings.codex_cli_fallback_provider != "codex_cli" else "openai"
+        return FallbackAIProvider(primary=primary, fallback=get_ai_provider(settings, fallback_name))
     if provider == "gemini" and settings.gemini_api_key:
         return GeminiProvider(settings.gemini_api_key, settings.gemini_model)
     if provider == "anthropic" and settings.anthropic_api_key:

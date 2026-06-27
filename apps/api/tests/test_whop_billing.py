@@ -67,7 +67,7 @@ def test_whop_checkout_creates_record_with_safe_metadata(temp_db, monkeypatch):
     get_settings.cache_clear()
     captured = {}
 
-    def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url):
+    def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url, plan_key):
         captured["metadata"] = metadata
         captured["redirect_url"] = redirect_url
         captured["source_url"] = source_url
@@ -142,7 +142,7 @@ def test_whop_checkout_uses_existing_plan_id_without_dynamic_plan_prices(temp_db
     assert "company_id" not in request_body
     assert "plan" not in request_body
 
-    def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url):
+    def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url, plan_key):
         return {
             "id": "ch_existing_plan",
             "purchase_url": "/checkout/plan_existing_123?session=ch_existing_plan",
@@ -178,7 +178,7 @@ def test_whop_checkout_omits_local_callback_urls_for_whop(temp_db, monkeypatch):
     get_settings.cache_clear()
     captured = {}
 
-    def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url):
+    def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url, plan_key):
         captured["redirect_url"] = redirect_url
         captured["source_url"] = source_url
         return {
@@ -228,7 +228,7 @@ def test_whop_checkout_uses_sandbox_environment_values(temp_db, monkeypatch):
     assert request_body["plan_id"] == "plan_sandbox"
     assert whop_sandbox_enabled(settings) is True
 
-    def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url):
+    def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url, plan_key):
         return {
             "id": "ch_sandbox_plan",
             "purchase_url": "/checkout/plan_sandbox?session=ch_sandbox_plan",
@@ -249,6 +249,55 @@ def test_whop_checkout_uses_sandbox_environment_values(temp_db, monkeypatch):
     assert response.json()["purchaseUrl"] == "https://sandbox.whop.com/checkout/plan_sandbox?session=ch_sandbox_plan"
 
 
+def test_whop_checkout_uses_requested_annual_sandbox_plan(temp_db, monkeypatch):
+    monkeypatch.setenv("SUBSCRIBER_API_TOKEN", "internal-token")
+    monkeypatch.setenv("WHOP_MODE", "sandbox")
+    monkeypatch.setenv("WHOP_API_KEY_SANDBOX", "sandbox-api-key")
+    monkeypatch.setenv("WHOP_COMPANY_ID_SANDBOX", "biz_sandbox")
+    monkeypatch.setenv("WHOP_PRO_MONTHLY_PLAN_ID_SANDBOX", "plan_sandbox_monthly")
+    monkeypatch.setenv("WHOP_PRO_ANNUAL_PLAN_ID_SANDBOX", "plan_sandbox_annual")
+    get_settings.cache_clear()
+    settings = get_settings()
+    validate_checkout_settings(settings, plan_key="aigentra_pro_annual")
+    request_body = whop_checkout_configuration_payload(
+        settings=settings,
+        metadata={"order_id": "atl_sandbox_annual", "user_id": "google-1"},
+        redirect_url="https://app.example.com/account?billing=whop-return",
+        source_url="https://app.example.com/account",
+        plan_key="aigentra_pro_annual",
+    )
+
+    assert request_body["plan_id"] == "plan_sandbox_annual"
+
+    def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url, plan_key):
+        assert plan_key == "aigentra_pro_annual"
+        return {
+            "id": "ch_sandbox_annual",
+            "purchase_url": "/checkout/plan_sandbox_annual?session=ch_sandbox_annual",
+            "metadata": metadata,
+        }
+
+    monkeypatch.setattr("app.whop_service.create_checkout_configuration", fake_create_checkout_configuration)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/billing/whop/checkout",
+        headers={"X-Subscriber-Api-Token": "internal-token"},
+        json={
+            "userId": "google-1",
+            "email": "operator@example.com",
+            "planKey": "aigentra_pro_annual",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["planId"] == "plan_sandbox_annual"
+    with session_scope() as db:
+        record = db.query(WhopCheckoutRecord).filter_by(checkout_id="ch_sandbox_annual").one()
+        assert record.plan_key == "aigentra_pro_annual"
+        assert record.whop_plan_id == "plan_sandbox_annual"
+
+
 def test_whop_checkout_returns_sanitized_provider_rejection(temp_db, monkeypatch):
     monkeypatch.setenv("SUBSCRIBER_API_TOKEN", "internal-token")
     monkeypatch.setenv("WHOP_API_KEY", "whop-api-key")
@@ -256,7 +305,7 @@ def test_whop_checkout_returns_sanitized_provider_rejection(temp_db, monkeypatch
     monkeypatch.setenv("WHOP_PLAN_ID", "plan_missing")
     get_settings.cache_clear()
 
-    def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url):
+    def fake_create_checkout_configuration(*, settings, metadata, redirect_url, source_url, plan_key):
         raise WhopCheckoutAPIError(
             "Whop checkout API rejected the request: 400",
             public_detail="whop_checkout_rejected_400: plan does not belong to this company",

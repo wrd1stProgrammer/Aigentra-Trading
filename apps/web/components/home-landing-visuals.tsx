@@ -1,86 +1,34 @@
 "use client";
 
 import Link from "next/link";
-import { ChartLineUp, Check, Clock, ShieldCheck, Star, TelegramLogo, TrendUp, InstagramLogo } from "@phosphor-icons/react";
+import { Check, Clock, ShieldCheck, TelegramLogo, InstagramLogo } from "@phosphor-icons/react";
 import { BrandMark } from "@/components/brand-mark";
 import type { LandingCopy } from "@/lib/marketing-copy";
 import { useAppContext } from "@/components/app-provider";
 import { LandingCheckoutButton } from "@/components/landing-checkout-button";
+import { BILLING_PLAN_KEYS } from "@/lib/billing-plans";
 
-const traderRows = [
-  { name: "Channel Cartographer", state: "SHORT · 5x", pnl: "+1.33%" },
-  { name: "Pullback Architect", state: "Entry pending", pnl: "+0.40%" },
-  { name: "Funding Contrarian", state: "Watching", pnl: "0.00%" }
-] as const;
-
-const signalRows = [
-  { label: "AI review", value: "risk reduced", tone: "text-amber-300" },
-  { label: "Entry", value: "64,232.3", tone: "text-sky-300" },
-  { label: "Target", value: "62,524.3", tone: "text-emerald-300" }
-] as const;
-
-export function VideoFrame({ title, subtitle, compact = false }: { readonly title: string; readonly subtitle: string; readonly compact?: boolean }) {
+export function VideoFrame({
+  title,
+  src
+}: {
+  readonly title: string;
+  readonly src: string;
+}) {
   return (
-    <div
-      className={`relative overflow-hidden rounded-2xl border border-white/15 bg-[#111413] p-3 shadow-[0_22px_90px_rgba(0,0,0,0.48)] ${
-        compact ? "min-h-[320px] sm:min-h-[360px]" : "min-h-[360px] sm:min-h-[430px]"
-      }`}
-    >
-      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(96,165,250,0.14),transparent_32%),linear-gradient(315deg,rgba(249,115,22,0.14),transparent_30%),linear-gradient(90deg,rgba(16,185,129,0.08),transparent)]" />
-      <div className="relative h-full rounded-xl border border-white/12 bg-[#090b0a] p-5 text-white md:p-7">
-        <div className="flex items-center justify-between border-b border-white/10 pb-4">
-          <div className="flex items-center gap-3">
-            <span className="grid size-9 place-items-center rounded-lg border border-emerald-400/30 bg-emerald-400/10 text-emerald-300">
-              <TrendUp size={18} weight="bold" />
-            </span>
-            <div>
-              <p className="font-mono text-xs text-zinc-500">Dashboard preview</p>
-              <h3 className="text-base font-semibold">{title}</h3>
-            </div>
-          </div>
-          <span className="hidden rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 font-mono text-xs text-emerald-300 sm:inline-flex">
-            LIVE SIM
-          </span>
-        </div>
-        <div className="grid gap-4 pt-5 lg:grid-cols-[0.7fr_1.3fr]">
-          <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
-            <div className="mb-5 w-full rounded-lg bg-emerald-500 px-4 py-3 text-center text-sm font-semibold text-white shadow-[0_0_28px_rgba(16,185,129,0.45)]">
-              + New analysis
-            </div>
-            <p className="mb-3 font-mono text-xs text-zinc-500">History</p>
-            {traderRows.map((row, index) => (
-              <div key={row.name} className="flex items-center gap-3 border-b border-white/10 py-3 last:border-b-0">
-                <span className="grid size-7 place-items-center rounded-full bg-white/10 font-mono text-xs">{index + 1}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold">{row.name}</p>
-                  <p className="truncate font-mono text-xs text-zinc-500">{row.state}</p>
-                </div>
-                <span className="font-mono text-xs text-emerald-300">{row.pnl}</span>
-              </div>
-            ))}
-          </div>
-          <div className="grid gap-4">
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold">Pullback Architect</p>
-                  <p className="font-mono text-xs text-zinc-500">BTCUSDT · simulated short</p>
-                </div>
-                <Star size={18} className="text-amber-300" weight="fill" />
-              </div>
-              <MiniChart />
-            </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {signalRows.map((row) => (
-                <div key={row.label} className="rounded-lg border border-white/10 bg-black/35 p-4">
-                  <p className="font-mono text-[11px] text-zinc-500">{row.label}</p>
-                  <p className={`mt-2 font-mono text-sm font-semibold ${row.tone}`}>{row.value}</p>
-                </div>
-              ))}
-            </div>
-            <p className="max-w-[62ch] text-sm leading-6 text-zinc-500">{subtitle}</p>
-          </div>
-        </div>
+    <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-[#111413] p-2 shadow-[0_22px_90px_rgba(0,0,0,0.48)] sm:p-3">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(45,212,191,0.12),transparent_34%),linear-gradient(135deg,rgba(45,212,191,0.08),transparent_42%),linear-gradient(315deg,rgba(255,255,255,0.07),transparent_36%)]" />
+      <div className="relative aspect-video overflow-hidden rounded-xl border border-white/12 bg-[#050706]">
+        <video
+          aria-label={title}
+          autoPlay
+          className="h-full w-full object-contain"
+          loop
+          muted
+          playsInline
+          preload="metadata"
+          src={src}
+        />
       </div>
     </div>
   );
@@ -496,7 +444,12 @@ export function PricingCard({
             {plan.cta}
           </Link>
         ) : (
-          <LandingCheckoutButton className={ctaClassName}>{plan.cta}</LandingCheckoutButton>
+          <LandingCheckoutButton
+            className={ctaClassName}
+            planKey={isYearly ? BILLING_PLAN_KEYS.annual : BILLING_PLAN_KEYS.monthly}
+          >
+            {plan.cta}
+          </LandingCheckoutButton>
         )}
       </div>
 
@@ -655,26 +608,5 @@ export function LandingFooter({ copy }: { readonly copy: LandingCopy }) {
         </div>
       </div>
     </>
-  );
-}
-
-function MiniChart({ tall = false }: { readonly tall?: boolean }) {
-  return (
-    <div className={`relative overflow-hidden rounded-lg bg-gradient-to-b from-[#0a0f0d] to-[#040605] border border-white/[0.03] ${tall ? "h-52" : "h-44"}`}>
-      <ChartLineUp className="absolute left-4 top-4 text-emerald-400" size={24} weight="bold" />
-      <div className="absolute inset-x-5 top-1/2 border-t border-dashed border-emerald-500/25" />
-      <div className="absolute bottom-5 left-5 right-5 flex items-end gap-1.5">
-        {Array.from({ length: 20 }).map((_, index) => {
-          const height = 24 + ((index * 17) % 78);
-          return (
-            <span 
-              key={index} 
-              className="flex-1 rounded-t-[3px] bg-gradient-to-t from-emerald-500/20 via-emerald-400/60 to-emerald-400 transition-all duration-300 hover:opacity-100 opacity-80" 
-              style={{ height: `${height}px` }} 
-            />
-          );
-        })}
-      </div>
-    </div>
   );
 }

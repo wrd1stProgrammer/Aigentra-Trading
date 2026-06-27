@@ -3,6 +3,7 @@ from typing import Any, Final
 
 import httpx
 
+from app.ai.codex_cli_provider import CodexCliClient, CodexCliConfig, CodexCliError, CodexJsonClient
 from app.core.config import Settings, normalize_ai_provider_name
 from app.trader_status_feed.models import StatusFeedRequest, StatusFeedResult, TraderStatusFeedGenerator
 
@@ -107,6 +108,46 @@ class OpenAITraderStatusFeedGenerator:
         )
 
 
+class CodexCliTraderStatusFeedGenerator:
+    name = "codex_cli"
+
+    def __init__(self, *, client: CodexJsonClient, model: str) -> None:
+        self.client = client
+        self.model = model
+
+    async def generate(self, request: StatusFeedRequest) -> StatusFeedResult:
+        parsed = await self.client.run_json(
+            system_prompt=STATUS_FEED_SYSTEM_PROMPT,
+            user_prompt=json.dumps(status_feed_prompt_payload(request), ensure_ascii=False, sort_keys=True, default=str),
+            output_schema=status_feed_schema(),
+            model=self.model,
+        )
+        return StatusFeedResult(
+            headline=str(parsed.get("headline") or "Status update"),
+            message=str(parsed.get("message") or "I'm staying patient until the setup gets clean enough to touch."),
+            mood=str(parsed.get("mood") or "focused"),
+            stance=str(parsed.get("stance") or "patient"),
+            watch="",
+            provider=self.name,
+            model=self.model,
+            fallback=False,
+        )
+
+
+class FallbackTraderStatusFeedGenerator:
+    def __init__(self, *, primary: TraderStatusFeedGenerator, fallback: TraderStatusFeedGenerator) -> None:
+        self.primary = primary
+        self.fallback = fallback
+        self.name = primary.name
+        self.model = primary.model
+
+    async def generate(self, request: StatusFeedRequest) -> StatusFeedResult:
+        try:
+            return await self.primary.generate(request)
+        except CodexCliError:
+            return await self.fallback.generate(request)
+
+
 class MockTraderStatusFeedGenerator:
     name = "mock"
     model = "mock-status-feed"
@@ -151,6 +192,32 @@ class MockTraderStatusFeedGenerator:
 
 def get_status_feed_generator(settings: Settings, provider_override: str | None = None) -> TraderStatusFeedGenerator:
     requested = normalize_ai_provider_name(provider_override or settings.trader_status_feed_provider, "openai")
+    if requested == "codex_cli":
+        primary = CodexCliTraderStatusFeedGenerator(
+            client=CodexCliClient(
+                CodexCliConfig(
+                    command=settings.codex_cli_command,
+                    model=settings.codex_cli_status_feed_model or settings.trader_status_feed_model or settings.codex_cli_model,
+                    timeout_seconds=float(settings.codex_cli_timeout_seconds or settings.trader_status_feed_timeout_seconds or 120.0),
+                    workdir=settings.codex_cli_workdir,
+                    codex_home=settings.codex_cli_home,
+                    access_token=settings.codex_cli_access_token,
+                )
+            ),
+            model=settings.codex_cli_status_feed_model or settings.trader_status_feed_model or settings.codex_cli_model,
+        )
+        if settings.openai_api_key:
+            return FallbackTraderStatusFeedGenerator(
+                primary=primary,
+                fallback=OpenAITraderStatusFeedGenerator(
+                    api_key=settings.openai_api_key,
+                    model=settings.trader_status_feed_model or settings.openai_model,
+                    timeout_seconds=float(settings.trader_status_feed_timeout_seconds or 30.0),
+                ),
+            )
+        if settings.ai_missing_key_fallback_to_mock:
+            return FallbackTraderStatusFeedGenerator(primary=primary, fallback=MockTraderStatusFeedGenerator())
+        return primary
     if requested != "openai":
         return MockTraderStatusFeedGenerator()
     if not settings.openai_api_key and settings.ai_missing_key_fallback_to_mock:
@@ -162,3 +229,33 @@ def get_status_feed_generator(settings: Settings, provider_override: str | None 
         model=settings.trader_status_feed_model or settings.openai_model,
         timeout_seconds=float(settings.trader_status_feed_timeout_seconds or 30.0),
     )
+
+
+def status_feed_prompt_payload(request: StatusFeedRequest) -> dict[str, Any]:
+    return {
+        "task": "Create one concise trader status feed note.",
+        "requiredEvent": {
+            "stateKey": request.stateKey,
+            "eventType": request.eventType,
+            "symbol": request.symbol,
+            "generatedAt": request.generatedAt.isoformat(),
+        },
+        "traderPersona": request.trader.model_dump(mode="json"),
+        "trigger": request.trigger,
+        "context": request.context,
+    }
+
+
+def status_feed_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "headline": {"type": "string"},
+            "message": {"type": "string"},
+            "mood": {"type": "string"},
+            "stance": {"type": "string"},
+            "watch": {"type": "string"},
+        },
+        "required": ["headline", "message", "mood", "stance", "watch"],
+        "additionalProperties": False,
+    }

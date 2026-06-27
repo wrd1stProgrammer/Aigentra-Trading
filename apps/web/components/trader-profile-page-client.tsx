@@ -319,6 +319,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const [mobileActiveTab, setMobileActiveTab] = useState<"feed" | "scenarios" | "holdings" | "journal" | "pnl" | "status">("scenarios");
   const historyLoadingRef = useRef(false);
   const historyContextKeyRef = useRef(`${traderId}:${symbol}`);
+  const [hydratedDetailContextKey, setHydratedDetailContextKey] = useState<string | null>(null);
 
   const handlePrevWeek = useCallback(() => {
     setWeekStart((prev) => {
@@ -435,6 +436,13 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     }
   });
 
+  const detailContextKey = `${traderId}:${symbol}:${locale}`;
+
+  useEffect(() => {
+    if (!detailQuery.data || detailQuery.isPlaceholderData) return;
+    setHydratedDetailContextKey(detailContextKey);
+  }, [detailContextKey, detailQuery.data, detailQuery.isPlaceholderData]);
+
   useEffect(() => {
     if (!clientHydrated || typeof window === "undefined" || typeof EventSource === "undefined") return;
 
@@ -506,8 +514,8 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     };
   }, [detailQuery.data, fallback]);
 
+  const initialLoading = detailQuery.isFetching && hydratedDetailContextKey !== detailContextKey;
   const loading = detailQuery.isPending && !detailQuery.data;
-  const initialLoading = loading;
   const error = detailQuery.error ? (detailQuery.error instanceof Error ? detailQuery.error.message : String(detailQuery.error)) : null;
 
   const prefetchLeaderboard = useCallback(() => {
@@ -750,6 +758,9 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
           onSelect={selectExecutionMarker}
           locale={locale}
           t={t}
+          accessState={accessState}
+          traderId={traderId}
+          symbol={symbol}
         />
       </div>
 
@@ -775,8 +786,8 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
             onOpenScenario={setSelectedScenario}
           />
         </div>
-        <div className="hidden xl:block">
-          <StatusFeedThread feeds={statusFeeds} locale={locale} t={t} />
+        <div className="hidden xl:block relative h-full w-full min-h-0">
+          <StatusFeedThread feeds={statusFeeds} locale={locale} t={t} isSubscribed={accessState.isSubscribed} className="absolute inset-0 h-full" />
         </div>
       </section>
 
@@ -789,6 +800,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
           scenarios={scenarios}
           liveMarkPrice={liveMarkPrice}
           onOpenScenario={setSelectedScenario}
+          isSubscribed={accessState.isSubscribed}
         />
       </div>
 
@@ -1031,7 +1043,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
         {/* Tab contents */}
         <div className="min-w-0">
           {mobileActiveTab === "feed" && (
-            <StatusFeedThread feeds={statusFeeds} locale={locale} t={t} />
+            <StatusFeedThread feeds={statusFeeds} locale={locale} t={t} isSubscribed={accessState.isSubscribed} />
           )}
 
           {mobileActiveTab === "scenarios" && (

@@ -26,12 +26,14 @@ def create_checkout_configuration(
     metadata: dict[str, str],
     redirect_url: str,
     source_url: str,
+    plan_key: str = "",
 ) -> dict[str, Any]:
     body = whop_checkout_configuration_payload(
         settings=settings,
         metadata=metadata,
         redirect_url=redirect_url,
         source_url=source_url,
+        plan_key=plan_key,
     )
 
     try:
@@ -61,13 +63,14 @@ def whop_checkout_configuration_payload(
     metadata: dict[str, str],
     redirect_url: str,
     source_url: str,
+    plan_key: str = "",
 ) -> dict[str, Any]:
     body: dict[str, Any] = {
         "mode": "payment",
         "metadata": metadata,
         "allow_promo_codes": True,
     }
-    plan_id = active_whop_plan_id(settings)
+    plan_id = active_whop_plan_id(settings, plan_key)
     if plan_id:
         body["plan_id"] = plan_id
     else:

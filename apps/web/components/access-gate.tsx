@@ -29,6 +29,7 @@ type ProtectedContentGateProps = {
   readonly className?: string;
   readonly children: ReactNode;
   readonly onUnlocked?: (result: SubscriberUnlockResponse) => void;
+  readonly iconOnly?: boolean;
 };
 
 export function ProtectedContentGate({
@@ -42,7 +43,8 @@ export function ProtectedContentGate({
   description,
   className = "",
   children,
-  onUnlocked
+  onUnlocked,
+  iconOnly = false
 }: ProtectedContentGateProps) {
   const { t } = useAppContext();
   const queryClient = useQueryClient();
@@ -94,8 +96,8 @@ export function ProtectedContentGate({
 
   const lockContentClass =
     lockPlacement === "viewport"
-      ? "fixed left-1/2 top-1/2 z-20 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2"
-      : "absolute left-1/2 top-1/2 w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2";
+      ? "transform fixed left-1/2 top-1/2 z-20 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2"
+      : "transform absolute left-1/2 top-1/2 w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2";
 
   return (
     <div className={`relative rounded-2xl ${className}`}>
@@ -110,10 +112,16 @@ export function ProtectedContentGate({
         onClick={() => setDialogOpen(true)}
       >
         {isCouponMode ? (
-          <span className="absolute left-1/2 top-1/2 inline-flex max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full border border-emerald-400/25 bg-black/45 px-3.5 py-2 text-xs font-bold text-emerald-100 shadow-lg shadow-black/25">
-            <Ticket size={15} weight="bold" className="shrink-0" />
-            <span className="truncate">{t("access.reviewInlineLocked")}</span>
-          </span>
+          iconOnly ? (
+            <span className="transform absolute left-1/2 top-1/2 inline-flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-emerald-400/25 bg-black/45 p-2 text-emerald-100 shadow-lg shadow-black/25">
+              <Ticket size={15} weight="bold" />
+            </span>
+          ) : (
+            <span className="transform absolute left-1/2 top-1/2 inline-flex max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full border border-emerald-400/25 bg-black/45 px-3.5 py-2 text-xs font-bold text-emerald-100 shadow-lg shadow-black/25">
+              <Ticket size={15} weight="bold" className="shrink-0" />
+              <span className="truncate">{t("access.reviewInlineLocked")}</span>
+            </span>
+          )
         ) : (
           <span className={`${lockContentClass} flex flex-col items-center justify-center gap-2 px-5 py-4`}>
             <span className="grid size-10 place-items-center rounded-xl border border-emerald-400/30 bg-emerald-400/10 text-emerald-200">

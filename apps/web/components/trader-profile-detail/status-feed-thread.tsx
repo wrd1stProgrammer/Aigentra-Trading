@@ -63,17 +63,21 @@ export function LatestStatusFeedNote({
 export function StatusFeedThread({
   feeds,
   locale,
-  t
+  t,
+  isSubscribed = true,
+  className = ""
 }: {
   readonly feeds: readonly TraderStatusFeed[];
   readonly locale: Locale;
   readonly t: Translator;
+  readonly isSubscribed?: boolean;
+  readonly className?: string;
 }) {
   const items = feeds.slice(0, 8);
   return (
     <aside
       data-testid="trader-status-feed-thread"
-      className="min-h-[340px] min-w-0 self-start overflow-hidden rounded-2xl bg-white ring-1 ring-zinc-200 dark:bg-[#090d0b] dark:ring-white/10"
+      className={`min-w-0 flex flex-col overflow-hidden rounded-2xl bg-white ring-1 ring-zinc-200 dark:bg-[#090d0b] dark:ring-white/10 ${className}`}
     >
       <div className="border-b border-zinc-100 px-5 py-4 dark:border-white/10">
         <div className="flex items-center justify-between gap-3">
@@ -83,15 +87,16 @@ export function StatusFeedThread({
           </div>
         </div>
       </div>
-      <div className="max-h-[426px] overflow-y-auto px-5 py-4">
+      <div className="flex-1 overflow-y-auto px-5 py-4">
         {items.length ? (
           <div className="space-y-4">
-            {items.map((feed) => {
+            {items.map((feed, index) => {
               const state = feedState(feed);
               const time = feedCreatedAt(feed);
+              const isLocked = !isSubscribed && index > 0;
               return (
                 <article key={`${feed.id ?? feed.createdAt ?? feed.message}`} data-testid="desk-note-thread-item" className="relative pl-0">
-                  <div className="rounded-[1.25rem] border border-zinc-200 bg-zinc-50/80 px-4 py-3.5 shadow-sm shadow-zinc-950/[0.03] transition duration-200 ease-out hover:-translate-y-0.5 hover:border-zinc-300 dark:border-white/10 dark:bg-white/[0.035] dark:shadow-black/20 dark:hover:border-zinc-700">
+                  <div className={`rounded-[1.25rem] border border-zinc-200 bg-zinc-50/80 px-4 py-3.5 shadow-sm shadow-zinc-950/[0.03] transition duration-200 ease-out hover:-translate-y-0.5 hover:border-zinc-300 dark:border-white/10 dark:bg-white/[0.035] dark:shadow-black/20 dark:hover:border-zinc-700 ${isLocked ? "filter blur-[5px] select-none pointer-events-none opacity-40" : ""}`}>
                     <div className="flex min-w-0 items-start justify-between gap-3">
                       <p className={`min-w-0 text-pretty text-sm font-semibold leading-5 ${stateTone(state)}`}>{feedHeadline(feed) || t("detail.statusFeed")}</p>
                       {time ? <span className="shrink-0 whitespace-nowrap font-mono text-[11px] tabular-nums text-zinc-500">{formatRelativeDateTime(time, locale, t)}</span> : null}

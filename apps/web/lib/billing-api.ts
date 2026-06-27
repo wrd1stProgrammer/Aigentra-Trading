@@ -1,4 +1,5 @@
 import type { Locale } from "@/lib/i18n";
+import type { BillingPlanKey } from "@/lib/billing-plans";
 import { z } from "zod";
 
 const DEFAULT_API_BASE_URL = "http://localhost:8000";
@@ -44,6 +45,7 @@ export class BillingApiError extends Error {
 export async function createWhopCheckout(input: {
   readonly identity: SubscriberIdentity;
   readonly locale: Locale;
+  readonly planKey: BillingPlanKey;
   readonly redirectUrl: string;
   readonly sourceUrl: string;
 }): Promise<WhopCheckoutResult> {
@@ -57,6 +59,7 @@ export async function createWhopCheckout(input: {
       userId: input.identity.userId,
       email: input.identity.email,
       locale: input.locale,
+      planKey: input.planKey,
       redirectUrl: input.redirectUrl,
       sourceUrl: input.sourceUrl,
     }),

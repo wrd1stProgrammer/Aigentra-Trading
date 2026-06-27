@@ -3,6 +3,7 @@
 import { ArrowSquareOut, WarningCircle } from "@phosphor-icons/react";
 import { useState, type ReactNode } from "react";
 import { useAppContext } from "@/components/app-provider";
+import type { BillingPlanKey } from "@/lib/billing-plans";
 
 type CheckoutState = "idle" | "loading" | "failed";
 const DEFAULT_CHECKOUT_ERROR = "Checkout could not be created. Please try again shortly.";
@@ -10,9 +11,10 @@ const DEFAULT_CHECKOUT_ERROR = "Checkout could not be created. Please try again 
 type LandingCheckoutButtonProps = {
   readonly children: ReactNode;
   readonly className: string;
+  readonly planKey: BillingPlanKey;
 };
 
-export function LandingCheckoutButton({ children, className }: LandingCheckoutButtonProps) {
+export function LandingCheckoutButton({ children, className, planKey }: LandingCheckoutButtonProps) {
   const { locale } = useAppContext();
   const [checkoutState, setCheckoutState] = useState<CheckoutState>("idle");
   const [checkoutError, setCheckoutError] = useState(DEFAULT_CHECKOUT_ERROR);
@@ -24,7 +26,7 @@ export function LandingCheckoutButton({ children, className }: LandingCheckoutBu
       const response = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locale }),
+        body: JSON.stringify({ locale, planKey }),
       });
       if (response.status === 401) {
         window.location.assign("/login?next=/");

@@ -4,15 +4,15 @@ from pathlib import Path
 from typing import List
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.locales import normalize_locale, normalize_translation_locales
 
 
 API_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(API_ROOT / ".env")
-VALID_AI_PROVIDERS = {"mock", "openai", "gemini", "anthropic", "grok"}
-AI_PROVIDER_ALIASES = {"anthriopic": "anthropic"}
+VALID_AI_PROVIDERS = {"mock", "openai", "gemini", "anthropic", "grok", "codex_cli"}
+AI_PROVIDER_ALIASES = {"anthriopic": "anthropic", "codex": "codex_cli", "codex-cli": "codex_cli"}
 
 
 def env_bool(name: str, default: str = "false") -> bool:
@@ -38,6 +38,28 @@ def env_symbol_list(name: str, default: str) -> List[str]:
 def normalize_ai_provider_name(provider: str | None, default: str = "mock") -> str:
     requested = (provider or default).strip().lower()
     return AI_PROVIDER_ALIASES.get(requested, requested)
+
+
+def codex_cli_provider_override_enabled(provider_env_name: str) -> bool:
+    return (
+        env_bool("AI_PROVIDER_CODEX", "false")
+        or env_bool("USE_CODEX_CLI", "false")
+        or env_bool(f"{provider_env_name}_CODEX", "false")
+    )
+
+
+def provider_from_env(provider_env_name: str, default: str = "mock") -> str:
+    if codex_cli_provider_override_enabled(provider_env_name):
+        return "codex_cli"
+    return normalize_ai_provider_name(os.getenv(provider_env_name), default)
+
+
+def env_first(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name, "")
+        if value:
+            return value
+    return ""
 
 
 def default_database_url() -> str:
@@ -79,6 +101,8 @@ class Settings(BaseModel):
     whop_api_version_date: str = Field(default_factory=lambda: os.getenv("WHOP_API_VERSION_DATE", ""))
     whop_plan_key: str = Field(default_factory=lambda: os.getenv("WHOP_PLAN_KEY", "aigentra_pro_monthly"))
     whop_plan_id: str = Field(default_factory=lambda: os.getenv("WHOP_PLAN_ID", ""))
+    whop_pro_monthly_plan_id: str = Field(default_factory=lambda: os.getenv("WHOP_PRO_MONTHLY_PLAN_ID", ""))
+    whop_pro_annual_plan_id: str = Field(default_factory=lambda: os.getenv("WHOP_PRO_ANNUAL_PLAN_ID", ""))
     whop_api_key_sandbox: str = Field(default_factory=lambda: os.getenv("WHOP_API_KEY_SANDBOX", ""))
     whop_company_id_sandbox: str = Field(default_factory=lambda: os.getenv("WHOP_COMPANY_ID_SANDBOX", ""))
     whop_webhook_secret_sandbox: str = Field(default_factory=lambda: os.getenv("WHOP_WEBHOOK_SECRET_SANDBOX", ""))
@@ -86,6 +110,10 @@ class Settings(BaseModel):
         default_factory=lambda: os.getenv("WHOP_API_BASE_URL_SANDBOX", "https://sandbox-api.whop.com/api/v1")
     )
     whop_plan_id_sandbox: str = Field(default_factory=lambda: os.getenv("WHOP_PLAN_ID_SANDBOX", ""))
+    whop_pro_monthly_plan_id_sandbox: str = Field(
+        default_factory=lambda: os.getenv("WHOP_PRO_MONTHLY_PLAN_ID_SANDBOX", "")
+    )
+    whop_pro_annual_plan_id_sandbox: str = Field(default_factory=lambda: os.getenv("WHOP_PRO_ANNUAL_PLAN_ID_SANDBOX", ""))
     whop_plan_title: str = Field(default_factory=lambda: os.getenv("WHOP_PLAN_TITLE", "Aigentra Pro"))
     whop_plan_type: str = Field(default_factory=lambda: os.getenv("WHOP_PLAN_TYPE", "renewal").lower())
     whop_plan_currency: str = Field(default_factory=lambda: os.getenv("WHOP_PLAN_CURRENCY", "usd").lower())
@@ -96,21 +124,48 @@ class Settings(BaseModel):
     ops_api_token: str = Field(default_factory=lambda: os.getenv("OPS_API_TOKEN", ""))
     ops_allow_production_reset: bool = Field(default_factory=lambda: env_bool("OPS_ALLOW_PRODUCTION_RESET", "false"))
     ops_allow_remote_reset: bool = Field(default_factory=lambda: env_bool("OPS_ALLOW_REMOTE_RESET", "false"))
-    ai_provider: str = Field(default_factory=lambda: normalize_ai_provider_name(os.getenv("AI_PROVIDER"), "mock"))
+    ai_provider: str = Field(default_factory=lambda: provider_from_env("AI_PROVIDER", "mock"))
     ai_missing_key_fallback_to_mock: bool = Field(default_factory=lambda: env_bool("AI_MISSING_KEY_FALLBACK_TO_MOCK", "true"))
     openai_api_key: str = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     openai_model: str = Field(default_factory=lambda: os.getenv("OPENAI_MODEL", "gpt-4.1-mini"))
     openai_trade_review_model: str = Field(default_factory=lambda: os.getenv("OPENAI_TRADE_REVIEW_MODEL", ""))
     openai_position_management_model: str = Field(default_factory=lambda: os.getenv("OPENAI_POSITION_MANAGEMENT_MODEL", ""))
     openai_league_sentiment_model: str = Field(default_factory=lambda: os.getenv("OPENAI_LEAGUE_SENTIMENT_MODEL", ""))
+    codex_cli_command: str = Field(default_factory=lambda: os.getenv("CODEX_CLI_COMMAND", os.getenv("CODEX_CLI_BIN", "codex")))
+    codex_cli_model: str = Field(default_factory=lambda: os.getenv("CODEX_CLI_MODEL", ""))
+    codex_cli_trade_review_model: str = Field(
+        default_factory=lambda: env_first("AUTO_SCANNER_CODEX_MODEL", "CODEX_CLI_TRADE_REVIEW_MODEL")
+    )
+    codex_cli_position_management_model: str = Field(
+        default_factory=lambda: env_first("POSITION_MANAGEMENT_CODEX_MODEL", "CODEX_CLI_POSITION_MANAGEMENT_MODEL")
+    )
+    codex_cli_league_sentiment_model: str = Field(
+        default_factory=lambda: env_first("LEAGUE_SENTIMENT_CODEX_MODEL", "CODEX_CLI_LEAGUE_SENTIMENT_MODEL")
+    )
+    codex_cli_translation_model: str = Field(
+        default_factory=lambda: env_first("AI_TRANSLATION_CODEX_MODEL", "CODEX_CLI_TRANSLATION_MODEL")
+    )
+    codex_cli_status_feed_model: str = Field(
+        default_factory=lambda: env_first("TRADER_STATUS_FEED_CODEX_MODEL", "CODEX_CLI_STATUS_FEED_MODEL")
+    )
+    codex_cli_timeout_seconds: float = Field(default_factory=lambda: env_float("CODEX_CLI_TIMEOUT_SECONDS", "120"))
+    codex_cli_workdir: str = Field(default_factory=lambda: os.getenv("CODEX_CLI_WORKDIR", str(API_ROOT.parent.parent)))
+    codex_cli_home: str = Field(default_factory=lambda: os.getenv("CODEX_HOME", os.getenv("CODEX_CLI_HOME", "")))
+    codex_cli_access_token: str = Field(default_factory=lambda: os.getenv("CODEX_ACCESS_TOKEN", ""))
+    codex_cli_fallback_provider: str = Field(
+        default_factory=lambda: normalize_ai_provider_name(os.getenv("CODEX_CLI_FALLBACK_PROVIDER"), "openai")
+    )
     ai_translation_enabled: bool = Field(default_factory=lambda: env_bool("AI_TRANSLATION_ENABLED", "true"))
+    ai_translation_provider: str = Field(default_factory=lambda: provider_from_env("AI_TRANSLATION_PROVIDER", "openai"))
     openai_translation_model: str = Field(default_factory=lambda: os.getenv("OPENAI_TRANSLATION_MODEL", "gpt-4.1-nano"))
     ai_translation_timeout_seconds: float = Field(default_factory=lambda: env_float("AI_TRANSLATION_TIMEOUT_SECONDS", "30"))
     ai_translation_concurrency: int = Field(default_factory=lambda: env_int("AI_TRANSLATION_CONCURRENCY", "4"))
     ai_translation_target_locales: List[str] = Field(
         default_factory=lambda: list(normalize_translation_locales(os.getenv("AI_TRANSLATION_TARGET_LOCALES", "")))
     )
-    trader_status_feed_provider: str = Field(default_factory=lambda: normalize_ai_provider_name(os.getenv("TRADER_STATUS_FEED_PROVIDER"), "openai"))
+    trader_status_feed_provider: str = Field(
+        default_factory=lambda: provider_from_env("TRADER_STATUS_FEED_PROVIDER", "openai")
+    )
     trader_status_feed_model: str = Field(default_factory=lambda: os.getenv("TRADER_STATUS_FEED_MODEL", os.getenv("OPENAI_MODEL", "gpt-4.1-mini")))
     trader_status_feed_timeout_seconds: float = Field(default_factory=lambda: env_float("TRADER_STATUS_FEED_TIMEOUT_SECONDS", "30"))
     trader_status_feed_regeneration_seconds: int = Field(default_factory=lambda: env_int("TRADER_STATUS_FEED_REGENERATION_SECONDS", "10800"))
@@ -144,22 +199,22 @@ class Settings(BaseModel):
     realtime_paper_execution_role: str = Field(
         default_factory=lambda: os.getenv("REALTIME_PAPER_EXECUTION_ROLE", "api").strip().lower()
     )
-    auto_scanner_provider: str = Field(default_factory=lambda: normalize_ai_provider_name(os.getenv("AUTO_SCANNER_PROVIDER"), "mock"))
+    auto_scanner_provider: str = Field(default_factory=lambda: provider_from_env("AUTO_SCANNER_PROVIDER", "mock"))
     auto_scanner_locale: str = Field(default_factory=lambda: normalize_locale(os.getenv("AUTO_SCANNER_LOCALE", "en")))
     auto_scanner_snapshot_concurrency: int = Field(default_factory=lambda: env_int("AUTO_SCANNER_SNAPSHOT_CONCURRENCY", "3"))
     auto_scanner_ai_concurrency: int = Field(default_factory=lambda: env_int("AUTO_SCANNER_AI_CONCURRENCY", "2"))
     ai_rejection_cooldown_seconds: int = Field(default_factory=lambda: env_int("AI_REJECTION_COOLDOWN_SECONDS", "300"))
     paper_reentry_cooldown_seconds: int = Field(default_factory=lambda: env_int("PAPER_REENTRY_COOLDOWN_SECONDS", "900"))
     enable_position_management_ai: bool = Field(default_factory=lambda: env_bool("ENABLE_POSITION_MANAGEMENT_AI", "true"))
-    position_management_provider: str = Field(default_factory=lambda: normalize_ai_provider_name(os.getenv("POSITION_MANAGEMENT_PROVIDER"), ""))
+    position_management_provider: str = Field(default_factory=lambda: provider_from_env("POSITION_MANAGEMENT_PROVIDER", ""))
     position_management_cooldown_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_COOLDOWN_SECONDS", "300"))
     position_management_max_reviews_per_cycle: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_MAX_REVIEWS_PER_CYCLE", "2"))
     position_management_pending_heartbeat_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_PENDING_HEARTBEAT_SECONDS", "300"))
     position_management_open_heartbeat_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_OPEN_HEARTBEAT_SECONDS", "300"))
     position_management_urgent_cooldown_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_URGENT_COOLDOWN_SECONDS", "60"))
     league_sentiment_provider: str = Field(
-        default_factory=lambda: normalize_ai_provider_name(
-            os.getenv("LEAGUE_SENTIMENT_PROVIDER"),
+        default_factory=lambda: provider_from_env(
+            "LEAGUE_SENTIMENT_PROVIDER",
             os.getenv("POSITION_MANAGEMENT_PROVIDER") or os.getenv("AI_PROVIDER") or "mock",
         )
     )
@@ -169,6 +224,22 @@ class Settings(BaseModel):
     price_shock_review_cycles: int = Field(default_factory=lambda: env_int("PRICE_SHOCK_REVIEW_CYCLES", "5"))
     equity_snapshot_interval_seconds: int = Field(default_factory=lambda: env_int("EQUITY_SNAPSHOT_INTERVAL_SECONDS", "60"))
     equity_snapshot_min_change_percent: float = Field(default_factory=lambda: env_float("EQUITY_SNAPSHOT_MIN_CHANGE_PERCENT", "0.02"))
+
+    @field_validator(
+        "ai_provider",
+        "auto_scanner_provider",
+        "position_management_provider",
+        "league_sentiment_provider",
+        "trader_status_feed_provider",
+        "ai_translation_provider",
+        "codex_cli_fallback_provider",
+        mode="before",
+    )
+    @classmethod
+    def normalize_provider_fields(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        return normalize_ai_provider_name(value, "")
 
 
 @lru_cache(maxsize=1)

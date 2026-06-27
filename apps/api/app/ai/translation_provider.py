@@ -1,12 +1,16 @@
 import json
 import time
-from typing import Any, Final, Protocol
+from typing import Any, Protocol
 
 import httpx
 from sqlalchemy.orm import Session
 
+from app.ai.translation_contract import (
+    TRANSLATION_SYSTEM_PROMPT,
+    translation_request_payload,
+    translation_style_contract_for_payload,
+)
 from app.core.config import Settings
-from app.locales import AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED, CANONICAL_AI_LOCALE
 from app.repositories import create_provider_call_log, sanitize_error_message
 
 
@@ -17,135 +21,6 @@ class AITranslationProvider(Protocol):
     async def translate_json(self, *, payload: dict[str, Any], target_locale: str) -> dict[str, Any]:
         ...
 
-
-TRANSLATION_SYSTEM_PROMPT = """You are Aigentra's localization engine for AI trading review JSON.
-Return only a strict JSON object.
-Translate ONLY human-readable natural-language string values.
-Do not translate JSON keys.
-Do not translate enum/status/code/id/provider/model/ticker/symbol/timeframe/order side values.
-Preserve all numbers, booleans, nulls, arrays, object shape, and array length.
-Preserve technical trading abbreviations when natural in the target language: BTC, USDT, LONG, SHORT, TP, SL, PnL, RSI, EMA, VWAP, OI, RR, ADX, ATR.
-Keep prices, percentages, timestamps, and candle intervals exactly as provided.
-Use natural, concise product-language for the target locale. Do not sound machine-translated.
-If the user message includes a styleContract, follow it for natural-language values.
-If a string mixes an enum with prose, preserve the enum token and translate only the prose around it."""
-
-
-TARGET_LOCALE_GUIDES = {
-    "ko": "Korean. Natural, concise service Korean for beginner-friendly trading UI.",
-    "ru": "Russian. Natural fintech/trading UI Russian; keep market abbreviations intact.",
-    "pt-BR": "Brazilian Portuguese. Natural Brazilian trading UI Portuguese; avoid European phrasing.",
-    "tr": "Turkish. Natural Turkish trading UI wording; keep market abbreviations intact.",
-}
-
-TRADER_STATUS_TRANSLATION_STYLE_CONTRACT: Final[dict[str, str | tuple[str, ...]]] = {
-    "contentKind": "trader_status_feed",
-    "tone": "casual_trader_thread",
-    "voice": "short first-person trader briefing, not a product explainer",
-    "languagePolicy": "korean_first_no_mixed_prose",
-    "preserveTokens": ("BTC", "USDT", "LONG", "SHORT", "TP", "SL", "PnL", "RSI", "EMA", "VWAP", "OI", "RR", "ADX", "ATR"),
-    "forbiddenStyles": ("journalist_summary", "analyst_report", "formal_postmortem"),
-    "forbiddenPhrases": ("next_watch_label", "next_confirmation_label", "what_to_watch"),
-    "avoidExamples": (
-        "다음 확인",
-        "핵심 신호",
-        "주요 위험으로 보고 있습니다",
-        "시장 상황은 지지적",
-        "무효 신호는 감지되지 않음",
-        "거래량과 모멘텀은 중립적",
-        "Price remains",
-    ),
-}
-
-GENERIC_TRANSLATION_STYLE_CONTRACT: Final[dict[str, str | tuple[str, ...]]] = {
-    "contentKind": "generic_trading_review",
-    "tone": "concise_product_language",
-    "forbiddenStyles": (),
-    "forbiddenPhrases": (),
-    "avoidExamples": (),
-}
-
-
-AI_REVIEW_TRANSLATION_STYLE_CONTRACT: Final[dict[str, str | tuple[str, ...]]] = {
-    "contentKind": "ai_trading_review",
-    "tone": "plain_user_trading_briefing",
-    "voice": "direct trading desk explanation for a normal user, not an internal system log",
-    "languagePolicy": "target_locale_first_no_mixed_source_prose",
-    "preserveTokens": ("BTC", "USDT", "LONG", "SHORT", "TP", "SL", "PnL", "RSI", "EMA", "VWAP", "OI", "RR", "ADX", "ATR"),
-    "forbiddenStyles": ("internal_event_log", "literal_machine_translation", "developer_note", "stiff_research_report"),
-    "forbiddenPhrases": (
-        "latest_event_label",
-        "previous_wording_label",
-        "risk_box_label",
-        "high_dimensional_damage",
-        "translation_prepared",
-        "이익이 확정적",
-        "확정 이익",
-        "정지 손실",
-        "정지선",
-        "손실 제한",
-        "하락 위험",
-        "세타",
-    ),
-    "koreanTermRules": (
-        "unrealized profit -> 미실현 이익",
-        "realized profit -> 실현 이익",
-        "breakeven stop -> 본절 손절",
-        "stop moved to breakeven -> 손절가를 진입가로 이동",
-        "stop loss -> 손절가/손절선",
-        "target / take profit -> 목표가/익절가",
-        "loss risk -> 손실 위험",
-        "rebound-to-stop risk -> 손절가까지 반등할 위험",
-        "thesis -> 논리/가설",
-        "invalidation -> 무효화",
-    ),
-    "avoidExamples": (
-        "Latest event",
-        "This review is tied to the latest event",
-        "previous wording",
-        "risk box",
-        "higher-timeframe damage",
-        "이 검토는 최신 이벤트",
-        "이전 검토 문구",
-        "현재 위험 박스",
-        "고차원 손상",
-        "번역 준비",
-        "locked in profit -> 수익 확정이 아니라 손실 위험을 줄인 상태",
-        "preserving gains -> 실현 이익 보존이 아니라 미실현 이익을 지키는 상태",
-        "downside risk in a SHORT review -> 하락 위험이 아니라 손실 위험 또는 반등 리스크",
-        "thesis -> 세타가 아니라 논리 또는 가설",
-    ),
-}
-
-
-def translation_style_contract_for_payload(payload: dict[str, Any], target_locale: str) -> dict[str, str | tuple[str, ...]]:
-    if is_ai_review_translation_payload(payload):
-        return AI_REVIEW_TRANSLATION_STYLE_CONTRACT
-    if payload.get("feedType") != AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED:
-        return GENERIC_TRANSLATION_STYLE_CONTRACT
-    if target_locale == "ko":
-        return TRADER_STATUS_TRANSLATION_STYLE_CONTRACT
-    return {
-        **TRADER_STATUS_TRANSLATION_STYLE_CONTRACT,
-        "languagePolicy": "target_locale_first_no_mixed_source_prose",
-        "avoidExamples": ("Next watch", "key signal", "core signal", "Price remains"),
-    }
-
-
-def is_ai_review_translation_payload(payload: dict[str, Any]) -> bool:
-    return any(
-        key in payload
-        for key in (
-            "structuredReview",
-            "approvalReason",
-            "counterThesis",
-            "rationale",
-            "review",
-            "appliedActions",
-        )
-    )
-
-
 class OpenAIJSONTranslationProvider:
     name = "openai"
 
@@ -155,32 +30,13 @@ class OpenAIJSONTranslationProvider:
         self.timeout_seconds = timeout_seconds
 
     async def translate_json(self, *, payload: dict[str, Any], target_locale: str) -> dict[str, Any]:
-        guide = TARGET_LOCALE_GUIDES.get(target_locale, target_locale)
-        style_contract = translation_style_contract_for_payload(payload, target_locale)
         body: dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": TRANSLATION_SYSTEM_PROMPT},
                 {
                     "role": "user",
-                    "content": json.dumps(
-                        {
-                            "sourceLocale": CANONICAL_AI_LOCALE,
-                            "targetLocale": target_locale,
-                            "targetGuide": guide,
-                            "styleContract": style_contract,
-                            "rules": [
-                                "same JSON shape",
-                                "do not translate keys",
-                                "preserve enum/status/code/id/provider/model values",
-                                "translate natural-language values only",
-                                "apply styleContract to natural-language strings",
-                            ],
-                            "content": payload,
-                        },
-                        ensure_ascii=False,
-                        sort_keys=True,
-                    ),
+                    "content": json.dumps(translation_request_payload(payload, target_locale), ensure_ascii=False, sort_keys=True),
                 },
             ],
             "temperature": 0.1,
@@ -201,8 +57,37 @@ class OpenAIJSONTranslationProvider:
             return parsed
         raise ValueError("Translation provider returned non-object JSON.")
 
-
 def get_translation_provider(settings: Settings) -> AITranslationProvider:
+    requested = settings.ai_translation_provider
+    if requested == "codex_cli":
+        from app.ai.codex_cli_provider import CodexCliClient, CodexCliConfig
+        from app.ai.codex_translation_provider import CodexCliJSONTranslationProvider, FallbackTranslationProvider
+
+        primary = CodexCliJSONTranslationProvider(
+            client=CodexCliClient(
+                CodexCliConfig(
+                    command=settings.codex_cli_command,
+                    model=settings.codex_cli_translation_model or settings.codex_cli_model,
+                    timeout_seconds=float(settings.codex_cli_timeout_seconds or 120.0),
+                    workdir=settings.codex_cli_workdir,
+                    codex_home=settings.codex_cli_home,
+                    access_token=settings.codex_cli_access_token,
+                )
+            ),
+            model=settings.codex_cli_translation_model or settings.codex_cli_model,
+        )
+        if settings.openai_api_key:
+            return FallbackTranslationProvider(
+                primary=primary,
+                fallback=OpenAIJSONTranslationProvider(
+                    api_key=settings.openai_api_key,
+                    model=settings.openai_translation_model or settings.openai_model,
+                    timeout_seconds=float(settings.ai_translation_timeout_seconds or 30.0),
+                ),
+            )
+        return primary
+    if requested != "openai":
+        raise RuntimeError(f"AI_TRANSLATION_PROVIDER={requested} is not supported.")
     if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY is required for AI translation.")
     return OpenAIJSONTranslationProvider(
