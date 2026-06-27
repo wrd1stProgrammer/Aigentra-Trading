@@ -152,6 +152,37 @@ def test_codex_cli_surface_model_aliases_map_to_existing_model_fields(monkeypatc
     assert settings.codex_cli_translation_model == "gpt-translate"
 
 
+def test_codex_cli_strict_schema_requires_nested_optional_properties_as_nullable():
+    from app.ai.anthropic_provider import management_review_schema
+    from app.ai.codex_cli_provider import codex_strict_output_schema
+
+    schema = codex_strict_output_schema(management_review_schema())
+    review_fact_schema = schema["properties"]["reviewFacts"]["items"]
+    action_schema = schema["properties"]["actions"]["items"]
+
+    assert set(review_fact_schema["required"]) == set(review_fact_schema["properties"])
+    assert review_fact_schema["properties"]["detail"]["type"] == ["string", "null"]
+    assert review_fact_schema["properties"]["value"]["type"] == ["string", "null"]
+    assert set(action_schema["required"]) == set(action_schema["properties"])
+    assert action_schema["properties"]["price"]["type"] == ["number", "null"]
+    assert action_schema["properties"]["quantityFraction"]["type"] == ["number", "null"]
+
+
+def test_codex_cli_strict_schema_converts_freeform_maps_to_empty_objects():
+    from app.ai.anthropic_provider import league_sentiment_schema
+    from app.ai.codex_cli_provider import codex_strict_output_schema
+
+    schema = codex_strict_output_schema(league_sentiment_schema())
+    source_counts_schema = schema["properties"]["sourceCounts"]
+
+    assert source_counts_schema == {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": False,
+    }
+
+
 @pytest.mark.asyncio
 async def test_get_ai_provider_falls_back_to_openai_when_codex_cli_fails(tmp_path, monkeypatch):
     codex_bin, _record_path = fake_codex_executable(tmp_path, {"error": "bad"}, exit_code=7)

@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -50,6 +51,67 @@ CODEX_JSON_SYSTEM_PROMPT = (
     "Return only strict JSON matching the supplied output schema. "
     "Do not inspect files, run commands, browse, or use tools. Use only the prompt payload."
 )
+
+
+def codex_strict_output_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    return _codex_strict_schema_node(deepcopy(schema))
+
+
+def _codex_strict_schema_node(node: Any) -> Any:
+    if isinstance(node, list):
+        return [_codex_strict_schema_node(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+
+    normalized = {key: _codex_strict_schema_node(value) for key, value in node.items()}
+    properties = normalized.get("properties")
+    if normalized.get("type") == "object" and not isinstance(properties, dict):
+        additional_properties = normalized.get("additionalProperties")
+        if isinstance(additional_properties, dict):
+            normalized["properties"] = {}
+            normalized["required"] = []
+            normalized["additionalProperties"] = False
+            return normalized
+    if isinstance(properties, dict):
+        original_required = normalized.get("required")
+        required_keys = set(original_required) if isinstance(original_required, list) else set()
+        normalized_properties: dict[str, Any] = {}
+        for key, value in properties.items():
+            child = _codex_strict_schema_node(value)
+            normalized_properties[key] = child if key in required_keys else _nullable_schema(child)
+        normalized["properties"] = normalized_properties
+        normalized["required"] = list(normalized_properties.keys())
+        normalized.setdefault("additionalProperties", False)
+
+    return normalized
+
+
+def _nullable_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    if _allows_null(schema):
+        return schema
+    nullable = deepcopy(schema)
+    schema_type = nullable.get("type")
+    if isinstance(schema_type, str):
+        nullable["type"] = [schema_type, "null"]
+        return nullable
+    if isinstance(schema_type, list):
+        nullable["type"] = [*schema_type, "null"]
+        return nullable
+    any_of = nullable.get("anyOf")
+    if isinstance(any_of, list):
+        nullable["anyOf"] = [*any_of, {"type": "null"}]
+        return nullable
+    return {"anyOf": [nullable, {"type": "null"}]}
+
+
+def _allows_null(schema: dict[str, Any]) -> bool:
+    schema_type = schema.get("type")
+    if schema_type == "null":
+        return True
+    if isinstance(schema_type, list) and "null" in schema_type:
+        return True
+    any_of = schema.get("anyOf")
+    return isinstance(any_of, list) and any(isinstance(item, dict) and _allows_null(item) for item in any_of)
 
 
 def build_codex_cli_env(
@@ -133,7 +195,7 @@ class CodexCliClient:
 
     def _write_schema(self, schema: dict[str, Any]) -> Path:
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".schema.json", delete=False) as handle:
-            json.dump(schema, handle, ensure_ascii=False, sort_keys=True)
+            json.dump(codex_strict_output_schema(schema), handle, ensure_ascii=False, sort_keys=True)
             return Path(handle.name)
 
     def _parse_stdout(self, stdout: str) -> dict[str, Any]:
