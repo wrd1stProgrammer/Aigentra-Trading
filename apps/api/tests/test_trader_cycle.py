@@ -879,7 +879,7 @@ def test_prompts_directly_ban_latest_repeated_trend_sentinel_review_copy():
     entry_data = json.loads(entry_payload)
     management_data = json.loads(management_payload)
 
-    assert entry_data["recentEntryReviewMemory"][0]["avoidRepeating"][0].startswith("The short setup is structurally valid")
+    assert entry_data["approvalDossier"]["context"]["recentEntryReviewMemory"][0]["avoidRepeating"][0].startswith("The short setup is structurally valid")
     assert management_data["recentReviewMemory"][0]["avoidRepeating"][0].startswith(
         "The position remains within the confirmed bearish trend"
     )

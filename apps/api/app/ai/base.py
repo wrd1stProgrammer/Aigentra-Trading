@@ -2,6 +2,7 @@ import ast
 import json
 from typing import Any, Dict, Final, Optional
 
+from app.ai.entry_approval_dossier import build_entry_approval_dossier
 from app.ai.league_sentiment_models import LeagueSentimentOpinionResult, LeagueSentimentPayload
 from app.ai.review_prompt_quality import STRUCTURED_REVIEW_QUALITY_CONTRACT
 from app.paper.holding_policy import trader_holding_policy
@@ -904,24 +905,9 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         else "Write structuredReview, approvalReason, counterThesis, every adjustments item, and every earlyExitRecommendations item in English. Keep reviewFacts as language-neutral codes and labelKey values."
     )
     data = {
-        "trader": payload.trader.model_dump(),
-        "strategyReviewerPolicy": trader_review_policy(payload.trader.id),
         "symbol": payload.symbol,
         "locale": locale,
-        "candidate": payload.candidate.model_dump(),
-        "recentAiReviews": payload.recentAiReviews,
-        "recentEntryReviewMemory": recent_entry_review_memory(payload.recentAiReviews),
-        "recentManagementReviews": payload.recentManagementReviews,
-        "activeExposure": payload.activeExposure,
-        "recentTradeEvents": payload.recentTradeEvents,
-        "lossDiscipline": payload.lossDiscipline,
-        "recentLossReviews": payload.recentLossReviews[:3],
-        "marketSnapshot": {
-            "symbol": payload.marketSnapshot.get("symbol"),
-            "price": payload.marketSnapshot.get("price"),
-            "timeframes": payload.marketSnapshot.get("timeframes"),
-            "derivatives": payload.marketSnapshot.get("derivatives"),
-        },
+        "approvalDossier": build_entry_approval_dossier(payload, reviewer_policy=trader_review_policy(payload.trader.id)),
     }
     return (
         "You are the ENTRY APPROVAL reviewer for a futures paper-trading candidate. Return only strict JSON with keys "
@@ -930,13 +916,18 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "APPROVE, ADJUST_AND_APPROVE, DEFER, REJECT, NEEDS_MORE_DATA. "
         "This is not financial advice and no real order will be placed. "
         "Treat paper-trading status as execution context only; do not use it as approval evidence. "
-        "Use the strategyReviewerPolicy to calibrate your judgment: do not be blindly conservative, "
+        "The payload is intentionally compact: use approvalDossier, not assumptions about omitted raw candles, full strategy internals, or old review text. "
+        "approvalDossier.dataChecks is the data layer and approvalDossier.decisionGate is binding. "
+        "If approvalDossier.decisionGate.severity is hard_fail, your decision must be one of approvalDossier.decisionGate.allowedDecisions and must not be APPROVE, ADJUST_AND_APPROVE, or DEFER. "
+        "If severity is caution, you may approve only after explaining the exact adjustment or evidence that contains the warning. "
+        "reviewFacts should mirror the most important dataChecks with language-neutral codes, labelKey values, severity info/warn/error, and short values. "
+        "Use approvalDossier.trader, approvalDossier.reviewFocus, and approvalDossier.strategyReviewerPolicy to calibrate your judgment: do not be blindly conservative, "
         "but do not approve inconsistent geometry, missing stops, unsupported leverage, or thesis conflicts. "
-        "Use recentLossReviews as compact post-loss memory, not an automatic rejection. "
+        "Use approvalDossier.context.recentLossReviews as compact post-loss memory, not an automatic rejection. "
         "Compare the new candidate with the last few losing trades: if it repeats the same failed side, invalidation, weak confirmation, or over-tight geometry, "
         "prefer DEFER, REJECT, or ADJUST_AND_APPROVE with smaller risk, lower allowed leverage, cancelled scale entries, or clearer stop discipline. "
         "If the fresh setup is materially different from the recent losses, explain that difference briefly in structuredReview.managerNote or approvalReason. "
-        "Use recentAiReviews as context, not as an independent veto; do not reject primarily because prior reviews rejected or deferred. "
+        "Use recentAiReviews as context, not as an independent veto; read them only through approvalDossier.context.recentEntryReviewMemory and do not reject primarily because prior reviews rejected or deferred. "
         "Let fresh market evidence, changed price geometry, and the trader-specific thesis decide whether the new candidate deserves approval. "
         "Prefer ADJUST_AND_APPROVE when the edge is real and the flaw is fixable by calibrated size, lower or higher bounded leverage, "
         "entry cancellation, or a stricter early-exit rule. "
