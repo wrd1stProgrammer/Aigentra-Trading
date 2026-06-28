@@ -302,7 +302,7 @@ export function ConsensusPageClient() {
   );
   const hourlyOpinionQuery = useQuery({
     queryKey: hourlyOpinionQueryKey,
-    queryFn: () => getLeagueSentimentOpinion("BTCUSDT", locale, { preferCached: true }),
+    queryFn: (context) => getLeagueSentimentOpinion("BTCUSDT", locale, { preferCached: true, signal: context.signal }),
     placeholderData: (previousData) => previousData,
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -334,7 +334,7 @@ export function ConsensusPageClient() {
   const bundle = btcQuery.data ?? fallbackBundle;
   const activePositionsQuery = useQuery({
     queryKey: ["paper", "positions", "active", "BTCUSDT", "consensus"],
-    queryFn: async () => unwrapPaperPositions(await getActivePaperPositions("BTCUSDT", undefined, CONSENSUS_EXPOSURE_LIMIT)),
+    queryFn: async (context) => unwrapPaperPositions(await getActivePaperPositions("BTCUSDT", undefined, CONSENSUS_EXPOSURE_LIMIT, { signal: context.signal })),
     placeholderData: (previousData) => previousData ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -342,7 +342,7 @@ export function ConsensusPageClient() {
   });
   const activeOrdersQuery = useQuery({
     queryKey: ["paper", "orders", "open", "BTCUSDT", "consensus"],
-    queryFn: async () => unwrapPaperOrders(await getPaperOrders(CONSENSUS_EXPOSURE_LIMIT, "BTCUSDT", "open")),
+    queryFn: async (context) => unwrapPaperOrders(await getPaperOrders(CONSENSUS_EXPOSURE_LIMIT, "BTCUSDT", "open", undefined, { signal: context.signal })),
     placeholderData: (previousData) => previousData ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,

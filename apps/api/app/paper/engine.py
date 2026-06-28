@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional, Union
 
@@ -24,6 +24,9 @@ from app.paper.repositories import (
 )
 from app.paper.review_payload import review_payload_subset
 from app.repositories import from_json, to_json, update_observation_candidate_outcome_for_position
+
+PROFITABLE_HOLD_BREAKEVEN_HOURS = 60
+PROFITABLE_HOLD_BREAKEVEN_SECONDS = PROFITABLE_HOLD_BREAKEVEN_HOURS * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -703,12 +706,24 @@ def _maybe_move_stop_to_breakeven(
     if risk_distance is None:
         return
     policy = trader_holding_policy(position.trader_id or "")
-    should_move = False
+    move_reason: Optional[str] = None
+    payload_extra: dict[str, Any] = {"holdingPolicy": policy.as_prompt_dict()}
     if position.side == "long":
-        should_move = candle.high >= position.entry_price + risk_distance * policy.breakeven_progress_r and position.stop_loss_price < position.entry_price
+        if candle.high >= position.entry_price + risk_distance * policy.breakeven_progress_r and position.stop_loss_price < position.entry_price:
+            move_reason = "strategy_holding_policy_breakeven"
     if position.side == "short":
-        should_move = candle.low <= position.entry_price - risk_distance * policy.breakeven_progress_r and position.stop_loss_price > position.entry_price
-    if not should_move:
+        if candle.low <= position.entry_price - risk_distance * policy.breakeven_progress_r and position.stop_loss_price > position.entry_price:
+            move_reason = "strategy_holding_policy_breakeven"
+    if move_reason is None and _held_profitably_for_breakeven_window(position, candle):
+        move_reason = "profitable_after_60h_breakeven"
+        payload_extra.update(
+            {
+                "minimumHoldingHours": PROFITABLE_HOLD_BREAKEVEN_HOURS,
+                "holdingSeconds": _position_holding_seconds(position, candle),
+                "closePrice": candle.close,
+            }
+        )
+    if move_reason is None:
         return
 
     _move_stop_to_breakeven(
@@ -716,9 +731,35 @@ def _maybe_move_stop_to_breakeven(
         position,
         candle,
         result,
-        reason="strategy_holding_policy_breakeven",
-        payload_extra={"holdingPolicy": policy.as_prompt_dict()},
+        reason=move_reason,
+        payload_extra=payload_extra,
     )
+
+
+def _held_profitably_for_breakeven_window(position: PaperPositionRecord, candle: Candle) -> bool:
+    if position.stop_loss_price is None:
+        return False
+    if position.side == "long":
+        if position.stop_loss_price >= position.entry_price or candle.close <= position.entry_price:
+            return False
+    elif position.side == "short":
+        if position.stop_loss_price <= position.entry_price or candle.close >= position.entry_price:
+            return False
+    else:
+        return False
+    return _position_holding_seconds(position, candle) >= PROFITABLE_HOLD_BREAKEVEN_SECONDS
+
+
+def _position_holding_seconds(position: PaperPositionRecord, candle: Candle) -> int:
+    opened_at = _aware_utc(position.opened_at or position.created_at or utc_now())
+    reference = _aware_utc(candle.timestamp or utc_now())
+    return max(0, int((reference - opened_at).total_seconds()))
+
+
+def _aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _move_stop_to_breakeven(

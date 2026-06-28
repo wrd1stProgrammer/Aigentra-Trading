@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { PaperOrder, PaperPosition } from "@/lib/api";
-import { formatClockTime, formatCurrency, formatNumber } from "@/lib/format";
+import { formatClockTime, formatNumber } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
 import { useAppContext } from "@/components/app-provider";
 import { isOpenChartExposure } from "@/components/live-candle-chart-overlays";
@@ -218,17 +218,17 @@ function PositionRow({
       <PositionCell className={`font-mono font-semibold ${side === "SHORT" ? "text-rose-500" : "text-emerald-500"}`}>
         {side === "SHORT" ? "-" : "+"}{formatNumber(quantity, 4, locale)} {baseAsset(position.symbol)}
       </PositionCell>
-      <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatNumber(entryPrice, 1, locale)}</PositionCell>
-      <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatNumber(markPrice, 1, locale)}</PositionCell>
-      <PositionCell className="font-mono text-orange-600 dark:text-orange-400">{formatNumber(liquidation, 1, locale)}</PositionCell>
-      <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatCurrency(margin, locale)}</PositionCell>
-      <PositionCell className={`font-mono font-semibold ${pnlToneClass(expectedProfit)}`}>{formatCurrency(expectedProfit, locale)}</PositionCell>
+      <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatWholeNumber(entryPrice, locale)}</PositionCell>
+      <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatWholeNumber(markPrice, locale)}</PositionCell>
+      <PositionCell className="font-mono text-orange-600 dark:text-orange-400">{formatWholeNumber(liquidation, locale)}</PositionCell>
+      <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatWholeCurrency(margin, locale)}</PositionCell>
+      <PositionCell className={`font-mono font-semibold ${pnlToneClass(expectedProfit)}`}>{formatWholeCurrency(expectedProfit, locale)}</PositionCell>
       <PositionCell>
         <div className={`font-mono font-semibold ${pnlToneClass(pnl)}`}>
-          {pnl !== null ? (pnl > 0 ? `+${formatCurrency(pnl, locale)}` : formatCurrency(pnl, locale)) : "-"}
+          {formatSignedWholeCurrency(pnl, locale)}
         </div>
         <div className={`mt-0.5 font-mono text-[10px] font-semibold ${pnlToneClass(roe)}`}>
-          {roe !== null ? `(${roe > 0 ? "+" : ""}${formatNumber(roe, 2)}%)` : "-"}
+          {roe !== null ? `(${roe > 0 ? "+" : ""}${formatNumber(roe, 0, locale)}%)` : "-"}
         </div>
       </PositionCell>
       <PositionCell className="font-mono text-zinc-700 dark:text-zinc-300">{entryDuration}</PositionCell>
@@ -279,11 +279,11 @@ function OrderRow({
       <PositionCell className={`font-mono font-semibold ${side === "SHORT" ? "text-rose-500" : "text-emerald-500"}`}>
         {side === "SHORT" ? "-" : "+"}{formatNumber(quantity, 4, locale)} {baseAsset(order.symbol)}
       </PositionCell>
-      <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatNumber(price, 1, locale)}</PositionCell>
-      <PositionCell className="font-mono text-rose-600 dark:text-rose-300">{formatNumber(firstFiniteNumber(order.stopLossPrice, order.stop_loss_price), 1, locale)}</PositionCell>
-      <PositionCell className="font-mono text-emerald-600 dark:text-emerald-300">{formatNumber(firstFiniteNumber(order.takeProfitPrice, order.take_profit_price), 1, locale)}</PositionCell>
-      <PositionCell className="font-mono font-semibold text-zinc-900 dark:text-zinc-200">{formatCurrency(margin, locale)}</PositionCell>
-      <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatCurrency(notional, locale)}</PositionCell>
+      <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatWholeNumber(price, locale)}</PositionCell>
+      <PositionCell className="font-mono text-rose-600 dark:text-rose-300">{formatWholeNumber(firstFiniteNumber(order.stopLossPrice, order.stop_loss_price), locale)}</PositionCell>
+      <PositionCell className="font-mono text-emerald-600 dark:text-emerald-300">{formatWholeNumber(firstFiniteNumber(order.takeProfitPrice, order.take_profit_price), locale)}</PositionCell>
+      <PositionCell className="font-mono font-semibold text-zinc-900 dark:text-zinc-200">{formatWholeCurrency(margin, locale)}</PositionCell>
+      <PositionCell className="font-mono text-zinc-900 dark:text-zinc-200">{formatWholeCurrency(notional, locale)}</PositionCell>
       <PositionCell className="font-mono text-zinc-400">{statusLabel(order.status, t)}</PositionCell>
       <PositionCell className="font-mono text-zinc-500 dark:text-zinc-400">{formatClockTime(orderTime, locale)}</PositionCell>
       <PositionCell>
@@ -388,10 +388,20 @@ function formatLeverage(value: number | null) {
   return `${formatNumber(value, value % 1 === 0 ? 0 : 1)}x`;
 }
 
-function formatPercentNumber(value: number | null) {
+function formatWholeNumber(value: number | null, locale: Locale) {
   if (value === null) return "-";
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${formatNumber(value, 2)}%`;
+  return formatNumber(value, 0, locale);
+}
+
+function formatWholeCurrency(value: number | null, locale: Locale) {
+  if (value === null) return "-";
+  return `$${formatNumber(Math.abs(value), 0, locale)}`;
+}
+
+function formatSignedWholeCurrency(value: number | null, locale: Locale) {
+  if (value === null) return "-";
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}$${formatNumber(Math.abs(value), 0, locale)}`;
 }
 
 function positionRowClass(side: string) {

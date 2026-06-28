@@ -333,7 +333,7 @@ test("latest scenario feed prefers structured readable review text when availabl
     undefined,
     reviewT
   );
-  assert.match(reviewCopy, /현재 포지션은 아직 유지가 맞습니다/);
+  assert.doesNotMatch(reviewCopy, /현재 포지션은 아직 유지가 맞습니다/);
   assert.match(reviewCopy, /손절 접근 여부만 확인하세요/);
   assert.match(reviewCopy, /진입 근거가 깨지지 않았습니다/);
   assert.doesNotMatch(reviewCopy, /포지션 유지 중\. 핵심 조건만 확인합니다/);
@@ -343,7 +343,7 @@ test("latest scenario feed prefers structured readable review text when availabl
     undefined,
     reviewT
   );
-  assert.match(positionCopy, /현재 포지션은 아직 유지가 맞습니다/);
+  assert.doesNotMatch(positionCopy, /현재 포지션은 아직 유지가 맞습니다/);
   assert.match(positionCopy, /손절 접근 여부만 확인하세요/);
   assert.doesNotMatch(positionCopy, /old long paragraph/);
 
@@ -361,8 +361,8 @@ test("latest scenario feed prefers structured readable review text when availabl
     undefined,
     reviewT
   );
-  assert.match(copy, /가격 구조로 신중한 접근 필요/);
-  assert.match(copy, /약한 거래량 주의/);
+  assert.doesNotMatch(copy, /가격 구조로 신중한 접근 필요/);
+  assert.doesNotMatch(copy, /약한 거래량 주의/);
   assert.match(copy, /무효화 신호 확인/);
   assert.doesNotMatch(copy, /;|지오메트리|실패 수준|모니터링/);
   assert.doesNotMatch(copy, /포지션 유지 중\. 핵심 조건만 확인합니다/);

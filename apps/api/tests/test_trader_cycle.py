@@ -929,7 +929,9 @@ def test_position_management_prompt_requires_live_position_first_desk_briefing()
     prompt = position_management_review_prompt(payload)
 
     assert "POSITION-FIRST DESK BRIEFING" in prompt
-    assert "lead with price versus entry, stop, target, PnL, progressR, and targetProgress" in prompt
+    assert "lead with current price, entry, stop, target, PnL, R progress, and target-path progress" in prompt
+    assert "Source-language rule: this provider response is canonical English" in prompt
+    assert "do not expose raw field names such as progressR or targetProgress" in prompt
     assert "Do not lead with overall trend alignment, valid structure, risk-reward ratio, or no invalidation signal" in prompt
     assert "If progressR is between -0.25 and 0.25" in prompt
     assert "why not close, why not move the stop, why not take profit, and what exact trigger changes the decision" in prompt
@@ -1000,10 +1002,11 @@ def test_position_management_prompt_sends_slim_exposure_and_entry_thesis_context
         "The short setup is structurally valid, but 8x leverage is too aggressive. "
         "This long approval report is intentionally bulky and should never be copied into a management prompt."
     )
+    snapshot = sample_snapshot()
     payload = PositionManagementPayload(
         trader=get_strategy("trend-sentinel").profile,
         symbol="BTCUSDT",
-        marketSnapshot={"symbol": "BTCUSDT", "price": 59659.9, "timeframes": {}, "derivatives": {}},
+        marketSnapshot=snapshot,
         event=ManagementEvent(
             eventType="trend_sentinel_position_heartbeat",
             phase="OPEN_POSITION",
@@ -1088,6 +1091,16 @@ def test_position_management_prompt_sends_slim_exposure_and_entry_thesis_context
     assert "notionalExposurePercent" not in prompt_json
     assert "orderIntent" not in prompt_json
     assert "leveragePlan" not in prompt_json
+    assert "swings" not in prompt_json
+    assert "priceChange" not in prompt_json
+    assert "marketRegime" not in prompt_json
+    assert "openInterestStats" not in prompt_json
+    assert "fundingStats" not in prompt_json
+    assert "longShortRatios" not in prompt_json
+    assert "1m" not in data["marketSnapshot"].get("timeframes", {})
+    assert set(data["marketSnapshot"].get("timeframes", {})).issubset({"15m", "1h", "4h", "1d"})
+    assert data["marketSnapshot"]["timeframes"]["15m"]["latestCandle"]["close"] == snapshot["timeframes"]["15m"]["latestCandle"]["close"]
+    assert data["marketSnapshot"]["derivatives"]["takerBuyRatio"] == snapshot["derivatives"]["takerBuySell"]["buySellRatio"]
     assert data["recentManagementReviews"] == [
         {
             "decision": "HOLD",

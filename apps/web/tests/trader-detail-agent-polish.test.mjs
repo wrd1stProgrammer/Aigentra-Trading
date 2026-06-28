@@ -59,6 +59,7 @@ const detailData = loadTsModule("../components/trader-profile-detail/data.ts", {
     formatPercent: (value) => `${value}%`,
     formatRelativeDateTime: () => ""
   },
+  "@/lib/review-display": reviewDisplay,
   "@/lib/status": { statusLabel: (value) => String(value ?? "") }
 });
 
@@ -338,7 +339,7 @@ test("latest scenario timeline relies on real localized review payloads instead 
     (key) => ({ "detail.noAiRationale": "AI 근거 없음" })[key] ?? key
   );
 
-  assert.match(copy, /숏 근거는 아직 살아 있습니다/);
+  assert.doesNotMatch(copy, /숏 근거는 아직 살아 있습니다/);
   assert.match(copy, /62853\.7 위로 15분 종가/);
   assert.doesNotMatch(copy, /번역.*준비|translation.*prepared|Fresh bearish displacement/i);
   assert.doesNotMatch(scenarioFeedSource, /localizedTimelineFallback/, "scenario timeline should not mask backend translation misses with placeholder copy");
@@ -614,8 +615,8 @@ test("management review titles distinguish repeated Korean profit labels", () =>
   const nearEntryTitle = detailData.managementReviewScenarioTitle(nearEntryStopReview, t);
   const profitTitle = detailData.managementReviewScenarioTitle(profitProtectionReview, t);
 
-  assert.equal(nearEntryTitle, "숏 진입부근 관리");
-  assert.equal(profitTitle, "숏 이익 보호");
+  assert.equal(nearEntryTitle, "숏은 진입 부근의 작은 수익 구간입니다");
+  assert.equal(profitTitle, "숏이 첫 목표 쪽으로 충분히 진행되어 이익 보호를 검...");
   assert.notEqual(nearEntryTitle, profitTitle);
   assert.notEqual(nearEntryTitle, "숏 익절권 확인");
 });
@@ -647,7 +648,7 @@ test("management review titles stay compact", () => {
     t
   );
 
-  assert.equal(title, "Short Near-entry management");
+  assert.equal(title, "The short is a small near-ent...");
   assert.ok(title.length <= 32);
 });
 

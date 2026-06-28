@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { useCallback, useMemo, useState, useEffect, useRef, type MouseEvent } from "react";
@@ -58,6 +59,7 @@ const OVERVIEW_INITIAL_LIMIT = 12;
 const OVERVIEW_PAGE_LIMIT = 10;
 const OVERVIEW_CACHE_TTL_MS = 60_000;
 const LIVE_EXPOSURE_LIMIT = 100;
+const DEFAULT_LEAGUE_MONTH = "2026-06";
 
 type OverviewActivityCache = {
   locale: Locale;
@@ -143,6 +145,30 @@ function parseLeagueMonth(value?: string) {
   };
 }
 
+function initialLeagueMonthFromSearchParams(searchParams: URLSearchParams | ReadonlyURLSearchParamsLike) {
+  if (searchParams.get("league") === "current") return undefined;
+  const month = searchParams.get("leagueMonth");
+  return parseLeagueMonth(month ?? undefined) ? String(month) : DEFAULT_LEAGUE_MONTH;
+}
+
+type ReadonlyURLSearchParamsLike = {
+  get(name: string): string | null;
+  toString(): string;
+};
+
+function nextLeagueSearch(searchParams: ReadonlyURLSearchParamsLike, leagueMonth: string | undefined) {
+  const next = new URLSearchParams(searchParams.toString());
+  if (leagueMonth) {
+    next.set("league", "monthly");
+    next.set("leagueMonth", leagueMonth);
+  } else {
+    next.set("league", "current");
+    next.delete("leagueMonth");
+  }
+  const query = next.toString();
+  return query ? `?${query}` : "";
+}
+
 function buildLeagueMonthOptions(now = new Date()): LeagueMonthOption[] {
   const currentYear = now.getUTCFullYear();
   const currentMonth = now.getUTCMonth() + 1;
@@ -169,6 +195,9 @@ function leaderboardBundlePeriodKey(bundle?: LeaderboardBundle) {
 export function LeaderboardPageClient() {
   const { locale, t } = useAppContext();
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const session = useSession();
   const { data: access } = useSubscriberAccess();
   
@@ -177,7 +206,7 @@ export function LeaderboardPageClient() {
   const [activeTraderId, setActiveTraderId] = useState<string | null>(null);
   const [isPeriodOpen, setIsPeriodOpen] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<"ALL" | "7D" | "30D" | "90D">("ALL");
-  const [selectedLeagueMonth, setSelectedLeagueMonth] = useState<string | undefined>("2026-06");
+  const [selectedLeagueMonth, setSelectedLeagueMonth] = useState<string | undefined>(() => initialLeagueMonthFromSearchParams(searchParams));
   const [cacheReady, setCacheReady] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favoriteTraderIds, setFavoriteTraderIds] = useState<Set<string>>(() => new Set());
@@ -217,6 +246,10 @@ export function LeaderboardPageClient() {
   useEffect(() => {
     setCacheReady(true);
   }, []);
+
+  useEffect(() => {
+    setSelectedLeagueMonth(initialLeagueMonthFromSearchParams(searchParams));
+  }, [searchParams]);
 
   const subscriberPreferencesQueryKey = useMemo(
     () => ["subscriber", "preferences", "leaderboard", access?.userId ?? "", access?.email ?? ""] as const,
@@ -276,16 +309,21 @@ export function LeaderboardPageClient() {
     });
   }, [access?.email, locale, queryClient, subscriberPreferences, subscriberPreferencesQuery, subscriberPreferencesQueryKey]);
 
+  const setLeaguePeriod = useCallback((leagueMonth: string | undefined) => {
+    setSelectedLeagueMonth(leagueMonth);
+    router.replace(`${pathname}${nextLeagueSearch(searchParams, leagueMonth)}`, { scroll: false });
+  }, [pathname, router, searchParams]);
+
   const activateCurrentLeague = useCallback(() => {
-    setSelectedLeagueMonth(undefined);
+    setLeaguePeriod(undefined);
     void queryClient.invalidateQueries({
       queryKey: leaderboardBundleQueryKey("BTCUSDT", locale, { includeRelated: false, leagueMonth: undefined })
     });
-  }, [locale, queryClient]);
+  }, [locale, queryClient, setLeaguePeriod]);
 
   const activateSelectedLeagueMonth = useCallback(() => {
-    setSelectedLeagueMonth(formatUtcLeagueMonth(selectedLeagueMonthParts.year, selectedLeagueMonthParts.month));
-  }, [selectedLeagueMonthParts.month, selectedLeagueMonthParts.year]);
+    setLeaguePeriod(formatUtcLeagueMonth(selectedLeagueMonthParts.year, selectedLeagueMonthParts.month));
+  }, [selectedLeagueMonthParts.month, selectedLeagueMonthParts.year, setLeaguePeriod]);
 
   const btcQuery = useQuery({
     ...leaderboardBundleQueryOptions("BTCUSDT", locale, leaderboardBundleOptions),
@@ -299,6 +337,13 @@ export function LeaderboardPageClient() {
       }
       return cacheReady ? getCachedLeaderboardBundle("BTCUSDT", locale, leaderboardBundleOptions) ?? fallbackBundle : fallbackBundle;
     }
+  });
+  const currentLeagueBundleQuery = useQuery({
+    ...leaderboardBundleQueryOptions("BTCUSDT", locale, { includeRelated: false, leagueMonth: undefined }),
+    enabled: Boolean(selectedLeagueMonth),
+    placeholderData: (previousData) =>
+      previousData ??
+      (cacheReady ? getCachedLeaderboardBundle("BTCUSDT", locale, { includeRelated: false, leagueMonth: undefined }) ?? undefined : undefined)
   });
 
   const isFetching = btcQuery.isFetching;
@@ -332,10 +377,14 @@ export function LeaderboardPageClient() {
   const activeTraderCount = visibleStandings.filter((item) => item.openPositions || item.openOrders).length;
   const traderNameMap = useMemo(() => new Map(visibleStandings.map((item) => [item.id, item.name])), [visibleStandings]);
   const latestStatusFeedByTrader = useMemo(() => buildLatestStatusFeedMap(bundle.statusFeeds ?? []), [bundle.statusFeeds]);
+  const currentSummaryByTrader = useMemo(
+    () => buildCurrentSummaryMap(currentLeagueBundleQuery.data?.summaries ?? []),
+    [currentLeagueBundleQuery.data?.summaries]
+  );
 
   const liveExposurePositionsQuery = useQuery({
     queryKey: ["paper", "positions", "active", "BTCUSDT", "leaderboard"],
-    queryFn: async () => unwrapPaperPositions(await getActivePaperPositions("BTCUSDT", undefined, LIVE_EXPOSURE_LIMIT)),
+    queryFn: async (context) => unwrapPaperPositions(await getActivePaperPositions("BTCUSDT", undefined, LIVE_EXPOSURE_LIMIT, { signal: context.signal })),
     placeholderData: (previousData) => previousData ?? bundle.positions ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -343,7 +392,7 @@ export function LeaderboardPageClient() {
   });
   const liveExposureOrdersQuery = useQuery({
     queryKey: ["paper", "orders", "open", "BTCUSDT", "leaderboard"],
-    queryFn: async () => unwrapPaperOrders(await getPaperOrders(LIVE_EXPOSURE_LIMIT, "BTCUSDT", "open")),
+    queryFn: async (context) => unwrapPaperOrders(await getPaperOrders(LIVE_EXPOSURE_LIMIT, "BTCUSDT", "open", undefined, { signal: context.signal })),
     placeholderData: (previousData) => previousData ?? bundle.orders ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -503,7 +552,7 @@ export function LeaderboardPageClient() {
                           const nextOption =
                             leagueMonthOptions.find((option) => option.year === nextYear && option.month === selectedLeagueMonthParts.month) ??
                             leagueMonthOptions.find((option) => option.year === nextYear);
-                          if (nextOption) setSelectedLeagueMonth(nextOption.value);
+                          if (nextOption) setLeaguePeriod(nextOption.value);
                         }}
                       >
                         {leagueYears.map((year) => (
@@ -520,7 +569,7 @@ export function LeaderboardPageClient() {
                         value={String(selectedLeagueMonthParts.month)}
                         onChange={(event) => {
                           const nextMonth = Number(event.target.value);
-                          setSelectedLeagueMonth(formatUtcLeagueMonth(selectedLeagueMonthParts.year, nextMonth));
+                          setLeaguePeriod(formatUtcLeagueMonth(selectedLeagueMonthParts.year, nextMonth));
                         }}
                       >
                         {leagueMonthsForSelectedYear.map((option) => (
@@ -676,7 +725,7 @@ export function LeaderboardPageClient() {
                         const nextOption =
                           leagueMonthOptions.find((option) => option.year === nextYear && option.month === selectedLeagueMonthParts.month) ??
                           leagueMonthOptions.find((option) => option.year === nextYear);
-                        if (nextOption) setSelectedLeagueMonth(nextOption.value);
+                        if (nextOption) setLeaguePeriod(nextOption.value);
                       }}
                     >
                       {leagueYears.map((year) => (
@@ -693,7 +742,7 @@ export function LeaderboardPageClient() {
                       value={String(selectedLeagueMonthParts.month)}
                       onChange={(event) => {
                         const nextMonth = Number(event.target.value);
-                        setSelectedLeagueMonth(formatUtcLeagueMonth(selectedLeagueMonthParts.year, nextMonth));
+                        setLeaguePeriod(formatUtcLeagueMonth(selectedLeagueMonthParts.year, nextMonth));
                       }}
                     >
                       {leagueMonthsForSelectedYear.map((option) => (
@@ -780,6 +829,7 @@ export function LeaderboardPageClient() {
           <RankingTable
             standings={visibleStandings}
             exposureByTrader={exposureByTrader}
+            currentSummaryByTrader={currentSummaryByTrader}
             activeTraderId={activeTrader?.id ?? null}
             t={t}
             locale={locale}
@@ -791,6 +841,7 @@ export function LeaderboardPageClient() {
           <MobileRankingList
             standings={visibleStandings}
             exposureByTrader={exposureByTrader}
+            currentSummaryByTrader={currentSummaryByTrader}
             t={t}
             locale={locale}
             favoriteTraderIds={favoriteTraderIds}
@@ -810,6 +861,7 @@ export function LeaderboardPageClient() {
           snapshots={filteredSnapshots}
           snapshotsLoading={activeSnapshotsQuery.isFetching}
           exposure={activeTrader ? exposureByTrader.get(activeTrader.id) : undefined}
+          currentSummary={activeTrader ? currentSummaryByTrader.get(activeTrader.id) : undefined}
           latestStatusFeed={activeTrader ? latestStatusFeedByTrader.get(activeTrader.id) : undefined}
           onPrefetchTrader={prefetchTrader}
         />
@@ -818,9 +870,10 @@ export function LeaderboardPageClient() {
   );
 }
 
-function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, favoriteTraderIds, returnColumns, onToggleFavorite, onActivate }: {
+function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, activeTraderId, t, locale, favoriteTraderIds, returnColumns, onToggleFavorite, onActivate }: {
   standings: TraderStanding[];
   exposureByTrader: Map<string, TraderExposure>;
+  currentSummaryByTrader: ReadonlyMap<string, TraderStanding["summary"]>;
   activeTraderId: string | null;
   t: (key: string) => string;
   locale: Locale;
@@ -849,7 +902,7 @@ function RankingTable({ standings, exposureByTrader, activeTraderId, t, locale, 
           {standings.map((trader) => {
 
             const exposure = exposureByTrader.get(trader.id);
-            const progress = traderProgress(trader, exposure, t, locale);
+            const progress = traderProgress(trader, exposure, t, locale, currentSummaryByTrader.get(trader.id));
             const isActive = activeTraderId === trader.id;
             const primaryReturnValue = returnMetricValue(trader, primaryReturnColumn.key);
             const secondaryReturnValue = returnMetricValue(trader, secondaryReturnColumn.key);
@@ -913,9 +966,10 @@ function LeaderboardLockedRows({ count, t }: { readonly count: number; readonly 
   );
 }
 
-function MobileRankingList({ standings, exposureByTrader, t, locale, favoriteTraderIds, returnColumns, onToggleFavorite, onPrefetch }: {
+function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader, t, locale, favoriteTraderIds, returnColumns, onToggleFavorite, onPrefetch }: {
   standings: TraderStanding[];
   exposureByTrader: Map<string, TraderExposure>;
+  currentSummaryByTrader: ReadonlyMap<string, TraderStanding["summary"]>;
   t: (key: string) => string;
   locale: Locale;
   favoriteTraderIds: ReadonlySet<string>;
@@ -935,7 +989,7 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, favoriteTra
       </div>
       <div className="divide-y divide-zinc-200/40 dark:divide-white/[0.06]">
         {standings.map((trader) => {
-            const progress = traderProgress(trader, exposureByTrader.get(trader.id), t, locale);
+            const progress = traderProgress(trader, exposureByTrader.get(trader.id), t, locale, currentSummaryByTrader.get(trader.id));
             const displayName = localizedTraderName(trader, t);
             const isFavorite = favoriteTraderIds.has(trader.id);
             const returnValue = returnMetricValue(trader, primaryReturnColumn.key);
@@ -986,13 +1040,14 @@ function MobileRankingList({ standings, exposureByTrader, t, locale, favoriteTra
   );
 }
 
-function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, latestStatusFeed, onPrefetchTrader }: {
+function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, currentSummary, latestStatusFeed, onPrefetchTrader }: {
   trader: TraderStanding | null;
   t: (key: string) => string;
   locale: Locale;
   snapshots: EquitySnapshot[];
   snapshotsLoading: boolean;
   exposure?: TraderExposure;
+  currentSummary?: TraderStanding["summary"];
   latestStatusFeed?: TraderStatusFeed;
   onPrefetchTrader: (traderId: string) => void;
 }) {
@@ -1004,7 +1059,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
     );
   }
 
-  const progress = traderProgress(trader, exposure, t, locale);
+  const progress = traderProgress(trader, exposure, t, locale, currentSummary);
   const state = progress.label;
   const displayName = localizedTraderName(trader, t);
 
@@ -1306,6 +1361,15 @@ function buildLatestStatusFeedMap(feeds: TraderStatusFeed[]) {
   return map;
 }
 
+function buildCurrentSummaryMap(summaries: LeaderboardBundle["summaries"]) {
+  const map = new Map<string, TraderStanding["summary"]>();
+  for (const summary of summaries) {
+    if (!summary?.traderId) continue;
+    map.set(summary.traderId, summary);
+  }
+  return map;
+}
+
 function getElapsedTimeString(updatedAt: string | null | undefined): string {
   if (!updatedAt) return "-";
   const date = new Date(updatedAt);
@@ -1329,16 +1393,26 @@ function getElapsedTimeString(updatedAt: string | null | undefined): string {
   return `${diffDays}D`;
 }
 
-function traderProgress(trader: TraderStanding, exposure: TraderExposure | undefined, t: (key: string) => string, locale: Locale): TraderProgress {
+function traderProgress(
+  trader: TraderStanding,
+  exposure: TraderExposure | undefined,
+  t: (key: string) => string,
+  locale: Locale,
+  currentSummary?: TraderStanding["summary"]
+): TraderProgress {
   const summary = trader.summary;
+  const liveSummary = currentSummary ?? summary;
+  const liveSummaryRecord = liveSummary as Record<string, unknown> | undefined;
+  const summaryRecord = summary as Record<string, unknown> | undefined;
   const position = exposure?.position;
   const order = exposure?.order;
   const plan = exposure?.plan;
-  if (position || (summary?.openPositions ?? 0) > 0) {
-    const roi = position ? positionRoi(position) : summaryRoi(summary);
-    const detail = roi === null ? formatCurrency(summary?.unrealizedPnl, locale) : `${t("leaderboard.status.roi")} ${formatSignedPercent(roi, 1)}`;
-    const side = normalizeSide(position?.side);
-    const leverage = activePositionLeverage({ exposure, summary, trader, position });
+  if (position || (liveSummary?.openPositions ?? 0) > 0 || (summary?.openPositions ?? 0) > 0) {
+    const roi = position ? positionRoi(position) : summaryRoi(liveSummary) ?? summaryRoi(summary);
+    const fallbackDetail = getElapsedTimeString(liveSummary?.updatedAt ?? summary?.updatedAt);
+    const detail = roi === null ? fallbackDetail : `${t("leaderboard.status.roi")} ${formatSignedPercent(roi, 1)}`;
+    const side = normalizeSide(position?.side ?? (liveSummaryRecord?.side as string | undefined) ?? (summaryRecord?.side as string | undefined));
+    const leverage = activePositionLeverage({ exposure, summary: liveSummary ?? summary, trader, position });
     return {
       label: t("leaderboard.status.inPosition"),
       detail,
@@ -1348,13 +1422,13 @@ function traderProgress(trader: TraderStanding, exposure: TraderExposure | undef
       leverage
     };
   }
-  if (order || (summary?.openOrders ?? 0) > 0) {
+  if (order || (liveSummary?.openOrders ?? 0) > 0 || (summary?.openOrders ?? 0) > 0) {
     const price = numberValue(order?.limitPrice, order?.price, order?.stopPrice, order?.triggerPrice);
     const side = normalizeSide(order?.side);
-    const leverage = numberValue(orderLeverage(order), summary?.averageLeverage, trader.averageLeverage, summary?.leverage, trader.leverage);
+    const leverage = numberValue(orderLeverage(order), liveSummary?.averageLeverage, summary?.averageLeverage, trader.averageLeverage, liveSummary?.leverage, summary?.leverage, trader.leverage);
     return {
       label: t("leaderboard.status.pendingEntry"),
-      detail: price === null ? statusLabel(order?.status ?? "PENDING_ORDER", t) : `${t("common.price")} ${formatNumber(price, 0, locale)}`,
+      detail: price === null ? getElapsedTimeString(liveSummary?.updatedAt ?? summary?.updatedAt) : `${t("common.price")} ${formatNumber(price, 0, locale)}`,
       tone: "warn",
       side,
       sideDetail: price === null ? undefined : `@${formatNumber(price, 0, locale)}`,
@@ -1602,7 +1676,7 @@ function extractOverviewReviews(value: unknown): OverviewReviewRecord[] {
   return [];
 }
 
-async function loadOverviewReviewPage(limit: number, offset: number, locale: Locale, options?: { readonly preferCached?: boolean }) {
+async function loadOverviewReviewPage(limit: number, offset: number, locale: Locale, options?: { readonly preferCached?: boolean; readonly signal?: AbortSignal }) {
   const response = await getLeagueOverviewReviews(limit, offset, locale, undefined, undefined, options);
   const reviews = mergeOverviewReviews([], extractOverviewReviews(response));
   return {
@@ -1611,6 +1685,12 @@ async function loadOverviewReviewPage(limit: number, offset: number, locale: Loc
     hasMore: response.hasMore,
     warming: response.warming === true
   };
+}
+
+function isAbortError(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /aborted|abort|socket hang up|ECONNRESET/i.test(message);
 }
 
 function mergeOverviewReviews(existing: readonly OverviewReviewRecord[], incoming: readonly OverviewReviewRecord[]) {
@@ -1674,6 +1754,7 @@ function OptionActivityStream({
   useEffect(() => {
     let active = true;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const abortController = new AbortController();
     const refreshOverviewActivityCache = async () => {
       if (isFetchingRef.current) return;
       if (overviewActivityCache.locale !== locale) {
@@ -1697,7 +1778,10 @@ function OptionActivityStream({
       let keepLoadingForWarmup = false;
       setHasLoadError(false);
       try {
-        const page = await loadOverviewReviewPage(OVERVIEW_INITIAL_LIMIT, 0, locale, { preferCached: true });
+        const page = await loadOverviewReviewPage(OVERVIEW_INITIAL_LIMIT, 0, locale, {
+          preferCached: true,
+          signal: abortController.signal
+        });
         const fetchedReviews = page.reviews;
         if (page.warming && fetchedReviews.length === 0) {
           overviewActivityCache.fetchedAt = 0;
@@ -1718,6 +1802,7 @@ function OptionActivityStream({
           setHasMore(overviewActivityCache.hasMore);
         }
       } catch (err) {
+        if (isAbortError(err) || abortController.signal.aborted) return;
         console.error("Failed to load initial reviews:", err);
         overviewActivityCache.hasMore = false;
         overviewActivityCache.fetchedAt = Date.now();
@@ -1733,6 +1818,7 @@ function OptionActivityStream({
     refreshOverviewActivityCache();
     return () => {
       active = false;
+      abortController.abort();
       if (retryTimer) clearTimeout(retryTimer);
     };
   }, [locale]);

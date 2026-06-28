@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -336,6 +337,154 @@ def test_newly_filled_position_waits_for_next_candle_before_breakeven_management
         assert position.stop_loss_price == Decimal("100.0000000000")
         events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
         assert [event.event_type for event in events] == ["order_filled", "stop_moved_to_breakeven"]
+
+
+def test_60_hour_profitable_long_moves_stop_to_breakeven(temp_db):
+    base_time = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    with session_scope() as db:
+        upsert_risk_settings(db, "trend-sentinel", "BTCUSDT", max_leverage=5)
+        place_paper_order(
+            db,
+            trader_id="trend-sentinel",
+            symbol="BTCUSDT",
+            side="long",
+            quantity=1,
+            leverage=1,
+            take_profit_price=140,
+            stop_loss_price=90,
+        )
+
+        process_candle(
+            db,
+            "trend-sentinel",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 99, "close": 100, "timestamp": base_time},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+
+        result = process_candle(
+            db,
+            "trend-sentinel",
+            "BTCUSDT",
+            {"open": 100, "high": 105, "low": 99, "close": 101, "timestamp": base_time + timedelta(hours=60, minutes=1)},
+        )
+
+        db.refresh(position)
+        assert position.stop_loss_price == Decimal("100.0000000000")
+        assert [event.event_type for event in result.events] == ["stop_moved_to_breakeven"]
+        payload = from_json(result.events[0].payload_json) or {}
+        assert payload["reason"] == "profitable_after_60h_breakeven"
+        assert payload["minimumHoldingHours"] == 60
+
+
+def test_60_hour_profitable_short_moves_stop_to_breakeven(temp_db):
+    base_time = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    with session_scope() as db:
+        upsert_risk_settings(db, "trend-sentinel", "BTCUSDT", max_leverage=5)
+        place_paper_order(
+            db,
+            trader_id="trend-sentinel",
+            symbol="BTCUSDT",
+            side="short",
+            quantity=1,
+            leverage=1,
+            take_profit_price=60,
+            stop_loss_price=110,
+        )
+
+        process_candle(
+            db,
+            "trend-sentinel",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 99, "close": 100, "timestamp": base_time},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+
+        result = process_candle(
+            db,
+            "trend-sentinel",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 95, "close": 99, "timestamp": base_time + timedelta(hours=60, minutes=1)},
+        )
+
+        db.refresh(position)
+        assert position.stop_loss_price == Decimal("100.0000000000")
+        assert [event.event_type for event in result.events] == ["stop_moved_to_breakeven"]
+        payload = from_json(result.events[0].payload_json) or {}
+        assert payload["reason"] == "profitable_after_60h_breakeven"
+
+
+def test_60_hour_breakeven_requires_profit_and_minimum_hold_time(temp_db):
+    base_time = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    with session_scope() as db:
+        upsert_risk_settings(db, "trend-sentinel", "BTCUSDT", max_leverage=5)
+        place_paper_order(
+            db,
+            trader_id="trend-sentinel",
+            symbol="BTCUSDT",
+            side="long",
+            quantity=1,
+            leverage=1,
+            take_profit_price=140,
+            stop_loss_price=90,
+        )
+
+        process_candle(
+            db,
+            "trend-sentinel",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 99, "close": 100, "timestamp": base_time},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+
+        under_threshold = process_candle(
+            db,
+            "trend-sentinel",
+            "BTCUSDT",
+            {"open": 100, "high": 105, "low": 99, "close": 101, "timestamp": base_time + timedelta(hours=59, minutes=59)},
+        )
+        db.refresh(position)
+        assert position.stop_loss_price == Decimal("90.0000000000")
+        assert under_threshold.events == []
+
+        losing_after_threshold = process_candle(
+            db,
+            "trend-sentinel",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 98, "close": 99, "timestamp": base_time + timedelta(hours=60, minutes=1)},
+        )
+        db.refresh(position)
+        assert position.stop_loss_price == Decimal("90.0000000000")
+        assert losing_after_threshold.events == []
+
+
+def test_60_hour_breakeven_does_not_apply_on_fill_candle(temp_db):
+    base_time = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    with session_scope() as db:
+        upsert_risk_settings(db, "trend-sentinel", "BTCUSDT", max_leverage=5)
+        place_paper_order(
+            db,
+            trader_id="trend-sentinel",
+            symbol="BTCUSDT",
+            side="long",
+            quantity=1,
+            leverage=1,
+            take_profit_price=140,
+            stop_loss_price=90,
+        )
+
+        result = process_candle(
+            db,
+            "trend-sentinel",
+            "BTCUSDT",
+            {"open": 100, "high": 105, "low": 99, "close": 101, "timestamp": base_time + timedelta(hours=60, minutes=1)},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+
+        assert result.filled_orders
+        assert position.stop_loss_price == Decimal("90.0000000000")
+        events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
+        assert [event.event_type for event in events] == ["order_filled"]
 
 
 def test_adverse_close_does_not_trigger_early_thesis_failure_before_stop(temp_db):

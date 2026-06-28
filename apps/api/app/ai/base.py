@@ -714,6 +714,28 @@ MANAGEMENT_EXPOSURE_CONTEXT_KEYS: Final = (
 )
 
 
+MANAGEMENT_MARKET_TIMEFRAME_KEYS: Final = ("15m", "1h", "4h", "1d")
+MANAGEMENT_MARKET_TIMEFRAME_FIELDS: Final = (
+    "close",
+    "trend",
+    "ema20",
+    "ema50",
+    "rsi14",
+    "adx14",
+    "volumeZscore",
+    "latestCandle",
+    "channel",
+    "range",
+)
+MANAGEMENT_MARKET_DERIVATIVE_FIELDS: Final = (
+    "fundingRate",
+    "openInterestChangePct",
+    "takerBuyRatio",
+    "takerBuyShare",
+)
+MANAGEMENT_MARKET_SYSTEM_FIELDS: Final = ("volatilityRegime", "trendRegime", "liquidityRegime")
+
+
 ENTRY_THESIS_TEXT_KEYS: Final = (
     "entryReason",
     "setupReason",
@@ -850,6 +872,96 @@ def compact_management_entry_thesis(exposure: ManagedExposure) -> dict[str, Any]
         if target_context:
             thesis["target"] = target_context
     return thesis
+
+
+def compact_management_market_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {
+        "symbol": snapshot.get("symbol"),
+        "price": snapshot.get("price"),
+    }
+    timeframes = compact_management_timeframes(snapshot.get("timeframes"))
+    if timeframes:
+        compact["timeframes"] = timeframes
+    derivatives = compact_management_derivatives(snapshot.get("derivatives"))
+    if derivatives:
+        compact["derivatives"] = derivatives
+    system = compact_management_system(snapshot.get("system"))
+    if system:
+        compact["system"] = system
+    return {key: value for key, value in compact.items() if value is not None}
+
+
+def compact_management_timeframes(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    compact: dict[str, Any] = {}
+    for timeframe in MANAGEMENT_MARKET_TIMEFRAME_KEYS:
+        source = value.get(timeframe)
+        if not isinstance(source, dict):
+            continue
+        timeframe_context = {
+            key: compact_management_market_value(source.get(key))
+            for key in MANAGEMENT_MARKET_TIMEFRAME_FIELDS
+            if source.get(key) is not None
+        }
+        timeframe_context = {key: item for key, item in timeframe_context.items() if item is not None}
+        if timeframe_context:
+            compact[timeframe] = timeframe_context
+    return compact
+
+
+def compact_management_derivatives(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    compact = {
+        key: compact_management_market_value(value.get(key))
+        for key in MANAGEMENT_MARKET_DERIVATIVE_FIELDS
+        if value.get(key) is not None
+    }
+    for nested_key, output_key in (
+        ("funding", "fundingRate"),
+        ("openInterest", "openInterestChangePct"),
+        ("takerBuySell", "takerBuyRatio"),
+    ):
+        nested = value.get(nested_key)
+        if not isinstance(nested, dict) or output_key in compact:
+            continue
+        compact[output_key] = compact_management_market_value(
+            nested.get("rate")
+            or nested.get("changePercent15m")
+            or nested.get("changePercent")
+            or nested.get("buySellRatio")
+            or nested.get("buyRatio")
+            or nested.get("buyShare")
+        )
+    return {key: item for key, item in compact.items() if item is not None}
+
+
+def compact_management_system(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: compact_management_market_value(value.get(key))
+        for key in MANAGEMENT_MARKET_SYSTEM_FIELDS
+        if value.get(key) is not None
+    }
+
+
+def compact_management_market_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return compact_text(value, 80)
+    if isinstance(value, dict):
+        compact = {
+            str(key): compact_management_market_value(item)
+            for key, item in value.items()
+            if key in {"open", "high", "low", "close", "volume", "lower", "mid", "upper", "direction", "slope", "state"}
+            and item is not None
+        }
+        return {key: item for key, item in compact.items() if item is not None} or None
+    if isinstance(value, list):
+        items = [compact_management_market_value(item) for item in value[:3]]
+        return [item for item in items if item is not None]
+    return value
 
 
 def current_management_review_delta(payload: PositionManagementPayload) -> dict[str, Any]:
@@ -1019,17 +1131,13 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "recentTradeEvents": payload.recentTradeEvents,
         "siblingExposures": payload.siblingExposures,
         "accountState": payload.accountState,
-        "marketSnapshot": {
-            "symbol": payload.marketSnapshot.get("symbol"),
-            "price": payload.marketSnapshot.get("price"),
-            "timeframes": payload.marketSnapshot.get("timeframes"),
-            "derivatives": payload.marketSnapshot.get("derivatives"),
-            "system": payload.marketSnapshot.get("system"),
-        },
+        "marketSnapshot": compact_management_market_snapshot(payload.marketSnapshot),
     }
     return (
         "You are the POSITION MANAGEMENT reviewer for an active simulated order or position. Return only strict JSON with keys "
         "decision, confidence, riskLevel, reviewCode, reviewFacts, riskFlags, structuredReview, actions, riskChange, nextReviewInSeconds, rationale, counterThesis. "
+        "Source-language rule: this provider response is canonical English unless locale explicitly says Korean; the app translation pipeline localizes it later. "
+        "For English source, use plain short sentences that translate naturally. Avoid phrasing like 'X versus Y' when 'current price is X, entry is Y' is clearer. "
         "Valid decisions are HOLD, CANCEL_PENDING_ORDER, ADJUST_PENDING_ORDER, MOVE_STOP, MOVE_STOP_TO_BREAKEVEN, "
         "TRAIL_STOP, TAKE_PARTIAL_PROFIT, CLOSE_POSITION, REDUCE_RISK, ADD_TO_POSITION, PYRAMID_POSITION, "
         "LET_PROFIT_RUN, NEEDS_MORE_DATA. "
@@ -1051,7 +1159,11 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "current market evidence clearly invalidates the thesis or your action explicitly closes/reduces with a concrete reason. "
         "structuredReview is the primary user-facing explanation. It must be an object with verdict, headline, action, keyReasons, risks, watchConditions, managerNote. "
         "Write structuredReview as a compact position management briefing for a normal user who wants to understand the current position and what to watch next. "
-        "POSITION-FIRST DESK BRIEFING: for open positions, lead with price versus entry, stop, target, PnL, progressR, and targetProgress before any indicator, trend, or risk-reward claim. "
+        "Keep it readable in the UI: headline must be one natural sentence of 12-22 words; action, each keyReason, each risk, each watchCondition, and managerNote should each stay under 26 words when possible. "
+        "Do not cram the whole review into headline; headline is the desk call, the following fields carry evidence and triggers. "
+        "POSITION-FIRST DESK BRIEFING: for open positions, lead with current price, entry, stop, target, PnL, R progress, and target-path progress before any indicator, trend, or risk-reward claim. "
+        "Preferred source wording for the price box is: current price is X, entry is Y, stop is Z, target is W, unrealized PnL is N, R progress is R. "
+        "Use 'R progress' and 'distance to stop' in natural words; do not expose raw field names such as progressR or targetProgress in user-facing strings. "
         "Do not lead with overall trend alignment, valid structure, risk-reward ratio, or no invalidation signal; those are supporting facts only after the live position state is clear. "
         "The exposure payload is intentionally compact. Use entryThesis only as short background for why the trade was originally allowed; do not reconstruct the whole old approval review from memory or write as if the entry approval is the current management decision. "
         "Do not say profit is locked, secured, guaranteed, confirmed, or preserved unless recentTradeEvents or entryThesis.takeProfits show an actual filled partial/closed profit. "
@@ -1070,9 +1182,11 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "if progressR is small, headline the review as near-entry, early profit, pressure, tactical hold, or risk-check with the actual management choice. "
         "A repeated HOLD still needs a different headline angle from the previous review: use current PnL/progress, distance to stop, distance to target, or a trader-specific anchor instead of the same status phrase. "
         "action is one standalone management sentence and never a list: explain the current hold/cancel/reduce/close/stop decision in plain language. "
-        "keyReasons has up to 2 standalone evidence sentences explaining why the action follows from price versus entry/stop/target, recent candles, momentum/volume, and recent reviews/events. "
+        "keyReasons has up to 2 standalone evidence sentences explaining why the action follows from current price, entry, stop, target, recent candles, momentum/volume, and recent reviews/events. "
         "risks has up to 1 standalone caution sentence, and watchConditions has up to 2 standalone trigger sentences that would change the decision. "
         "managerNote is one concise desk note about how to manage the next review window. Do not write raw JSON/Python list syntax, bullet prefixes, or section labels inside any string. "
+        "A helpful HOLD review must make a user think 'I know why we are waiting now'; it should not read like a repeated status ping. "
+        "For HOLD, always include: one reason not to close yet, one reason not to tighten or take profit yet, and one exact condition that changes the call. "
         "Do not write checklist fragments such as structure and risk-reward are healthy, volume is weak, trend is bullish, valid geometry, or sound imbalance structure without explaining what that means for this position now. "
         "For HOLD reviews, never stop at keep holding or continue monitoring; explain why no stop, leverage, partial-profit, or close action is justified right now. "
         "Before writing, answer three management questions internally: is the position currently winning, losing, protected, or waiting; does the original thesis still fit the newest candles and recent reviews; what exact next market event changes the action. "

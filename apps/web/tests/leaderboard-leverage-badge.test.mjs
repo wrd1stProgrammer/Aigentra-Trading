@@ -12,7 +12,7 @@ test("leaderboard shows leverage next to active side badges", () => {
 
   assert.ok(sideBadgeIndex >= 0, "trader identity rows should render side badges");
   assert.ok(leverageBadgeIndex > sideBadgeIndex, "leverage badge should render next to and after the side badge");
-  assert.match(source, /activePositionLeverage\(\{ exposure, summary, trader, position \}\)/, "active positions should use the shared leverage selector");
+  assert.match(source, /activePositionLeverage\(\{ exposure, summary: liveSummary \?\? summary, trader, position \}\)/, "active positions should use the shared leverage selector with live monthly-tab summaries");
   assert.match(source, /orderLeverage\(order\)/, "pending orders with a side badge should use known leverage");
   assert.match(source, /planLeverage\(plan\)/, "pending plans with a side badge should use known leverage");
   assert.match(source, /<LeverageBadge progress=\{progress\} \/>/, "trader identity rows should render a leverage badge next to side");

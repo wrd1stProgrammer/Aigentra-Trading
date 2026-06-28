@@ -1740,9 +1740,9 @@ export function LiveCandleChart({
                 {connected ? t("chart.connected") : t("chart.disconnected")}
               </StatusBadge>
               {loading || loadingOlder ? (
-                <div className="animate-pulse">
+                <div className="animate-pulse" aria-label={loadingOlder ? t("chart.loadingHistory") : t("common.loading")}>
                   <StatusBadge tone="neutral">
-                    {loadingOlder ? t("chart.loadingHistory") : t("common.loading")}
+                    <CircleNotch className="animate-spin" size={12} />
                   </StatusBadge>
                 </div>
               ) : null}
@@ -1792,9 +1792,9 @@ export function LiveCandleChart({
               {connected ? t("chart.connected") : t("chart.disconnected")}
             </StatusBadge>
             {loading || loadingOlder ? (
-              <div className="animate-pulse">
+              <div className="animate-pulse" aria-label={loadingOlder ? t("chart.loadingHistory") : t("common.loading")}>
                 <StatusBadge tone="neutral">
-                  {loadingOlder ? t("chart.loadingHistory") : t("common.loading")}
+                  <CircleNotch className="animate-spin" size={12} />
                 </StatusBadge>
               </div>
             ) : null}
@@ -1881,9 +1881,9 @@ export function LiveCandleChart({
             {connected ? t("chart.connected") : t("chart.disconnected")}
           </StatusBadge>
           {loading || loadingOlder ? (
-            <div className="animate-pulse">
+            <div className="animate-pulse" aria-label={loadingOlder ? t("chart.loadingHistory") : t("common.loading")}>
               <StatusBadge tone="neutral">
-                {loadingOlder ? t("chart.loadingHistory") : t("common.loading")}
+                <CircleNotch className="animate-spin" size={12} />
               </StatusBadge>
             </div>
           ) : null}
@@ -2000,8 +2000,7 @@ export function LiveCandleChart({
             {showInitialChartSpinner ? (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-50/70 backdrop-blur-[2px] dark:bg-zinc-950/55" role="status" aria-live="polite">
                 <div className="flex flex-col items-center gap-2 rounded-2xl border border-zinc-200 bg-white/90 px-5 py-4 text-center text-zinc-700 shadow-lg shadow-zinc-950/10 dark:border-zinc-800 dark:bg-[#080b0a]/90 dark:text-zinc-200">
-                  <CircleNotch className="animate-spin text-emerald-500 dark:text-emerald-300" size={28} weight="bold" />
-                  <span className="text-xs font-bold">{t("chart.loadingHistory")}</span>
+                  <CircleNotch className="animate-spin text-emerald-500 dark:text-emerald-300" size={28} weight="bold" aria-label={t("chart.loadingHistory")} />
                 </div>
               </div>
             ) : null}

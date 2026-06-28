@@ -7,6 +7,7 @@ import { scenarioDisplayText, scenarioImportance } from "@/components/trader-pro
 import { latestScenarioFeedScenarios, scenarioTimelineBody } from "@/components/trader-profile-detail/scenario-feed";
 import { sortTimelineItemsByRecency, timelineTimeValue } from "@/components/trader-profile-detail/timeline-sort";
 import type { PlanRecord, TimelineItem, TradeHistoryItem, Translator } from "@/components/trader-profile-detail/types";
+import { cleanReviewDisplayText } from "@/lib/review-display";
 
 const POSITION_JOURNAL_EVENT_TYPES = [
   "POSITION_CLOSED",
@@ -468,9 +469,39 @@ export function scenarioTitle(scenario: TraderScenario, t: Translator) {
 }
 
 export function managementReviewScenarioTitle(scenario: TraderScenario, t: Translator) {
+  const aiTitle = generatedReviewScenarioTitle(scenario.reviewBrief?.headline);
+  if (aiTitle) return aiTitle;
   const sideLabel = localizedScenarioSide(scenario.side, t);
   const title = reviewTitleTopic(scenario, t);
   return [sideLabel, title].filter((part, index, arr) => part && part !== "-" && arr.indexOf(part) === index).join(" ");
+}
+
+function generatedReviewScenarioTitle(headline: string | null | undefined) {
+  const title = compactReviewTitle(headline);
+  if (!title) return null;
+  if (isGenericReviewTitle(title)) return null;
+  return title;
+}
+
+function compactReviewTitle(headline: string | null | undefined) {
+  const normalized = cleanReviewDisplayText(headline, 80)
+    .replace(/\s+/g, " ")
+    .replace(/[.。]\s*$/, "")
+    .trim();
+  if (!normalized || normalized === "-") return null;
+  if (normalized.length <= 32) return normalized;
+  const sliced = normalized.slice(0, 29).replace(/[\s,，:：;；]+$/g, "");
+  return `${sliced}...`;
+}
+
+function isGenericReviewTitle(title: string) {
+  const normalized = normalizeKey(title);
+  return (
+    normalized.includes("익절권_확인") ||
+    normalized.includes("손절_점검") ||
+    normalized.includes("PROFIT_ZONE_CHECK") ||
+    normalized.includes("STOP_CHECK")
+  );
 }
 
 function reviewTitleTopic(scenario: TraderScenario, t: Translator) {

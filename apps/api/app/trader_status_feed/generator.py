@@ -11,7 +11,7 @@ from app.trader_status_feed.models import StatusFeedRequest, StatusFeedResult, T
 STATUS_FEED_STYLE_CONTRACT: Final[dict[str, str | tuple[str, ...]]] = {
     "format": "trader_thread_post",
     "voice": "first_person_or_close_desk_voice",
-    "tone": "human_trader_briefing",
+    "tone": "sns_like_trade_desk_note",
     "watchPolicy": "empty_string",
     "evidenceShape": "one_current_fact_one_decision_one_next_trigger",
     "variationPolicy": "avoid_recent_wording_and_reasoning_reuse",
@@ -33,6 +33,8 @@ Style contract:
 Rules:
 - Write like the trader posting one quick thread update to followers, not a news article, analyst report, or trade recap memo.
 - Use first person when natural: I, I'm, my book, my zone, I'm flat, I'm filled, not chasing.
+- Make it feel like a live desk/SNS note from the AI trader: one current fact, one personal desk stance, and one next trigger woven into normal speech.
+- The note should sound posted by the trader about their own trade, not written by Aigentra about the trader.
 - Keep headline <= 44 characters and message <= 165 characters.
 - Set watch to an empty string. Do not create a separate next-check or next-watch line.
 - If the next thing matters, weave it into message as a human aside, not as a label or checklist.
@@ -41,6 +43,7 @@ Rules:
 - Do not repeat a recent feed note.
 - Do not reuse the same reason/action/watch pattern from recentStatusFeeds, even when the stateKey is unchanged.
 - Name one concrete input fact that changed or still matters, such as price versus entry/stop/target, order status, rejected review reason, PnL, fill state, or invalidation.
+- Prefer concrete trade words over UI words: "I'm still short from 60,200" is better than "active position state remains valid."
 - Use a different sentence shape for review_rejected, pending_entry, position_entry, and position_closed.
 - For pending_entry, say why the order is still worth waiting for or what would cancel it. For position_entry, say what is being managed now. For review_rejected, say the blocker in plain words. For position_closed, say why the desk resets.
 - Do not invent prices, PnL, fills, or decisions not present in the input.

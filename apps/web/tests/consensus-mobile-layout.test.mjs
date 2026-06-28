@@ -25,8 +25,8 @@ test("consensus delays browser-cache placeholders until after hydration", () => 
 
 test("consensus uses a lightweight initial bundle and full-screen loading overlay", () => {
   assert.match(consensusSource, /CONSENSUS_BUNDLE_OPTIONS: LeaderboardBundleRequestOptions = \{ includeRelated: false \}/, "sentiment page should not pull the full related leaderboard bundle");
-  assert.match(consensusSource, /getActivePaperPositions\("BTCUSDT", undefined, CONSENSUS_EXPOSURE_LIMIT\)/, "active positions should load through the narrow exposure API");
-  assert.match(consensusSource, /getPaperOrders\(CONSENSUS_EXPOSURE_LIMIT, "BTCUSDT", "open"\)/, "active orders should load through the narrow order API");
+  assert.match(consensusSource, /getActivePaperPositions\("BTCUSDT", undefined, CONSENSUS_EXPOSURE_LIMIT, \{ signal: context\.signal \}\)/, "active positions should load through the narrow exposure API with abort support");
+  assert.match(consensusSource, /getPaperOrders\(CONSENSUS_EXPOSURE_LIMIT, "BTCUSDT", "open", undefined, \{ signal: context\.signal \}\)/, "active orders should load through the narrow order API with abort support");
   assert.doesNotMatch(consensusSource, /getRecentTradePlans/, "sentiment page should not fetch full pending trade-plan payloads");
   assert.doesNotMatch(consensusSource, /hourlyOpinionQuery\.isPending && !hourlyOpinionQuery\.data/, "the full-screen overlay should not wait for hourly AI opinion generation");
   assert.match(consensusSource, /PageLoadingOverlay/, "consensus should use the shared loading overlay");

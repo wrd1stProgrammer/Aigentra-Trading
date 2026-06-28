@@ -6,6 +6,7 @@ import ts from "typescript";
 const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8");
 const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
 const nextConfigSource = readFileSync(new URL("../next.config.ts", import.meta.url), "utf8");
+const backendProxyRouteSource = readFileSync(new URL("../app/backend-api/[...path]/route.ts", import.meta.url), "utf8");
 const overlaySource = readFileSync(new URL("../components/page-loading-overlay.tsx", import.meta.url), "utf8");
 const overviewFilter = loadTsModule("../components/leaderboard-overview-filter.ts");
 const formatSource = readFileSync(new URL("../lib/format.ts", import.meta.url), "utf8");
@@ -127,8 +128,10 @@ test("browser API calls use the same-origin backend proxy to avoid cold-load COR
   assert.match(apiSource, /const BROWSER_API_PROXY_BASE_URL = "\/backend-api"/, "browser fetches should use the Next proxy prefix");
   assert.match(apiSource, /typeof window === "undefined"/, "server-side calls should keep using the external API base URL");
   assert.match(apiSource, /\^https\?:\\\/\\\//, "absolute public API bases should be proxied in the browser");
-  assert.match(nextConfigSource, /source: "\/backend-api\/:path\*"/, "Next should expose a non-conflicting backend proxy route");
-  assert.match(nextConfigSource, /destination/, "backend proxy route should forward to the configured API origin");
+  assert.doesNotMatch(nextConfigSource, /rewrites\(\)/, "backend proxy should not rely on Next rewrites that log navigation aborts loudly");
+  assert.match(backendProxyRouteSource, /proxyBackendRequest/, "Next should expose a non-conflicting backend proxy route handler");
+  assert.match(backendProxyRouteSource, /isNavigationAbort/, "backend proxy should classify rapid-navigation aborts");
+  assert.match(backendProxyRouteSource, /status: 499/, "navigation aborts should resolve as client-cancelled proxy responses");
 });
 
 test("leaderboard BTC and favorites filters render as compact standalone areas", () => {
@@ -151,6 +154,9 @@ test("leaderboard supports isolated UTC monthly league selection", () => {
   assert.match(leaderboardSource, /data-testid="leaderboard-month-selector"/, "leaderboard should expose a stable monthly selector target");
   assert.match(leaderboardSource, /selectedLeagueMonth/, "leaderboard should keep selected month in component state");
   assert.match(leaderboardSource, /leagueMonth: selectedLeagueMonth/, "leaderboard query should be parameterized by the selected month");
+  assert.match(leaderboardSource, /useSearchParams/, "league tab selection should be reflected in the URL");
+  assert.match(leaderboardSource, /router\.replace\(`\$\{pathname\}\$\{nextLeagueSearch/, "league tab selection should preserve browser back navigation state");
+  assert.match(leaderboardSource, /next\.set\("league", "current"\)/, "current league tab should have a URL state marker");
   assert.match(leaderboardSource, /Date\.UTC/, "month options should be generated from UTC dates");
   assert.match(i18nSource, /"leaderboard\.monthlyLeague"/, "monthly selector copy should be localized");
 });
@@ -160,6 +166,8 @@ test("monthly league rankings keep live exposure state separate from monthly ret
   assert.match(leaderboardSource, /getPaperOrders/, "leaderboard should fetch live open orders independently of the monthly bundle");
   assert.match(leaderboardSource, /const liveExposurePositionsQuery = useQuery/, "live positions should have their own refreshable query");
   assert.match(leaderboardSource, /const liveExposureOrdersQuery = useQuery/, "live orders should have their own refreshable query");
+  assert.match(leaderboardSource, /currentLeagueBundleQuery/, "monthly screens should hydrate current live summaries separately");
+  assert.match(leaderboardSource, /currentSummaryByTrader/, "monthly screens should use current live summaries for monitoring details");
   assert.match(
     leaderboardSource,
     /buildExposureMap\(liveExposurePositions, liveExposureOrders, pendingPlans\)/,

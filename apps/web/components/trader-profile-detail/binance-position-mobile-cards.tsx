@@ -1,7 +1,7 @@
 "use client";
 
 import type { PaperPosition } from "@/lib/api";
-import { formatClockTime, formatCurrency, formatNumber } from "@/lib/format";
+import { formatClockTime, formatNumber } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
 import { statusLabel } from "@/lib/status";
 import { ShareNetwork } from "@phosphor-icons/react";
@@ -157,7 +157,7 @@ function MobilePositionCard({
             {t("detail.pnlUsdt")}
           </span>
           <div className={`mt-1 font-mono text-lg font-extrabold tracking-tight ${isPnlPositive ? "text-[#0ecb81]" : "text-[#f6465d]"}`}>
-            {pnl !== null ? `${pnl >= 0 ? "+" : ""}${formatNumber(pnl, 2, locale)}` : "-"}
+            {formatSignedWholeNumber(pnl, locale)}
           </div>
         </div>
         <div className="text-center">
@@ -165,7 +165,7 @@ function MobilePositionCard({
             {t("detail.roi")}
           </span>
           <div className={`mt-1 font-mono text-lg font-extrabold tracking-tight ${isRoePositive ? "text-[#0ecb81]" : "text-[#f6465d]"}`}>
-            {roe !== null ? `${roe >= 0 ? "+" : ""}${formatNumber(roe, 2)}%` : "-"}
+            {roe !== null ? `${roe >= 0 ? "+" : ""}${formatNumber(roe, 0, locale)}%` : "-"}
           </div>
         </div>
         <div className="text-right">
@@ -195,7 +195,7 @@ function MobilePositionCard({
             {t("detail.positionMargin")} (USDT)
           </span>
           <span className="mt-1 block font-mono text-xs font-bold text-zinc-100">
-            {formatCurrency(margin, locale)}
+            {formatWholeCurrency(margin, locale)}
           </span>
         </div>
         {/* Col 3 */}
@@ -204,7 +204,7 @@ function MobilePositionCard({
             {t("detail.positionExpectedProfit")}
           </span>
           <span className="mt-1 block font-mono text-xs font-bold text-[#0ecb81]">
-            {formatCurrency(expectedProfit, locale)}
+            {formatWholeCurrency(expectedProfit, locale)}
           </span>
         </div>
 
@@ -215,7 +215,7 @@ function MobilePositionCard({
             {t("detail.positionEntryPrice")} (USDT)
           </span>
           <span className="mt-1 block font-mono text-xs font-semibold text-zinc-300">
-            {formatNumber(entryPrice, 1, locale)}
+            {formatWholeNumber(entryPrice, locale)}
           </span>
         </div>
         {/* Col 2 */}
@@ -224,7 +224,7 @@ function MobilePositionCard({
             {t("detail.positionMarkPrice")} (USDT)
           </span>
           <span className="mt-1 block font-mono text-xs font-semibold text-zinc-300">
-            {formatNumber(markPrice, 1, locale)}
+            {formatWholeNumber(markPrice, locale)}
           </span>
         </div>
         {/* Col 3 */}
@@ -233,7 +233,7 @@ function MobilePositionCard({
             {t("detail.positionLiqPrice")} (USDT)
           </span>
           <span className="mt-1 block font-mono text-xs font-semibold text-[#f0b90b]">
-            {formatNumber(liquidation, 1, locale)}
+            {formatWholeNumber(liquidation, locale)}
           </span>
         </div>
       </div>
@@ -245,7 +245,7 @@ function MobilePositionCard({
             {t("detail.slUsdt")}
           </span>
           <span className="mt-0.5 block font-mono text-[11px] font-semibold text-rose-400">
-            {stopLoss !== null ? formatNumber(stopLoss, 1, locale) : "-"}
+            {formatWholeNumber(stopLoss, locale)}
           </span>
         </div>
         <div>
@@ -253,7 +253,7 @@ function MobilePositionCard({
             {t("detail.tpUsdt")}
           </span>
           <span className="mt-0.5 block font-mono text-[11px] font-semibold text-emerald-400">
-            {takeProfit !== null ? formatNumber(takeProfit, 1, locale) : "-"}
+            {formatWholeNumber(takeProfit, locale)}
           </span>
         </div>
         <div className="flex justify-end items-end">
@@ -372,7 +372,7 @@ function MobileOrderCard({
             {t("detail.orderPrice")} (USDT)
           </span>
           <span className="mt-1 block font-mono text-xs font-semibold text-zinc-300">
-            {formatNumber(price, 1, locale)}
+            {formatWholeNumber(price, locale)}
           </span>
         </div>
         {/* Col 3: Margin */}
@@ -381,7 +381,7 @@ function MobileOrderCard({
             {t("detail.positionMargin")} (USDT)
           </span>
           <span className="mt-1 block font-mono text-xs font-bold text-zinc-100">
-            {formatCurrency(margin, locale)}
+            {formatWholeCurrency(margin, locale)}
           </span>
         </div>
 
@@ -392,7 +392,7 @@ function MobileOrderCard({
             {t("detail.exposure")} (USDT)
           </span>
           <span className="mt-1 block font-mono text-xs font-semibold text-zinc-300">
-            {formatCurrency(notional, locale)}
+            {formatWholeCurrency(notional, locale)}
           </span>
         </div>
         {/* Col 2: SL */}
@@ -401,7 +401,7 @@ function MobileOrderCard({
             {t("chart.stopLoss")}
           </span>
           <span className="mt-1 block font-mono text-[11px] font-semibold text-rose-400">
-            {stopLoss !== null ? formatNumber(stopLoss, 1, locale) : "-"}
+            {formatWholeNumber(stopLoss, locale)}
           </span>
         </div>
         {/* Col 3: TP */}
@@ -410,7 +410,7 @@ function MobileOrderCard({
             {t("chart.takeProfit")}
           </span>
           <span className="mt-1 block font-mono text-[11px] font-semibold text-emerald-400">
-            {takeProfit !== null ? formatNumber(takeProfit, 1, locale) : "-"}
+            {formatWholeNumber(takeProfit, locale)}
           </span>
         </div>
       </div>
@@ -456,10 +456,20 @@ function formatLeverage(value: number | null) {
   return `${formatNumber(value, value % 1 === 0 ? 0 : 1)}x`;
 }
 
-function formatPercentNumber(value: number | null) {
+function formatWholeNumber(value: number | null, locale: Locale) {
   if (value === null) return "-";
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${formatNumber(value, 2)}%`;
+  return formatNumber(value, 0, locale);
+}
+
+function formatWholeCurrency(value: number | null, locale: Locale) {
+  if (value === null) return "-";
+  return `$${formatNumber(Math.abs(value), 0, locale)}`;
+}
+
+function formatSignedWholeNumber(value: number | null, locale: Locale) {
+  if (value === null) return "-";
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${formatNumber(Math.abs(value), 0, locale)}`;
 }
 
 function pnlToneClass(value: number | null) {

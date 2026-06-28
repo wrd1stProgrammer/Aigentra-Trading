@@ -82,5 +82,6 @@ test("trader detail shows centered loading affordances for review and chart data
   assert.match(pageSource, /common\.loadingTraderDetailData/, "detail loading copy should be localized");
   assert.match(chartSource, /showInitialChartSpinner/, "live chart should expose an initial candle-loading spinner state");
   assert.match(chartSource, /CircleNotch/, "chart loading UI should use a visible spinner instead of only skeleton pulses");
+  assert.doesNotMatch(chartSource, /<span className="text-xs font-bold">\{t\("chart\.loadingHistory"\)\}<\/span>/, "chart should not flash visible historical-loading copy over the chart");
   assert.match(i18nSource, /"common\.loadingTraderDetailData"/, "trader-detail loading copy should exist in the dictionary");
 });

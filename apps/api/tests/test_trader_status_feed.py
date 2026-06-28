@@ -210,6 +210,7 @@ def test_status_feed_prompt_contract_uses_thread_voice_without_watch_label():
     contract = status_feed_generator.STATUS_FEED_STYLE_CONTRACT
 
     assert contract["format"] == "trader_thread_post"
+    assert contract["tone"] == "sns_like_trade_desk_note"
     assert contract["watchPolicy"] == "empty_string"
     assert "news_article" in contract["forbiddenStyles"]
     assert "analyst_report" in contract["forbiddenStyles"]
@@ -224,6 +225,8 @@ def test_status_feed_prompt_requires_event_specific_non_repetitive_message():
 
     assert "Do not reuse the same reason/action/watch pattern from recentStatusFeeds" in prompt
     assert "Name one concrete input fact that changed or still matters" in prompt
+    assert "Make it feel like a live desk/SNS note from the AI trader" in prompt
+    assert "not written by Aigentra about the trader" in prompt
     assert "Use a different sentence shape for review_rejected, pending_entry, position_entry, and position_closed" in prompt
 
 

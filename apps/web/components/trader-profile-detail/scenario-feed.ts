@@ -28,7 +28,7 @@ export function scenarioTimelineBody(scenario: TraderScenario, matchingReview: M
   switch (scenario.source) {
     case "review":
       {
-        const briefText = managementReviewTimelineBody(scenario.reviewBrief ?? reviewBriefFromRecord(matchingReview));
+        const briefText = managementReviewTimelineBody(scenario.reviewBrief ?? reviewBriefFromRecord(matchingReview), { omitHeadline: true });
         if (briefText) return localizedTimelineText(briefText);
       }
       if (matchingReview?.rationale) return localizedTimelineText(matchingReview.rationale);
@@ -39,7 +39,7 @@ export function scenarioTimelineBody(scenario: TraderScenario, matchingReview: M
     case "position":
     case "order":
       {
-        const briefText = managementReviewTimelineBody(scenario.reviewBrief ?? null);
+        const briefText = managementReviewTimelineBody(scenario.reviewBrief ?? null, { omitHeadline: true });
         if (briefText) return localizedTimelineText(briefText);
       }
       return localizedTimelineText(scenarioDetailRationaleText(scenario, t));
@@ -55,10 +55,10 @@ function localizedTimelineText(value: string | null | undefined) {
   return text;
 }
 
-function managementReviewTimelineBody(brief: ReviewBrief | null) {
+function managementReviewTimelineBody(brief: ReviewBrief | null, options: { omitHeadline?: boolean } = {}) {
   if (!brief) return null;
   const parts = cleanReviewDisplayItems([
-    brief.headline,
+    options.omitHeadline ? null : brief.headline,
     brief.action,
     ...brief.keyReasons.slice(0, 2),
     ...brief.risks.slice(0, 1),

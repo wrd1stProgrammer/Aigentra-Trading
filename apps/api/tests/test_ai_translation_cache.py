@@ -512,8 +512,12 @@ def test_ai_review_translation_contract_preserves_korean_trading_semantics():
     assert "unrealized profit -> 미실현 이익" in term_rules
     assert "breakeven stop -> 본절 손절" in term_rules
     assert "stop loss -> 손절가/손절선" in term_rules
+    assert "current price is X, entry is Y -> 현재가 X, 진입가 Y" in term_rules
+    assert "R progress -> R 기준 이동" in term_rules
     assert "thesis -> 논리/가설" in term_rules
     assert "이익이 확정적" in forbidden
+    assert "진입 대비" in forbidden
+    assert "진행률" in forbidden
     assert "정지 손실" in forbidden
     assert "손실 제한" in forbidden
     assert "하락 위험" in forbidden

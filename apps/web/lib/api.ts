@@ -19,6 +19,7 @@ export const TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS = 20_000;
 export type LeaderboardBundleRequestOptions = {
   readonly includeRelated?: boolean;
   readonly leagueMonth?: string;
+  readonly signal?: AbortSignal;
 };
 
 export type LeaderboardPeriod =
@@ -800,7 +801,7 @@ export function getLeaderboardBundle(symbol: string, locale: Locale = "en", opti
     includeRelated: String(options?.includeRelated ?? false)
   });
   if (options?.leagueMonth) params.set("leagueMonth", options.leagueMonth);
-  return request<LeaderboardBundle>(`/api/league/leaderboard-fast?${params.toString()}`).then((bundle) => {
+  return request<LeaderboardBundle>(`/api/league/leaderboard-fast?${params.toString()}`, { signal: options?.signal }).then((bundle) => {
     writeBrowserCache(leaderboardCacheKey(symbol, locale, options), bundle);
     return bundle;
   });
@@ -809,12 +810,12 @@ export function getLeaderboardBundle(symbol: string, locale: Locale = "en", opti
 export function getLeagueSentimentOpinion(
   symbol: string,
   locale: Locale,
-  options?: { readonly preferCached?: boolean; readonly refresh?: boolean }
+  options?: { readonly preferCached?: boolean; readonly refresh?: boolean; readonly signal?: AbortSignal }
 ) {
   const params = new URLSearchParams({ symbol, locale });
   if (options?.preferCached) params.set("preferCached", "true");
   if (options?.refresh) params.set("refresh", "true");
-  return request<LeagueSentimentOpinionResponse>(`/api/league/sentiment/opinion?${params.toString()}`);
+  return request<LeagueSentimentOpinionResponse>(`/api/league/sentiment/opinion?${params.toString()}`, { signal: options?.signal });
 }
 
 export function getLeagueOverviewReviews(
@@ -823,14 +824,15 @@ export function getLeagueOverviewReviews(
   locale: Locale = "en",
   symbol?: string,
   traderId?: string,
-  options?: { readonly preferCached?: boolean }
+  options?: { readonly preferCached?: boolean; readonly signal?: AbortSignal }
 ) {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset), locale });
   if (symbol) params.set("symbol", symbol);
   if (traderId) params.set("trader_id", traderId);
   if (options?.preferCached) params.set("prefer_cached", "true");
   return request<{ reviews: Record<string, any>[]; nextOffset: number; hasMore: boolean; warming?: boolean }>(
-    `/api/league/overview-reviews?${params.toString()}`
+    `/api/league/overview-reviews?${params.toString()}`,
+    { signal: options?.signal }
   );
 }
 
@@ -889,7 +891,7 @@ export const leaderboardBundleQueryKey = (symbol: string, locale: Locale = "en",
 export function leaderboardBundleQueryOptions(symbol: string, locale: Locale = "en", options?: LeaderboardBundleRequestOptions) {
   return {
     queryKey: leaderboardBundleQueryKey(symbol, locale, options),
-    queryFn: () => getLeaderboardBundle(symbol, locale, options),
+    queryFn: (context: { signal?: AbortSignal }) => getLeaderboardBundle(symbol, locale, { ...options, signal: context.signal }),
     staleTime: LEAGUE_QUERY_STALE_TIME_MS,
     gcTime: LEAGUE_QUERY_GC_TIME_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -930,7 +932,7 @@ export function runScannerOnce(symbol = "BTCUSDT", provider = "mock", locale: Lo
   });
 }
 
-export function getActivePaperPositions(symbol?: string, traderId?: string, limit = 20) {
+export function getActivePaperPositions(symbol?: string, traderId?: string, limit = 20, options?: { readonly signal?: AbortSignal }) {
   const params = new URLSearchParams({ limit: String(limit) });
   if (symbol) params.set("symbol", symbol);
   if (traderId) params.set("trader_id", traderId);
@@ -942,10 +944,10 @@ export function getActivePaperPositions(symbol?: string, traderId?: string, limi
     `/api/paper/positions/active${activeQuery}`,
     `/api/paper/positions${fallbackQuery}`,
     `/api/paper-trading/positions${fallbackQuery}`
-  ]);
+  ], { signal: options?.signal });
 }
 
-export function getPaperOrders(limit = 20, symbol?: string, status?: string, traderId?: string) {
+export function getPaperOrders(limit = 20, symbol?: string, status?: string, traderId?: string, options?: { readonly signal?: AbortSignal }) {
   const params = new URLSearchParams({ limit: String(limit) });
   if (symbol) params.set("symbol", symbol);
   if (status) params.set("status", status);
@@ -953,7 +955,7 @@ export function getPaperOrders(limit = 20, symbol?: string, status?: string, tra
   return requestFirst<{ orders: PaperOrder[] } | PaperOrder[]>([
     `/api/paper/orders?${params.toString()}`,
     `/api/paper-trading/orders?${params.toString()}`
-  ]);
+  ], { signal: options?.signal });
 }
 
 export function getTradeEvents(limit = 20, symbol?: string, traderId?: string) {
