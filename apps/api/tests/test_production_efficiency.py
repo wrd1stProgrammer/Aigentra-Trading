@@ -238,3 +238,81 @@ def test_leaderboard_bundle_keeps_management_reviews_slim(tmp_path):
     assert "event" not in review
     assert "exposure" not in review
     assert "review" not in review
+
+
+def test_trader_detail_management_reviews_are_compact_but_keep_visible_fields(tmp_path):
+    reset_db_engine(f"sqlite:///{tmp_path / 'trader-detail-slim.db'}")
+    init_db()
+    with session_scope() as db:
+        db.add(
+            PositionManagementReviewRecord(
+                trader_id="channel-rider",
+                symbol="BTCUSDT",
+                status="ok",
+                position_id=1717,
+                event_type="position_heartbeat",
+                phase="OPEN_POSITION",
+                provider="mock",
+                model="mock-position-manager",
+                decision="HOLD",
+                confidence=74,
+                action_type="HOLD",
+                payload_json=to_json(
+                    {
+                        "event": {
+                            "eventType": "position_heartbeat",
+                            "phase": "OPEN_POSITION",
+                            "reason": "Price is still below the invalidation line.",
+                            "metrics": {"price": 60100.0, "stopLoss": 61300.0, "takeProfit": 59100.0},
+                        },
+                        "exposure": {
+                            "kind": "position",
+                            "id": 1717,
+                            "side": "SHORT",
+                            "entryPrice": 60347.5,
+                            "stopLoss": 61300.0,
+                            "takeProfit": 59100.0,
+                            "quantity": 0.2,
+                            "payload": {"largeDebugPayload": "x" * 20_000},
+                        },
+                        "review": {
+                            "decision": "HOLD",
+                            "rationale": "The short remains manageable because price has not reclaimed the stop.",
+                            "riskFlags": ["watch_reclaim"],
+                            "structuredReview": {
+                                "headline": "Short is still manageable below the stop.",
+                                "action": "Hold while price stays below 61300.",
+                                "keyReasons": ["Current price is still under the invalidation line."],
+                                "watchConditions": ["Exit if price reclaims 61300."],
+                            },
+                        },
+                        "appliedActions": [],
+                    }
+                ),
+            )
+        )
+
+    with session_scope() as db:
+        payload = main.build_trader_detail_payload(
+            db,
+            "channel-rider",
+            "BTCUSDT",
+            {"id": "channel-rider", "name": "Channel Cartographer"},
+            summaries=[],
+            reviews_limit=1,
+            events_limit=1,
+            locale="en",
+        )
+
+    review = payload["managementReviews"][0]
+    serialized = json.dumps(review)
+    assert "payload" not in review
+    assert "largeDebugPayload" not in serialized
+    assert review["event"]["eventType"] == "position_heartbeat"
+    assert review["event"]["metrics"]["stopLoss"] == 61300.0
+    assert review["exposure"]["kind"] == "position"
+    assert review["exposure"]["entryPrice"] == 60347.5
+    assert "payload" not in review["exposure"]
+    assert review["review"]["structuredReview"]["headline"] == "Short is still manageable below the stop."
+    assert review["structuredReview"]["action"] == "Hold while price stays below 61300."
+    assert review["rationale"] == "The short remains manageable because price has not reclaimed the stop."

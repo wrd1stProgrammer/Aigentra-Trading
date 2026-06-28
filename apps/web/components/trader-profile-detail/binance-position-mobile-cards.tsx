@@ -14,6 +14,7 @@ import {
   firstNonZeroFiniteNumber,
   firstString,
   normalizedSide,
+  positionEntryDuration,
   positionEntryPrice,
   positionLeverage,
   positionLiquidationPrice,
@@ -36,7 +37,8 @@ export function MobilePositionCards({
   liveMarkPrice,
   onOpenPosition,
   onOpenOrder,
-  isSubscribed = true
+  isSubscribed = true,
+  nowMs
 }: {
   readonly activeTab: "positions" | "orders";
   readonly positions: readonly PaperPosition[];
@@ -47,6 +49,7 @@ export function MobilePositionCards({
   readonly onOpenPosition?: (position: PaperPosition) => void;
   readonly onOpenOrder?: (order: DisplayPaperOrder) => void;
   readonly isSubscribed?: boolean;
+  readonly nowMs: number;
 }) {
   return (
     <div data-testid="mobile-position-cards" className="divide-y divide-zinc-800/40 px-4 md:hidden">
@@ -60,6 +63,7 @@ export function MobilePositionCards({
               liveMarkPrice={liveMarkPrice}
               onOpen={onOpenPosition}
               isSubscribed={isSubscribed}
+              nowMs={nowMs}
             />
           ))
         : orders.map((order, index) => (
@@ -84,7 +88,8 @@ function MobilePositionCard({
   t,
   liveMarkPrice,
   onOpen,
-  isSubscribed = true
+  isSubscribed = true,
+  nowMs
 }: {
   readonly position: PaperPosition;
   readonly locale: Locale;
@@ -92,6 +97,7 @@ function MobilePositionCard({
   readonly liveMarkPrice?: number | null;
   readonly onOpen?: (position: PaperPosition) => void;
   readonly isSubscribed?: boolean;
+  readonly nowMs: number;
 }) {
   const side = normalizedSide(position.side);
   const quantity = positionQuantity(position);
@@ -107,6 +113,7 @@ function MobilePositionCard({
   const liquidation = positionLiquidationPrice(position);
   const isPnlPositive = pnl !== null && pnl >= 0;
   const isRoePositive = roe !== null && roe >= 0;
+  const entryDuration = positionEntryDuration(position, nowMs);
 
   // Force compiler check on test requirements
   const _testThemeHook = mobileExposureCardClass(side);
@@ -144,7 +151,7 @@ function MobilePositionCard({
       </div>
 
       {/* PNL & ROI Row */}
-      <div className="flex justify-between py-2 border-t border-zinc-800/40">
+      <div className="grid grid-cols-3 gap-2 py-2 border-t border-zinc-800/40">
         <div>
           <span className="border-b border-dashed border-zinc-700 text-[10px] font-bold tracking-wide text-zinc-500 uppercase pb-0.5">
             {t("detail.pnlUsdt")}
@@ -153,12 +160,20 @@ function MobilePositionCard({
             {pnl !== null ? `${pnl >= 0 ? "+" : ""}${formatNumber(pnl, 2, locale)}` : "-"}
           </div>
         </div>
-        <div className="text-right">
+        <div className="text-center">
           <span className="border-b border-dashed border-zinc-700 text-[10px] font-bold tracking-wide text-zinc-500 uppercase pb-0.5">
             {t("detail.roi")}
           </span>
           <div className={`mt-1 font-mono text-lg font-extrabold tracking-tight ${isRoePositive ? "text-[#0ecb81]" : "text-[#f6465d]"}`}>
             {roe !== null ? `${roe >= 0 ? "+" : ""}${formatNumber(roe, 2)}%` : "-"}
+          </div>
+        </div>
+        <div className="text-right">
+          <span className="border-b border-dashed border-zinc-700 text-[10px] font-bold tracking-wide text-zinc-500 uppercase pb-0.5">
+            {t("detail.positionEntryTime")}
+          </span>
+          <div className="mt-1 truncate font-mono text-lg font-extrabold tracking-tight text-zinc-100">
+            {entryDuration}
           </div>
         </div>
       </div>

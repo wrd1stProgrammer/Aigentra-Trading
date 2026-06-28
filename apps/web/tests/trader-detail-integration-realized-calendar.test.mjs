@@ -12,7 +12,8 @@ test("trader detail wires realized events, completed chart markers, and pnl cale
   assert.match(pageSource, /paperEvents=\{events\}/);
   assert.match(pageSource, /reviewCountsByDay/);
   assert.match(pageSource, /scenarioCountByDate/);
-  assert.match(pageSource, /historyItems\.slice\(0, eventsLimit\)/);
+  assert.match(pageSource, /tradeHistoryItems=\{historyItems\}/);
+  assert.doesNotMatch(pageSource, /historyItems\.slice\(0, eventsLimit\)/);
   assert.match(pageSource, /DetailSidebar/);
   assert.match(pageSource, /buildMonthlyPnlCalendar/);
   assert.match(chartSource, /paperEvents/);

@@ -495,6 +495,15 @@ export type TraderDetailBundle = {
   tradePlans: Record<string, any>[];
 };
 
+export type TraderManagementReviewsResponse = {
+  symbol: string;
+  traderId: string;
+  managementReviews: ManagementReview[];
+  offset: number;
+  nextOffset: number;
+  hasMore: boolean;
+};
+
 type KlineRequestOptions = {
   force?: boolean;
   staleMs?: number;
@@ -513,6 +522,8 @@ const klineCache = new Map<string, KlineCacheEntry>();
 const BROWSER_CACHE_PREFIX = "atl-api-cache:v2:";
 const LEADERBOARD_BROWSER_CACHE_MS = 5 * 60_000;
 const TRADER_DETAIL_BROWSER_CACHE_MS = 60_000;
+const TRADER_DETAIL_INITIAL_REVIEWS_LIMIT = 20;
+const TRADER_DETAIL_INITIAL_EVENTS_LIMIT = 20;
 
 async function requestFirst<T>(paths: string[], options?: RequestInit): Promise<T> {
   let lastError: unknown;
@@ -823,19 +834,40 @@ export function getLeagueOverviewReviews(
   );
 }
 
-export function getTraderDetailBundle(traderId: string, symbol: string, reviewsLimit = 20, eventsLimit = 10, locale: Locale = "en") {
+export function getTraderDetailBundle(traderId: string, symbol: string, locale: Locale = "en", options?: RequestInit) {
   const params = new URLSearchParams({
     symbol,
     locale,
-    reviewsLimit: String(reviewsLimit),
-    eventsLimit: String(eventsLimit)
+    reviewsLimit: String(TRADER_DETAIL_INITIAL_REVIEWS_LIMIT),
+    eventsLimit: String(TRADER_DETAIL_INITIAL_EVENTS_LIMIT)
   });
   return request<TraderDetailBundle>(
-    `/api/league/traders/${encodeURIComponent(traderId)}?${params.toString()}`
+    `/api/league/traders/${encodeURIComponent(traderId)}?${params.toString()}`,
+    options
   ).then((bundle) => {
-    writeBrowserCache(`trader:${traderId}:${symbol}:${reviewsLimit}:${eventsLimit}:${locale}`, bundle);
+    writeBrowserCache(`trader:${traderId}:${symbol}:${locale}`, bundle);
     return bundle;
   });
+}
+
+export function getTraderManagementReviews(
+  traderId: string,
+  symbol: string,
+  limit = 20,
+  offset = 0,
+  locale: Locale = "en",
+  options?: RequestInit
+) {
+  const params = new URLSearchParams({
+    symbol,
+    locale,
+    limit: String(limit),
+    offset: String(offset)
+  });
+  return request<TraderManagementReviewsResponse>(
+    `/api/league/traders/${encodeURIComponent(traderId)}/management-reviews?${params.toString()}`,
+    options
+  );
 }
 
 export function getTraderExecutionEventsUrl(traderId: string, symbol: string) {
@@ -847,8 +879,8 @@ export function getCachedLeaderboardBundle(symbol: string, locale: Locale = "en"
   return readBrowserCache<LeaderboardBundle>(leaderboardCacheKey(symbol, locale, options), LEADERBOARD_BROWSER_CACHE_MS);
 }
 
-export function getCachedTraderDetailBundle(traderId: string, symbol: string, reviewsLimit = 20, eventsLimit = 10, locale: Locale = "en") {
-  return readBrowserCache<TraderDetailBundle>(`trader:${traderId}:${symbol}:${reviewsLimit}:${eventsLimit}:${locale}`, TRADER_DETAIL_BROWSER_CACHE_MS);
+export function getCachedTraderDetailBundle(traderId: string, symbol: string, locale: Locale = "en") {
+  return readBrowserCache<TraderDetailBundle>(`trader:${traderId}:${symbol}:${locale}`, TRADER_DETAIL_BROWSER_CACHE_MS);
 }
 
 export const leaderboardBundleQueryKey = (symbol: string, locale: Locale = "en", options?: LeaderboardBundleRequestOptions) =>
@@ -869,13 +901,13 @@ export function prefetchLeaderboardBundle(queryClient: QueryClient, symbol: stri
   return queryClient.prefetchQuery(leaderboardBundleQueryOptions(symbol, locale, options));
 }
 
-export const traderDetailBundleQueryKey = (traderId: string, symbol: string, reviewsLimit: number, eventsLimit: number, locale: Locale) =>
-  ["league", "trader", traderId, symbol, reviewsLimit, eventsLimit, locale] as const;
+export const traderDetailBundleQueryKey = (traderId: string, symbol: string, locale: Locale) =>
+  ["league", "trader", traderId, symbol, locale] as const;
 
-export function traderDetailBundleQueryOptions(traderId: string, symbol: string, reviewsLimit = 20, eventsLimit = 10, locale: Locale = "en") {
+export function traderDetailBundleQueryOptions(traderId: string, symbol: string, locale: Locale = "en") {
   return {
-    queryKey: traderDetailBundleQueryKey(traderId, symbol, reviewsLimit, eventsLimit, locale),
-    queryFn: () => getTraderDetailBundle(traderId, symbol, reviewsLimit, eventsLimit, locale),
+    queryKey: traderDetailBundleQueryKey(traderId, symbol, locale),
+    queryFn: (context: { signal?: AbortSignal }) => getTraderDetailBundle(traderId, symbol, locale, { signal: context.signal }),
     staleTime: TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS,
     gcTime: LEAGUE_QUERY_GC_TIME_MS,
     refetchInterval: TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS,
@@ -884,7 +916,7 @@ export function traderDetailBundleQueryOptions(traderId: string, symbol: string,
 }
 
 export function prefetchTraderDetailBundle(queryClient: QueryClient, traderId: string, symbol: string, locale: Locale = "en") {
-  return queryClient.prefetchQuery(traderDetailBundleQueryOptions(traderId, symbol, 20, 10, locale));
+  return queryClient.prefetchQuery(traderDetailBundleQueryOptions(traderId, symbol, locale));
 }
 
 export function getScannerStatus() {

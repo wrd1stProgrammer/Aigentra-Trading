@@ -502,6 +502,16 @@ export function LiveCandleChart({
     ].join(":")).join("|"),
     [visibleExecutionMarkers]
   );
+  const executionMarkerCandleKey = useMemo(() => {
+    const first = indicatorCandles[0];
+    const last = indicatorCandles[indicatorCandles.length - 1];
+    return [
+      indicatorCandles.length,
+      first?.openTime ?? "",
+      last?.openTime ?? "",
+      last?.closeTime ?? ""
+    ].join(":");
+  }, [indicatorCandles]);
   const selectedExecutionCycleId = useMemo(() => {
     if (!selectedExecutionMarkerId) return null;
     return executionMarkers.find((marker) => marker.id === selectedExecutionMarkerId)?.cycleId ?? null;
@@ -969,10 +979,12 @@ export function LiveCandleChart({
   }, [overlayLines, theme]);
 
   useEffect(() => {
+    setExecutionMarkerPositions([]);
     const chart = chartRef.current;
     const series = seriesRef.current;
     const container = containerRef.current;
     if (!chart || !series || !container) return;
+    let animationFrame: number | null = null;
 
     const updateMarkerPositions = () => {
       const rect = container.getBoundingClientRect();
@@ -996,16 +1008,21 @@ export function LiveCandleChart({
         samePositionedExecutionMarkers(current, positioned) ? current : positioned
       ));
     };
+    const scheduleMarkerPositionUpdate = () => {
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(updateMarkerPositions);
+    };
 
-    updateMarkerPositions();
-    chart.timeScale().subscribeVisibleLogicalRangeChange(updateMarkerPositions);
-    const observer = new ResizeObserver(updateMarkerPositions);
+    scheduleMarkerPositionUpdate();
+    chart.timeScale().subscribeVisibleLogicalRangeChange(scheduleMarkerPositionUpdate);
+    const observer = new ResizeObserver(scheduleMarkerPositionUpdate);
     observer.observe(container);
     return () => {
-      chart.timeScale().unsubscribeVisibleLogicalRangeChange(updateMarkerPositions);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(scheduleMarkerPositionUpdate);
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
       observer.disconnect();
     };
-  }, [indicatorCandles.length, interval, visibleExecutionMarkerKey]);
+  }, [executionMarkerCandleKey, interval, visibleExecutionMarkerKey]);
 
   useEffect(() => {
     if (!focusedExecutionMarkerId || !indicatorCandles.length) return;
@@ -1023,7 +1040,7 @@ export function LiveCandleChart({
       from: (cycleStart - padding) as Time,
       to: (cycleEnd + padding) as Time
     });
-  }, [executionMarkers, focusedExecutionMarkerId, indicatorCandles.length, interval]);
+  }, [executionMarkerCandleKey, executionMarkers, focusedExecutionMarkerId, interval]);
 
   // --- Synced RSI Sub-Chart ---
   useEffect(() => {
@@ -2112,6 +2129,8 @@ function ExecutionChartMarker({
 
   return (
     <div
+      data-testid="execution-chart-marker"
+      data-marker-id={marker.id}
       className={`absolute ${active ? "z-50" : selected ? "z-40" : "z-30"} ${interactive ? "pointer-events-auto" : "pointer-events-none"}`}
       style={{ left: marker.x, top: marker.y, transform: "translate(-50%, -50%)" }}
     >

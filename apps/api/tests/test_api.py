@@ -351,7 +351,7 @@ def test_leaderboard_fast_rejects_invalid_utc_month():
 
 
 def test_trader_detail_rebuilds_expired_cache(monkeypatch):
-    cache_key = ("channel-rider", "BTCUSDT", 20, 10, "en", main.TRADER_DETAIL_CACHE_VERSION)
+    cache_key = ("channel-rider", "BTCUSDT", 20, 20, "en", main.TRADER_DETAIL_CACHE_VERSION)
     main.TRADER_DETAIL_CACHE.clear()
     main.TRADER_DETAIL_CACHE[cache_key] = (
         0,
@@ -432,7 +432,7 @@ def test_trader_detail_uses_snapshot_summary_without_full_recompute(monkeypatch)
 
 
 def test_trader_detail_refresh_query_replaces_cached_payload(monkeypatch):
-    cache_key = ("channel-rider", "BTCUSDT", 20, 10, "en", main.TRADER_DETAIL_CACHE_VERSION)
+    cache_key = ("channel-rider", "BTCUSDT", 20, 20, "en", main.TRADER_DETAIL_CACHE_VERSION)
     main.TRADER_DETAIL_CACHE.clear()
     main.TRADER_DETAIL_CACHE[cache_key] = (
         time.monotonic() + 300,
@@ -648,6 +648,64 @@ def test_league_overview_reviews_filters_hidden_reviews_before_pagination(temp_a
     assert data["hasMore"] is False
     assert data["nextOffset"] == 2
     assert [review["decision"] for review in data["reviews"]] == ["ADJUST_AND_APPROVE", "HOLD"]
+
+
+def test_trader_management_reviews_endpoint_returns_compact_pages(temp_api_db):
+    now = datetime(2026, 6, 19, 12, 0, tzinfo=timezone.utc)
+    with session_scope() as db:
+        for index in range(3):
+            db.add(
+                PositionManagementReviewRecord(
+                    trader_id="channel-rider",
+                    symbol="BTCUSDT",
+                    status="ok",
+                    position_id=900 + index,
+                    event_type="position_heartbeat",
+                    phase="OPEN_POSITION",
+                    decision="HOLD",
+                    action_type="HOLD",
+                    created_at=now - timedelta(minutes=index),
+                    payload_json=to_json(
+                        {
+                            "event": {
+                                "eventType": "position_heartbeat",
+                                "phase": "OPEN_POSITION",
+                                "metrics": {"price": 60100 + index, "stopLoss": 61300},
+                            },
+                            "exposure": {
+                                "kind": "position",
+                                "id": 900 + index,
+                                "side": "SHORT",
+                                "entryPrice": 60347.5,
+                                "payload": {"largeDebugPayload": "x" * 10_000},
+                            },
+                            "review": {
+                                "decision": "HOLD",
+                                "rationale": f"compact review {index}",
+                                "structuredReview": {"headline": f"headline {index}"},
+                            },
+                        }
+                    ),
+                )
+            )
+
+    response = client.get("/api/league/traders/channel-rider/management-reviews?symbol=BTCUSDT&limit=2&offset=0")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["managementReviews"]) == 2
+    assert data["nextOffset"] == 2
+    assert data["hasMore"] is True
+    review = data["managementReviews"][0]
+    assert "payload" not in review
+    assert "largeDebugPayload" not in str(data)
+    assert review["event"]["metrics"]["stopLoss"] == 61300
+    assert review["exposure"]["entryPrice"] == 60347.5
+    assert review["review"]["structuredReview"]["headline"] == "headline 0"
+
+    second = client.get("/api/league/traders/channel-rider/management-reviews?symbol=BTCUSDT&limit=2&offset=2")
+    assert second.status_code == 200
+    assert second.json()["hasMore"] is False
 
 
 def test_overview_warmup_primes_all_supported_locale_first_pages(temp_api_db, monkeypatch):

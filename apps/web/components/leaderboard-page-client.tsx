@@ -336,7 +336,7 @@ export function LeaderboardPageClient() {
   const liveExposurePositionsQuery = useQuery({
     queryKey: ["paper", "positions", "active", "BTCUSDT", "leaderboard"],
     queryFn: async () => unwrapPaperPositions(await getActivePaperPositions("BTCUSDT", undefined, LIVE_EXPOSURE_LIMIT)),
-    placeholderData: (previousData) => previousData ?? (!selectedLeagueMonth ? bundle.positions ?? [] : []),
+    placeholderData: (previousData) => previousData ?? bundle.positions ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false
@@ -344,13 +344,13 @@ export function LeaderboardPageClient() {
   const liveExposureOrdersQuery = useQuery({
     queryKey: ["paper", "orders", "open", "BTCUSDT", "leaderboard"],
     queryFn: async () => unwrapPaperOrders(await getPaperOrders(LIVE_EXPOSURE_LIMIT, "BTCUSDT", "open")),
-    placeholderData: (previousData) => previousData ?? (!selectedLeagueMonth ? bundle.orders ?? [] : []),
+    placeholderData: (previousData) => previousData ?? bundle.orders ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false
   });
-  const liveExposurePositions = liveExposurePositionsQuery.data ?? (!selectedLeagueMonth ? bundle.positions ?? [] : []);
-  const liveExposureOrders = liveExposureOrdersQuery.data ?? (!selectedLeagueMonth ? bundle.orders ?? [] : []);
+  const liveExposurePositions = liveExposurePositionsQuery.data ?? bundle.positions ?? [];
+  const liveExposureOrders = liveExposureOrdersQuery.data ?? bundle.orders ?? [];
 
   // Fetch pending plans dynamically
   const pendingPlansQuery = useQuery({
@@ -1265,7 +1265,7 @@ function buildExposureMap(positions: PaperPosition[], orders: PaperOrder[], plan
   const map = new Map<string, TraderExposure>();
   for (const position of positions) {
     if (!isActivePosition(position.status)) continue;
-    const traderId = String(position.traderId ?? "");
+    const traderId = String(position.traderId ?? position.trader_id ?? "");
     if (!traderId) continue;
     const current = map.get(traderId) ?? {};
     const next = appendLeverageSample(current, positionLeverage(position));
@@ -1273,7 +1273,7 @@ function buildExposureMap(positions: PaperPosition[], orders: PaperOrder[], plan
   }
   for (const order of orders) {
     if (!isActiveOrder(order.status)) continue;
-    const traderId = String(order.traderId ?? "");
+    const traderId = String(order.traderId ?? order.trader_id ?? "");
     if (!traderId) continue;
     const current = map.get(traderId) ?? {};
     if (!current.order) current.order = order;
@@ -1934,7 +1934,7 @@ function OptionActivityStream({
           {/* Intersection Observer Sentinel */}
           <div ref={observerTarget} className="h-1" />
           
-          {isLoading && (
+          {!showInitialState && isLoading && (
             <div className="flex items-center justify-center py-2 text-zinc-500 font-mono text-[10px] gap-1.5 animate-pulse">
               <CircleNotch className="animate-spin animate-duration-1000 text-emerald-400" size={12} />
               <span>{t("leaderboard.loadingOlderLogs")}</span>

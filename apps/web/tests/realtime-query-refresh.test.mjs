@@ -22,7 +22,8 @@ test("leaderboard adjacent live queries also refresh while viewing", () => {
 });
 
 test("trader detail page keeps the live bundle polling after navigation", () => {
-  assert.match(detailSource, /traderDetailBundleQueryOptions\(traderId, symbol, reviewsLimit, eventsLimit, locale\)/, "detail page should use the shared localized live query options");
+  assert.match(detailSource, /traderDetailBundleQueryOptions\(traderId, symbol, locale\)/, "detail page should use the shared localized live query options");
+  assert.doesNotMatch(detailSource, /traderDetailBundleQueryOptions\(traderId, symbol, reviewsLimit, eventsLimit, locale\)/, "detail pagination should not churn the live bundle query key");
 });
 
 test("trader detail page subscribes to server execution events for immediate fills", () => {

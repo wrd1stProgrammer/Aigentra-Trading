@@ -258,7 +258,7 @@ LEAGUE_BUNDLE_CACHE_TTL_SECONDS = 300
 LEAGUE_BUNDLE_CACHE: dict[tuple[str, bool, bool, str], tuple[float, dict[str, Any]]] = {}
 OVERVIEW_REVIEWS_CACHE_TTL_SECONDS = LEAGUE_BUNDLE_CACHE_TTL_SECONDS
 OVERVIEW_REVIEWS_CACHE: dict[tuple[int, int, Optional[str], Optional[str], str], tuple[float, dict[str, Any]]] = {}
-TRADER_DETAIL_CACHE_VERSION = "localized-review-v2"
+TRADER_DETAIL_CACHE_VERSION = "localized-review-v3"
 TRADER_DETAIL_CACHE: dict[tuple[str, str, int, int, str, str], tuple[float, dict[str, Any]]] = {}
 LEADERBOARD_REFRESHING: set[tuple[str, str]] = set()
 LEAGUE_BUNDLE_REFRESHING: set[tuple[str, bool, bool, str]] = set()
@@ -692,7 +692,102 @@ def localized_embedded_ai_review_payload(record, payload: dict, locale: str) -> 
     return next_payload, {"status": "ok", "embeddedAiReview": meta}
 
 
-def serialize_record_for_ui(record, *, include_payload: bool = False, locale: str = CANONICAL_AI_LOCALE) -> dict:
+COMPACT_EVENT_KEYS = (
+    "eventType",
+    "phase",
+    "severity",
+    "reason",
+    "suggestedAction",
+    "metrics",
+    "createdAt",
+    "timestamp",
+)
+COMPACT_EXPOSURE_KEYS = (
+    "kind",
+    "id",
+    "status",
+    "side",
+    "quantity",
+    "limitPrice",
+    "entryPrice",
+    "averageEntryPrice",
+    "stopLoss",
+    "stopLossPrice",
+    "takeProfit",
+    "takeProfitPrice",
+    "leverage",
+    "entryWeight",
+    "currentPrice",
+    "unrealizedPnl",
+    "realizedPnl",
+    "progressR",
+    "targetProgress",
+)
+COMPACT_REVIEW_KEYS = (
+    "decision",
+    "confidence",
+    "riskLevel",
+    "reviewCode",
+    "reviewFacts",
+    "riskFlags",
+    "structuredReview",
+    "actions",
+    "riskChange",
+    "nextReviewInSeconds",
+    "rationale",
+    "counterThesis",
+    "userSummary",
+    "provider",
+    "model",
+    "fallback",
+    "metrics",
+)
+COMPACT_ACTION_KEYS = ("type", "reason", "price", "quantity", "riskChange", "status")
+
+
+def compact_payload_keys(payload: dict, keys: tuple[str, ...]) -> dict[str, Any]:
+    return {key: json_safe(payload[key]) for key in keys if key in payload}
+
+
+def compact_action_payloads(actions: Any) -> list[dict[str, Any]]:
+    if not isinstance(actions, list):
+        return []
+    compacted: list[dict[str, Any]] = []
+    for action in actions:
+        if isinstance(action, dict):
+            compacted.append(compact_payload_keys(action, COMPACT_ACTION_KEYS))
+    return compacted
+
+
+def compact_management_review_for_detail(data: dict, payload: dict, translation_meta: dict | None) -> dict:
+    event = record_payload(payload.get("event")) or {}
+    exposure = record_payload(payload.get("exposure")) or {}
+    review = record_payload(payload.get("review")) or {}
+    compact_review = compact_payload_keys(review, COMPACT_REVIEW_KEYS)
+    data["event"] = compact_payload_keys(event, COMPACT_EVENT_KEYS)
+    data["exposure"] = compact_payload_keys(exposure, COMPACT_EXPOSURE_KEYS)
+    data["review"] = compact_review
+    data["appliedActions"] = compact_action_payloads(payload.get("appliedActions"))
+    if translation_meta is not None:
+        data["translation"] = translation_meta
+    data["rationale"] = compact_review.get("rationale") or data.get("rationale")
+    data["reviewFacts"] = compact_review.get("reviewFacts") or data.get("reviewFacts") or []
+    data["riskFlags"] = compact_review.get("riskFlags") or data.get("riskFlags") or []
+    data["riskLevel"] = compact_review.get("riskLevel") or data.get("riskLevel")
+    if compact_review.get("structuredReview"):
+        data["structuredReview"] = compact_review.get("structuredReview")
+    if compact_review.get("userSummary"):
+        data["summary"] = compact_review.get("userSummary")
+    return data
+
+
+def serialize_record_for_ui(
+    record,
+    *,
+    include_payload: bool = False,
+    locale: str = CANONICAL_AI_LOCALE,
+    payload_mode: str = "full",
+) -> dict:
     data = serialize_record_slim(record)
     if not include_payload:
         return data
@@ -718,6 +813,8 @@ def serialize_record_for_ui(record, *, include_payload: bool = False, locale: st
             )
         elif isinstance(record, (PaperOrderRecord, PaperPositionRecord, TradeEventRecord)):
             payload, translation_meta = localized_embedded_ai_review_payload(record, payload, locale)
+    if isinstance(record, PositionManagementReviewRecord) and payload_mode == "detail":
+        return compact_management_review_for_detail(data, payload, translation_meta)
     if payload:
         data["payload"] = payload
     if translation_meta is not None:
@@ -2061,6 +2158,7 @@ def list_filtered_records(
     status: Optional[str] = None,
     include_payload: bool = False,
     locale: str = CANONICAL_AI_LOCALE,
+    payload_mode: str = "full",
 ) -> list[dict]:
     safe_limit = max(1, min(limit, 1000))
     safe_offset = max(0, offset)
@@ -2077,7 +2175,10 @@ def list_filtered_records(
         stmt = stmt.offset(safe_offset)
 
     records = db.execute(stmt.limit(safe_limit)).scalars().all()
-    return [serialize_record_for_ui(record, include_payload=include_payload, locale=locale) for record in records]
+    return [
+        serialize_record_for_ui(record, include_payload=include_payload, locale=locale, payload_mode=payload_mode)
+        for record in records
+    ]
 
 
 def list_overview_review_records(
@@ -3579,7 +3680,7 @@ def build_trader_detail_payload(
     trader,
     summaries: Optional[list[dict[str, Any]]] = None,
     reviews_limit: int = 20,
-    events_limit: int = 10,
+    events_limit: int = 20,
     locale: str = CANONICAL_AI_LOCALE,
 ) -> dict[str, Any]:
     from datetime import date
@@ -3647,6 +3748,7 @@ def build_trader_detail_payload(
             trader_id=trader_id,
             include_payload=True,
             locale=locale,
+            payload_mode="detail",
         ),
         "events": list_filtered_records(db, TradeEventRecord, limit=events_limit, symbol=clean_symbol, trader_id=trader_id, include_payload=True, locale=locale),
         "statusFeeds": list_status_feed_payloads(
@@ -3727,7 +3829,7 @@ def refresh_trader_detail_cache_background(trader_id: str, symbol: str, locale: 
                     clean_symbol=clean_symbol,
                     locale=clean_locale,
                     reviews_limit=20,
-                    events_limit=10,
+                    events_limit=20,
                     release_clean_transaction_before_call=True,
                 )
             )
@@ -3738,11 +3840,11 @@ def refresh_trader_detail_cache_background(trader_id: str, symbol: str, locale: 
                 trader,
                 summaries=[snapshot_summary] if snapshot_summary else None,
                 reviews_limit=20,
-                events_limit=10,
+                events_limit=20,
                 locale=clean_locale,
             )
             if translations_ready:
-                TRADER_DETAIL_CACHE[(trader_id, clean_symbol, 20, 10, clean_locale, TRADER_DETAIL_CACHE_VERSION)] = (
+                TRADER_DETAIL_CACHE[(trader_id, clean_symbol, 20, 20, clean_locale, TRADER_DETAIL_CACHE_VERSION)] = (
                     time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS,
                     payload,
                 )
@@ -5319,7 +5421,7 @@ async def league_trader_detail(
     locale: str = Query(CANONICAL_AI_LOCALE),
     refresh: bool = Query(False),
     reviews_limit: int = Query(20, ge=1, le=50, alias="reviewsLimit"),
-    events_limit: int = Query(10, ge=1, le=50, alias="eventsLimit"),
+    events_limit: int = Query(20, ge=1, le=50, alias="eventsLimit"),
     db: Session = Depends(get_db),
 ):
     try:
@@ -5369,6 +5471,45 @@ async def league_trader_detail(
     if translations_ready:
         TRADER_DETAIL_CACHE[cache_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
     return payload
+
+
+@app.get("/api/league/traders/{trader_id}/management-reviews")
+async def league_trader_management_reviews(
+    trader_id: str,
+    symbol: str = Query("BTCUSDT"),
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+    locale: str = Query(CANONICAL_AI_LOCALE),
+    db: Session = Depends(get_db),
+):
+    try:
+        get_strategy(trader_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Trader not found.") from exc
+    clean_symbol = normalize_symbol(symbol)
+    clean_locale = normalize_locale(locale)
+    records = list_filtered_records(
+        db,
+        PositionManagementReviewRecord,
+        limit=limit + 1,
+        offset=offset,
+        symbol=clean_symbol,
+        trader_id=trader_id,
+        include_payload=True,
+        locale=clean_locale,
+        payload_mode="detail",
+    )
+    page = records[:limit]
+    if clean_locale != CANONICAL_AI_LOCALE and any((record.get("translation") or {}).get("status") == "missing" for record in page):
+        schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol, clean_locale)
+    return {
+        "symbol": clean_symbol,
+        "traderId": trader_id,
+        "managementReviews": page,
+        "offset": offset,
+        "nextOffset": offset + len(page),
+        "hasMore": len(records) > limit,
+    }
 
 
 @app.get("/api/league/traders/{trader_id}/trade-history")

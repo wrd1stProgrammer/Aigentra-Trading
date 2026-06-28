@@ -14,7 +14,9 @@ import {
   type TraderDetailBundle,
   type TraderProfile,
   type PaperPosition,
+  type ManagementReview,
   type TraderStatusFeed,
+  getTraderManagementReviews,
   getTraderTradeHistory,
   type MergedTradeHistoryItem
 } from "@/lib/api";
@@ -41,8 +43,7 @@ import {
   ScenarioModal,
   TimelineRow,
   TradingJournal,
-  HoldingPanel,
-  AgentStatusPanel
+  HoldingPanel
 } from "@/components/trader-profile-detail/panels";
 import { PnlCalendarPanel } from "@/components/trader-profile-detail/pnl-calendar-panel";
 import { StatusFeedThread } from "@/components/trader-profile-detail/status-feed-thread";
@@ -61,7 +62,7 @@ import {
 } from "@/components/use-subscriber-access";
 
 const DETAIL_INITIAL_REVIEWS_LIMIT = 20;
-const DETAIL_INITIAL_EVENTS_LIMIT = 20;
+const DETAIL_REVIEWS_PAGE_SIZE = 20;
 
 function toDateString(date: Date): string {
   if (Number.isNaN(date.getTime())) return "";
@@ -254,6 +255,25 @@ function scenarioPositionKey(position: PaperPosition, index: number) {
   return `row:${position.traderId ?? ""}:${position.symbol}:${position.side ?? ""}:${position.openedAt ?? position.updatedAt ?? index}`;
 }
 
+function mergeManagementReviews(...groups: readonly ManagementReview[][]): ManagementReview[] {
+  const result: ManagementReview[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    for (const review of group) {
+      const key = managementReviewKey(review, result.length);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(review);
+    }
+  }
+  return result;
+}
+
+function managementReviewKey(review: ManagementReview, index: number) {
+  if (review.id !== undefined && review.id !== null && review.id !== "") return `id:${String(review.id)}`;
+  return `row:${review.traderId ?? review.trader_id ?? ""}:${review.symbol ?? ""}:${review.createdAt ?? review.timestamp ?? index}`;
+}
+
 function mapMergedItemToHistoryItem(
   item: MergedTradeHistoryItem,
   locale: any,
@@ -307,8 +327,10 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const [focusedExecutionMarkerId, setFocusedExecutionMarkerId] = useState<string | null>(null);
   const [liveAlert, setLiveAlert] = useState<LiveDetailAlert | null>(null);
   const [visibleScenarioCountByDate, setVisibleScenarioCountByDate] = useState<Record<string, number>>({});
-  const [reviewsLimit, setReviewsLimit] = useState(DETAIL_INITIAL_REVIEWS_LIMIT);
-  const [eventsLimit, setEventsLimit] = useState(DETAIL_INITIAL_EVENTS_LIMIT);
+  const [extraReviews, setExtraReviews] = useState<ManagementReview[]>([]);
+  const [reviewsNextOffset, setReviewsNextOffset] = useState(DETAIL_INITIAL_REVIEWS_LIMIT);
+  const [reviewsHasMore, setReviewsHasMore] = useState(true);
+  const [loadingMoreReviews, setLoadingMoreReviews] = useState(false);
   const [historyItems, setHistoryItems] = useState<TradeHistoryItem[]>([]);
   const [historyOffset, setHistoryOffset] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(true);
@@ -316,9 +338,11 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const [selectedDate, setSelectedDate] = useState<string>(() => toDateString(new Date()));
   const [weekStart, setWeekStart] = useState<Date>(() => getSunday(new Date()));
   const [clientHydrated, setClientHydrated] = useState(false);
-  const [mobileActiveTab, setMobileActiveTab] = useState<"feed" | "scenarios" | "holdings" | "journal" | "pnl" | "status">("scenarios");
+  const [mobileActiveTab, setMobileActiveTab] = useState<"feed" | "scenarios" | "holdings" | "journal" | "pnl">("scenarios");
   const historyLoadingRef = useRef(false);
   const historyContextKeyRef = useRef(`${traderId}:${symbol}`);
+  const reviewsLoadingRef = useRef(false);
+  const reviewsContextKeyRef = useRef(`${traderId}:${symbol}:${locale}`);
   const [hydratedDetailContextKey, setHydratedDetailContextKey] = useState<string | null>(null);
 
   const handlePrevWeek = useCallback(() => {
@@ -421,7 +445,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, [clientHydrated, fallback, locale, queryClient, symbol, traderId]);
 
   const detailQuery = useQuery({
-    ...traderDetailBundleQueryOptions(traderId, symbol, reviewsLimit, eventsLimit, locale),
+    ...traderDetailBundleQueryOptions(traderId, symbol, locale),
     placeholderData: (previousData, previousQuery) => {
       const queryKey = previousQuery?.queryKey;
       if (
@@ -432,7 +456,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       ) {
         return previousData;
       }
-      return clientHydrated ? getCachedTraderDetailBundle(traderId, symbol, reviewsLimit, eventsLimit, locale) ?? fallbackDetailBundle : fallbackDetailBundle;
+      return clientHydrated ? getCachedTraderDetailBundle(traderId, symbol, locale) ?? fallbackDetailBundle : fallbackDetailBundle;
     }
   });
 
@@ -447,7 +471,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     if (!clientHydrated || typeof window === "undefined" || typeof EventSource === "undefined") return;
 
     const source = new EventSource(getTraderExecutionEventsUrl(traderId, symbol));
-    const detailKey = traderDetailBundleQueryKey(traderId, symbol, reviewsLimit, eventsLimit, locale);
+    const detailKey = traderDetailBundleQueryKey(traderId, symbol, locale);
     const leaderboardKey = leaderboardBundleQueryKey(symbol, locale);
 
     const refreshDetail = (event: Event) => {
@@ -486,7 +510,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       source.removeEventListener("paper_execution", refreshDetail);
       source.close();
     };
-  }, [clientHydrated, eventsLimit, locale, queryClient, reviewsLimit, symbol, traderId]);
+  }, [clientHydrated, locale, queryClient, symbol, traderId]);
 
   const equitySnapshotsQuery = useQuery({
     queryKey: ["paper", "equity-snapshots", traderId, symbol],
@@ -505,14 +529,14 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       positions: mergedPositions,
       closedPositions: bundle?.closedPositions ?? [],
       orders: bundle?.orders ?? [],
-      reviews: bundle?.managementReviews ?? [],
+      reviews: mergeManagementReviews(bundle?.managementReviews ?? [], extraReviews),
       statusFeeds: bundle?.statusFeeds ?? [],
       events: bundle?.events ?? [],
       dailyPnl: bundle?.dailyPnl ?? [],
       reviewCountsByDay: bundle?.reviewCountsByDay ?? [],
       plans: bundle?.tradePlans ?? []
     };
-  }, [detailQuery.data, fallback]);
+  }, [detailQuery.data, extraReviews, fallback]);
 
   const initialLoading = detailQuery.isFetching && hydratedDetailContextKey !== detailContextKey;
   const loading = detailQuery.isPending && !detailQuery.data;
@@ -533,7 +557,6 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     return buildScenarios({ trader, positions: scenarioPositions, orders, reviews, events });
   }, [events, orders, reviews, scenarioPositions, trader]);
 
-  const latestReview = reviews[0];
   const visual = traderVisuals[traderId] ?? traderVisuals["channel-rider"];
   const normalizedPlans = useMemo(() => plans.map(normalizePlan), [plans]);
   const latestPlan = useMemo(() => normalizedPlans[0] ?? normalizePlan(), [normalizedPlans]);
@@ -601,8 +624,9 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       lastTraderIdRef.current = traderId;
       lastSymbolRef.current = symbol;
       setVisibleScenarioCountByDate({});
-      setReviewsLimit(DETAIL_INITIAL_REVIEWS_LIMIT);
-      setEventsLimit(DETAIL_INITIAL_EVENTS_LIMIT);
+      setExtraReviews([]);
+      setReviewsNextOffset(DETAIL_INITIAL_REVIEWS_LIMIT);
+      setReviewsHasMore(true);
       lastScenarioHydrationKeyRef.current = null;
       
       if (scenarioTimelineItems.length > 0) {
@@ -623,6 +647,16 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       }
     }
   }, [symbol, traderId, scenarioTimelineItems]);
+
+  useEffect(() => {
+    const contextKey = `${traderId}:${symbol}:${locale}`;
+    if (reviewsContextKeyRef.current === contextKey) return;
+    reviewsContextKeyRef.current = contextKey;
+    reviewsLoadingRef.current = false;
+    setExtraReviews([]);
+    setReviewsNextOffset(DETAIL_INITIAL_REVIEWS_LIMIT);
+    setReviewsHasMore(true);
+  }, [locale, symbol, traderId]);
 
   useEffect(() => {
     const latestItem = scenarioTimelineItems[0];
@@ -694,6 +728,35 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     setLiveAlert(null);
   }, [accessState, liveAlert, symbol, traderId]);
 
+  const loadMoreReviews = useCallback(async () => {
+    const requestContextKey = `${traderId}:${symbol}:${locale}`;
+    if (!reviewsHasMore) return;
+    if (reviewsLoadingRef.current && reviewsContextKeyRef.current === requestContextKey) return;
+    reviewsLoadingRef.current = true;
+    reviewsContextKeyRef.current = requestContextKey;
+    setLoadingMoreReviews(true);
+    try {
+      const response = await getTraderManagementReviews(
+        traderId,
+        symbol,
+        DETAIL_REVIEWS_PAGE_SIZE,
+        reviewsNextOffset,
+        locale
+      );
+      if (reviewsContextKeyRef.current !== requestContextKey) return;
+      setExtraReviews((current) => mergeManagementReviews(current, response.managementReviews));
+      setReviewsNextOffset(response.nextOffset);
+      setReviewsHasMore(response.hasMore);
+    } catch (err) {
+      console.error("Failed to load management reviews:", err);
+    } finally {
+      if (reviewsContextKeyRef.current === requestContextKey) {
+        reviewsLoadingRef.current = false;
+        setLoadingMoreReviews(false);
+      }
+    }
+  }, [locale, reviewsHasMore, reviewsNextOffset, symbol, traderId]);
+
   const loadMoreSelectedScenarios = useCallback(() => {
     const loadedForDate = loadedScenarioCountByDate.get(selectedDate) ?? 0;
     if (selectedScenarioTotal > selectedScenarioVisibleCount) {
@@ -702,10 +765,10 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
         [selectedDate]: nextVisibleCount(selectedScenarioVisibleCount, selectedScenarioTotal)
       }));
     }
-    if (loadedForDate < selectedScenarioTotal) {
-      setReviewsLimit((current) => Math.min(300, current + 20));
+    if (loadedForDate < selectedScenarioTotal && reviewsHasMore) {
+      void loadMoreReviews();
     }
-  }, [loadedScenarioCountByDate, selectedDate, selectedScenarioTotal, selectedScenarioVisibleCount]);
+  }, [loadMoreReviews, loadedScenarioCountByDate, reviewsHasMore, selectedDate, selectedScenarioTotal, selectedScenarioVisibleCount]);
 
   const handleScenarioScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     const target = event.currentTarget;
@@ -716,7 +779,6 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const onLoadMoreEvents = useCallback(() => {
     if (loadingMoreHistory || !historyHasMore) return;
     void loadHistory(false);
-    setEventsLimit((current) => current + 10);
   }, [historyHasMore, loadHistory, loadingMoreHistory]);
 
   if (!trader || !standing) {
@@ -940,6 +1002,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
               <button
                 type="button"
                 className="focus-ring flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-zinc-500 hover:text-zinc-800 transition dark:text-zinc-400 dark:hover:text-zinc-200"
+                disabled={loadingMoreReviews}
                 onClick={loadMoreSelectedScenarios}
               >
                 <Clock size={14} />
@@ -959,10 +1022,9 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
 
         <DetailSidebar
           holdingItems={holdingItems}
-          tradeHistoryItems={historyItems.slice(0, eventsLimit)}
+          tradeHistoryItems={historyItems}
           pnlCalendar={pnlCalendar}
           standing={standing}
-          latestReview={latestReview}
           latestPlan={latestPlan}
           locale={locale}
           t={t}
@@ -1024,16 +1086,6 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
             >
               <span>{t("calendar.pnlTitle")}</span>
               {mobileActiveTab === "pnl" && (
-                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-zinc-950 dark:bg-white" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setMobileActiveTab("status")}
-              className={`relative pb-2.5 transition shrink-0 ${mobileActiveTab === "status" ? "text-zinc-950 font-bold dark:text-white" : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300"}`}
-            >
-              <span>{t("leaderboard.previewStatus")}</span>
-              {mobileActiveTab === "status" && (
                 <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-zinc-950 dark:bg-white" />
               )}
             </button>
@@ -1208,15 +1260,6 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
             <PnlCalendarPanel calendar={pnlCalendar} locale={locale} t={t} />
           )}
 
-          {mobileActiveTab === "status" && (
-            <AgentStatusPanel
-              standing={standing}
-              latestReview={latestReview}
-              latestPlan={latestPlan}
-              locale={locale}
-              t={t}
-            />
-          )}
         </div>
       </section>
 

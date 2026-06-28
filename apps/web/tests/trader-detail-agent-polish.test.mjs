@@ -24,6 +24,7 @@ const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf
 const statusFeedThreadSource = readFileSync(new URL("../components/trader-profile-detail/status-feed-thread.tsx", import.meta.url), "utf8");
 
 const overlayHelpers = loadTsModule("../components/live-candle-chart-overlays.ts");
+const positionPanelCalculations = loadTsModule("../components/trader-profile-detail/position-panel-calculations.ts");
 const reviewBrief = loadTsModule("../lib/review-brief.ts");
 const league = loadTsModule("../lib/league.ts", {
   "@/lib/review-brief": reviewBrief,
@@ -289,6 +290,30 @@ test("review facts replace user summary in visible review UI", () => {
   assert.doesNotMatch(aiReviewPanelSource, /aiReview\.userSummary|사용자 요약|User Summary/);
   assert.doesNotMatch(modalSource, /aiReview\.userSummary|사용자 요약|User Summary/);
   assert.doesNotMatch(i18nSource, /"aiReview\.userSummary"/);
+});
+
+test("active position entry duration uses the opened timestamp before fallback dates", () => {
+  const nowMs = Date.parse("2026-06-29T12:00:00Z");
+
+  assert.equal(
+    positionPanelCalculations.positionEntryDuration(
+      {
+        openedAt: "2026-06-29T10:35:00Z",
+        createdAt: "2026-06-20T00:00:00Z"
+      },
+      nowMs
+    ),
+    "1h 25m"
+  );
+  assert.equal(
+    positionPanelCalculations.positionEntryDuration({ opened_at: "2026-06-28T11:00:00Z" }, nowMs),
+    "1d 1h"
+  );
+  assert.equal(
+    positionPanelCalculations.positionEntryDuration({ openedAt: "2026-06-29T12:05:00Z" }, nowMs),
+    "0m"
+  );
+  assert.equal(positionPanelCalculations.positionEntryDuration({ openedAt: "not-a-date" }, nowMs), "-");
 });
 
 test("latest scenario timeline relies on real localized review payloads instead of pending-translation placeholders", () => {

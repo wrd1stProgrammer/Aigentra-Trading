@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { PaperOrder, PaperPosition } from "@/lib/api";
 import { formatClockTime, formatCurrency, formatNumber } from "@/lib/format";
@@ -21,6 +21,7 @@ import {
   firstNonZeroFiniteNumber,
   firstString,
   normalizedSide,
+  positionEntryDuration,
   positionEntryPrice,
   positionLeverage,
   positionLiquidationPrice,
@@ -57,6 +58,11 @@ export function BinancePositionPanel({
   const openPositions = useMemo(() => positions.filter((position) => matchesSymbol(position.symbol, symbol) && isOpenChartExposure(position)), [positions, symbol]);
   const openOrders = useMemo(() => buildDisplayOpenOrders({ orders, latestPlan, symbol }), [latestPlan, orders, symbol]);
   const [activeTab, setActiveTab] = useState<PositionPanelTab>("positions");
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const openScenarioForPosition = useCallback((position: PaperPosition) => {
     const scenario = findScenario(scenarios, "position", position.id) ?? scenarioFromPosition(position);
     onOpenScenario?.(scenario);
@@ -83,10 +89,11 @@ export function BinancePositionPanel({
         onOpenPosition={onOpenScenario ? openScenarioForPosition : undefined}
         onOpenOrder={onOpenScenario ? openScenarioForOrder : undefined}
         isSubscribed={isSubscribed}
+        nowMs={nowMs}
       />
       <div className="hidden overflow-x-auto md:block">
         {activeTab === "positions" ? (
-          <table className="min-w-[1040px] w-full border-separate border-spacing-0 text-left text-xs">
+          <table className="min-w-[1140px] w-full border-separate border-spacing-0 text-left text-xs">
             <thead className="text-zinc-500">
               <tr>
                 <PositionHead>{t("detail.positionSymbol")}</PositionHead>
@@ -97,12 +104,13 @@ export function BinancePositionPanel({
                 <PositionHead>{t("detail.positionMargin")}</PositionHead>
                 <PositionHead>{t("detail.positionExpectedProfit")}</PositionHead>
                 <PositionHead>{t("detail.positionPnlRoe")}</PositionHead>
+                <PositionHead>{t("detail.positionEntryTime")}</PositionHead>
                 <PositionHead>{t("detail.rowDetail")}</PositionHead>
               </tr>
             </thead>
             <tbody>
               {openPositions.map((position, index) => (
-                <PositionRow key={`position-${position.id ?? index}`} position={position} locale={locale} t={t} liveMarkPrice={liveMarkPrice} onOpenScenario={onOpenScenario ? openScenarioForPosition : undefined} isSubscribed={isSubscribed} />
+                <PositionRow key={`position-${position.id ?? index}`} position={position} locale={locale} t={t} liveMarkPrice={liveMarkPrice} onOpenScenario={onOpenScenario ? openScenarioForPosition : undefined} isSubscribed={isSubscribed} nowMs={nowMs} />
               ))}
             </tbody>
           </table>
@@ -166,7 +174,8 @@ function PositionRow({
   t,
   liveMarkPrice,
   onOpenScenario,
-  isSubscribed = true
+  isSubscribed = true,
+  nowMs
 }: {
   readonly position: PaperPosition;
   readonly locale: Locale;
@@ -174,6 +183,7 @@ function PositionRow({
   readonly liveMarkPrice?: number | null;
   readonly onOpenScenario?: (position: PaperPosition) => void;
   readonly isSubscribed?: boolean;
+  readonly nowMs: number;
 }) {
   const side = normalizedSide(position.side);
   const quantity = positionQuantity(position);
@@ -185,6 +195,7 @@ function PositionRow({
   const pnl = positionPnl(position, liveMarkPrice);
   const roe = margin !== null && margin > 0 && pnl !== null ? (pnl / margin) * 100 : null;
   const expectedProfit = expectedPositionProfitAtTarget(position);
+  const entryDuration = positionEntryDuration(position, nowMs);
 
   return (
     <tr className={positionRowClass(side)}>
@@ -220,6 +231,7 @@ function PositionRow({
           {roe !== null ? `(${roe > 0 ? "+" : ""}${formatNumber(roe, 2)}%)` : "-"}
         </div>
       </PositionCell>
+      <PositionCell className="font-mono text-zinc-700 dark:text-zinc-300">{entryDuration}</PositionCell>
       <PositionCell>
         <DetailButton label={t("detail.rowDetail")} disabled={!isSubscribed || !onOpenScenario} testId="position-scenario-detail" onClick={() => onOpenScenario?.(position)} />
       </PositionCell>

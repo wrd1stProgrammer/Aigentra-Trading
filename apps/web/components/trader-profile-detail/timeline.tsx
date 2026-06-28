@@ -19,10 +19,7 @@ export function TimelineRow({ item, index, onClick }: { item: TimelineItem; inde
           <Clock size={16} />
           <span>{item.time}</span>
         </div>
-        <div className="grid grid-cols-[minmax(0,1fr)_18px] items-center gap-3 sm:grid-cols-[48px_minmax(0,1fr)_24px] sm:gap-4">
-          <div className="hidden size-10 place-items-center rounded-lg bg-zinc-100 font-mono text-xs font-bold text-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 sm:grid sm:size-12">
-            {item.iconLabel}
-          </div>
+        <div className="grid grid-cols-[minmax(0,1fr)_18px] items-center gap-3 sm:grid-cols-[minmax(0,1fr)_24px] sm:gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
               <h3 className="truncate text-base font-semibold text-zinc-950 dark:text-zinc-50">{item.title}</h3>
