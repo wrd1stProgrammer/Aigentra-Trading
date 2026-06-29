@@ -52,6 +52,7 @@ import { ExecutionMarkerRail } from "@/components/trader-profile-detail/executio
 import { PageLoadingOverlay } from "@/components/page-loading-overlay";
 import type { TradeHistoryItem } from "@/components/trader-profile-detail/types";
 import { traderVisuals } from "@/lib/league";
+import { selectMergedPositionReviewSource } from "@/lib/position-review-source";
 import { CaretLeft, CaretRight, Clock } from "@phosphor-icons/react";
 import { ProtectedContentGate } from "@/components/access-gate";
 import {
@@ -88,6 +89,12 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
         const parsed = Number(value);
         if (Number.isFinite(parsed)) return parsed;
       }
+    }
+    return null;
+  };
+  const firstText = (...values: readonly unknown[]) => {
+    for (const value of values) {
+      if (typeof value === "string" && value.trim()) return value.trim();
     }
     return null;
   };
@@ -196,9 +203,13 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
     const avgLiqPrice = totalQty > 0 ? weightedLiqSum / totalQty : 0;
     const avgMarkPrice = markQty > 0 ? weightedMarkSum / markQty : null;
     const mergedId = `position-merged-${first.symbol}-${first.side}`;
-    const firstPayload = recordValue(first.payload);
+    const reviewSource = selectMergedPositionReviewSource(list);
+    const firstPayload = recordValue(reviewSource.payload);
+    const reviewRationale = firstText(reviewSource.rationale, reviewSource.reason);
     const mergedPayload = {
       ...(firstPayload ?? {}),
+      aiApprovalReason: firstPayload?.aiApprovalReason ?? reviewRationale,
+      rationale: firstPayload?.rationale ?? reviewRationale,
       initialQuantity: totalQty,
       entryFee: totalEntryFee,
       positionLegs,
@@ -232,6 +243,11 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
       stopLossPrice: stopLossPrice ?? first.stopLossPrice,
       stop_loss_price: stopLossPrice ?? first.stop_loss_price,
       payload: mergedPayload,
+      rationale: reviewSource.rationale ?? first.rationale,
+      reason: reviewSource.reason ?? first.reason,
+      translation: reviewSource.translation ?? first.translation,
+      review: reviewSource.review ?? first.review,
+      structuredReview: reviewSource.structuredReview ?? first.structuredReview,
     };
     result.push(merged);
   }

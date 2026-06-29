@@ -24,8 +24,6 @@ import {
   LEAGUE_LIVE_REFETCH_INTERVAL_MS,
   leaderboardBundleQueryKey,
   leaderboardBundleQueryOptions,
-  prefetchLeaderboardBundle,
-  prefetchTraderDetailBundle,
   type EquitySnapshot,
   type LeaderboardBundle,
   type LeaderboardBundleRequestOptions,
@@ -222,6 +220,9 @@ export function LeaderboardPageClient() {
     label: ""
   };
   const selectedLeagueMonthParts = parseLeagueMonth(selectedLeagueMonth) ?? fallbackLeagueMonth;
+  const selectedLeagueMonthValue = formatUtcLeagueMonth(selectedLeagueMonthParts.year, selectedLeagueMonthParts.month);
+  const selectedLeagueHref = `${pathname}${nextLeagueSearch(searchParams, selectedLeagueMonthValue)}`;
+  const currentLeagueHref = `${pathname}${nextLeagueSearch(searchParams, undefined)}`;
   const leagueMonthsForSelectedYear = useMemo(
     () => leagueMonthOptions.filter((option) => option.year === selectedLeagueMonthParts.year),
     [leagueMonthOptions, selectedLeagueMonthParts.year]
@@ -310,8 +311,15 @@ export function LeaderboardPageClient() {
   }, [access?.email, locale, queryClient, subscriberPreferences, subscriberPreferencesQuery, subscriberPreferencesQueryKey]);
 
   const setLeaguePeriod = useCallback((leagueMonth: string | undefined) => {
+    const nextUrl = `${pathname}${nextLeagueSearch(searchParams, leagueMonth)}`;
     setSelectedLeagueMonth(leagueMonth);
-    router.replace(`${pathname}${nextLeagueSearch(searchParams, leagueMonth)}`, { scroll: false });
+    if (typeof window !== "undefined") {
+      const currentUrl = `${window.location.pathname}${window.location.search}`;
+      if (currentUrl !== nextUrl) {
+        window.history.replaceState(null, "", nextUrl);
+      }
+    }
+    router.replace(nextUrl, { scroll: false });
   }, [pathname, router, searchParams]);
 
   const activateCurrentLeague = useCallback(() => {
@@ -322,8 +330,8 @@ export function LeaderboardPageClient() {
   }, [locale, queryClient, setLeaguePeriod]);
 
   const activateSelectedLeagueMonth = useCallback(() => {
-    setLeaguePeriod(formatUtcLeagueMonth(selectedLeagueMonthParts.year, selectedLeagueMonthParts.month));
-  }, [selectedLeagueMonthParts.month, selectedLeagueMonthParts.year, setLeaguePeriod]);
+    setLeaguePeriod(selectedLeagueMonthValue);
+  }, [selectedLeagueMonthValue, setLeaguePeriod]);
 
   const btcQuery = useQuery({
     ...leaderboardBundleQueryOptions("BTCUSDT", locale, leaderboardBundleOptions),
@@ -363,10 +371,7 @@ export function LeaderboardPageClient() {
     () => favoritesOnly ? visibleStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : visibleStandingsBase,
     [favoriteTraderIds, favoritesOnly, visibleStandingsBase]
   );
-  const returnColumns = useMemo(
-    () => selectedLeagueMonth ? [fallbackReturnColumn("monthly", t), fallbackReturnColumn("cumulative", t)] : topReturnColumns(visibleStandings, t),
-    [selectedLeagueMonth, t, visibleStandings]
-  );
+  const returnColumns = useMemo(() => topReturnColumns(visibleStandings, t), [t, visibleStandings]);
   const hiddenTraderCount = Math.max(0, standings.length - visibleStandingsBase.length);
   const activeTrader = visibleStandings.find((item) => item.id === activeTraderId) ?? visibleStandings[0] ?? null;
   const leader = visibleStandings[0] ?? null;
@@ -452,14 +457,9 @@ export function LeaderboardPageClient() {
     });
   }, [activeSnapshotsQuery.data, selectedPeriod]);
 
-  const prefetchTrader = useCallback((traderId: string) => {
-    void prefetchTraderDetailBundle(queryClient, traderId, "BTCUSDT", locale);
-  }, [locale, queryClient]);
-
   const activateTrader = useCallback((traderId: string) => {
     setActiveTraderId(traderId);
-    prefetchTrader(traderId);
-  }, [prefetchTrader]);
+  }, []);
 
   return (
     <div className="grid gap-3 pb-[calc(5rem+env(safe-area-inset-bottom))] md:gap-4 md:pb-8">
@@ -513,8 +513,12 @@ export function LeaderboardPageClient() {
                   data-testid="leaderboard-month-selector"
                   className="inline-flex items-center gap-1 rounded-xl bg-white/[0.02] border border-white/[0.08] p-1 shadow-[inset_0_1px_1px_rgba(255,255,255,0.01)]"
                 >
-                  <button
-                    type="button"
+                  <Link
+                    href={selectedLeagueHref}
+                    replace
+                    scroll={false}
+                    data-league-period="monthly"
+                    role="button"
                     onClick={activateSelectedLeagueMonth}
                     className={`focus-ring rounded-lg px-3 py-1.5 text-xs font-bold transition duration-200 ${
                       selectedLeagueMonth
@@ -524,9 +528,13 @@ export function LeaderboardPageClient() {
                     aria-pressed={Boolean(selectedLeagueMonth)}
                   >
                     {t("leaderboard.monthlyLeague")}
-                  </button>
-                  <button
-                    type="button"
+                  </Link>
+                  <Link
+                    href={currentLeagueHref}
+                    replace
+                    scroll={false}
+                    data-league-period="current"
+                    role="button"
                     onClick={activateCurrentLeague}
                     className={`focus-ring rounded-lg px-3 py-1.5 text-xs font-bold transition duration-200 ${
                       selectedLeagueMonth
@@ -536,7 +544,7 @@ export function LeaderboardPageClient() {
                     aria-pressed={!selectedLeagueMonth}
                   >
                     {t("leaderboard.currentLeague")}
-                  </button>
+                  </Link>
                 </div>
 
                 {/* Display Year/Month Dropdowns as independent filters */}
@@ -679,8 +687,12 @@ export function LeaderboardPageClient() {
                   data-testid="leaderboard-month-selector"
                   className="inline-flex flex-1 items-center gap-1 rounded-xl bg-white/[0.02] border border-white/[0.08] p-1 shadow-[inset_0_1px_1px_rgba(255,255,255,0.01)]"
                 >
-                  <button
-                    type="button"
+                  <Link
+                    href={selectedLeagueHref}
+                    replace
+                    scroll={false}
+                    data-league-period="monthly"
+                    role="button"
                     onClick={activateSelectedLeagueMonth}
                     className={`focus-ring flex-1 text-center rounded-lg py-1.5 text-xs font-bold transition duration-200 ${
                       selectedLeagueMonth
@@ -690,9 +702,13 @@ export function LeaderboardPageClient() {
                     aria-pressed={Boolean(selectedLeagueMonth)}
                   >
                     {t("leaderboard.monthlyLeague")}
-                  </button>
-                  <button
-                    type="button"
+                  </Link>
+                  <Link
+                    href={currentLeagueHref}
+                    replace
+                    scroll={false}
+                    data-league-period="current"
+                    role="button"
                     onClick={activateCurrentLeague}
                     className={`focus-ring flex-1 text-center rounded-lg py-1.5 text-xs font-bold transition duration-200 ${
                       selectedLeagueMonth
@@ -702,7 +718,7 @@ export function LeaderboardPageClient() {
                     aria-pressed={!selectedLeagueMonth}
                   >
                     {t("leaderboard.currentLeague")}
-                  </button>
+                  </Link>
                 </div>
 
                 <div className="inline-flex items-center justify-center rounded-xl bg-white/[0.02] border border-white/[0.08] p-1 h-[34px] px-3.5">
@@ -847,7 +863,6 @@ export function LeaderboardPageClient() {
             favoriteTraderIds={favoriteTraderIds}
             returnColumns={returnColumns}
             onToggleFavorite={toggleFavoriteTrader}
-            onPrefetch={prefetchTrader}
           />
           {!isSubscribed && hiddenTraderCount > 0 ? (
             <LeaderboardLockedRows count={hiddenTraderCount} t={t} />
@@ -863,7 +878,6 @@ export function LeaderboardPageClient() {
           exposure={activeTrader ? exposureByTrader.get(activeTrader.id) : undefined}
           currentSummary={activeTrader ? currentSummaryByTrader.get(activeTrader.id) : undefined}
           latestStatusFeed={activeTrader ? latestStatusFeedByTrader.get(activeTrader.id) : undefined}
-          onPrefetchTrader={prefetchTrader}
         />
       </section>
     </div>
@@ -966,7 +980,7 @@ function LeaderboardLockedRows({ count, t }: { readonly count: number; readonly 
   );
 }
 
-function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader, t, locale, favoriteTraderIds, returnColumns, onToggleFavorite, onPrefetch }: {
+function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader, t, locale, favoriteTraderIds, returnColumns, onToggleFavorite }: {
   standings: TraderStanding[];
   exposureByTrader: Map<string, TraderExposure>;
   currentSummaryByTrader: ReadonlyMap<string, TraderStanding["summary"]>;
@@ -975,7 +989,6 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
   favoriteTraderIds: ReadonlySet<string>;
   returnColumns: readonly ReturnColumn[];
   onToggleFavorite: (traderId: string) => void;
-  onPrefetch: (traderId: string) => void;
 }) {
   const primaryReturnColumn = returnColumns[0] ?? fallbackReturnColumn("cumulative", t);
 
@@ -997,8 +1010,6 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
               <Link
                 key={trader.id}
                 href={`/leaderboard/${trader.id}`}
-                onFocus={() => onPrefetch(trader.id)}
-                onMouseEnter={() => onPrefetch(trader.id)}
                 className="focus-ring grid grid-cols-[38px_minmax(0,1fr)_88px_28px] items-center gap-2 px-3 py-3.5 transition hover:bg-white/[0.02]"
               >
                 <RankBadge rank={trader.rank} compact />
@@ -1040,7 +1051,7 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
   );
 }
 
-function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, currentSummary, latestStatusFeed, onPrefetchTrader }: {
+function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, currentSummary, latestStatusFeed }: {
   trader: TraderStanding | null;
   t: (key: string) => string;
   locale: Locale;
@@ -1049,7 +1060,6 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
   exposure?: TraderExposure;
   currentSummary?: TraderStanding["summary"];
   latestStatusFeed?: TraderStatusFeed;
-  onPrefetchTrader: (traderId: string) => void;
 }) {
   if (!trader) {
     return (
@@ -1107,8 +1117,6 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
 
         <Link
           href={`/leaderboard/${trader.id}`}
-          onFocus={() => onPrefetchTrader(trader.id)}
-          onMouseEnter={() => onPrefetchTrader(trader.id)}
           className="action-button focus-ring w-full justify-center rounded-full bg-emerald-500 shadow-neon-emerald hover:bg-emerald-400 text-white font-bold tracking-wide transition duration-300 py-3"
         >
           {t("leaderboard.viewTrader")}
@@ -1403,7 +1411,6 @@ function traderProgress(
   const summary = trader.summary;
   const liveSummary = currentSummary ?? summary;
   const liveSummaryRecord = liveSummary as Record<string, unknown> | undefined;
-  const summaryRecord = summary as Record<string, unknown> | undefined;
   const position = exposure?.position;
   const order = exposure?.order;
   const plan = exposure?.plan;
@@ -1411,7 +1418,7 @@ function traderProgress(
     const roi = position ? positionRoi(position) : summaryRoi(liveSummary) ?? summaryRoi(summary);
     const fallbackDetail = getElapsedTimeString(liveSummary?.updatedAt ?? summary?.updatedAt);
     const detail = roi === null ? fallbackDetail : `${t("leaderboard.status.roi")} ${formatSignedPercent(roi, 1)}`;
-    const side = normalizeSide(position?.side ?? (liveSummaryRecord?.side as string | undefined) ?? (summaryRecord?.side as string | undefined));
+    const side = normalizeSide(position?.side ?? (liveSummaryRecord?.side as string | undefined));
     const leverage = activePositionLeverage({ exposure, summary: liveSummary ?? summary, trader, position });
     return {
       label: t("leaderboard.status.inPosition"),
@@ -1424,7 +1431,7 @@ function traderProgress(
   }
   if (order || (liveSummary?.openOrders ?? 0) > 0 || (summary?.openOrders ?? 0) > 0) {
     const price = numberValue(order?.limitPrice, order?.price, order?.stopPrice, order?.triggerPrice);
-    const side = normalizeSide(order?.side);
+    const side = normalizeSide(order?.side ?? (liveSummaryRecord?.side as string | undefined));
     const leverage = numberValue(orderLeverage(order), liveSummary?.averageLeverage, summary?.averageLeverage, trader.averageLeverage, liveSummary?.leverage, summary?.leverage, trader.leverage);
     return {
       label: t("leaderboard.status.pendingEntry"),
@@ -1436,16 +1443,16 @@ function traderProgress(
     };
   }
 
-  const planStatus = normalizeStatusText(summary?.latestPlanStatus);
-  const runStatus = normalizeStatusText(summary?.latestRunStatus);
-  const phase = normalizeStatusText(summary?.agentPhase);
+  const planStatus = normalizeStatusText(liveSummary?.latestPlanStatus);
+  const runStatus = normalizeStatusText(liveSummary?.latestRunStatus);
+  const phase = normalizeStatusText(liveSummary?.agentPhase);
   if (planStatus === "PAPER_TRADING_PENDING") {
-    const side = normalizeSide(plan?.side ?? plan?.payload?.side);
+    const side = normalizeSide(plan?.side ?? plan?.payload?.side ?? (liveSummaryRecord?.side as string | undefined));
     const price = planEntryPrice(plan);
-    const leverage = numberValue(planLeverage(plan), summary?.averageLeverage, trader.averageLeverage, summary?.leverage, trader.leverage);
+    const leverage = numberValue(planLeverage(plan), liveSummary?.averageLeverage, summary?.averageLeverage, trader.averageLeverage, liveSummary?.leverage, summary?.leverage, trader.leverage);
     return {
       label: t("leaderboard.status.qualifiedSetup"),
-      detail: price === null ? statusLabel(summary?.latestPlanStatus, t) : `${t("common.price")} ${formatNumber(price, 0, locale)}`,
+      detail: price === null ? statusLabel(liveSummary?.latestPlanStatus, t) : `${t("common.price")} ${formatNumber(price, 0, locale)}`,
       tone: "warn",
       side,
       sideDetail: price === null ? undefined : `@${formatNumber(price, 0, locale)}`,
@@ -1462,20 +1469,20 @@ function traderProgress(
   if (runStatus === "COMPLETED") {
     return {
       label: t("leaderboard.status.reviewed"),
-      detail: getElapsedTimeString(summary?.updatedAt),
+      detail: getElapsedTimeString(liveSummary?.updatedAt ?? summary?.updatedAt),
       tone: "neutral"
     };
   }
   if (phase === "PENDING_ORDER") {
     return {
       label: t("leaderboard.status.pendingEntry"),
-      detail: statusLabel(summary?.agentPhase, t),
+      detail: statusLabel(liveSummary?.agentPhase ?? summary?.agentPhase, t),
       tone: "warn"
     };
   }
   return {
     label: t("leaderboard.status.watching"),
-    detail: statusLabel(summary?.agentPhase ?? summary?.latestRunStatus, t),
+    detail: statusLabel(liveSummary?.agentPhase ?? liveSummary?.latestRunStatus ?? summary?.agentPhase ?? summary?.latestRunStatus, t),
     tone: "neutral"
   };
 }

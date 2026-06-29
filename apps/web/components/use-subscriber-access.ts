@@ -6,8 +6,6 @@ import { z } from "zod";
 
 export const FREE_LEADERBOARD_LIMIT = 5;
 
-export const subscriberAccessQueryKey = ["subscriber", "access"] as const;
-
 const subscriberAccessSchema = z.object({
   userId: z.string().nullable(),
   email: z.string().nullable(),
@@ -30,6 +28,16 @@ const unlockResponseSchema = z.object({
 export type SubscriberAccessState = z.infer<typeof subscriberAccessSchema>;
 export type SubscriberUnlockResponse = z.infer<typeof unlockResponseSchema>;
 
+export const subscriberAccessQueryKeyPrefix = ["subscriber", "access"] as const;
+
+export function subscriberAccessQueryKey(userId?: string | null, email?: string | null) {
+  return [
+    ...subscriberAccessQueryKeyPrefix,
+    String(userId ?? "").trim(),
+    String(email ?? "").trim().toLowerCase()
+  ] as const;
+}
+
 export const guestSubscriberAccess: SubscriberAccessState = {
   userId: null,
   email: null,
@@ -43,15 +51,17 @@ export const guestSubscriberAccess: SubscriberAccessState = {
 
 export function useSubscriberAccess() {
   const session = useSession();
-  const isAuthenticated = Boolean(session.data?.user?.email);
+  const userId = session.data?.user?.id ?? session.data?.user?.email ?? null;
+  const email = session.data?.user?.email ?? null;
+  const isAuthenticated = Boolean(email);
   return useQuery({
-    queryKey: subscriberAccessQueryKey,
+    queryKey: subscriberAccessQueryKey(userId, email),
     queryFn: () => (isAuthenticated ? readClientSubscriberAccess() : guestSubscriberAccess),
     enabled: session.status !== "loading",
     staleTime: 30_000,
     gcTime: 5 * 60_000,
     retry: false,
-    placeholderData: (previousData) => previousData ?? guestSubscriberAccess
+    placeholderData: isAuthenticated ? undefined : guestSubscriberAccess
   });
 }
 

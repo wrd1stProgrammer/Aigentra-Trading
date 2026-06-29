@@ -8,6 +8,7 @@ const accountSource = readFileSync(new URL("../components/subscriber-account-cli
 const consensusSource = readFileSync(new URL("../components/consensus-page-client.tsx", import.meta.url), "utf8");
 const traderDetailSource = readFileSync(new URL("../components/trader-profile-page-client.tsx", import.meta.url), "utf8");
 const accessGateSource = readFileSync(new URL("../components/access-gate.tsx", import.meta.url), "utf8");
+const subscriberAccessSource = readFileSync(new URL("../components/use-subscriber-access.ts", import.meta.url), "utf8");
 
 test("account drawer exposes remaining AI review coupons for free users", () => {
   assert.match(appShellSource, /access\.drawerCouponLabel/, "drawer should label free review coupons");
@@ -21,6 +22,26 @@ test("free leaderboard only renders the public top five and locks the rest", () 
   assert.match(leaderboardSource, /visibleStandings/, "all visible leaderboard metrics should be derived from gated standings");
   assert.match(leaderboardSource, /LeaderboardLockedRows/, "hidden rows should advertise locked traders");
   assert.match(leaderboardSource, /access\.leaderboardPreviewTitle/, "locked rows should use localized preview copy");
+});
+
+test("subscriber access query state is scoped to the signed-in account", () => {
+  assert.match(subscriberAccessSource, /session\.data\?\.user\?\.id/, "subscriber access should read the signed-in user id");
+  assert.match(subscriberAccessSource, /session\.data\?\.user\?\.email/, "subscriber access should read the signed-in email");
+  assert.doesNotMatch(
+    subscriberAccessSource,
+    /export const subscriberAccessQueryKey = \["subscriber", "access"\] as const;/,
+    "subscriber access must not use one shared React Query key across all users"
+  );
+  assert.match(
+    subscriberAccessSource,
+    /queryKey: subscriberAccessQueryKey\([^)]*userId[^)]*email[^)]*\)/s,
+    "subscriber access query key should include user identity so logout/account changes cannot reuse stale subscription state"
+  );
+  assert.doesNotMatch(
+    subscriberAccessSource,
+    /placeholderData: \(previousData\) => previousData \?\? guestSubscriberAccess/,
+    "subscriber access should not show previous account access as placeholder data"
+  );
 });
 
 test("subscriber-only screens are blurred behind the subscription gate", () => {

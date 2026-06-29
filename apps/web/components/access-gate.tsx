@@ -9,6 +9,7 @@ import { useAppContext } from "@/components/app-provider";
 import {
   isProtectedSourceUnlocked,
   subscriberAccessQueryKey,
+  subscriberAccessQueryKeyPrefix,
   unlockProtectedSource,
   useSubscriberAccess,
   type SubscriberAccessState,
@@ -83,7 +84,11 @@ export function ProtectedContentGate({
     setError(null);
     try {
       const result = await unlockProtectedSource({ sourceKey, sourceType, traderId, symbol });
-      queryClient.setQueryData<SubscriberAccessState>(subscriberAccessQueryKey, result.access);
+      queryClient.setQueryData<SubscriberAccessState>(
+        subscriberAccessQueryKey(result.access.userId, result.access.email),
+        result.access
+      );
+      void queryClient.invalidateQueries({ queryKey: subscriberAccessQueryKeyPrefix });
       setDialogOpen(false);
       onUnlocked?.(result);
     } catch (caught) {

@@ -18,7 +18,7 @@ test("leaderboard completed status uses watching copy and compact elapsed time",
   assert.match(i18nSource, /"leaderboard\.status\.reviewedAt": "감시중"/, "Korean completion-time label should match watching copy");
   assert.match(i18nSource, /"leaderboard\.status\.reviewedAt": "Watching"/, "English completion-time label should match watching copy");
   assert.match(formatSource, /export function formatClockTime/, "format helper should expose HH:mm clock time");
-  assert.match(leaderboardSource, /getElapsedTimeString\(summary\?\.updatedAt\)/, "leaderboard should use elapsed time for reviewed rows");
+  assert.match(leaderboardSource, /getElapsedTimeString\(liveSummary\?\.updatedAt \?\? summary\?\.updatedAt\)/, "leaderboard should use live elapsed time for reviewed rows");
   assert.doesNotMatch(leaderboardSource, /detail: formatDateTime\(summary\?\.updatedAt, locale\)/, "reviewed rows should not show full date/time");
 });
 
@@ -155,10 +155,43 @@ test("leaderboard supports isolated UTC monthly league selection", () => {
   assert.match(leaderboardSource, /selectedLeagueMonth/, "leaderboard should keep selected month in component state");
   assert.match(leaderboardSource, /leagueMonth: selectedLeagueMonth/, "leaderboard query should be parameterized by the selected month");
   assert.match(leaderboardSource, /useSearchParams/, "league tab selection should be reflected in the URL");
-  assert.match(leaderboardSource, /router\.replace\(`\$\{pathname\}\$\{nextLeagueSearch/, "league tab selection should preserve browser back navigation state");
+  assert.match(leaderboardSource, /router\.replace\(nextUrl, \{ scroll: false \}\)/, "league tab selection should preserve browser back navigation state");
   assert.match(leaderboardSource, /next\.set\("league", "current"\)/, "current league tab should have a URL state marker");
   assert.match(leaderboardSource, /Date\.UTC/, "month options should be generated from UTC dates");
   assert.match(i18nSource, /"leaderboard\.monthlyLeague"/, "monthly selector copy should be localized");
+});
+
+test("league tab switches update URL state immediately before async route refresh", () => {
+  assert.match(
+    leaderboardSource,
+    /data-league-period="monthly"/,
+    "monthly tab should be a real navigable control with a stable target"
+  );
+  assert.match(
+    leaderboardSource,
+    /href=\{selectedLeagueHref\}/,
+    "monthly tab should have an href so fast pre-hydration clicks still switch tabs"
+  );
+  assert.match(
+    leaderboardSource,
+    /href=\{currentLeagueHref\}/,
+    "current tab should have an href so back/refresh preserves explicit current state"
+  );
+  assert.match(
+    leaderboardSource,
+    /const nextUrl = `\$\{pathname\}\$\{nextLeagueSearch\(searchParams, leagueMonth\)\}`/,
+    "league tab handlers should compute one canonical URL for state and router updates"
+  );
+  assert.match(
+    leaderboardSource,
+    /window\.history\.replaceState\(null, "", nextUrl\)/,
+    "league tab clicks should update the address bar synchronously so back/refresh preserves the chosen tab"
+  );
+  assert.match(
+    leaderboardSource,
+    /router\.replace\(nextUrl, \{ scroll: false \}\)/,
+    "Next router should still be notified after the immediate URL state update"
+  );
 });
 
 test("monthly league rankings keep live exposure state separate from monthly returns", () => {
@@ -177,6 +210,65 @@ test("monthly league rankings keep live exposure state separate from monthly ret
     leaderboardSource,
     /const pendingPlans = selectedLeagueMonth \? \[\] : pendingPlansQuery\.data \?\? \[\];/,
     "monthly tabs should not blank live pending plan context"
+  );
+});
+
+test("monthly league progress rows prefer current live summary status fields", () => {
+  assert.match(
+    leaderboardSource,
+    /const liveSummary = currentSummary \?\? summary/,
+    "monthly rows should derive an effective live summary from the current leaderboard bundle"
+  );
+  assert.match(
+    leaderboardSource,
+    /const planStatus = normalizeStatusText\(liveSummary\?\.latestPlanStatus\)/,
+    "pending setup status should use live summary fields instead of monthly snapshot-only fields"
+  );
+  assert.match(
+    leaderboardSource,
+    /const runStatus = normalizeStatusText\(liveSummary\?\.latestRunStatus\)/,
+    "reviewed/watching status should use live run status in monthly mode"
+  );
+  assert.match(
+    leaderboardSource,
+    /detail: getElapsedTimeString\(liveSummary\?\.updatedAt \?\? summary\?\.updatedAt\)/,
+    "reviewed rows should not show '-' when the current summary has a live updatedAt"
+  );
+  assert.match(
+    leaderboardSource,
+    /detail: statusLabel\(liveSummary\?\.agentPhase \?\? summary\?\.agentPhase, t\)/,
+    "pending-order rows should not fall back to '-' when only the current live summary has the phase"
+  );
+});
+
+test("monthly league uses the same dynamic return metric selection as current league", () => {
+  assert.doesNotMatch(
+    leaderboardSource,
+    /selectedLeagueMonth \? \[fallbackReturnColumn\("monthly", t\), fallbackReturnColumn\("cumulative", t\)\] : topReturnColumns\(visibleStandings, t\)/,
+    "monthly tabs should not pin monthly/cumulative columns while current tabs choose the strongest two metrics"
+  );
+  assert.match(
+    leaderboardSource,
+    /topReturnColumns\(visibleStandings, t\)/,
+    "both current and monthly tabs should share the dynamic two-column return metric picker"
+  );
+});
+
+test("leaderboard trader links do not prefetch detail bundles during the click path", () => {
+  assert.doesNotMatch(
+    leaderboardSource,
+    /prefetchTraderDetailBundle/,
+    "leaderboard rows should not import expensive detail prefetching for hover or click navigation"
+  );
+  assert.doesNotMatch(
+    leaderboardSource,
+    /const prefetchTrader = useCallback/,
+    "leaderboard should not define a detail-prefetch callback that can compete with route transitions"
+  );
+  assert.doesNotMatch(
+    leaderboardSource,
+    /onMouseEnter=\{\(\) => onPrefetch/,
+    "hover handlers must not call a detail prefetch callback before navigation"
   );
 });
 

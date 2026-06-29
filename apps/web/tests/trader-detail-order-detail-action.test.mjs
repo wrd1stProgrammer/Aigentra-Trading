@@ -12,6 +12,9 @@ const panelRows = loadTsModule("../components/trader-profile-detail/position-pan
 });
 const reviewBrief = loadTsModule("../lib/review-brief.ts");
 const reviewDisplay = loadTsModule("../lib/review-display.ts");
+const positionReviewSource = loadTsModule("../lib/position-review-source.ts", {
+  "@/lib/api": {}
+});
 const league = loadTsModule("../lib/league.ts", {
   "@/lib/review-brief": reviewBrief,
   "@/lib/traders": { fallbackTraders: [] }
@@ -278,6 +281,87 @@ test("entry approval detail scenarios prefer structured review over legacy appro
   assert.equal(positionScenario.rationale, "Trend Sentinel은 59719.3에서 HTF 연속 SHORT이 일관되게 유지되고 있습니다.");
   assert.equal(positionScenario.reviewBrief.headline, "반등이 막히는 구간에서 숏 진입 근거가 살아 있습니다.");
   assert.equal(positionScenario.reviewBrief.action, "작은 규모로만 진입하고 손절가 회복 여부를 확인하세요.");
+});
+
+test("merged open position detail keeps the freshest leg entry approval brief", () => {
+  assert.match(pageSource, /selectMergedPositionReviewSource\(list\)/, "merged position rows should choose a deterministic review source");
+  assert.match(pageSource, /aiApprovalReason: firstPayload\?\.aiApprovalReason \?\? reviewRationale/, "merged position payload should preserve top-level rationale as displayable approval copy");
+
+  const positions = [
+    {
+      id: 701,
+      symbol: "BTCUSDT",
+      status: "open",
+      side: "short",
+      quantity: 0.01,
+      entryPrice: 59719.3,
+      stopLossPrice: 60240.8,
+      openedAt: "2026-06-29T02:10:00.000Z",
+      updatedAt: "2026-06-29T02:10:00.000Z",
+      payload: {
+        aiApprovalReason: "Older first fill approval reason.",
+        aiReview: {
+          structuredReview: {
+            verdict: "APPROVE",
+            headline: "Older first fill headline.",
+            action: "Older first fill action."
+          }
+        }
+      }
+    },
+    {
+      id: 702,
+      symbol: "BTCUSDT",
+      status: "open",
+      side: "short",
+      quantity: 0.02,
+      entryPrice: 59680.1,
+      stopLossPrice: 60240.8,
+      openedAt: "2026-06-29T02:30:00.000Z",
+      updatedAt: "2026-06-29T02:35:00.000Z",
+      payload: {
+        aiApprovalReason: "Fresh confirmation fill approval reason.",
+        aiReview: {
+          structuredReview: {
+            verdict: "APPROVE",
+            headline: "Fresh confirmation fill headline.",
+            action: "Fresh confirmation fill action.",
+            keyReasons: ["Fresh reason"],
+            risks: ["Fresh risk"],
+            watchConditions: ["Fresh watch"],
+            managerNote: "Fresh manager note"
+          }
+        }
+      }
+    }
+  ];
+
+  const selected = positionReviewSource.selectMergedPositionReviewSource(positions);
+
+  assert.equal(selected.id, 702);
+  assert.equal(selected.payload.aiApprovalReason, "Fresh confirmation fill approval reason.");
+  assert.equal(selected.payload.aiReview.structuredReview.headline, "Fresh confirmation fill headline.");
+
+  const topLevelOnly = positionReviewSource.selectMergedPositionReviewSource([
+    {
+      id: 703,
+      symbol: "BTCUSDT",
+      status: "open",
+      side: "short",
+      updatedAt: "2026-06-29T02:40:00.000Z"
+    },
+    {
+      id: 704,
+      symbol: "BTCUSDT",
+      status: "open",
+      side: "short",
+      rationale: "Fresh top-level approval rationale.",
+      updatedAt: "2026-06-29T02:45:00.000Z"
+    }
+  ]);
+
+  assert.equal(topLevelOnly.id, 704);
+  assert.equal(topLevelOnly.rationale, "Fresh top-level approval rationale.");
 });
 
 test("entry approval scenarios ignore stale embedded English structured review translations", () => {
