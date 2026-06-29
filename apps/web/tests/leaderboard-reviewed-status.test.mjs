@@ -106,8 +106,10 @@ test("league overview stream keeps a page cache and stops duplicate infinite loa
   assert.match(leaderboardSource, /uniqueReviews\.length === 0/, "overview should stop auto-loading when a page contains only duplicates");
   assert.match(leaderboardSource, /setHasMore\(false\)/, "overview should stop observer retries after exhausted or failed loads");
   assert.match(leaderboardSource, /OVERVIEW_WARMING_RETRY_LIMIT/, "overview cold-cache warming should have a bounded retry limit");
-  assert.match(leaderboardSource, /onInitialReady/, "overview should report first-page readiness to the parent loading barrier");
-  assert.match(leaderboardSource, /preferCached: false/, "overview should fall back to a direct page fetch after bounded cached warmup retries");
+  assert.doesNotMatch(leaderboardSource, /onInitialReady/, "overview loading should stay inside its own section instead of blocking the parent loading barrier");
+  assert.match(leaderboardSource, /OVERVIEW_BACKGROUND_RETRY_MS/, "overview should continue cold-cache refresh checks in the background");
+  assert.match(leaderboardSource, /isWarming/, "overview should show a non-blocking warming state after bounded cold-cache retries");
+  assert.doesNotMatch(leaderboardSource, /preferCached: false/, "overview must not fall back to a synchronous cold-cache rebuild from the browser");
 });
 
 test("league overview does not auto-paginate before the user scrolls the log", () => {
@@ -136,6 +138,9 @@ test("browser API calls use the same-origin backend proxy to avoid cold-load COR
   assert.doesNotMatch(nextConfigSource, /rewrites\(\)/, "backend proxy should not rely on Next rewrites that log navigation aborts loudly");
   assert.match(backendProxyRouteSource, /proxyBackendRequest/, "Next should expose a non-conflicting backend proxy route handler");
   assert.match(backendProxyRouteSource, /isNavigationAbort/, "backend proxy should classify rapid-navigation aborts");
+  assert.match(backendProxyRouteSource, /collectProxyErrorSignals/, "backend proxy should inspect nested undici socket error causes");
+  assert.match(backendProxyRouteSource, /UND_ERR_SOCKET/, "backend proxy should treat undici socket termination as client navigation abort noise");
+  assert.match(backendProxyRouteSource, /terminated/, "backend proxy should classify terminated fetch streams through nested causes");
   assert.match(backendProxyRouteSource, /status: 499/, "navigation aborts should resolve as client-cancelled proxy responses");
   assert.match(backendProxyRouteSource, /BACKEND_PROXY_TIMEOUT_MS/, "backend proxy should bound slow upstream requests");
   assert.match(backendProxyRouteSource, /status: 504/, "backend proxy timeouts should resolve as gateway timeout instead of hanging until platform timeout");
@@ -307,9 +312,10 @@ test("leaderboard uses the shared full-screen loading overlay", () => {
   assert.match(leaderboardSource, /common\.loadingLeagueData/, "leaderboard overlay should use localized loading copy");
   assert.match(
     leaderboardSource,
-    /const criticalDataReady =/,
-    "leaderboard overlay should wait for the selected bundle, access state, live exposure state, and overview readiness"
+    /const criticalDataReady = selectedBundleReady && currentBundleReady && accessReady && liveExposureReady;/,
+    "leaderboard overlay should wait for the selected bundle, access state, and live exposure state only"
   );
+  assert.doesNotMatch(leaderboardSource, /overviewInitialReady|overviewRequired/, "league overview readiness should not hold the central loading overlay");
   assert.match(leaderboardSource, /const showBackgroundFetching = !initialLoading && isFetching/, "inline loading chip should only appear after the central initial overlay has finished");
   assert.match(overlaySource, /fixed inset-0/, "loading overlay should cover the viewport");
   assert.match(overlaySource, /createPortal/, "loading overlay should be portaled outside animated page containers");

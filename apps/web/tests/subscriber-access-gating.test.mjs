@@ -10,6 +10,7 @@ const traderDetailSource = readFileSync(new URL("../components/trader-profile-pa
 const accessGateSource = readFileSync(new URL("../components/access-gate.tsx", import.meta.url), "utf8");
 const subscriberAccessSource = readFileSync(new URL("../components/use-subscriber-access.ts", import.meta.url), "utf8");
 const subscriberAccessApiSource = readFileSync(new URL("../lib/subscriber-access-api.ts", import.meta.url), "utf8");
+const subscriberAccessRouteSource = readFileSync(new URL("../app/api/subscriber/access/route.ts", import.meta.url), "utf8");
 
 test("account drawer exposes remaining AI review coupons for free users", () => {
   assert.match(appShellSource, /access\.drawerCouponLabel/, "drawer should label free review coupons");
@@ -65,6 +66,11 @@ test("authenticated subscriber access errors stay unknown instead of guest", () 
     subscriberAccessApiSource,
     /subscriberAccessTimeoutSignal/,
     "server-side subscriber access calls should have a bounded timeout"
+  );
+  assert.match(
+    subscriberAccessRouteSource,
+    /error\.status === 503 \|\| error\.status === 504/,
+    "subscriber access route should preserve upstream unavailable and timeout statuses instead of collapsing them into a generic 502"
   );
 });
 

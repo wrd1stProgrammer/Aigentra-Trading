@@ -536,6 +536,18 @@ OVERVIEW_MANAGEMENT_DECISIONS = (
 )
 
 
+def _case_variants(values: tuple[str, ...]) -> tuple[str, ...]:
+    variants: set[str] = set()
+    for value in values:
+        variants.update({value, value.lower(), value.upper(), value.capitalize()})
+    return tuple(sorted(variants))
+
+
+OVERVIEW_OK_STATUS_VALUES = _case_variants(OVERVIEW_OK_STATUSES)
+OVERVIEW_ENTRY_DECISION_VALUES = _case_variants(OVERVIEW_ENTRY_DECISIONS)
+OVERVIEW_MANAGEMENT_DECISION_VALUES = _case_variants(OVERVIEW_MANAGEMENT_DECISIONS)
+
+
 def slim_load_columns(model) -> list[Any]:
     return [getattr(model, column.name) for column in model.__table__.columns if column.name not in SLIM_EXCLUDED_COLUMNS]
 
@@ -554,16 +566,16 @@ def overview_select(model):
 
 def overview_filtered_select(source: str, model):
     stmt = overview_select(model).where(
-        func.lower(model.status).in_(OVERVIEW_OK_STATUSES),
+        model.status.in_(OVERVIEW_OK_STATUS_VALUES),
         model.fallback.is_(False),
         model.error_message.is_(None),
     )
     if source == "entry_review":
-        return stmt.where(func.upper(model.decision).in_(OVERVIEW_ENTRY_DECISIONS))
+        return stmt.where(model.decision.in_(OVERVIEW_ENTRY_DECISION_VALUES))
     return stmt.where(
         or_(
-            func.upper(model.decision).in_(OVERVIEW_MANAGEMENT_DECISIONS),
-            func.upper(model.action_type).in_(OVERVIEW_MANAGEMENT_DECISIONS),
+            model.decision.in_(OVERVIEW_MANAGEMENT_DECISION_VALUES),
+            model.action_type.in_(OVERVIEW_MANAGEMENT_DECISION_VALUES),
         )
     )
 
@@ -5460,6 +5472,7 @@ async def league_trader_detail(
         if is_fresh:
             return {**cached[1], "cacheHit": True, "stale": False, "scheduledRefresh": False}
         schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol, clean_locale)
+        return {**cached[1], "cacheHit": True, "stale": True, "scheduledRefresh": True}
     if refresh:
         refresh_trader_leaderboard_snapshot(db, trader_id, clean_symbol)
         db.commit()

@@ -92,6 +92,7 @@ function backendProxyTimeoutMs(url: string) {
     /\/api\/market\/klines\b/.test(url) ||
     /\/api\/paper\/equity-snapshots\b/.test(url) ||
     /\/api\/league\/traders\/[^/]+\/trade-history\b/.test(url) ||
+    /\/api\/subscriber\/access\b/.test(url) ||
     /\/api\/subscribers\/access\b/.test(url)
   ) {
     return BACKEND_PROXY_FAST_TIMEOUT_MS;
@@ -122,9 +123,40 @@ function backendProxyTimeoutSignal(sourceSignal: AbortSignal, timeoutMs: number)
   };
 }
 
+type ProxyErrorLike = {
+  readonly code?: unknown;
+  readonly name?: unknown;
+  readonly message?: unknown;
+  readonly cause?: unknown;
+};
+
+function collectProxyErrorSignals(error: unknown) {
+  const signals: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+
+  for (let depth = 0; depth < 6 && current !== null && current !== undefined && !seen.has(current); depth += 1) {
+    seen.add(current);
+    if (current instanceof Error) {
+      signals.push(current.name, current.message);
+    }
+    if (typeof current === "object") {
+      const nested = current as ProxyErrorLike;
+      if (nested.code) signals.push(String(nested.code));
+      if (nested.name) signals.push(String(nested.name));
+      if (nested.message) signals.push(String(nested.message));
+      current = nested.cause;
+      continue;
+    }
+    signals.push(String(current));
+    break;
+  }
+
+  return signals;
+}
+
 function isNavigationAbort(error: unknown) {
-  if (error instanceof DOMException && error.name === "AbortError") return true;
-  const code = typeof error === "object" && error !== null ? String((error as { code?: unknown }).code ?? "") : "";
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  return code === "ECONNRESET" || /aborted|abort|socket hang up|ECONNRESET/i.test(message);
+  return collectProxyErrorSignals(error).some((signal) =>
+    /aborted|abort|socket hang up|ECONNRESET|UND_ERR_SOCKET|terminated/i.test(signal)
+  );
 }

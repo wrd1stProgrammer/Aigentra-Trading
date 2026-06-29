@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.db import AIReviewRecord, EquitySnapshotRecord, PositionManagementReviewRecord, TraderLeaderboardSnapshotRecord, init_db, reset_db_engine, session_scope
+from app.db import AIReviewRecord, Base, EquitySnapshotRecord, PositionManagementReviewRecord, TraderLeaderboardSnapshotRecord, init_db, reset_db_engine, session_scope
 from app.main import app
 from app.repositories import to_json, upsert_translation_cache_record
 
@@ -382,7 +382,7 @@ def test_leaderboard_fast_rejects_invalid_utc_month():
     assert response.json()["detail"] == "leagueMonth must use UTC YYYY-MM format."
 
 
-def test_trader_detail_rebuilds_expired_cache(monkeypatch):
+def test_trader_detail_serves_expired_cache_while_refreshing_in_background(monkeypatch):
     cache_key = ("channel-rider", "BTCUSDT", 20, 20, "en", main.TRADER_DETAIL_CACHE_VERSION)
     main.TRADER_DETAIL_CACHE.clear()
     main.TRADER_DETAIL_CACHE[cache_key] = (
@@ -397,29 +397,26 @@ def test_trader_detail_rebuilds_expired_cache(monkeypatch):
             "lastUpdatedAt": "old-detail-cache",
         },
     )
+    scheduled: list[tuple[str, tuple]] = []
 
-    def fake_payload(db, trader_id, clean_symbol, trader, summaries=None, **kwargs):
-        return {
-            "symbol": clean_symbol,
-            "trader": trader,
-            "summaries": summaries or [],
-            "positions": [],
-            "orders": [],
-            "managementReviews": [],
-            "lastUpdatedAt": "fresh-detail-cache",
-            "cacheHit": False,
-            "stale": False,
-        }
+    def fake_schedule_thread_refresh(func, *args):
+        scheduled.append((func.__name__, args))
 
-    monkeypatch.setattr(main, "build_trader_detail_payload", fake_payload)
+    def fail_sync_rebuild(*args, **kwargs):
+        raise AssertionError("expired trader detail cache should return before synchronous rebuild")
+
+    monkeypatch.setattr(main, "schedule_thread_refresh", fake_schedule_thread_refresh)
+    monkeypatch.setattr(main, "build_trader_detail_payload", fail_sync_rebuild)
 
     response = client.get("/api/league/traders/channel-rider?symbol=BTCUSDT")
 
     assert response.status_code == 200
     data = response.json()
-    assert data["lastUpdatedAt"] == "fresh-detail-cache"
-    assert data["cacheHit"] is False
-    assert data["stale"] is False
+    assert data["lastUpdatedAt"] == "old-detail-cache"
+    assert data["cacheHit"] is True
+    assert data["stale"] is True
+    assert data["scheduledRefresh"] is True
+    assert scheduled == [("refresh_trader_detail_cache_background", ("channel-rider", "BTCUSDT", "en"))]
 
 
 def test_trader_detail_uses_snapshot_summary_without_full_recompute(monkeypatch):
@@ -680,6 +677,54 @@ def test_league_overview_reviews_filters_hidden_reviews_before_pagination(temp_a
     assert data["hasMore"] is False
     assert data["nextOffset"] == 2
     assert [review["decision"] for review in data["reviews"]] == ["ADJUST_AND_APPROVE", "HOLD"]
+
+
+def test_league_overview_reviews_accepts_case_variants_without_function_filters(temp_api_db):
+    now = datetime(2026, 6, 19, 12, 0, tzinfo=timezone.utc)
+    with session_scope() as db:
+        db.add_all(
+            [
+                AIReviewRecord(
+                    trader_id="session-raider",
+                    symbol="BTCUSDT",
+                    status="OK",
+                    decision="adjust_and_approve",
+                    payload_json=to_json({"approvalReason": "mixed-case entry"}),
+                    created_at=now,
+                ),
+                PositionManagementReviewRecord(
+                    trader_id="range-maker",
+                    symbol="BTCUSDT",
+                    status="Success",
+                    decision="hold",
+                    action_type="hold",
+                    payload_json=to_json({"review": {"rationale": "mixed-case management"}}),
+                    created_at=now - timedelta(minutes=1),
+                ),
+            ]
+        )
+
+    response = client.get("/api/league/overview-reviews?limit=20&offset=0&locale=en")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["nextOffset"] == 2
+    assert [review["decision"] for review in data["reviews"]] == ["adjust_and_approve", "hold"]
+
+
+def test_trader_detail_hot_path_indexes_are_declared():
+    required_indexes = {
+        "trade_plans": {"ix_trade_plans_trader_symbol_created"},
+        "position_management_reviews": {"ix_position_management_reviews_trader_symbol_created"},
+        "paper_orders": {"ix_paper_orders_trader_symbol_status_created"},
+        "paper_positions": {"ix_paper_positions_trader_symbol_status_created"},
+        "trade_events": {"ix_trade_events_trader_symbol_created"},
+        "equity_snapshots": {"ix_equity_snapshots_trader_symbol_created"},
+    }
+
+    for table_name, expected in required_indexes.items():
+        actual = {index.name for index in Base.metadata.tables[table_name].indexes}
+        assert expected <= actual
 
 
 def test_trader_management_reviews_endpoint_returns_compact_pages(temp_api_db):

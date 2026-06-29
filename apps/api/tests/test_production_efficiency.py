@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from sqlalchemy import event
@@ -28,6 +29,13 @@ def test_settings_read_environment_at_instantiation(monkeypatch):
 
     assert settings.app_env == "production"
     assert settings.database_url == "postgresql://user:pass@example.com/db"
+
+
+def test_api_container_runs_multiple_uvicorn_workers_by_default():
+    dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile"
+    source = dockerfile.read_text()
+
+    assert "--workers ${API_WEB_CONCURRENCY:-2}" in source
 
 
 def test_local_env_defaults_to_sqlite_even_when_neon_url_exists(monkeypatch):

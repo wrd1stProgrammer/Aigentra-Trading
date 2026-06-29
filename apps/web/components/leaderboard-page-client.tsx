@@ -57,6 +57,7 @@ const OVERVIEW_INITIAL_LIMIT = 12;
 const OVERVIEW_PAGE_LIMIT = 10;
 const OVERVIEW_CACHE_TTL_MS = 60_000;
 const OVERVIEW_WARMING_RETRY_LIMIT = 2;
+const OVERVIEW_BACKGROUND_RETRY_MS = 5_000;
 const LIVE_EXPOSURE_LIMIT = 100;
 const DEFAULT_LEAGUE_MONTH = "2026-06";
 
@@ -210,7 +211,6 @@ export function LeaderboardPageClient() {
   const [cacheReady, setCacheReady] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favoriteTraderIds, setFavoriteTraderIds] = useState<Set<string>>(() => new Set());
-  const [overviewReadyKey, setOverviewReadyKey] = useState<string | null>(null);
 
   const leagueMonthOptions = useMemo(() => {
     return buildLeagueMonthOptions().filter((option) => option.year === 2026 && option.month === 6);
@@ -254,14 +254,6 @@ export function LeaderboardPageClient() {
   useEffect(() => {
     setSelectedLeagueMonth(initialLeagueMonthFromSearchParams(searchParams));
   }, [searchParams]);
-
-  useEffect(() => {
-    setOverviewReadyKey(null);
-  }, [locale]);
-
-  const markOverviewInitialReady = useCallback(() => {
-    setOverviewReadyKey(locale);
-  }, [locale]);
 
   const subscriberPreferencesQueryKey = useMemo(
     () => ["subscriber", "preferences", "leaderboard", access?.userId ?? "", access?.email ?? ""] as const,
@@ -487,9 +479,7 @@ export function LeaderboardPageClient() {
     liveExposureOrdersQuery,
     pendingPlansQuery
   ].every((query) => (query.isSuccess && !query.isPlaceholderData) || query.isError);
-  const overviewRequired = isSubscribed || !accessReady;
-  const overviewInitialReady = overviewReadyKey === locale;
-  const criticalDataReady = selectedBundleReady && currentBundleReady && accessReady && liveExposureReady && (!overviewRequired || overviewInitialReady);
+  const criticalDataReady = selectedBundleReady && currentBundleReady && accessReady && liveExposureReady;
   const initialLoading = !criticalDataReady;
   const isFetching = btcQuery.isFetching || currentLeagueBundleQuery.isFetching || liveExposurePositionsQuery.isFetching || liveExposureOrdersQuery.isFetching || pendingPlansQuery.isFetching;
   const showBackgroundFetching = !initialLoading && isFetching;
@@ -527,7 +517,6 @@ export function LeaderboardPageClient() {
           <OptionActivityStream
             locale={locale}
             traderNameMap={traderNameMap}
-            onInitialReady={markOverviewInitialReady}
           />
         </ProtectedContentGate>
       </section>
@@ -1807,18 +1796,17 @@ function recordValue(value: unknown) {
 
 function OptionActivityStream({
   locale,
-  traderNameMap,
-  onInitialReady
+  traderNameMap
 }: {
   locale: Locale;
   traderNameMap: Map<string, string>;
-  onInitialReady?: () => void;
 }) {
   const { t } = useAppContext();
   const [reviewsList, setReviewsList] = useState<OverviewReviewRecord[]>(() => overviewActivityCache.reviews);
   const [offset, setOffset] = useState(() => overviewActivityCache.offset);
   const [hasMore, setHasMore] = useState(() => overviewActivityCache.hasMore);
   const [isLoading, setIsLoading] = useState(false);
+  const [isWarming, setIsWarming] = useState(false);
   const [hasLoadError, setHasLoadError] = useState(false);
   const [hasOverviewUserScrolled, setHasOverviewUserScrolled] = useState(false);
 
@@ -1848,13 +1836,13 @@ function OptionActivityStream({
         setReviewsList(overviewActivityCache.reviews);
         setOffset(overviewActivityCache.offset);
         setHasMore(overviewActivityCache.hasMore);
-        onInitialReady?.();
         return;
       }
       isFetchingRef.current = true;
       setIsLoading(!hasCachedReviews);
       let keepLoadingForWarmup = false;
       setHasLoadError(false);
+      setIsWarming(false);
       try {
         const page = await loadOverviewReviewPage(OVERVIEW_INITIAL_LIMIT, 0, locale, {
           preferCached: true,
@@ -1866,18 +1854,16 @@ function OptionActivityStream({
         if (page.warming && fetchedReviews.length === 0) {
           overviewActivityCache.fetchedAt = 0;
           warmingAttemptsRef.current += 1;
-          if (active && warmingAttemptsRef.current <= OVERVIEW_WARMING_RETRY_LIMIT) {
-            keepLoadingForWarmup = true;
-            retryTimer = setTimeout(refreshOverviewActivityCache, 1500);
-            return;
+          if (active) {
+            const keepInitialSpinner = warmingAttemptsRef.current <= OVERVIEW_WARMING_RETRY_LIMIT;
+            keepLoadingForWarmup = keepInitialSpinner;
+            setIsWarming(true);
+            retryTimer = setTimeout(
+              refreshOverviewActivityCache,
+              keepInitialSpinner ? 1500 : OVERVIEW_BACKGROUND_RETRY_MS
+            );
           }
-          const directPage = await loadOverviewReviewPage(OVERVIEW_INITIAL_LIMIT, 0, locale, {
-            preferCached: false,
-            signal: abortController.signal
-          });
-          fetchedReviews = directPage.reviews;
-          nextOffset = directPage.nextOffset;
-          hasMorePage = directPage.hasMore;
+          return;
         }
         warmingAttemptsRef.current = 0;
         const mergedReviews = mergeOverviewReviews(overviewActivityCache.reviews, fetchedReviews);
@@ -1889,7 +1875,7 @@ function OptionActivityStream({
           setReviewsList(overviewActivityCache.reviews);
           setOffset(overviewActivityCache.offset);
           setHasMore(overviewActivityCache.hasMore);
-          onInitialReady?.();
+          setIsWarming(false);
         }
       } catch (err) {
         if (isAbortError(err) || abortController.signal.aborted) return;
@@ -1899,7 +1885,7 @@ function OptionActivityStream({
         if (active) {
           setHasMore(false);
           setHasLoadError(true);
-          onInitialReady?.();
+          setIsWarming(false);
         }
       } finally {
         isFetchingRef.current = false;
@@ -1912,7 +1898,7 @@ function OptionActivityStream({
       abortController.abort();
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [locale, onInitialReady]);
+  }, [locale]);
 
   const loadMore = useCallback(async () => {
     if (isFetchingRef.current || !hasMore) return;
@@ -2061,12 +2047,18 @@ function OptionActivityStream({
               <span>{t("leaderboard.loadingOlderLogs")}</span>
             </div>
           ) : null}
+          {showInitialState && !isLoading && isWarming ? (
+            <div className="flex min-h-[120px] items-center justify-center gap-2 px-4 text-center font-sans text-xs text-zinc-500">
+              <CircleNotch className="animate-spin animate-duration-1000 text-emerald-400" size={13} />
+              <span>{t("leaderboard.overviewPreparing")}</span>
+            </div>
+          ) : null}
           {showInitialState && !isLoading && hasLoadError ? (
             <div className="flex min-h-[120px] items-center justify-center px-4 text-center font-sans text-xs text-zinc-500">
               {t("common.liveDataUnavailable")}
             </div>
           ) : null}
-          {showInitialState && !isLoading && !hasLoadError ? (
+          {showInitialState && !isLoading && !isWarming && !hasLoadError ? (
             <div className="flex min-h-[120px] items-center justify-center px-4 text-center font-sans text-xs text-zinc-500">
               {t("leaderboard.endOfActivity")}
             </div>

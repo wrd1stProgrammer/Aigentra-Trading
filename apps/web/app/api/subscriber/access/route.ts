@@ -14,7 +14,8 @@ export async function GET() {
     return NextResponse.json(await readSubscriberAccess(identity));
   } catch (error) {
     if (error instanceof SubscriberAccessApiError) {
-      return NextResponse.json({ error: error.message }, { status: error.status === 503 ? 503 : 502 });
+      const status = error.status === 503 || error.status === 504 ? error.status : 502;
+      return NextResponse.json({ error: error.message }, { status });
     }
     return NextResponse.json({ error: "subscriber_access_request_failed" }, { status: 502 });
   }

@@ -640,6 +640,12 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "entry approval should read like a desk judgment, not a permission stamp" in entry_contract
     assert "why this trade is worth taking now" in entry_contract
     assert "how entry, stop, and target contain the risk" in entry_contract
+    assert "APPROVED ENTRY REASON RULE" in entry_contract
+    assert "approvalReason must answer the entry reason before risk controls" in entry_contract
+    assert "keyReasons[0] must name the market trigger that made this entry worth taking now" in entry_contract
+    assert "Do not answer approval with only higher-timeframe trend alignment, stop/target geometry, fee-aware RR, leverage, or risk percentage" in entry_contract
+    assert "Put leverage or riskPercentOverride in action, adjustments, or managerNote, not as the reason the position was entered" in entry_contract
+    assert "If there is no concrete entry trigger beyond trend alignment and RR, defer instead of approving" in entry_contract
     assert "reviewCode" in management
     assert "reviewFacts" in management
     assert "structuredReview" in management

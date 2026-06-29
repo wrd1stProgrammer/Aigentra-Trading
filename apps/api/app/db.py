@@ -198,6 +198,11 @@ class ObservationCandidateRecord(CommonMixin, Base):
 
 class AIReviewRecord(CommonMixin, Base):
     __tablename__ = "ai_reviews"
+    __table_args__ = (
+        Index("ix_ai_reviews_overview_symbol_recent", "symbol", "status", "fallback", "created_at", "id"),
+        Index("ix_ai_reviews_overview_recent", "status", "fallback", "created_at", "id"),
+    )
+
     run_id: Mapped[Optional[int]] = mapped_column(ForeignKey("trader_run_logs.id"), nullable=True, index=True)
     provider: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)
     model: Mapped[Optional[str]] = mapped_column(String(140), nullable=True)
@@ -209,6 +214,10 @@ class AIReviewRecord(CommonMixin, Base):
 
 class TradePlanRecord(CommonMixin, Base):
     __tablename__ = "trade_plans"
+    __table_args__ = (
+        Index("ix_trade_plans_trader_symbol_created", "trader_id", "symbol", "created_at", "id"),
+    )
+
     run_id: Mapped[Optional[int]] = mapped_column(ForeignKey("trader_run_logs.id"), nullable=True, index=True)
     side: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     risk_percent: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -232,6 +241,11 @@ class ProviderCallLogRecord(CommonMixin, Base):
 
 class PositionManagementReviewRecord(CommonMixin, Base):
     __tablename__ = "position_management_reviews"
+    __table_args__ = (
+        Index("ix_position_management_reviews_overview_symbol_recent", "symbol", "status", "fallback", "created_at", "id"),
+        Index("ix_position_management_reviews_overview_recent", "status", "fallback", "created_at", "id"),
+        Index("ix_position_management_reviews_trader_symbol_created", "trader_id", "symbol", "created_at", "id"),
+    )
 
     order_id: Mapped[Optional[int]] = mapped_column(ForeignKey("paper_orders.id"), nullable=True, index=True)
     position_id: Mapped[Optional[int]] = mapped_column(ForeignKey("paper_positions.id"), nullable=True, index=True)
@@ -392,6 +406,9 @@ class RiskSettingsRecord(CommonMixin, Base):
 
 class PaperOrderRecord(CommonMixin, Base):
     __tablename__ = "paper_orders"
+    __table_args__ = (
+        Index("ix_paper_orders_trader_symbol_status_created", "trader_id", "symbol", "status", "created_at", "id"),
+    )
 
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)
     side: Mapped[str] = mapped_column(String(12), nullable=False, index=True)
@@ -414,6 +431,9 @@ class PaperOrderRecord(CommonMixin, Base):
 
 class PaperPositionRecord(CommonMixin, Base):
     __tablename__ = "paper_positions"
+    __table_args__ = (
+        Index("ix_paper_positions_trader_symbol_status_created", "trader_id", "symbol", "status", "created_at", "id"),
+    )
 
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)
     order_id: Mapped[Optional[int]] = mapped_column(ForeignKey("paper_orders.id"), nullable=True, index=True)
@@ -437,6 +457,9 @@ class PaperPositionRecord(CommonMixin, Base):
 
 class TradeEventRecord(CommonMixin, Base):
     __tablename__ = "trade_events"
+    __table_args__ = (
+        Index("ix_trade_events_trader_symbol_created", "trader_id", "symbol", "created_at", "id"),
+    )
 
     event_type: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
     order_id: Mapped[Optional[int]] = mapped_column(ForeignKey("paper_orders.id"), nullable=True, index=True)
@@ -450,6 +473,9 @@ class TradeEventRecord(CommonMixin, Base):
 
 class EquitySnapshotRecord(CommonMixin, Base):
     __tablename__ = "equity_snapshots"
+    __table_args__ = (
+        Index("ix_equity_snapshots_trader_symbol_created", "trader_id", "symbol", "created_at", "id"),
+    )
 
     cash_balance: Mapped[Decimal] = mapped_column(Numeric(24, 10), nullable=False)
     equity: Mapped[Decimal] = mapped_column(Numeric(24, 10), nullable=False)

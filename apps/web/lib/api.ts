@@ -10,7 +10,15 @@ function resolveApiBaseUrl() {
   return /^https?:\/\//i.test(EXTERNAL_API_BASE_URL) ? BROWSER_API_PROXY_BASE_URL : EXTERNAL_API_BASE_URL;
 }
 
+function resolveEventStreamBaseUrl() {
+  if (typeof window !== "undefined" && /^https?:\/\//i.test(EXTERNAL_API_BASE_URL)) {
+    return EXTERNAL_API_BASE_URL;
+  }
+  return resolveApiBaseUrl();
+}
+
 export const API_BASE_URL = resolveApiBaseUrl();
+const EVENT_STREAM_API_BASE_URL = resolveEventStreamBaseUrl();
 export const LEAGUE_QUERY_STALE_TIME_MS = 60_000;
 export const LEAGUE_QUERY_GC_TIME_MS = 10 * 60_000;
 export const LEAGUE_LIVE_REFETCH_INTERVAL_MS = 60_000;
@@ -920,7 +928,7 @@ export function getTraderManagementReviews(
 
 export function getTraderExecutionEventsUrl(traderId: string, symbol: string) {
   const params = new URLSearchParams({ symbol });
-  return `${API_BASE_URL}/api/league/traders/${encodeURIComponent(traderId)}/execution-events?${params.toString()}`;
+  return `${EVENT_STREAM_API_BASE_URL}/api/league/traders/${encodeURIComponent(traderId)}/execution-events?${params.toString()}`;
 }
 
 export function getCachedLeaderboardBundle(symbol: string, locale: Locale = "en", options?: LeaderboardBundleRequestOptions) {

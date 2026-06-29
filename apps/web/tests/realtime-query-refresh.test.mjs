@@ -28,6 +28,13 @@ test("trader detail page keeps the live bundle polling after navigation", () => 
 
 test("trader detail page subscribes to server execution events for immediate fills", () => {
   assert.match(apiSource, /getTraderExecutionEventsUrl/, "API helper should expose the server execution event stream URL");
+  assert.match(apiSource, /resolveEventStreamBaseUrl/, "execution event streams should resolve their own base URL");
+  assert.match(apiSource, /EVENT_STREAM_API_BASE_URL/, "SSE should avoid the normal browser fetch proxy when an absolute API URL is configured");
+  assert.doesNotMatch(
+    apiSource,
+    /getTraderExecutionEventsUrl[\s\S]*`\$\{API_BASE_URL\}\/api\/league\/traders/,
+    "EventSource should not run through the Next backend proxy because aborted streams create noisy pipe failures"
+  );
   assert.match(detailSource, /new EventSource\(getTraderExecutionEventsUrl\(traderId, symbol\)\)/, "detail page should subscribe to backend paper execution events");
   assert.match(detailSource, /refetchQueries\(\{ queryKey: detailKey, type: "active" \}\)/, "execution events should immediately refetch the active detail bundle");
   assert.match(detailSource, /invalidateQueries\(\{ queryKey: leaderboardKey \}\)/, "execution events should also invalidate the visible leaderboard cache");

@@ -55,7 +55,10 @@ def structured_review_schema() -> dict[str, Any]:
             "verdict": {"type": "string", "description": "Short decision label in the requested language."},
             "headline": {
                 "type": "string",
-                "description": "One plain-language sentence explaining whether the current position is working, weakening, protected, or invalidated.",
+                "description": (
+                    "One plain-language sentence. For entry approval, explain why this entry is being taken now before risk controls; "
+                    "for position management, explain whether the current position is working, weakening, protected, or invalidated."
+                ),
             },
             "action": {
                 "type": "string",
@@ -64,7 +67,10 @@ def structured_review_schema() -> dict[str, Any]:
             "keyReasons": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Up to two standalone evidence sentences tied to current price versus entry, stop, target, PnL, recent candles, or recent reviews.",
+                "description": (
+                    "Up to two standalone evidence sentences. For entry approval, the first reason must name the concrete market trigger or entry thesis; "
+                    "the second may cover current price versus entry, stop, target, PnL, recent candles, or recent reviews."
+                ),
             },
             "risks": {
                 "type": "array",
@@ -108,7 +114,8 @@ def trade_review_schema() -> dict[str, Any]:
             "approvalReason": {
                 "type": "string",
                 "description": (
-                    "Legacy entry approval rationale. Write 1-2 compact sentences mirroring structuredReview. "
+                    "Legacy entry approval rationale. Write 1-2 compact sentences mirroring structuredReview, with the entry reason before risk controls. "
+                    "Do not answer only with higher-timeframe trend, stop/target geometry, RR, leverage, or risk percentage. "
                     "Do not cite setupScore as the main reason or describe approval as paper-trading learning."
                 ),
             },
