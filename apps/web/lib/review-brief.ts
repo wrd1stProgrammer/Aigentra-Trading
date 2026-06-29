@@ -38,11 +38,12 @@ export function reviewBriefFromRecord(value: unknown): ReviewBrief | null {
   const payload = recordValue(record?.payload);
   const nestedReview = recordValue(record?.review) ?? recordValue(payload?.review);
   const payloadAiReview = recordValue(payload?.aiReview);
+  const embeddedTranslationIsCurrent = embeddedAiReviewTranslationIsCurrent(record, payload);
   return firstStructuredReview(
     record?.structuredReview,
     nestedReview?.structuredReview,
-    payload?.aiStructuredReview,
-    payloadAiReview?.structuredReview
+    embeddedTranslationIsCurrent ? payload?.aiStructuredReview : null,
+    embeddedTranslationIsCurrent ? payloadAiReview?.structuredReview : null
   );
 }
 
@@ -124,6 +125,16 @@ function stripBulletPrefix(value: string): string {
     }
   }
   return clean;
+}
+
+function embeddedAiReviewTranslationIsCurrent(record: Record<string, unknown> | null, payload: Record<string, unknown> | null): boolean {
+  const translation = recordValue(record?.translation) ?? recordValue(payload?.translation);
+  const embeddedAiReview = recordValue(translation?.embeddedAiReview);
+  if (!embeddedAiReview) return true;
+  if (embeddedAiReview.staleSourceHash === true) return false;
+  const status = textValue(embeddedAiReview.status)?.toLowerCase();
+  if (!status) return true;
+  return status === "ok" || status === "canonical";
 }
 
 function recordValue(value: unknown): Record<string, unknown> | null {

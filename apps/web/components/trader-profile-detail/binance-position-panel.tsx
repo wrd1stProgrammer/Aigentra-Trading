@@ -348,7 +348,7 @@ function scenarioFromPosition(position: PaperPosition): TraderScenario {
     entryWeight: firstFiniteNumber(payload?.entryWeight, payload?.weight),
     rationale,
     summary: scenarioSummaryFromPayload(payload),
-    reviewBrief: reviewBriefFromRecord({ payload }),
+    reviewBrief: reviewBriefFromRecord(position),
     createdAt: firstString(position.updatedAt, position.openedAt, position.createdAt),
     source: "position"
   };
@@ -372,7 +372,7 @@ function scenarioFromOrder(order: DisplayPaperOrder): TraderScenario {
     entryWeight: firstFiniteNumber(payload?.entryWeight, payload?.weight, recordValue(payload?.entry)?.weight),
     rationale,
     summary: scenarioSummaryFromPayload(payload),
-    reviewBrief: reviewBriefFromRecord({ payload }),
+    reviewBrief: reviewBriefFromRecord(order),
     createdAt: firstString(order.updatedAt, order.createdAt),
     source: "order"
   };

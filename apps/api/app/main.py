@@ -667,6 +667,18 @@ def numeric_record_id(value: Any) -> int | None:
         return None
 
 
+def without_embedded_ai_structured_review(payload: dict) -> dict:
+    next_payload = {**payload}
+    next_payload.pop("aiStructuredReview", None)
+    next_payload.pop("structuredReview", None)
+    ai_review = record_payload(next_payload.get("aiReview"))
+    if ai_review is not None:
+        next_ai_review = {**ai_review}
+        next_ai_review.pop("structuredReview", None)
+        next_payload["aiReview"] = next_ai_review
+    return next_payload
+
+
 def localized_embedded_ai_review_payload(record, payload: dict, locale: str) -> tuple[dict, dict | None]:
     record_session = object_session(record)
     ai_review_id = numeric_record_id(payload.get("aiReviewId"))
@@ -680,15 +692,19 @@ def localized_embedded_ai_review_payload(record, payload: dict, locale: str) -> 
         payload=ai_review,
         locale=locale,
     )
-    if meta.get("status") != "ok":
+    if meta.get("status") == "canonical":
         return payload, None
+    if meta.get("status") != "ok":
+        return without_embedded_ai_structured_review(payload), None
     next_payload = {**payload, "aiReview": localized_review}
-    structured = record_payload(localized_review.get("structuredReview"))
-    if structured is not None:
-        next_payload["aiStructuredReview"] = structured
     approval_reason = localized_review.get("approvalReason")
     if approval_reason:
         next_payload["aiApprovalReason"] = approval_reason
+    if meta.get("staleSourceHash"):
+        return without_embedded_ai_structured_review(next_payload), {"status": "ok", "embeddedAiReview": meta}
+    structured = record_payload(localized_review.get("structuredReview"))
+    if structured is not None:
+        next_payload["aiStructuredReview"] = structured
     return next_payload, {"status": "ok", "embeddedAiReview": meta}
 
 

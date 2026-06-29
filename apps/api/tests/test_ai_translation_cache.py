@@ -1,12 +1,15 @@
 import asyncio
+import json
+from decimal import Decimal
 
 import pytest
 
 from app.ai.translation_cache import fanout_ai_translations, localized_payload_for_source, merge_validated_translation
 from app.ai.translation_provider import translation_style_contract_for_payload
 from app.core.config import Settings
-from app.db import AITranslationCacheRecord, init_db, reset_db_engine, session_scope
+from app.db import AIReviewRecord, AITranslationCacheRecord, PaperPositionRecord, init_db, reset_db_engine, session_scope
 from app.locales import AI_TRANSLATION_SOURCE_AI_REVIEW, AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT, AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT, AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED
+from app.main import serialize_record_for_ui
 
 
 class FakeTranslationProvider:
@@ -368,6 +371,83 @@ def test_localized_payload_reuses_latest_source_translation_after_payload_shape_
         assert localized["approvalReason"] == "ko: translated approval reason"
         assert localized["structuredReview"]["headline"] == "ko: translated headline"
         assert localized["reviewFacts"] == changed_payload["reviewFacts"]
+
+
+def test_stale_embedded_ai_review_translation_does_not_expose_english_structured_review(temp_db):
+    # Given: an open position embeds a newer English AI review, but only an older Korean translation is cached.
+    review_payload = {
+        "decision": "ADJUST_AND_APPROVE",
+        "approvalReason": (
+            "ADJUST_AND_APPROVE: Channel Cartographer can enter this SHORT as BTC retests the upper-channel probe."
+        ),
+        "structuredReview": {
+            "verdict": "ADJUST_AND_APPROVE",
+            "headline": "Channel Cartographer can enter this SHORT as BTC retests the upper-channel probe.",
+            "action": "Take the SHORT only with reduced risk and strict invalidation.",
+            "keyReasons": ["The fee-aware reward-to-risk clears the minimum."],
+            "risks": ["The last two closed trades were SHORT stopouts."],
+            "watchConditions": ["Exit if price closes above the channel boundary."],
+            "managerNote": "Treat the boundary as fragile.",
+        },
+    }
+    stale_ko_payload = {
+        "approvalReason": (
+            "ADJUST_AND_APPROVE: 채널 지도자는 BTC가 상단 채널을 다시 테스트하는 동안 축소된 위험으로만 숏 진입할 수 있습니다."
+        )
+    }
+
+    with session_scope() as db:
+        review = AIReviewRecord(
+            symbol="BTCUSDT",
+            trader_id="channel-rider",
+            status="ok",
+            decision="ADJUST_AND_APPROVE",
+            payload_json=json.dumps(review_payload),
+        )
+        db.add(review)
+        db.flush()
+        db.add(
+            AITranslationCacheRecord(
+                source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+                source_id=review.id,
+                source_hash="older-review-shape",
+                locale="ko",
+                status="ok",
+                payload_json=json.dumps(stale_ko_payload, ensure_ascii=False),
+            )
+        )
+        position = PaperPositionRecord(
+            symbol="BTCUSDT",
+            trader_id="channel-rider",
+            status="open",
+            side="short",
+            quantity=Decimal("0.01"),
+            entry_price=Decimal("60025.6"),
+            leverage=Decimal("5"),
+            notional=Decimal("600.256"),
+            margin=Decimal("120.0512"),
+            payload_json=json.dumps(
+                {
+                    "aiReviewId": review.id,
+                    "aiReview": review_payload,
+                    "aiApprovalReason": review_payload["approvalReason"],
+                    "aiStructuredReview": review_payload["structuredReview"],
+                }
+            ),
+        )
+        db.add(position)
+        db.flush()
+
+        # When: the Korean trader detail response is serialized.
+        data = serialize_record_for_ui(position, include_payload=True, locale="ko")
+
+        # Then: the translated approval reason remains, but stale English structured copy is withheld.
+        payload = data["payload"]
+        assert data["translation"]["embeddedAiReview"]["staleSourceHash"] is True
+        assert payload["aiApprovalReason"].startswith("ADJUST_AND_APPROVE: 채널 지도자")
+        assert payload["aiReview"]["approvalReason"].startswith("ADJUST_AND_APPROVE: 채널 지도자")
+        assert "aiStructuredReview" not in payload
+        assert "structuredReview" not in payload["aiReview"]
 
 
 def test_management_review_translation_uses_partial_overlay(temp_db):

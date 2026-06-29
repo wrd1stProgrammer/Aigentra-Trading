@@ -235,7 +235,8 @@ test("position panel exposes detail callbacks for positions and orders", () => {
 
 test("position panel fallback detail scenarios keep structured AI review copy", () => {
   assert.match(panelSource, /import \{ reviewBriefFromRecord \} from "@\/lib\/review-brief"/);
-  assert.match(panelSource, /reviewBrief:\s*reviewBriefFromRecord\(\{ payload \}\)/);
+  assert.match(panelSource, /reviewBrief:\s*reviewBriefFromRecord\(position\)/);
+  assert.match(panelSource, /reviewBrief:\s*reviewBriefFromRecord\(order\)/);
   assert.doesNotMatch(panelSource, /entryApprovalRationale\(payload\)\s*\?\s*null/);
 });
 
@@ -277,6 +278,58 @@ test("entry approval detail scenarios prefer structured review over legacy appro
   assert.equal(positionScenario.rationale, "Trend Sentinel은 59719.3에서 HTF 연속 SHORT이 일관되게 유지되고 있습니다.");
   assert.equal(positionScenario.reviewBrief.headline, "반등이 막히는 구간에서 숏 진입 근거가 살아 있습니다.");
   assert.equal(positionScenario.reviewBrief.action, "작은 규모로만 진입하고 손절가 회복 여부를 확인하세요.");
+});
+
+test("entry approval scenarios ignore stale embedded English structured review translations", () => {
+  // Given: a Korean detail response still contains stale English structured review fields from an older cache.
+  const trader = { id: "channel-rider", currentPlan: "watch", baseRiskPercent: 0.45, description: "strategy", concept: "concept" };
+  const positions = [
+    {
+      id: 425,
+      symbol: "BTCUSDT",
+      status: "open",
+      side: "short",
+      entryPrice: 60025.6,
+      translation: {
+        status: "ok",
+        embeddedAiReview: {
+          status: "ok",
+          locale: "ko",
+          sourceHash: "current",
+          cachedSourceHash: "older",
+          staleSourceHash: true
+        }
+      },
+      payload: {
+        aiApprovalReason: "ADJUST_AND_APPROVE: 채널 지도자는 축소된 위험으로만 숏 진입할 수 있습니다.",
+        aiReview: {
+          approvalReason: "ADJUST_AND_APPROVE: 채널 지도자는 축소된 위험으로만 숏 진입할 수 있습니다.",
+          structuredReview: {
+            verdict: "ADJUST_AND_APPROVE",
+            headline: "Channel Cartographer can enter this SHORT as BTC retests the upper-channel probe.",
+            action: "Take the SHORT only with reduced risk and strict invalidation.",
+            keyReasons: ["The fee-aware reward-to-risk clears the minimum."],
+            risks: ["The last two closed trades were SHORT stopouts."],
+            watchConditions: ["Exit if price closes above the channel boundary."],
+            managerNote: "Treat the boundary as fragile."
+          }
+        },
+        aiStructuredReview: {
+          verdict: "ADJUST_AND_APPROVE",
+          headline: "Channel Cartographer can enter this SHORT as BTC retests the upper-channel probe.",
+          action: "Take the SHORT only with reduced risk and strict invalidation."
+        }
+      }
+    }
+  ];
+
+  // When: the detail timeline scenarios are built from the cached response.
+  const scenarios = league.buildScenarios({ trader, positions, orders: [], reviews: [], events: [] });
+
+  // Then: the modal falls back to the localized approval reason instead of showing English structured copy.
+  const positionScenario = scenarios.find((scenario) => scenario.id === "position-425");
+  assert.equal(positionScenario.reviewBrief, null);
+  assert.equal(positionScenario.rationale, "ADJUST_AND_APPROVE: 채널 지도자는 축소된 위험으로만 숏 진입할 수 있습니다.");
 });
 
 test("scenario modal does not show entry summary as management rationale", () => {

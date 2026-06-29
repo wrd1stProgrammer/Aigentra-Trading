@@ -279,7 +279,7 @@ export function buildScenarios(args: {
   for (const position of args.positions) {
     const payload = (position.payload ?? {}) as Record<string, any>;
     const rationale = scenarioRationaleFromPayload(payload, position.closeReason);
-    const reviewBrief = reviewBriefFromRecord({ payload });
+    const reviewBrief = reviewBriefFromRecord(position);
     scenarios.push({
       id: `position-${position.id}`,
       title: "Active simulated position",
@@ -304,7 +304,7 @@ export function buildScenarios(args: {
   for (const order of args.orders) {
     const payload = (order.payload ?? {}) as Record<string, any>;
     const rationale = scenarioRationaleFromPayload(payload);
-    const reviewBrief = reviewBriefFromRecord({ payload });
+    const reviewBrief = reviewBriefFromRecord(order);
     scenarios.push({
       id: `order-${order.id}`,
       title: payload.entryReason ?? "Pending entry order",
