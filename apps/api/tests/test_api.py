@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.db import AIReviewRecord, EquitySnapshotRecord, PositionManagementReviewRecord, init_db, reset_db_engine, session_scope
+from app.db import AIReviewRecord, EquitySnapshotRecord, PositionManagementReviewRecord, TraderLeaderboardSnapshotRecord, init_db, reset_db_engine, session_scope
 from app.main import app
 from app.repositories import to_json, upsert_translation_cache_record
 
@@ -263,6 +263,34 @@ def test_leaderboard_fast_returns_utc_monthly_league_without_live_cache_pollutio
     with session_scope() as db:
         db.add_all(
             [
+                TraderLeaderboardSnapshotRecord(
+                    trader_id="channel-rider",
+                    trader_name="Channel Rider",
+                    symbol="BTCUSDT",
+                    equity=12000,
+                    cash_balance=12000,
+                    total_pnl=2000,
+                    return_7d=2.5,
+                    return_30d=8.5,
+                    rank_score=8.5,
+                    has_live_paper_data=True,
+                    max_drawdown=-1.0,
+                    risk_percent=0.35,
+                ),
+                TraderLeaderboardSnapshotRecord(
+                    trader_id="volume-breaker",
+                    trader_name="Volume Breaker",
+                    symbol="BTCUSDT",
+                    equity=10400,
+                    cash_balance=10400,
+                    total_pnl=400,
+                    return_7d=-1.25,
+                    return_30d=4.0,
+                    rank_score=4.0,
+                    has_live_paper_data=True,
+                    max_drawdown=-2.0,
+                    risk_percent=0.35,
+                ),
                 EquitySnapshotRecord(
                     trader_id="channel-rider",
                     symbol="BTCUSDT",
@@ -333,7 +361,11 @@ def test_leaderboard_fast_returns_utc_monthly_league_without_live_cache_pollutio
     assert monthly_data["source"] == "equity_snapshots_monthly"
     assert monthly_data["summaries"][0]["traderId"] == "channel-rider"
     assert monthly_data["summaries"][0]["monthlyReturn"] == 12.0
+    assert monthly_data["summaries"][0]["return7d"] == 2.5
+    assert monthly_data["summaries"][0]["return30d"] == 8.5
     assert monthly_data["summaries"][1]["monthlyReturn"] == 4.0
+    assert monthly_data["summaries"][1]["return7d"] == -1.25
+    assert monthly_data["summaries"][1]["return30d"] == 4.0
     assert monthly_data["positions"] == []
     assert monthly_data["orders"] == []
 

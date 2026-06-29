@@ -179,7 +179,9 @@ export function buildStandings(traders: TraderProfile[], summaries: TraderPaperS
       const return24h = numberValue(summary?.return24h, 0);
       const return30d = numberValue(summary?.return30d, 0);
       const monthlyReturn = numberValue(summary?.monthlyReturn, return7d);
-      const rankingReturn = Math.max(cumulativeReturn, monthlyReturn, return7d, return30d);
+      const isMonthlySnapshot =
+        summary?.currentState?.key === "monthly_snapshot" || summary?.currentState?.source === "monthly";
+      const rankingReturn = isMonthlySnapshot ? monthlyReturn : Math.max(cumulativeReturn, monthlyReturn, return7d, return30d);
       const closed = numberValue(summary?.closedPositions, 0, 0);
       const backendRank = numberValue(summary?.rank, 0, 0);
       return {

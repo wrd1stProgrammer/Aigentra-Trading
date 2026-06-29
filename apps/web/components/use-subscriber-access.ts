@@ -60,7 +60,7 @@ export function useSubscriberAccess() {
     enabled: session.status !== "loading",
     staleTime: 30_000,
     gcTime: 5 * 60_000,
-    retry: false,
+    retry: 1,
     placeholderData: isAuthenticated ? undefined : guestSubscriberAccess
   });
 }
@@ -97,11 +97,12 @@ export async function unlockProtectedSource(input: {
 
 async function readClientSubscriberAccess(): Promise<SubscriberAccessState> {
   const response = await fetch("/api/subscriber/access", { cache: "no-store" });
-  if (response.status === 401) return guestSubscriberAccess;
   const body: unknown = await safeJson(response);
-  if (!response.ok) return guestSubscriberAccess;
+  if (response.status === 401) return guestSubscriberAccess;
+  if (!response.ok) throw new SubscriberAccessClientError(readError(body), response.status);
   const parsed = subscriberAccessSchema.safeParse(body);
-  return parsed.success ? parsed.data : guestSubscriberAccess;
+  if (!parsed.success) throw new SubscriberAccessClientError("invalid_subscriber_access_response", 502);
+  return parsed.data;
 }
 
 async function safeJson(response: Response): Promise<unknown> {

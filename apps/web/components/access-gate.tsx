@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { LockKey, Ticket, WarningCircle, X } from "@phosphor-icons/react";
+import { CircleNotch, LockKey, Ticket, WarningCircle, X } from "@phosphor-icons/react";
 import { useAppContext } from "@/components/app-provider";
 import {
   isProtectedSourceUnlocked,
@@ -55,21 +55,21 @@ export function ProtectedContentGate({
   const [unlocking, setUnlocking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const resolvedAccess = access ?? {
-    userId: null,
-    email: null,
-    subscriptionStatus: "none" as const,
-    isSubscribed: false,
-    couponLimit: 3,
-    couponsUsed: 3,
-    couponsRemaining: 0,
-    unlockedSourceKeys: []
-  };
+  if (!access) {
+    return (
+      <SubscriberAccessPending
+        className={className}
+        label={accessQuery.isError ? t("common.liveDataUnavailable") : t("common.loading")}
+      >
+        {children}
+      </SubscriberAccessPending>
+    );
+  }
 
   const unlocked =
     mode === "subscription"
-      ? resolvedAccess.isSubscribed
-      : isProtectedSourceUnlocked(resolvedAccess, sourceKey);
+      ? access.isSubscribed
+      : isProtectedSourceUnlocked(access, sourceKey);
   if (unlocked) {
     return <div className={className}>{children}</div>;
   }
@@ -139,7 +139,7 @@ export function ProtectedContentGate({
       </button>
       {dialogOpen ? (
         <AccessDialog
-          access={resolvedAccess}
+          access={access}
           mode={mode}
           title={lockTitle}
           description={lockDescription}
@@ -150,6 +150,30 @@ export function ProtectedContentGate({
           onUnlock={() => void unlock()}
         />
       ) : null}
+    </div>
+  );
+}
+
+function SubscriberAccessPending({
+  className,
+  label,
+  children
+}: {
+  readonly className: string;
+  readonly label: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <div data-testid="subscriber-access-pending" className={`relative rounded-2xl ${className}`}>
+      <div className="pointer-events-none select-none overflow-hidden rounded-2xl opacity-80">
+        {children}
+      </div>
+      <div className="absolute inset-0 z-10 grid place-items-center rounded-2xl bg-zinc-950/[0.42] text-zinc-300">
+        <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/55 px-3 py-2 text-xs font-semibold shadow-lg shadow-black/25">
+          <CircleNotch size={14} weight="bold" className="animate-spin text-emerald-300" />
+          <span>{label}</span>
+        </span>
+      </div>
     </div>
   );
 }

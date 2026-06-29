@@ -105,6 +105,9 @@ test("league overview stream keeps a page cache and stops duplicate infinite loa
   assert.match(leaderboardSource, /mergeOverviewReviews/, "overview should merge newly fetched reviews into cached rows");
   assert.match(leaderboardSource, /uniqueReviews\.length === 0/, "overview should stop auto-loading when a page contains only duplicates");
   assert.match(leaderboardSource, /setHasMore\(false\)/, "overview should stop observer retries after exhausted or failed loads");
+  assert.match(leaderboardSource, /OVERVIEW_WARMING_RETRY_LIMIT/, "overview cold-cache warming should have a bounded retry limit");
+  assert.match(leaderboardSource, /onInitialReady/, "overview should report first-page readiness to the parent loading barrier");
+  assert.match(leaderboardSource, /preferCached: false/, "overview should fall back to a direct page fetch after bounded cached warmup retries");
 });
 
 test("league overview does not auto-paginate before the user scrolls the log", () => {
@@ -128,10 +131,14 @@ test("browser API calls use the same-origin backend proxy to avoid cold-load COR
   assert.match(apiSource, /const BROWSER_API_PROXY_BASE_URL = "\/backend-api"/, "browser fetches should use the Next proxy prefix");
   assert.match(apiSource, /typeof window === "undefined"/, "server-side calls should keep using the external API base URL");
   assert.match(apiSource, /\^https\?:\\\/\\\//, "absolute public API bases should be proxied in the browser");
+  assert.match(apiSource, /requestTimeoutMs/, "browser API calls should have bounded timeouts instead of waiting for 75s proxy failures");
+  assert.match(apiSource, /composeAbortSignal/, "browser API calls should preserve React Query abort signals while adding a timeout");
   assert.doesNotMatch(nextConfigSource, /rewrites\(\)/, "backend proxy should not rely on Next rewrites that log navigation aborts loudly");
   assert.match(backendProxyRouteSource, /proxyBackendRequest/, "Next should expose a non-conflicting backend proxy route handler");
   assert.match(backendProxyRouteSource, /isNavigationAbort/, "backend proxy should classify rapid-navigation aborts");
   assert.match(backendProxyRouteSource, /status: 499/, "navigation aborts should resolve as client-cancelled proxy responses");
+  assert.match(backendProxyRouteSource, /BACKEND_PROXY_TIMEOUT_MS/, "backend proxy should bound slow upstream requests");
+  assert.match(backendProxyRouteSource, /status: 504/, "backend proxy timeouts should resolve as gateway timeout instead of hanging until platform timeout");
 });
 
 test("leaderboard BTC and favorites filters render as compact standalone areas", () => {
@@ -241,6 +248,29 @@ test("monthly league progress rows prefer current live summary status fields", (
   );
 });
 
+test("monthly league keeps trailing return labels on live trailing metrics", () => {
+  assert.match(
+    leaderboardSource,
+    /const liveReturnMetricByTrader =/,
+    "monthly rows should keep live trailing return metrics separate from the monthly ranking return"
+  );
+  assert.match(
+    leaderboardSource,
+    /applyLiveReturnMetrics\(standings, liveReturnMetricByTrader\)/,
+    "visible return columns should use live 7D/24H/30D values even when the selected ranking period is monthly"
+  );
+  assert.match(
+    leaderboardSource,
+    /value=\{formatSignedPercent\(trader\.return7d\)\}/,
+    "preview 7D cell must render the 7D field, not monthlyReturn"
+  );
+  assert.doesNotMatch(
+    leaderboardSource,
+    /label=\{t\("common\.return7d"\)\} value=\{formatSignedPercent\(trader\.monthlyReturn\)\}/,
+    "a cell labeled 7D must never render monthlyReturn"
+  );
+});
+
 test("monthly league uses the same dynamic return metric selection as current league", () => {
   assert.doesNotMatch(
     leaderboardSource,
@@ -277,9 +307,10 @@ test("leaderboard uses the shared full-screen loading overlay", () => {
   assert.match(leaderboardSource, /common\.loadingLeagueData/, "leaderboard overlay should use localized loading copy");
   assert.match(
     leaderboardSource,
-    /const initialLoading = btcQuery\.isPending && btcQuery\.isFetching && !btcQuery\.isPlaceholderData/,
-    "placeholder data should let the leaderboard and overview render while live data refreshes"
+    /const criticalDataReady =/,
+    "leaderboard overlay should wait for the selected bundle, access state, live exposure state, and overview readiness"
   );
+  assert.match(leaderboardSource, /const showBackgroundFetching = !initialLoading && isFetching/, "inline loading chip should only appear after the central initial overlay has finished");
   assert.match(overlaySource, /fixed inset-0/, "loading overlay should cover the viewport");
   assert.match(overlaySource, /createPortal/, "loading overlay should be portaled outside animated page containers");
   assert.match(overlaySource, /backdrop-blur-\[3px\]/, "loading overlay should blur the existing page");

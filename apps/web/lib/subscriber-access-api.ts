@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const DEFAULT_API_BASE_URL = "http://localhost:8000";
+const SUBSCRIBER_ACCESS_TIMEOUT_MS = 8_000;
 
 const subscriberAccessSchema = z.object({
   userId: z.string().min(1),
@@ -43,17 +44,26 @@ export async function readSubscriberAccess(identity: SubscriberIdentity): Promis
   const apiUrl = subscriberAccessApiUrl(identity);
   if (!apiUrl) throw new SubscriberAccessApiError("subscriber_access_unavailable", 503);
 
-  const response = await fetch(apiUrl, {
-    cache: "no-store",
-    headers: subscriberApiHeaders()
-  });
-  const responseBody: unknown = await safeJson(response);
-  if (!response.ok) {
-    throw new SubscriberAccessApiError(readError(responseBody), response.status);
+  const timeout = subscriberAccessTimeoutSignal();
+  try {
+    const response = await fetch(apiUrl, {
+      cache: "no-store",
+      headers: subscriberApiHeaders(),
+      signal: timeout.signal
+    });
+    const responseBody: unknown = await safeJson(response);
+    if (!response.ok) {
+      throw new SubscriberAccessApiError(readError(responseBody), response.status);
+    }
+    const parsed = subscriberAccessSchema.safeParse(responseBody);
+    if (!parsed.success) throw new SubscriberAccessApiError("invalid_subscriber_access_response", 502);
+    return parsed.data;
+  } catch (error) {
+    if (isAbortError(error)) throw new SubscriberAccessApiError("subscriber_access_timeout", 504);
+    throw error;
+  } finally {
+    timeout.clear();
   }
-  const parsed = subscriberAccessSchema.safeParse(responseBody);
-  if (!parsed.success) throw new SubscriberAccessApiError("invalid_subscriber_access_response", 502);
-  return parsed.data;
 }
 
 export async function unlockSubscriberSource(input: {
@@ -66,25 +76,43 @@ export async function unlockSubscriberSource(input: {
   const apiUrl = subscriberUnlockApiUrl();
   if (!apiUrl) throw new SubscriberAccessApiError("subscriber_access_unavailable", 503);
 
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...subscriberApiHeaders() },
-    body: JSON.stringify({
-      userId: input.identity.userId,
-      email: input.identity.email,
-      sourceKey: input.sourceKey,
-      sourceType: input.sourceType,
-      traderId: input.traderId,
-      symbol: input.symbol
-    })
-  });
-  const responseBody: unknown = await safeJson(response);
-  if (!response.ok) {
-    throw new SubscriberAccessApiError(readError(responseBody), response.status);
+  const timeout = subscriberAccessTimeoutSignal();
+  try {
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...subscriberApiHeaders() },
+      body: JSON.stringify({
+        userId: input.identity.userId,
+        email: input.identity.email,
+        sourceKey: input.sourceKey,
+        sourceType: input.sourceType,
+        traderId: input.traderId,
+        symbol: input.symbol
+      }),
+      signal: timeout.signal
+    });
+    const responseBody: unknown = await safeJson(response);
+    if (!response.ok) {
+      throw new SubscriberAccessApiError(readError(responseBody), response.status);
+    }
+    const parsed = unlockResponseSchema.safeParse(responseBody);
+    if (!parsed.success) throw new SubscriberAccessApiError("invalid_subscriber_unlock_response", 502);
+    return parsed.data;
+  } catch (error) {
+    if (isAbortError(error)) throw new SubscriberAccessApiError("subscriber_access_timeout", 504);
+    throw error;
+  } finally {
+    timeout.clear();
   }
-  const parsed = unlockResponseSchema.safeParse(responseBody);
-  if (!parsed.success) throw new SubscriberAccessApiError("invalid_subscriber_unlock_response", 502);
-  return parsed.data;
+}
+
+function subscriberAccessTimeoutSignal(timeoutMs = SUBSCRIBER_ACCESS_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort("subscriber_access_timeout"), timeoutMs);
+  return {
+    signal: controller.signal,
+    clear: () => clearTimeout(timer)
+  };
 }
 
 function subscriberAccessApiUrl(identity: SubscriberIdentity): string | null {
@@ -118,4 +146,10 @@ async function safeJson(response: Response): Promise<unknown> {
 function readError(input: unknown): string {
   if (typeof input !== "object" || input === null || !("detail" in input)) return "subscriber_access_request_failed";
   return typeof input.detail === "string" ? input.detail : "subscriber_access_request_failed";
+}
+
+function isAbortError(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /abort|timeout/i.test(message);
 }

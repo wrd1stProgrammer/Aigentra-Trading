@@ -9,6 +9,7 @@ const consensusSource = readFileSync(new URL("../components/consensus-page-clien
 const traderDetailSource = readFileSync(new URL("../components/trader-profile-page-client.tsx", import.meta.url), "utf8");
 const accessGateSource = readFileSync(new URL("../components/access-gate.tsx", import.meta.url), "utf8");
 const subscriberAccessSource = readFileSync(new URL("../components/use-subscriber-access.ts", import.meta.url), "utf8");
+const subscriberAccessApiSource = readFileSync(new URL("../lib/subscriber-access-api.ts", import.meta.url), "utf8");
 
 test("account drawer exposes remaining AI review coupons for free users", () => {
   assert.match(appShellSource, /access\.drawerCouponLabel/, "drawer should label free review coupons");
@@ -18,7 +19,7 @@ test("account drawer exposes remaining AI review coupons for free users", () => 
 
 test("free leaderboard only renders the public top five and locks the rest", () => {
   assert.match(leaderboardSource, /FREE_LEADERBOARD_LIMIT/, "leaderboard should use the shared free preview limit");
-  assert.match(leaderboardSource, /standings\.slice\(0, FREE_LEADERBOARD_LIMIT\)/, "free standings should be sliced to top five");
+  assert.match(leaderboardSource, /displayStandings\.slice\(0, FREE_LEADERBOARD_LIMIT\)/, "free standings should be sliced to top five");
   assert.match(leaderboardSource, /visibleStandings/, "all visible leaderboard metrics should be derived from gated standings");
   assert.match(leaderboardSource, /LeaderboardLockedRows/, "hidden rows should advertise locked traders");
   assert.match(leaderboardSource, /access\.leaderboardPreviewTitle/, "locked rows should use localized preview copy");
@@ -41,6 +42,57 @@ test("subscriber access query state is scoped to the signed-in account", () => {
     subscriberAccessSource,
     /placeholderData: \(previousData\) => previousData \?\? guestSubscriberAccess/,
     "subscriber access should not show previous account access as placeholder data"
+  );
+});
+
+test("authenticated subscriber access errors stay unknown instead of guest", () => {
+  assert.doesNotMatch(
+    subscriberAccessSource,
+    /if \(!response\.ok\) return guestSubscriberAccess/,
+    "authenticated subscriber access 5xx responses must not be converted into a free guest state"
+  );
+  assert.doesNotMatch(
+    subscriberAccessSource,
+    /return parsed\.success \? parsed\.data : guestSubscriberAccess/,
+    "invalid authenticated subscriber access responses must not be converted into a free guest state"
+  );
+  assert.match(
+    subscriberAccessSource,
+    /throw new SubscriberAccessClientError/,
+    "authenticated subscriber access failures should surface as typed query errors"
+  );
+  assert.match(
+    subscriberAccessApiSource,
+    /subscriberAccessTimeoutSignal/,
+    "server-side subscriber access calls should have a bounded timeout"
+  );
+});
+
+test("subscriber gates use neutral pending state instead of guest blur while access is unknown", () => {
+  assert.match(
+    accessGateSource,
+    /subscriber-access-pending/,
+    "protected gates should render a neutral access-pending state while authenticated access is unresolved"
+  );
+  assert.doesNotMatch(
+    accessGateSource,
+    /const resolvedAccess = access \?\? \{/,
+    "protected gates must not immediately resolve missing authenticated access to the guest lock state"
+  );
+  assert.match(
+    leaderboardSource,
+    /const accessReady =/,
+    "leaderboard should model access readiness separately from subscription truthiness"
+  );
+  assert.match(
+    leaderboardSource,
+    /const shouldLimitForFreeAccess =/,
+    "leaderboard should only show free preview rows for a known free or guest state"
+  );
+  assert.doesNotMatch(
+    leaderboardSource,
+    /const isSubscribed = Boolean\(access\?\.isSubscribed\)/,
+    "missing access data should not be treated the same as a known non-subscriber"
   );
 });
 

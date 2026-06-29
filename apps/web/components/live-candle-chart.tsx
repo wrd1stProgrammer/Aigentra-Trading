@@ -82,6 +82,12 @@ type PositionedExecutionMarker = ExecutionMarker & {
   dotY: number;
 };
 
+function isAbortLike(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /abort|timeout/i.test(message);
+}
+
 const TIMEFRAMES: ChartInterval[] = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"];
 const DEFAULT_INTERVAL: ChartInterval = "5m";
 const HISTORY_PAGE_LIMIT = 500;
@@ -380,8 +386,9 @@ export function LiveCandleChart({
 
   useEffect(() => {
     let cancelled = false;
+    const abortController = new AbortController();
     setDailyReferencePrice(null);
-    getKlines(symbol, "1d", 2, { staleMs: 60_000 })
+    getKlines(symbol, "1d", 2, { staleMs: 60_000, signal: abortController.signal })
       .then((response) => {
         if (cancelled) return;
         const candles = [...response.candles].sort((left, right) => left.openTime - right.openTime);
@@ -389,11 +396,12 @@ export function LiveCandleChart({
         const previousDaily = candles.at(-2);
         setDailyReferencePrice(previousDaily?.close ?? latestDaily?.open ?? null);
       })
-      .catch(() => {
-        if (!cancelled) setDailyReferencePrice(null);
+      .catch((error) => {
+        if (!cancelled && !isAbortLike(error)) setDailyReferencePrice(null);
       });
     return () => {
       cancelled = true;
+      abortController.abort();
     };
   }, [symbol]);
 
@@ -651,6 +659,7 @@ export function LiveCandleChart({
   // --- Fetch and cache kline data ---
   useEffect(() => {
     let disposed = false;
+    const restAbortController = new AbortController();
     const series = seriesRef.current;
     const chart = chartRef.current;
     const volumeSeries = volumeSeriesRef.current;
@@ -707,7 +716,7 @@ export function LiveCandleChart({
     const refreshFromRest = async ({ fit = false, staleMs = restCacheStaleMs(interval) } = {}) => {
       if (!hasVisibleCandlesRef.current) setLoading(true);
       try {
-        const data = await getKlines(symbol, interval, limit, { staleMs });
+        const data = await getKlines(symbol, interval, limit, { staleMs, signal: restAbortController.signal });
         if (disposed) return;
         if (data.candles.length || !hasVisibleCandlesRef.current) {
           updateChartData(data.candles);
@@ -721,7 +730,7 @@ export function LiveCandleChart({
         }
         setError(null);
       } catch (err) {
-        if (!disposed) setError(err instanceof Error ? err.message : String(err));
+        if (!disposed && !isAbortLike(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
         if (!disposed) setLoading(false);
       }
@@ -729,7 +738,7 @@ export function LiveCandleChart({
 
     const refreshLatestFromRest = async () => {
       try {
-        const data = await getKlines(symbol, interval, restBackfillCandleLimit(), { force: true, staleMs: 0 });
+        const data = await getKlines(symbol, interval, restBackfillCandleLimit(), { force: true, staleMs: 0, signal: restAbortController.signal });
         if (disposed) return;
         for (const candle of data.candles) {
           updateKlineCache(symbol, interval, limit, candle);
@@ -747,7 +756,7 @@ export function LiveCandleChart({
         }
         setError(null);
       } catch (err) {
-        if (!disposed) setError(err instanceof Error ? err.message : String(err));
+        if (!disposed && !isAbortLike(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
         if (!disposed) setLoading(false);
       }
@@ -761,7 +770,8 @@ export function LiveCandleChart({
       try {
         const data = await getKlines(symbol, interval, HISTORY_PAGE_LIMIT, {
           before: oldestOpenTime,
-          staleMs: 10 * 60_000
+          staleMs: 10 * 60_000,
+          signal: restAbortController.signal
         });
         if (disposed) return;
         const olderCandles = data.candles.filter((candle) => candle.openTime < oldestOpenTime);
@@ -775,7 +785,7 @@ export function LiveCandleChart({
         updateChartData(merged);
         setError(null);
       } catch (err) {
-        if (!disposed) setError(err instanceof Error ? err.message : String(err));
+        if (!disposed && !isAbortLike(err)) setError(err instanceof Error ? err.message : String(err));
       } finally {
         loadingOlderRef.current = false;
         if (!disposed) setLoadingOlder(false);
@@ -848,6 +858,7 @@ export function LiveCandleChart({
 
     return () => {
       disposed = true;
+      restAbortController.abort();
       window.clearInterval(restFallback);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(visibleRangeHandler);
       socket.close();

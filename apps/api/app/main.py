@@ -2794,6 +2794,11 @@ def monthly_leaderboard_summaries(
         monthly_return = round((total_pnl / start_equity) * 100, 2) if start_equity > 0 else 0.0
         closed_positions, wins, losses = monthly_position_win_loss_counts(db, trader.id, symbol, period_start, period_end)
         win_rate = round((wins / closed_positions) * 100, 2) if closed_positions else None
+        live_summary = trader_snapshot_summary(db, trader.id, symbol) or {}
+        live_cumulative_return = float_or_default(live_summary.get("cumulativeReturn"), monthly_return)
+        live_return_24h = float_or_default(live_summary.get("return24h"), 0.0)
+        live_return_7d = float_or_default(live_summary.get("return7d"), 0.0)
+        live_return_30d = float_or_default(live_summary.get("return30d"), 0.0)
         summaries.append(
             {
                 "traderId": trader.id,
@@ -2807,11 +2812,11 @@ def monthly_leaderboard_summaries(
                 "unrealizedPnl": round(unrealized_pnl, 4),
                 "totalFees": round(total_fees, 4),
                 "totalPnl": round(total_pnl, 4),
-                "cumulativeReturn": monthly_return,
+                "cumulativeReturn": live_cumulative_return,
                 "monthlyReturn": monthly_return,
-                "return24h": monthly_return,
-                "return7d": monthly_return,
-                "return30d": monthly_return,
+                "return24h": live_return_24h,
+                "return7d": live_return_7d,
+                "return30d": live_return_30d,
                 "winRate": win_rate,
                 "closedPositions": closed_positions,
                 "wins": wins,

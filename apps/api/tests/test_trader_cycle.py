@@ -935,6 +935,10 @@ def test_position_management_prompt_requires_live_position_first_desk_briefing()
     assert "Do not lead with overall trend alignment, valid structure, risk-reward ratio, or no invalidation signal" in prompt
     assert "If progressR is between -0.25 and 0.25" in prompt
     assert "why not close, why not move the stop, why not take profit, and what exact trigger changes the decision" in prompt
+    assert "CURRENT POSITION DECISION TEMPLATE" in prompt
+    assert "what changed since the previous review" in prompt
+    assert "Do not write a review that could apply to any trader" in prompt
+    assert "name the relevant trader-specific anchor" in prompt
 
 
 def test_position_management_prompt_bans_repeated_title_labels_and_entry_price_confusion():

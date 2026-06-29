@@ -15,6 +15,9 @@ export const LEAGUE_QUERY_STALE_TIME_MS = 60_000;
 export const LEAGUE_QUERY_GC_TIME_MS = 10 * 60_000;
 export const LEAGUE_LIVE_REFETCH_INTERVAL_MS = 60_000;
 export const TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS = 20_000;
+const DEFAULT_BROWSER_REQUEST_TIMEOUT_MS = 12_000;
+const FAST_BROWSER_REQUEST_TIMEOUT_MS = 8_000;
+const SLOW_BROWSER_REQUEST_TIMEOUT_MS = 15_000;
 
 export type LeaderboardBundleRequestOptions = {
   readonly includeRelated?: boolean;
@@ -509,6 +512,7 @@ type KlineRequestOptions = {
   force?: boolean;
   staleMs?: number;
   before?: number;
+  signal?: AbortSignal;
 };
 
 type KlineCacheEntry = {
@@ -541,16 +545,58 @@ async function requestFirst<T>(paths: string[], options?: RequestInit): Promise<
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers = new Headers(options?.headers);
   headers.set("Content-Type", "application/json");
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers,
-    cache: "no-store"
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Request failed: ${response.status}`);
+  const composedSignal = composeAbortSignal(options?.signal, requestTimeoutMs(path));
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers,
+      cache: "no-store",
+      signal: composedSignal.signal
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `Request failed: ${response.status}`);
+    }
+    return response.json() as Promise<T>;
+  } finally {
+    composedSignal.cleanup();
   }
-  return response.json() as Promise<T>;
+}
+
+function requestTimeoutMs(path: string) {
+  if (
+    path.startsWith("/api/market/klines") ||
+    path.startsWith("/api/paper/equity-snapshots") ||
+    path.includes("/trade-history") ||
+    path.startsWith("/api/subscribers/access")
+  ) {
+    return FAST_BROWSER_REQUEST_TIMEOUT_MS;
+  }
+  if (path.startsWith("/api/league/leaderboard-fast") || path.startsWith("/api/league/traders/")) {
+    return SLOW_BROWSER_REQUEST_TIMEOUT_MS;
+  }
+  return DEFAULT_BROWSER_REQUEST_TIMEOUT_MS;
+}
+
+function composeAbortSignal(sourceSignal: AbortSignal | null | undefined, timeoutMs: number) {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const abortFromSource = () => controller.abort(sourceSignal?.reason);
+  if (sourceSignal?.aborted) {
+    abortFromSource();
+  } else if (sourceSignal) {
+    sourceSignal.addEventListener("abort", abortFromSource, { once: true });
+  }
+  if (timeoutMs > 0) {
+    timer = setTimeout(() => controller.abort("request_timeout"), timeoutMs);
+  }
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      if (timer) clearTimeout(timer);
+      sourceSignal?.removeEventListener("abort", abortFromSource);
+    }
+  };
 }
 
 function readBrowserCache<T>(key: string, maxAgeMs: number): T | null {
@@ -631,7 +677,7 @@ export function getKlines(symbol: string, interval = "1m", limit = 5, options: K
     limit: String(normalizedLimit)
   });
   if (normalizedBefore !== null) params.set("before", String(normalizedBefore));
-  const promise = request<KlinesResponse>(`/api/market/klines?${params.toString()}`)
+  const promise = request<KlinesResponse>(`/api/market/klines?${params.toString()}`, { signal: options.signal })
     .then((data) => {
       const next = normalizeKlinesResponse(data, normalizedSymbol, normalizedInterval, normalizedLimit);
       rememberKlines(cacheKey, next);
@@ -762,12 +808,12 @@ export function getRecentAiReviews(limit = 5) {
   return getAiReviews(limit);
 }
 
-export function getRecentTradePlans(limit = 5, symbol?: string, traderId?: string, status?: string) {
+export function getRecentTradePlans(limit = 5, symbol?: string, traderId?: string, status?: string, options?: { readonly signal?: AbortSignal }) {
   const params = new URLSearchParams({ limit: String(limit) });
   if (symbol) params.set("symbol", symbol);
   if (traderId) params.set("trader_id", traderId);
   if (status) params.set("status", status);
-  return request<Record<string, any>>(`/api/trade-plans?${params.toString()}`);
+  return request<Record<string, any>>(`/api/trade-plans?${params.toString()}`, { signal: options?.signal });
 }
 
 export function getRecentProviderCalls(limit = 5) {
@@ -969,7 +1015,7 @@ export function getTradeEvents(limit = 20, symbol?: string, traderId?: string) {
   ]);
 }
 
-export function getEquitySnapshots(limit = 20, traderId?: string, symbol?: string) {
+export function getEquitySnapshots(limit = 20, traderId?: string, symbol?: string, options?: { readonly signal?: AbortSignal }) {
   const params = new URLSearchParams({ limit: String(limit) });
   if (traderId) params.set("trader_id", traderId);
   if (symbol) params.set("symbol", symbol);
@@ -977,7 +1023,7 @@ export function getEquitySnapshots(limit = 20, traderId?: string, symbol?: strin
     `/api/paper/equity-snapshots?${params.toString()}`,
     `/api/equity-snapshots?${params.toString()}`,
     `/api/paper-trading/equity-snapshots?${params.toString()}`
-  ]);
+  ], { signal: options?.signal });
 }
 
 export function getManagementReviews(limit = 20, offset = 0, symbol?: string, traderId?: string, locale: Locale = "en") {
@@ -1090,7 +1136,8 @@ export function getTraderTradeHistory(
   traderId: string,
   symbol: string = "BTCUSDT",
   limit: number = 10,
-  offset: number = 0
+  offset: number = 0,
+  options?: { readonly signal?: AbortSignal }
 ) {
   const params = new URLSearchParams({
     symbol,
@@ -1098,7 +1145,8 @@ export function getTraderTradeHistory(
     offset: String(offset)
   });
   return request<MergedTradeHistoryResponse>(
-    `/api/league/traders/${encodeURIComponent(traderId)}/trade-history?${params.toString()}`
+    `/api/league/traders/${encodeURIComponent(traderId)}/trade-history?${params.toString()}`,
+    { signal: options?.signal }
   );
 }
 

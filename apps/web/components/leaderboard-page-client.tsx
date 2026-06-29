@@ -56,6 +56,7 @@ const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_108px_108px_
 const OVERVIEW_INITIAL_LIMIT = 12;
 const OVERVIEW_PAGE_LIMIT = 10;
 const OVERVIEW_CACHE_TTL_MS = 60_000;
+const OVERVIEW_WARMING_RETRY_LIMIT = 2;
 const LIVE_EXPOSURE_LIMIT = 100;
 const DEFAULT_LEAGUE_MONTH = "2026-06";
 
@@ -197,7 +198,8 @@ export function LeaderboardPageClient() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const session = useSession();
-  const { data: access } = useSubscriberAccess();
+  const accessQuery = useSubscriberAccess();
+  const access = accessQuery.data;
   
   // Custom filter state
   const [activeTab, setActiveTab] = useState<"BTC">("BTC");
@@ -208,6 +210,7 @@ export function LeaderboardPageClient() {
   const [cacheReady, setCacheReady] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favoriteTraderIds, setFavoriteTraderIds] = useState<Set<string>>(() => new Set());
+  const [overviewReadyKey, setOverviewReadyKey] = useState<string | null>(null);
 
   const leagueMonthOptions = useMemo(() => {
     return buildLeagueMonthOptions().filter((option) => option.year === 2026 && option.month === 6);
@@ -251,6 +254,14 @@ export function LeaderboardPageClient() {
   useEffect(() => {
     setSelectedLeagueMonth(initialLeagueMonthFromSearchParams(searchParams));
   }, [searchParams]);
+
+  useEffect(() => {
+    setOverviewReadyKey(null);
+  }, [locale]);
+
+  const markOverviewInitialReady = useCallback(() => {
+    setOverviewReadyKey(locale);
+  }, [locale]);
 
   const subscriberPreferencesQueryKey = useMemo(
     () => ["subscriber", "preferences", "leaderboard", access?.userId ?? "", access?.email ?? ""] as const,
@@ -354,25 +365,33 @@ export function LeaderboardPageClient() {
       (cacheReady ? getCachedLeaderboardBundle("BTCUSDT", locale, { includeRelated: false, leagueMonth: undefined }) ?? undefined : undefined)
   });
 
-  const isFetching = btcQuery.isFetching;
-  const initialLoading = btcQuery.isPending && btcQuery.isFetching && !btcQuery.isPlaceholderData;
   const bundle = useMemo<LeaderboardBundle>(() => {
     return btcQuery.data ?? fallbackBundle;
   }, [btcQuery.data, fallbackBundle]);
 
   const traders = bundle.traders?.length ? bundle.traders : (fallbackTraders as unknown as TraderProfile[]);
   const standings = useMemo(() => buildStandings(traders, bundle.summaries ?? []), [bundle.summaries, traders]);
-  const isSubscribed = Boolean(access?.isSubscribed);
+  const liveReturnMetricByTrader = useMemo(
+    () => buildLiveReturnMetricMap(currentLeagueBundleQuery.data?.summaries ?? []),
+    [currentLeagueBundleQuery.data?.summaries]
+  );
+  const displayStandings = useMemo(
+    () => (selectedLeagueMonth ? applyLiveReturnMetrics(standings, liveReturnMetricByTrader) : standings),
+    [liveReturnMetricByTrader, selectedLeagueMonth, standings]
+  );
+  const accessReady = session.status === "unauthenticated" || Boolean(access) || (session.status === "authenticated" && accessQuery.isError);
+  const isSubscribed = access?.isSubscribed === true;
+  const shouldLimitForFreeAccess = accessReady && Boolean(access) && !isSubscribed;
   const visibleStandingsBase = useMemo(
-    () => (isSubscribed ? standings : standings.slice(0, FREE_LEADERBOARD_LIMIT)),
-    [isSubscribed, standings]
+    () => (shouldLimitForFreeAccess ? displayStandings.slice(0, FREE_LEADERBOARD_LIMIT) : displayStandings),
+    [displayStandings, shouldLimitForFreeAccess]
   );
   const visibleStandings = useMemo(
     () => favoritesOnly ? visibleStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : visibleStandingsBase,
     [favoriteTraderIds, favoritesOnly, visibleStandingsBase]
   );
   const returnColumns = useMemo(() => topReturnColumns(visibleStandings, t), [t, visibleStandings]);
-  const hiddenTraderCount = Math.max(0, standings.length - visibleStandingsBase.length);
+  const hiddenTraderCount = Math.max(0, displayStandings.length - visibleStandingsBase.length);
   const activeTrader = visibleStandings.find((item) => item.id === activeTraderId) ?? visibleStandings[0] ?? null;
   const leader = visibleStandings[0] ?? null;
   const totalEquity = visibleStandings.reduce((sum, item) => sum + item.equity, 0);
@@ -409,7 +428,7 @@ export function LeaderboardPageClient() {
   // Fetch pending plans dynamically
   const pendingPlansQuery = useQuery({
     queryKey: ["league", "trade-plans", "BTCUSDT", "pending"],
-    queryFn: async () => unwrapTradePlans(await getRecentTradePlans(100, "BTCUSDT", undefined, "PAPER_TRADING_PENDING")),
+    queryFn: async (context) => unwrapTradePlans(await getRecentTradePlans(100, "BTCUSDT", undefined, "PAPER_TRADING_PENDING", { signal: context.signal })),
     placeholderData: (previousData) => previousData ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -429,7 +448,7 @@ export function LeaderboardPageClient() {
 
   const activeSnapshotsQuery = useQuery({
     queryKey: ["league", "equity-snapshots", activeTab, activeTrader?.id ?? ""],
-    queryFn: async () => unwrapEquitySnapshots(await getEquitySnapshots(100, activeTrader?.id ?? undefined, snapshotSymbol)),
+    queryFn: async (context) => unwrapEquitySnapshots(await getEquitySnapshots(45, activeTrader?.id ?? undefined, snapshotSymbol, { signal: context.signal })),
     enabled: Boolean(activeTrader?.id),
     placeholderData: (previousData) => previousData ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -460,6 +479,20 @@ export function LeaderboardPageClient() {
   const activateTrader = useCallback((traderId: string) => {
     setActiveTraderId(traderId);
   }, []);
+
+  const selectedBundleReady = (btcQuery.isSuccess && !btcQuery.isPlaceholderData) || btcQuery.isError;
+  const currentBundleReady = !selectedLeagueMonth || (currentLeagueBundleQuery.isSuccess && !currentLeagueBundleQuery.isPlaceholderData) || currentLeagueBundleQuery.isError;
+  const liveExposureReady = [
+    liveExposurePositionsQuery,
+    liveExposureOrdersQuery,
+    pendingPlansQuery
+  ].every((query) => (query.isSuccess && !query.isPlaceholderData) || query.isError);
+  const overviewRequired = isSubscribed || !accessReady;
+  const overviewInitialReady = overviewReadyKey === locale;
+  const criticalDataReady = selectedBundleReady && currentBundleReady && accessReady && liveExposureReady && (!overviewRequired || overviewInitialReady);
+  const initialLoading = !criticalDataReady;
+  const isFetching = btcQuery.isFetching || currentLeagueBundleQuery.isFetching || liveExposurePositionsQuery.isFetching || liveExposureOrdersQuery.isFetching || pendingPlansQuery.isFetching;
+  const showBackgroundFetching = !initialLoading && isFetching;
 
   return (
     <div className="grid gap-3 pb-[calc(5rem+env(safe-area-inset-bottom))] md:gap-4 md:pb-8">
@@ -494,6 +527,7 @@ export function LeaderboardPageClient() {
           <OptionActivityStream
             locale={locale}
             traderNameMap={traderNameMap}
+            onInitialReady={markOverviewInitialReady}
           />
         </ProtectedContentGate>
       </section>
@@ -631,7 +665,7 @@ export function LeaderboardPageClient() {
 
               {/* Right side: visual period selection dropdown */}
               <div className="flex min-w-0 items-center gap-2 md:gap-3">
-                {isFetching ? (
+                {showBackgroundFetching ? (
                   <span className="hidden items-center gap-2 rounded-lg bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-zinc-400 sm:inline-flex">
                     <CircleNotch className="animate-spin animate-duration-1000" size={14} />
                     {t("common.loading")}
@@ -864,7 +898,7 @@ export function LeaderboardPageClient() {
             returnColumns={returnColumns}
             onToggleFavorite={toggleFavoriteTrader}
           />
-          {!isSubscribed && hiddenTraderCount > 0 ? (
+          {shouldLimitForFreeAccess && hiddenTraderCount > 0 ? (
             <LeaderboardLockedRows count={hiddenTraderCount} t={t} />
           ) : null}
         </div>
@@ -1108,7 +1142,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
           <h4 className="text-sm font-semibold">{t("leaderboard.previewPerformance")}</h4>
           <div className="mt-3 grid grid-cols-2 gap-2 w-full min-w-0">
             <MiniCell label={t("common.return30d")} value={formatSignedPercent(trader.returnPct)} />
-            <MiniCell label={t("common.return7d")} value={formatSignedPercent(trader.monthlyReturn)} />
+            <MiniCell label={t("common.return7d")} value={formatSignedPercent(trader.return7d)} />
             <MiniCell label={t("leaderboard.mdd")} value={formatDrawdown(trader.maxDrawdown)} />
             <MiniCell label={t("common.winRate")} value={formatNullablePercent(trader.winRate)} />
             <MiniCell label={t("leaderboard.trades")} value={formatNumber(trader.trades, 0, locale)} />
@@ -1376,6 +1410,38 @@ function buildCurrentSummaryMap(summaries: LeaderboardBundle["summaries"]) {
     map.set(summary.traderId, summary);
   }
   return map;
+}
+
+function buildLiveReturnMetricMap(summaries: LeaderboardBundle["summaries"]) {
+  const map = new Map<string, Pick<TraderStanding, "returnPct" | "return7d" | "return24h" | "return30d">>();
+  for (const summary of summaries) {
+    if (!summary?.traderId) continue;
+    map.set(summary.traderId, {
+      returnPct: numberValue(summary.cumulativeReturn) ?? 0,
+      return7d: numberValue(summary.return7d) ?? 0,
+      return24h: numberValue(summary.return24h) ?? 0,
+      return30d: numberValue(summary.return30d) ?? 0
+    });
+  }
+  return map;
+}
+
+function applyLiveReturnMetrics(
+  standings: readonly TraderStanding[],
+  liveReturnMetricByTrader: ReadonlyMap<string, Pick<TraderStanding, "returnPct" | "return7d" | "return24h" | "return30d">>
+) {
+  if (!liveReturnMetricByTrader.size) return [...standings];
+  return standings.map((trader) => {
+    const live = liveReturnMetricByTrader.get(trader.id);
+    if (!live) return trader;
+    return {
+      ...trader,
+      returnPct: live.returnPct,
+      return7d: live.return7d,
+      return24h: live.return24h,
+      return30d: live.return30d
+    };
+  });
 }
 
 function getElapsedTimeString(updatedAt: string | null | undefined): string {
@@ -1741,10 +1807,12 @@ function recordValue(value: unknown) {
 
 function OptionActivityStream({
   locale,
-  traderNameMap
+  traderNameMap,
+  onInitialReady
 }: {
   locale: Locale;
   traderNameMap: Map<string, string>;
+  onInitialReady?: () => void;
 }) {
   const { t } = useAppContext();
   const [reviewsList, setReviewsList] = useState<OverviewReviewRecord[]>(() => overviewActivityCache.reviews);
@@ -1755,6 +1823,7 @@ function OptionActivityStream({
   const [hasOverviewUserScrolled, setHasOverviewUserScrolled] = useState(false);
 
   const isFetchingRef = useRef(false);
+  const warmingAttemptsRef = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const observerTarget = useRef<HTMLDivElement>(null);
 
@@ -1770,6 +1839,7 @@ function OptionActivityStream({
         overviewActivityCache.offset = 0;
         overviewActivityCache.hasMore = true;
         overviewActivityCache.fetchedAt = 0;
+        warmingAttemptsRef.current = 0;
         setHasOverviewUserScrolled(false);
       }
       const hasCachedReviews = overviewActivityCache.reviews.length > 0;
@@ -1778,6 +1848,7 @@ function OptionActivityStream({
         setReviewsList(overviewActivityCache.reviews);
         setOffset(overviewActivityCache.offset);
         setHasMore(overviewActivityCache.hasMore);
+        onInitialReady?.();
         return;
       }
       isFetchingRef.current = true;
@@ -1789,24 +1860,36 @@ function OptionActivityStream({
           preferCached: true,
           signal: abortController.signal
         });
-        const fetchedReviews = page.reviews;
+        let fetchedReviews = page.reviews;
+        let nextOffset = page.nextOffset;
+        let hasMorePage = page.hasMore;
         if (page.warming && fetchedReviews.length === 0) {
           overviewActivityCache.fetchedAt = 0;
-          if (active) {
+          warmingAttemptsRef.current += 1;
+          if (active && warmingAttemptsRef.current <= OVERVIEW_WARMING_RETRY_LIMIT) {
             keepLoadingForWarmup = true;
             retryTimer = setTimeout(refreshOverviewActivityCache, 1500);
+            return;
           }
-          return;
+          const directPage = await loadOverviewReviewPage(OVERVIEW_INITIAL_LIMIT, 0, locale, {
+            preferCached: false,
+            signal: abortController.signal
+          });
+          fetchedReviews = directPage.reviews;
+          nextOffset = directPage.nextOffset;
+          hasMorePage = directPage.hasMore;
         }
+        warmingAttemptsRef.current = 0;
         const mergedReviews = mergeOverviewReviews(overviewActivityCache.reviews, fetchedReviews);
         overviewActivityCache.reviews = mergedReviews;
-        overviewActivityCache.offset = Math.max(hasCachedReviews ? overviewActivityCache.offset : 0, page.nextOffset);
-        overviewActivityCache.hasMore = page.hasMore;
+        overviewActivityCache.offset = Math.max(hasCachedReviews ? overviewActivityCache.offset : 0, nextOffset);
+        overviewActivityCache.hasMore = hasMorePage;
         overviewActivityCache.fetchedAt = Date.now();
         if (active) {
           setReviewsList(overviewActivityCache.reviews);
           setOffset(overviewActivityCache.offset);
           setHasMore(overviewActivityCache.hasMore);
+          onInitialReady?.();
         }
       } catch (err) {
         if (isAbortError(err) || abortController.signal.aborted) return;
@@ -1816,6 +1899,7 @@ function OptionActivityStream({
         if (active) {
           setHasMore(false);
           setHasLoadError(true);
+          onInitialReady?.();
         }
       } finally {
         isFetchingRef.current = false;
@@ -1828,7 +1912,7 @@ function OptionActivityStream({
       abortController.abort();
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [locale]);
+  }, [locale, onInitialReady]);
 
   const loadMore = useCallback(async () => {
     if (isFetchingRef.current || !hasMore) return;

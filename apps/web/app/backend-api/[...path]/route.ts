@@ -1,5 +1,7 @@
 const DEFAULT_API_BASE_URL = "http://localhost:8000";
 const EXTERNAL_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
+const BACKEND_PROXY_TIMEOUT_MS = Number(process.env.BACKEND_PROXY_TIMEOUT_MS ?? 12_000);
+const BACKEND_PROXY_FAST_TIMEOUT_MS = Number(process.env.BACKEND_PROXY_FAST_TIMEOUT_MS ?? 8_000);
 
 type BackendApiContext = {
   params: Promise<{ path?: string[] }>;
@@ -29,6 +31,7 @@ export async function DELETE(request: Request, context: BackendApiContext) {
 
 async function proxyBackendRequest(request: Request, context: BackendApiContext) {
   const url = await upstreamUrl(request, context);
+  const timeout = backendProxyTimeoutSignal(request.signal, backendProxyTimeoutMs(url));
   try {
     const response = await fetch(url, {
       method: request.method,
@@ -36,7 +39,7 @@ async function proxyBackendRequest(request: Request, context: BackendApiContext)
       body: requestHasBody(request) ? await request.arrayBuffer() : undefined,
       cache: "no-store",
       redirect: "manual",
-      signal: request.signal,
+      signal: timeout.signal,
     });
     return new Response(response.body, {
       status: response.status,
@@ -44,10 +47,15 @@ async function proxyBackendRequest(request: Request, context: BackendApiContext)
       headers: downstreamHeaders(response.headers),
     });
   } catch (error) {
+    if (timeout.timedOut()) {
+      return Response.json({ error: "backend_proxy_timeout" }, { status: 504 });
+    }
     if (isNavigationAbort(error)) {
       return Response.json({ error: "request_aborted" }, { status: 499 });
     }
     return Response.json({ error: "backend_proxy_failed" }, { status: 502 });
+  } finally {
+    timeout.clear();
   }
 }
 
@@ -77,6 +85,41 @@ function downstreamHeaders(headers: Headers) {
 
 function requestHasBody(request: Request) {
   return !["GET", "HEAD"].includes(request.method.toUpperCase());
+}
+
+function backendProxyTimeoutMs(url: string) {
+  if (
+    /\/api\/market\/klines\b/.test(url) ||
+    /\/api\/paper\/equity-snapshots\b/.test(url) ||
+    /\/api\/league\/traders\/[^/]+\/trade-history\b/.test(url) ||
+    /\/api\/subscribers\/access\b/.test(url)
+  ) {
+    return BACKEND_PROXY_FAST_TIMEOUT_MS;
+  }
+  return BACKEND_PROXY_TIMEOUT_MS;
+}
+
+function backendProxyTimeoutSignal(sourceSignal: AbortSignal, timeoutMs: number) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromSource = () => controller.abort(sourceSignal.reason);
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort("backend_proxy_timeout");
+  }, Math.max(1, timeoutMs));
+  if (sourceSignal.aborted) {
+    abortFromSource();
+  } else {
+    sourceSignal.addEventListener("abort", abortFromSource, { once: true });
+  }
+  return {
+    signal: controller.signal,
+    timedOut: () => timedOut,
+    clear: () => {
+      clearTimeout(timer);
+      sourceSignal.removeEventListener("abort", abortFromSource);
+    }
+  };
 }
 
 function isNavigationAbort(error: unknown) {

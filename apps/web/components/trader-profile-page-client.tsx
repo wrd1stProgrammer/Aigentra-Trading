@@ -65,6 +65,12 @@ import {
 const DETAIL_INITIAL_REVIEWS_LIMIT = 20;
 const DETAIL_REVIEWS_PAGE_SIZE = 20;
 
+function isAbortLike(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /abort|timeout/i.test(message);
+}
+
 function toDateString(date: Date): string {
   if (Number.isNaN(date.getTime())) return "";
   const y = date.getUTCFullYear();
@@ -357,6 +363,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const [mobileActiveTab, setMobileActiveTab] = useState<"feed" | "scenarios" | "holdings" | "journal" | "pnl">("scenarios");
   const historyLoadingRef = useRef(false);
   const historyContextKeyRef = useRef(`${traderId}:${symbol}`);
+  const historyAbortRef = useRef<AbortController | null>(null);
   const reviewsLoadingRef = useRef(false);
   const reviewsContextKeyRef = useRef(`${traderId}:${symbol}:${locale}`);
   const [hydratedDetailContextKey, setHydratedDetailContextKey] = useState<string | null>(null);
@@ -391,6 +398,9 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     const requestContextKey = `${traderId}:${symbol}`;
     if (!reset && !historyHasMore) return;
     if (historyLoadingRef.current && historyContextKeyRef.current === requestContextKey) return;
+    historyAbortRef.current?.abort();
+    const abortController = new AbortController();
+    historyAbortRef.current = abortController;
     historyLoadingRef.current = true;
     historyContextKeyRef.current = requestContextKey;
     if (reset) {
@@ -398,7 +408,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     }
     setLoadingMoreHistory(true);
     try {
-      const res = await getTraderTradeHistory(traderId, symbol, 10, nextOffset);
+      const res = await getTraderTradeHistory(traderId, symbol, 10, nextOffset, { signal: abortController.signal });
       const items = res.items || [];
       const mapped = items.map(item => mapMergedItemToHistoryItem(item, locale, t));
       if (historyContextKeyRef.current !== requestContextKey) return;
@@ -409,14 +419,20 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
         setHistoryHasMore(false);
       }
     } catch (err) {
+      if (isAbortLike(err)) return;
       console.error("Failed to load trade history:", err);
     } finally {
       if (historyContextKeyRef.current === requestContextKey) {
         historyLoadingRef.current = false;
         setLoadingMoreHistory(false);
       }
+      if (historyAbortRef.current === abortController) historyAbortRef.current = null;
     }
   }, [historyHasMore, traderId, symbol, locale, t]);
+
+  useEffect(() => {
+    return () => historyAbortRef.current?.abort();
+  }, []);
 
   const loadHistory = useCallback(async (reset = false) => {
     await loadHistoryPage(reset ? 0 : historyOffset, reset);
@@ -530,7 +546,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
 
   const equitySnapshotsQuery = useQuery({
     queryKey: ["paper", "equity-snapshots", traderId, symbol],
-    queryFn: () => getEquitySnapshots(45, traderId, symbol),
+    queryFn: (context) => getEquitySnapshots(45, traderId, symbol, { signal: context.signal }),
     placeholderData: (previousData) => previousData,
     staleTime: 60_000
   });
