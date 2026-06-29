@@ -348,7 +348,7 @@ test("latest scenario timeline relies on real localized review payloads instead 
   assert.doesNotMatch(i18nSource, /"scenario\.fallback\.managementReviewPendingTranslation"/, "management review pending-translation fallback copy should not ship");
 });
 
-test("approved entry scenarios prioritize the saved entry reason over generic structured risk copy", () => {
+test("approved entry scenarios keep structured review for detail while preserving saved entry reason fallback", () => {
   const scenarios = league.buildScenarios({
     trader: { id: "trend-sentinel", currentPlan: "wait", baseRiskPercent: 0.5, description: "Trend" },
     positions: [
@@ -387,7 +387,11 @@ test("approved entry scenarios prioritize the saved entry reason over generic st
 
   assert.equal(scenarios[0].source, "position");
   assert.match(scenarios[0].rationale, /진입 승인 이유/);
-  assert.equal(scenarios[0].reviewBrief, null);
+  assert.equal(
+    scenarios[0].reviewBrief.headline,
+    "숏 설정은 구조적으로 유효하지만, 8배 레버리지는 중간 수준의 수익-위험 비율과 혼합 하위 프레임 확인에 대해 너무 공격적입니다."
+  );
+  assert.equal(scenarios[0].reviewBrief.managerNote, "유효한 숏 아이디어이지만 최대 레버리지는 아닙니다.");
 });
 
 test("scenario modal uses a compact reference-style ratio and neutral rationale card", () => {

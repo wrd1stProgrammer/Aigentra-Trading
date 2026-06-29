@@ -514,10 +514,16 @@ def test_ai_review_translation_contract_preserves_korean_trading_semantics():
     assert "stop loss -> 손절가/손절선" in term_rules
     assert "current price is X, entry is Y -> 현재가 X, 진입가 Y" in term_rules
     assert "R progress -> R 기준 이동" in term_rules
+    assert "higher timeframe / HTF -> 상위 시간대" in term_rules
+    assert "reward-to-risk -> 손익비" in term_rules
+    assert "confirmation sizing -> 확인 후 추가 진입 규모" in term_rules
     assert "thesis -> 논리/가설" in term_rules
     assert "이익이 확정적" in forbidden
     assert "진입 대비" in forbidden
+    assert "보상대위험비" in forbidden
+    assert "확인 크기 지연" in forbidden
     assert "진행률" in forbidden
+    assert "HTF 연속 SHORT -> 상위 시간대 하락 추세를 따라가는 숏" in examples
     assert "정지 손실" in forbidden
     assert "손실 제한" in forbidden
     assert "하락 위험" in forbidden

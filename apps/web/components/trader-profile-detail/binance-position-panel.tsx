@@ -348,7 +348,7 @@ function scenarioFromPosition(position: PaperPosition): TraderScenario {
     entryWeight: firstFiniteNumber(payload?.entryWeight, payload?.weight),
     rationale,
     summary: scenarioSummaryFromPayload(payload),
-    reviewBrief: entryApprovalRationale(payload) ? null : reviewBriefFromRecord({ payload }),
+    reviewBrief: reviewBriefFromRecord({ payload }),
     createdAt: firstString(position.updatedAt, position.openedAt, position.createdAt),
     source: "position"
   };
@@ -372,15 +372,10 @@ function scenarioFromOrder(order: DisplayPaperOrder): TraderScenario {
     entryWeight: firstFiniteNumber(payload?.entryWeight, payload?.weight, recordValue(payload?.entry)?.weight),
     rationale,
     summary: scenarioSummaryFromPayload(payload),
-    reviewBrief: entryApprovalRationale(payload) ? null : reviewBriefFromRecord({ payload }),
+    reviewBrief: reviewBriefFromRecord({ payload }),
     createdAt: firstString(order.updatedAt, order.createdAt),
     source: "order"
   };
-}
-
-function entryApprovalRationale(payload: Record<string, any> | null | undefined): string | null {
-  const aiReview = recordValue(payload?.aiReview);
-  return firstString(payload?.aiApprovalReason, aiReview?.approvalReason);
 }
 
 function formatLeverage(value: number | null) {

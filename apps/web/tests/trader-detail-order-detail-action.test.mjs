@@ -235,7 +235,48 @@ test("position panel exposes detail callbacks for positions and orders", () => {
 
 test("position panel fallback detail scenarios keep structured AI review copy", () => {
   assert.match(panelSource, /import \{ reviewBriefFromRecord \} from "@\/lib\/review-brief"/);
-  assert.match(panelSource, /reviewBrief:\s*entryApprovalRationale\(payload\)\s*\?\s*null\s*:\s*reviewBriefFromRecord\(\{ payload \}\)/);
+  assert.match(panelSource, /reviewBrief:\s*reviewBriefFromRecord\(\{ payload \}\)/);
+  assert.doesNotMatch(panelSource, /entryApprovalRationale\(payload\)\s*\?\s*null/);
+});
+
+test("entry approval detail scenarios prefer structured review over legacy approval reason", () => {
+  // Given: a live position has both the legacy approvalReason and the newer structured review.
+  const trader = { id: "trend-sentinel", currentPlan: "watch", baseRiskPercent: 0.35, description: "strategy", concept: "concept" };
+  const positions = [
+    {
+      id: 423,
+      symbol: "BTCUSDT",
+      status: "open",
+      side: "short",
+      entryPrice: 59749.6,
+      stopLoss: 60240.8,
+      openedAt: "2026-06-29T02:46:45.129Z",
+      payload: {
+        aiApprovalReason: "Trend Sentinel은 59719.3에서 HTF 연속 SHORT이 일관되게 유지되고 있습니다.",
+        aiReview: {
+          approvalReason: "Legacy compact approval reason.",
+          structuredReview: {
+            verdict: "조정 후 승인",
+            headline: "반등이 막히는 구간에서 숏 진입 근거가 살아 있습니다.",
+            action: "작은 규모로만 진입하고 손절가 회복 여부를 확인하세요.",
+            keyReasons: ["진입가와 손절가가 명확해 손실 범위가 제한됩니다."],
+            risks: ["손절가를 회복하면 숏 논리가 약해집니다."],
+            watchConditions: ["15분 종가가 손절가 위로 닫히는지 확인"],
+            managerNote: "레거시 요약보다 이 구조화 리뷰가 상세 모달에 표시되어야 합니다."
+          }
+        }
+      }
+    }
+  ];
+
+  // When: the detail timeline scenarios are built.
+  const scenarios = league.buildScenarios({ trader, positions, orders: [], reviews: [], events: [] });
+
+  // Then: the scenario still keeps the legacy rationale as fallback, but exposes structured review for the modal.
+  const positionScenario = scenarios.find((scenario) => scenario.id === "position-423");
+  assert.equal(positionScenario.rationale, "Trend Sentinel은 59719.3에서 HTF 연속 SHORT이 일관되게 유지되고 있습니다.");
+  assert.equal(positionScenario.reviewBrief.headline, "반등이 막히는 구간에서 숏 진입 근거가 살아 있습니다.");
+  assert.equal(positionScenario.reviewBrief.action, "작은 규모로만 진입하고 손절가 회복 여부를 확인하세요.");
 });
 
 test("scenario modal does not show entry summary as management rationale", () => {
