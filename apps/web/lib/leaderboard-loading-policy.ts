@@ -2,14 +2,16 @@ export type LeaderboardInitialOverlayInput = {
   hasRenderableLeaderboard: boolean;
   rankingPending: boolean;
   rankingPlaceholder: boolean;
+  rankingWarming?: boolean;
 };
 
 export function shouldShowLeaderboardInitialOverlay({
   hasRenderableLeaderboard,
   rankingPending,
-  rankingPlaceholder
+  rankingPlaceholder,
+  rankingWarming = false
 }: LeaderboardInitialOverlayInput) {
-  return !hasRenderableLeaderboard && rankingPending && !rankingPlaceholder;
+  return !hasRenderableLeaderboard && ((rankingPending && !rankingPlaceholder) || rankingWarming);
 }
 
 export type LeaderboardPreviewLimitInput = {
@@ -24,6 +26,30 @@ export function shouldUseLeaderboardPreviewLimit({
   freeAccessLimited
 }: LeaderboardPreviewLimitInput) {
   return subscriberAccessPending || subscriberAccessUnavailable || freeAccessLimited;
+}
+
+export type LeaderboardSecondaryDataInput = {
+  primaryFetching: boolean;
+  primaryPlaceholder: boolean;
+};
+
+export function shouldFetchLeaderboardSecondaryData({
+  primaryFetching,
+  primaryPlaceholder
+}: LeaderboardSecondaryDataInput) {
+  return !(primaryFetching && primaryPlaceholder);
+}
+
+export type CurrentLeagueCompanionInput = LeaderboardSecondaryDataInput & {
+  selectedLeagueMonth?: string;
+};
+
+export function shouldFetchCurrentLeagueCompanion({
+  selectedLeagueMonth,
+  primaryFetching,
+  primaryPlaceholder
+}: CurrentLeagueCompanionInput) {
+  return Boolean(selectedLeagueMonth) && shouldFetchLeaderboardSecondaryData({ primaryFetching, primaryPlaceholder });
 }
 
 export function buildLeaguePeriodSearch(searchParams: string, leagueMonth: string | undefined) {

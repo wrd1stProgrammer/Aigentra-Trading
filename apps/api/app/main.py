@@ -256,13 +256,13 @@ AUTO_MANAGEMENT_TASK: Optional[asyncio.Task] = None
 REALTIME_EXECUTION_TASK: Optional[asyncio.Task] = None
 PRICE_SHOCK_STATE: dict[str, dict[str, Any]] = {}
 LEAGUE_BUNDLE_CACHE_TTL_SECONDS = 300
-LEAGUE_BUNDLE_CACHE: dict[tuple[str, bool, bool, str], tuple[float, dict[str, Any]]] = {}
+LEAGUE_BUNDLE_CACHE: dict[tuple[str, bool, bool, str, str], tuple[float, dict[str, Any]]] = {}
 OVERVIEW_REVIEWS_CACHE_TTL_SECONDS = LEAGUE_BUNDLE_CACHE_TTL_SECONDS
 OVERVIEW_REVIEWS_CACHE: dict[tuple[int, int, Optional[str], Optional[str], str], tuple[float, dict[str, Any]]] = {}
 TRADER_DETAIL_CACHE_VERSION = "localized-review-v3"
 TRADER_DETAIL_CACHE: dict[tuple[str, str, int, int, str, str], tuple[float, dict[str, Any]]] = {}
 LEADERBOARD_REFRESHING: set[tuple[str, str]] = set()
-LEAGUE_BUNDLE_REFRESHING: set[tuple[str, bool, bool, str]] = set()
+LEAGUE_BUNDLE_REFRESHING: set[tuple[str, bool, bool, str, str]] = set()
 OVERVIEW_REVIEWS_REFRESHING: set[tuple[int, int, Optional[str], Optional[str], str]] = set()
 TRADER_DETAIL_REFRESHING: set[tuple[str, str, str]] = set()
 
@@ -2968,6 +2968,45 @@ def build_monthly_league_bundle_payload(
     }
 
 
+def build_monthly_league_warming_payload(
+    clean_symbol: str,
+    league_month: str,
+    period_start: datetime,
+    period_end: datetime,
+    *,
+    locale: str = CANONICAL_AI_LOCALE,
+) -> dict[str, Any]:
+    return {
+        "symbol": clean_symbol,
+        "mode": "paper",
+        "paperOnly": True,
+        "source": "equity_snapshots_monthly",
+        "needsMigration": False,
+        "cacheHit": False,
+        "stale": True,
+        "scheduledRefresh": True,
+        "warming": True,
+        "missingSnapshotCount": 0,
+        "refreshed": False,
+        "snapshotCount": 0,
+        "lastUpdatedAt": period_end.isoformat(),
+        "period": {
+            "type": "monthly",
+            "month": league_month,
+            "start": period_start.isoformat(),
+            "end": period_end.isoformat(),
+            "timezone": "UTC",
+        },
+        "traders": list_traders(),
+        "summaries": [],
+        "positions": [],
+        "orders": [],
+        "managementReviews": [],
+        "statusFeeds": [],
+        "scanner": scanner_status_payload(),
+    }
+
+
 def equity_return_for_period(
     db: Session,
     trader_id: str,
@@ -3809,15 +3848,36 @@ def build_trader_detail_payload(
     }
 
 
-def refresh_league_bundle_cache_background(symbol: str, include_empty: bool = True, include_related: bool = False, locale: str = CANONICAL_AI_LOCALE) -> None:
+def refresh_league_bundle_cache_background(
+    symbol: str,
+    include_empty: bool = True,
+    include_related: bool = False,
+    locale: str = CANONICAL_AI_LOCALE,
+    league_month: Optional[str] = None,
+) -> None:
     clean_symbol = normalize_symbol(symbol)
     clean_locale = normalize_locale(locale)
-    refresh_key = (clean_symbol, include_empty, include_related, clean_locale, "current")
+    monthly_period = parse_utc_league_month(league_month) if league_month else None
+    period_key = monthly_period[0] if monthly_period else "current"
+    refresh_key = (clean_symbol, include_empty, include_related, clean_locale, period_key)
     if refresh_key in LEAGUE_BUNDLE_REFRESHING:
         return
     LEAGUE_BUNDLE_REFRESHING.add(refresh_key)
     try:
         with session_scope() as db:
+            if monthly_period:
+                league_month_value, period_start, period_end = monthly_period
+                payload = build_monthly_league_bundle_payload(
+                    db,
+                    clean_symbol,
+                    league_month_value,
+                    period_start,
+                    period_end,
+                    include_empty=include_empty,
+                    locale=clean_locale,
+                )
+                LEAGUE_BUNDLE_CACHE[refresh_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
+                return
             known_trader_ids = {trader.id for trader in list_traders()}
             existing_ids = {
                 trader_id
@@ -5312,12 +5372,38 @@ def league_leaderboard_fast(
         is_fresh = cached[0] > now
         if is_fresh:
             return {**cached[1], "cacheHit": True, "stale": False, "scheduledRefresh": False}
-        schedule_thread_refresh(refresh_league_bundle_cache_background, clean_symbol, include_empty, include_related, clean_locale)
+        if monthly_period:
+            schedule_thread_refresh(
+                refresh_league_bundle_cache_background,
+                clean_symbol,
+                include_empty,
+                include_related,
+                clean_locale,
+                monthly_period[0],
+            )
+        else:
+            schedule_thread_refresh(refresh_league_bundle_cache_background, clean_symbol, include_empty, include_related, clean_locale)
         return {**cached[1], "cacheHit": True, "stale": True, "scheduledRefresh": True}
     missing_ids: set[str] = set()
     try:
         if monthly_period:
             league_month_value, period_start, period_end = monthly_period
+            if not refresh:
+                schedule_thread_refresh(
+                    refresh_league_bundle_cache_background,
+                    clean_symbol,
+                    include_empty,
+                    include_related,
+                    clean_locale,
+                    league_month_value,
+                )
+                return build_monthly_league_warming_payload(
+                    clean_symbol,
+                    league_month_value,
+                    period_start,
+                    period_end,
+                    locale=clean_locale,
+                )
             payload = build_monthly_league_bundle_payload(
                 db,
                 clean_symbol,

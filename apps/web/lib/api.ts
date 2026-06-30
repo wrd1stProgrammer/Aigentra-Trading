@@ -22,6 +22,8 @@ const EVENT_STREAM_API_BASE_URL = resolveEventStreamBaseUrl();
 export const LEAGUE_QUERY_STALE_TIME_MS = 60_000;
 export const LEAGUE_QUERY_GC_TIME_MS = 10 * 60_000;
 export const LEAGUE_LIVE_REFETCH_INTERVAL_MS = 60_000;
+export const LEAGUE_WARMING_REFETCH_INTERVAL_MS = 1_000;
+export const LEAGUE_WARMING_REFETCH_WINDOW_MS = 15_000;
 export const TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS = 60_000;
 const DEFAULT_BROWSER_REQUEST_TIMEOUT_MS = 12_000;
 const FAST_BROWSER_REQUEST_TIMEOUT_MS = 8_000;
@@ -456,6 +458,10 @@ export type LeaderboardBundle = {
   managementReviews: ManagementReview[];
   statusFeeds?: TraderStatusFeed[];
   scanner: ScannerStatus | null;
+  cacheHit?: boolean;
+  stale?: boolean;
+  scheduledRefresh?: boolean;
+  warming?: boolean;
 };
 
 export type LeagueSentimentBias = "LONG_BIASED" | "SHORT_BIASED" | "NEUTRAL" | "MIXED" | "RISK_OFF";
@@ -856,7 +862,9 @@ export function getLeaderboardBundle(symbol: string, locale: Locale = "en", opti
   });
   if (options?.leagueMonth) params.set("leagueMonth", options.leagueMonth);
   return request<LeaderboardBundle>(`/api/league/leaderboard-fast?${params.toString()}`, { signal: options?.signal }).then((bundle) => {
-    writeBrowserCache(leaderboardCacheKey(symbol, locale, options), bundle);
+    if (bundle.warming !== true) {
+      writeBrowserCache(leaderboardCacheKey(symbol, locale, options), bundle);
+    }
     return bundle;
   });
 }
@@ -944,7 +952,8 @@ function shouldSkipLocalCrossOriginEventStream(baseUrl: string) {
 }
 
 export function getCachedLeaderboardBundle(symbol: string, locale: Locale = "en", options?: LeaderboardBundleRequestOptions) {
-  return readBrowserCache<LeaderboardBundle>(leaderboardCacheKey(symbol, locale, options), LEADERBOARD_BROWSER_CACHE_MS);
+  const cached = readBrowserCache<LeaderboardBundle>(leaderboardCacheKey(symbol, locale, options), LEADERBOARD_BROWSER_CACHE_MS);
+  return cached?.warming === true ? null : cached;
 }
 
 export function getCachedTraderDetailBundle(traderId: string, symbol: string, locale: Locale = "en") {
@@ -960,9 +969,19 @@ export function leaderboardBundleQueryOptions(symbol: string, locale: Locale = "
     queryFn: (context: { signal?: AbortSignal }) => getLeaderboardBundle(symbol, locale, { ...options, signal: context.signal }),
     staleTime: LEAGUE_QUERY_STALE_TIME_MS,
     gcTime: LEAGUE_QUERY_GC_TIME_MS,
-    refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
+    refetchInterval: leaderboardBundleRefetchInterval,
     refetchIntervalInBackground: false
   };
+}
+
+function leaderboardBundleRefetchInterval(query: { state: { data?: LeaderboardBundle; dataUpdatedAt?: number } }) {
+  if (query.state.data?.warming === true) {
+    const warmingAgeMs = Date.now() - (query.state.dataUpdatedAt ?? Date.now());
+    return warmingAgeMs <= LEAGUE_WARMING_REFETCH_WINDOW_MS
+      ? LEAGUE_WARMING_REFETCH_INTERVAL_MS
+      : LEAGUE_LIVE_REFETCH_INTERVAL_MS;
+  }
+  return LEAGUE_LIVE_REFETCH_INTERVAL_MS;
 }
 
 export function prefetchLeaderboardBundle(queryClient: QueryClient, symbol: string, locale: Locale = "en", options?: LeaderboardBundleRequestOptions) {
@@ -1003,15 +1022,7 @@ export function getActivePaperPositions(symbol?: string, traderId?: string, limi
   const params = new URLSearchParams({ limit: String(limit) });
   if (symbol) params.set("symbol", symbol);
   if (traderId) params.set("trader_id", traderId);
-  const activeQuery = `?${params.toString()}`;
-  const fallbackParams = new URLSearchParams(params);
-  fallbackParams.set("status", "open");
-  const fallbackQuery = `?${fallbackParams.toString()}`;
-  return requestFirst<{ positions: PaperPosition[] } | PaperPosition[]>([
-    `/api/paper/positions/active${activeQuery}`,
-    `/api/paper/positions${fallbackQuery}`,
-    `/api/paper-trading/positions${fallbackQuery}`
-  ], { signal: options?.signal });
+  return request<{ positions: PaperPosition[] } | PaperPosition[]>(`/api/paper/positions/active?${params.toString()}`, { signal: options?.signal });
 }
 
 export function getPaperOrders(limit = 20, symbol?: string, status?: string, traderId?: string, options?: { readonly signal?: AbortSignal }) {
@@ -1019,10 +1030,7 @@ export function getPaperOrders(limit = 20, symbol?: string, status?: string, tra
   if (symbol) params.set("symbol", symbol);
   if (status) params.set("status", status);
   if (traderId) params.set("trader_id", traderId);
-  return requestFirst<{ orders: PaperOrder[] } | PaperOrder[]>([
-    `/api/paper/orders?${params.toString()}`,
-    `/api/paper-trading/orders?${params.toString()}`
-  ], { signal: options?.signal });
+  return request<{ orders: PaperOrder[] } | PaperOrder[]>(`/api/paper/orders?${params.toString()}`, { signal: options?.signal });
 }
 
 export function getTradeEvents(limit = 20, symbol?: string, traderId?: string) {
@@ -1040,11 +1048,7 @@ export function getEquitySnapshots(limit = 20, traderId?: string, symbol?: strin
   const params = new URLSearchParams({ limit: String(limit) });
   if (traderId) params.set("trader_id", traderId);
   if (symbol) params.set("symbol", symbol);
-  return requestFirst<{ snapshots: EquitySnapshot[] } | EquitySnapshot[]>([
-    `/api/paper/equity-snapshots?${params.toString()}`,
-    `/api/equity-snapshots?${params.toString()}`,
-    `/api/paper-trading/equity-snapshots?${params.toString()}`
-  ], { signal: options?.signal });
+  return request<{ snapshots: EquitySnapshot[] } | EquitySnapshot[]>(`/api/paper/equity-snapshots?${params.toString()}`, { signal: options?.signal });
 }
 
 export function getManagementReviews(limit = 20, offset = 0, symbol?: string, traderId?: string, locale: Locale = "en") {

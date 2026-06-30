@@ -257,6 +257,46 @@ def test_leaderboard_fast_serves_expired_cache_while_refreshing_in_background(mo
     assert scheduled == [("BTCUSDT", True, True, "en")]
 
 
+def test_leaderboard_fast_serves_expired_monthly_cache_while_refreshing_same_month(monkeypatch):
+    cache_key = ("BTCUSDT", True, False, "ko", "2026-06")
+    main.LEAGUE_BUNDLE_CACHE.clear()
+    main.LEAGUE_BUNDLE_CACHE[cache_key] = (
+        0,
+        {
+            "symbol": "BTCUSDT",
+            "period": {"type": "monthly", "month": "2026-06"},
+            "lastUpdatedAt": "old-monthly-cache",
+            "traders": [],
+            "summaries": [],
+            "positions": [],
+            "orders": [],
+            "managementReviews": [],
+        },
+    )
+    scheduled: list[tuple[str, tuple]] = []
+
+    def fail_inline_monthly_build(*args, **kwargs):
+        raise AssertionError("expired monthly cache should be served before synchronous DB rebuild")
+
+    def fake_schedule_thread_refresh(func, *args):
+        scheduled.append((func.__name__, args))
+
+    monkeypatch.setattr(main, "list_traders", lambda: [])
+    monkeypatch.setattr(main, "build_monthly_league_bundle_payload", fail_inline_monthly_build)
+    monkeypatch.setattr(main, "schedule_thread_refresh", fake_schedule_thread_refresh)
+
+    response = client.get("/api/league/leaderboard-fast?symbol=BTCUSDT&locale=ko&leagueMonth=2026-06")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["period"]["month"] == "2026-06"
+    assert data["lastUpdatedAt"] == "old-monthly-cache"
+    assert data["cacheHit"] is True
+    assert data["stale"] is True
+    assert data["scheduledRefresh"] is True
+    assert scheduled == [("refresh_league_bundle_cache_background", ("BTCUSDT", True, False, "ko", "2026-06"))]
+
+
 def test_leaderboard_fast_schedules_missing_snapshot_refresh_without_blocking(temp_api_db, monkeypatch):
     main.LEAGUE_BUNDLE_CACHE.clear()
     scheduled: list[tuple[str, tuple]] = []
@@ -278,6 +318,33 @@ def test_leaderboard_fast_schedules_missing_snapshot_refresh_without_blocking(te
     assert data["scheduledRefresh"] is True
     assert data["missingSnapshotCount"] == len(main.list_traders())
     assert scheduled == [("refresh_league_bundle_cache_background", ("BTCUSDT", True, False, "en"))]
+
+
+def test_leaderboard_fast_schedules_monthly_cache_miss_without_blocking(temp_api_db, monkeypatch):
+    main.LEAGUE_BUNDLE_CACHE.clear()
+    scheduled: list[tuple[str, tuple]] = []
+
+    def fail_inline_monthly_build(*args, **kwargs):
+        raise AssertionError("monthly leaderboard cache miss should refresh after the response")
+
+    def fake_schedule_thread_refresh(func, *args):
+        scheduled.append((func.__name__, args))
+
+    monkeypatch.setattr(main, "build_monthly_league_bundle_payload", fail_inline_monthly_build)
+    monkeypatch.setattr(main, "schedule_thread_refresh", fake_schedule_thread_refresh)
+
+    response = client.get("/api/league/leaderboard-fast?symbol=BTCUSDT&locale=ko&leagueMonth=2026-06")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["period"]["type"] == "monthly"
+    assert data["period"]["month"] == "2026-06"
+    assert data["cacheHit"] is False
+    assert data["stale"] is True
+    assert data["scheduledRefresh"] is True
+    assert data["warming"] is True
+    assert data["summaries"] == []
+    assert scheduled == [("refresh_league_bundle_cache_background", ("BTCUSDT", True, False, "ko", "2026-06"))]
 
 
 def test_leaderboard_fast_returns_utc_monthly_league_without_live_cache_pollution(temp_api_db):
@@ -370,7 +437,7 @@ def test_leaderboard_fast_returns_utc_monthly_league_without_live_cache_pollutio
             ]
         )
 
-    monthly = client.get("/api/league/leaderboard-fast?symbol=BTCUSDT&locale=ko&leagueMonth=2026-05")
+    monthly = client.get("/api/league/leaderboard-fast?symbol=BTCUSDT&locale=ko&leagueMonth=2026-05&refresh=true")
     live = client.get("/api/league/leaderboard-fast?symbol=BTCUSDT&locale=ko")
 
     assert monthly.status_code == 200

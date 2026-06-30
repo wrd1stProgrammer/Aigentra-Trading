@@ -43,6 +43,8 @@ import { formatCurrency, formatNumber, formatRelativeDateTime } from "@/lib/form
 import { statusLabel } from "@/lib/status";
 import {
   buildLeaguePeriodUrl,
+  shouldFetchCurrentLeagueCompanion,
+  shouldFetchLeaderboardSecondaryData,
   shouldShowLeaderboardInitialOverlay,
   shouldUseLeaderboardPreviewLimit
 } from "@/lib/leaderboard-loading-policy";
@@ -333,9 +335,17 @@ export function LeaderboardPageClient() {
       return cacheReady ? getCachedLeaderboardBundle("BTCUSDT", locale, leaderboardBundleOptions) ?? fallbackBundle : fallbackBundle;
     }
   });
+  const shouldFetchSecondaryLeaderboardData = shouldFetchLeaderboardSecondaryData({
+    primaryFetching: btcQuery.isFetching,
+    primaryPlaceholder: btcQuery.isPlaceholderData
+  });
   const currentLeagueBundleQuery = useQuery({
     ...leaderboardBundleQueryOptions("BTCUSDT", locale, { includeRelated: false, leagueMonth: undefined }),
-    enabled: Boolean(selectedLeagueMonth),
+    enabled: shouldFetchCurrentLeagueCompanion({
+      selectedLeagueMonth,
+      primaryFetching: btcQuery.isFetching,
+      primaryPlaceholder: btcQuery.isPlaceholderData
+    }),
     placeholderData: (previousData) =>
       previousData ??
       (cacheReady ? getCachedLeaderboardBundle("BTCUSDT", locale, { includeRelated: false, leagueMonth: undefined }) ?? undefined : undefined)
@@ -393,6 +403,7 @@ export function LeaderboardPageClient() {
   const liveExposurePositionsQuery = useQuery({
     queryKey: ["paper", "positions", "active", "BTCUSDT", "leaderboard"],
     queryFn: async (context) => unwrapPaperPositions(await getActivePaperPositions("BTCUSDT", undefined, LIVE_EXPOSURE_LIMIT, { signal: context.signal })),
+    enabled: shouldFetchSecondaryLeaderboardData,
     placeholderData: (previousData) => previousData ?? bundle.positions ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -401,6 +412,7 @@ export function LeaderboardPageClient() {
   const liveExposureOrdersQuery = useQuery({
     queryKey: ["paper", "orders", "open", "BTCUSDT", "leaderboard"],
     queryFn: async (context) => unwrapPaperOrders(await getPaperOrders(LIVE_EXPOSURE_LIMIT, "BTCUSDT", "open", undefined, { signal: context.signal })),
+    enabled: shouldFetchSecondaryLeaderboardData,
     placeholderData: (previousData) => previousData ?? bundle.orders ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -413,6 +425,7 @@ export function LeaderboardPageClient() {
   const pendingPlansQuery = useQuery({
     queryKey: ["league", "trade-plans", "BTCUSDT", "pending"],
     queryFn: async (context) => unwrapTradePlans(await getRecentTradePlans(100, "BTCUSDT", undefined, "PAPER_TRADING_PENDING", { signal: context.signal })),
+    enabled: shouldFetchSecondaryLeaderboardData,
     placeholderData: (previousData) => previousData ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -433,7 +446,7 @@ export function LeaderboardPageClient() {
   const activeSnapshotsQuery = useQuery({
     queryKey: ["league", "equity-snapshots", activeTab, activeTrader?.id ?? ""],
     queryFn: async (context) => unwrapEquitySnapshots(await getEquitySnapshots(45, activeTrader?.id ?? undefined, snapshotSymbol, { signal: context.signal })),
-    enabled: Boolean(activeTrader?.id),
+    enabled: shouldFetchSecondaryLeaderboardData && Boolean(activeTrader?.id),
     placeholderData: (previousData) => previousData ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -464,11 +477,13 @@ export function LeaderboardPageClient() {
     setActiveTraderId(traderId);
   }, []);
 
-  const hasRenderableLeaderboard = displayStandings.length > 0;
+  const leaderboardWarming = bundle.warming === true && !bundle.summaries?.length;
+  const hasRenderableLeaderboard = displayStandings.length > 0 && !leaderboardWarming;
   const initialLoading = shouldShowLeaderboardInitialOverlay({
     hasRenderableLeaderboard,
     rankingPending: btcQuery.isPending,
-    rankingPlaceholder: btcQuery.isPlaceholderData
+    rankingPlaceholder: btcQuery.isPlaceholderData,
+    rankingWarming: leaderboardWarming
   });
   const isFetching = btcQuery.isFetching || currentLeagueBundleQuery.isFetching || liveExposurePositionsQuery.isFetching || liveExposureOrdersQuery.isFetching || pendingPlansQuery.isFetching;
   const showBackgroundFetching = !initialLoading && isFetching;
