@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
@@ -12,6 +12,11 @@ import { BrandMark } from "@/components/brand-mark";
 import { useAppContext } from "@/components/app-provider";
 import { useSubscriberAccess } from "@/components/use-subscriber-access";
 import { Locale, LOCALE_OPTIONS } from "@/lib/i18n";
+import {
+  isShellLinkActive,
+  shouldHandleShellNavigationClick,
+  visibleShellPathname
+} from "@/lib/app-shell-navigation";
 
 const links = [
   { href: "/", key: "nav.home", icon: ChartLineUp },
@@ -31,6 +36,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const access = accessQuery.data;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
+  const [pendingPathname, setPendingPathname] = useState<string | null>(null);
+  const visiblePath = visibleShellPathname(pathname, pendingPathname);
+
+  useEffect(() => {
+    setPendingPathname(null);
+  }, [pathname]);
+
+  const handleShellLinkClick = (event: MouseEvent<HTMLAnchorElement>, href: string) => {
+    if (!shouldHandleShellNavigationClick(event)) return;
+    setPendingPathname(href);
+  };
 
   const currentLanguage = LOCALE_OPTIONS.find((option) => option.locale === locale) ?? LOCALE_OPTIONS[0];
   const userName = session?.user?.name || t("shell.user");
@@ -57,7 +73,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (link.href === "/account") return Boolean(session?.user);
     return true;
   });
-  const currentLink = shellLinks.find((link) => link.href === "/" ? pathname === "/" : pathname.startsWith(link.href));
+  const currentLink = shellLinks.find((link) => isShellLinkActive(link.href, visiblePath));
 
   return (
     <div className="min-h-[100dvh] transition-colors">
@@ -88,13 +104,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <nav className="z-10 hidden min-w-0 items-center gap-1 overflow-x-auto rounded-full border border-white/10 bg-white/[0.04] p-1 backdrop-blur-md scrollbar-none md:flex">
                 {shellLinks
                   .map((link) => {
-                    const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
+                    const active = isShellLinkActive(link.href, visiblePath);
                     const Icon = link.icon;
                     return (
                       <Link
                         key={link.href}
                         href={link.href}
                         aria-label={navLabel(locale, link.key, t)}
+                        onClick={(event) => handleShellLinkClick(event, link.href)}
                         className={`focus-ring inline-flex min-h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-bold transition md:px-4 ${
                           active
                             ? "bg-white text-zinc-950 shadow-sm"
@@ -181,13 +198,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <nav className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 rounded-2xl border border-white/10 bg-[#0a0d0c]/94 p-1.5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl md:hidden">
           <div className="grid grid-cols-4 gap-1">
             {shellLinks.map((link) => {
-              const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
+              const active = isShellLinkActive(link.href, visiblePath);
               const Icon = link.icon;
               return (
                 <Link
                   key={link.href}
                   href={link.href}
                   aria-label={navLabel(locale, link.key, t)}
+                  onClick={(event) => handleShellLinkClick(event, link.href)}
                   className={`focus-ring flex min-h-[52px] flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-bold transition ${
                     active
                       ? "bg-white text-zinc-950 shadow-sm"

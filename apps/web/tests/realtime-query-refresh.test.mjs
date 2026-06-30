@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import vm from "node:vm";
+import ts from "typescript";
 
 const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
 const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8");
@@ -35,7 +37,79 @@ test("trader detail page subscribes to server execution events for immediate fil
     /getTraderExecutionEventsUrl[\s\S]*`\$\{API_BASE_URL\}\/api\/league\/traders/,
     "EventSource should not run through the Next backend proxy because aborted streams create noisy pipe failures"
   );
-  assert.match(detailSource, /new EventSource\(getTraderExecutionEventsUrl\(traderId, symbol\)\)/, "detail page should subscribe to backend paper execution events");
+  assert.match(detailSource, /new EventSource\(executionEventsUrl\)/, "detail page should subscribe to backend paper execution events when available");
   assert.match(detailSource, /refetchQueries\(\{ queryKey: detailKey, type: "active" \}\)/, "execution events should immediately refetch the active detail bundle");
   assert.match(detailSource, /invalidateQueries\(\{ queryKey: leaderboardKey \}\)/, "execution events should also invalidate the visible leaderboard cache");
 });
+
+test("execution event stream URL policy skips local cross-origin SSE only", () => {
+  assert.equal(
+    loadApiModule({
+      apiBaseUrl: "https://aigentra-trading.nostalgia-drive.com",
+      windowLocation: { hostname: "localhost", origin: "http://localhost:3001" }
+    }).getTraderExecutionEventsUrl("channel-rider", "BTCUSDT"),
+    null,
+    "local frontend sessions should skip remote SSE streams that fail CORS"
+  );
+
+  assert.equal(
+    loadApiModule({
+      apiBaseUrl: "http://localhost:3001",
+      windowLocation: { hostname: "localhost", origin: "http://localhost:3001" }
+    }).getTraderExecutionEventsUrl("channel-rider", "BTCUSDT"),
+    "http://localhost:3001/api/league/traders/channel-rider/execution-events?symbol=BTCUSDT",
+    "same-origin local SSE streams should remain available"
+  );
+
+  assert.equal(
+    loadApiModule({
+      apiBaseUrl: "https://aigentra-trading.nostalgia-drive.com",
+      windowLocation: { hostname: "app.aigentra.test", origin: "https://app.aigentra.test" }
+    }).getTraderExecutionEventsUrl("channel-rider", "BTCUSDT"),
+    "https://aigentra-trading.nostalgia-drive.com/api/league/traders/channel-rider/execution-events?symbol=BTCUSDT",
+    "non-local deployments should keep the configured backend event stream"
+  );
+});
+
+function loadApiModule({
+  apiBaseUrl,
+  windowLocation
+}) {
+  const { outputText } = ts.transpileModule(apiSource, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022
+    }
+  });
+  const module = { exports: {} };
+  vm.runInNewContext(outputText, {
+    AbortController,
+    URL,
+    URLSearchParams,
+    clearTimeout,
+    console,
+    exports: module.exports,
+    fetch,
+    localStorage: {
+      getItem: () => null,
+      setItem: () => undefined,
+      removeItem: () => undefined
+    },
+    module,
+    process: {
+      env: {
+        NEXT_PUBLIC_API_BASE_URL: apiBaseUrl
+      }
+    },
+    setTimeout,
+    window: {
+      location: windowLocation,
+      localStorage: {
+        getItem: () => null,
+        setItem: () => undefined,
+        removeItem: () => undefined
+      }
+    }
+  });
+  return module.exports;
+}

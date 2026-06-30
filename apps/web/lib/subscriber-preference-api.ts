@@ -7,6 +7,7 @@ import type { Locale } from "@/lib/i18n";
 import { z } from "zod";
 
 const DEFAULT_API_BASE_URL = "http://localhost:8000";
+const SUBSCRIBER_PREFERENCES_READ_TIMEOUT_MS = 2_000;
 
 const telegramStartLinkSchema = z.object({
   telegramUrl: z.string().url(),
@@ -26,12 +27,15 @@ export async function loadSubscriberPreferences(identity: SubscriberIdentity): P
   const apiUrl = subscriberApiUrl(identity);
   if (!apiUrl) return basePreferences;
 
+  const timeout = subscriberPreferencesTimeoutSignal();
   try {
-    const response = await fetch(apiUrl, { cache: "no-store", headers: subscriberApiHeaders() });
+    const response = await fetch(apiUrl, { cache: "no-store", headers: subscriberApiHeaders(), signal: timeout.signal });
     if (!response.ok) return basePreferences;
     return mergeStoredSubscriberPreferences(basePreferences, await response.json());
   } catch {
     return basePreferences;
+  } finally {
+    timeout.clear();
   }
 }
 
@@ -89,6 +93,15 @@ function subscriberApiUrl(identity: SubscriberIdentity): string | null {
   url.searchParams.set("userId", identity.userId);
   url.searchParams.set("email", identity.email);
   return url.toString();
+}
+
+function subscriberPreferencesTimeoutSignal(timeoutMs = SUBSCRIBER_PREFERENCES_READ_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort("subscriber_preferences_timeout"), timeoutMs);
+  return {
+    signal: controller.signal,
+    clear: () => clearTimeout(timer)
+  };
 }
 
 function subscriberTelegramLinkApiUrl(): string | null {

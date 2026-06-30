@@ -5,6 +5,7 @@ import { SessionProvider, useSession } from "next-auth/react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Locale, isSupportedLocale, translate } from "@/lib/i18n";
 import { LEAGUE_QUERY_GC_TIME_MS, LEAGUE_QUERY_STALE_TIME_MS } from "@/lib/api";
+import { DASHBOARD_SESSION_REFETCH_POLICY } from "@/lib/session-refetch-policy";
 
 type AppContextValue = {
   locale: Locale;
@@ -67,7 +68,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <SessionProvider>
+    <SessionProvider {...DASHBOARD_SESSION_REFETCH_POLICY}>
       <LocalePreferenceHydrator onLocaleResolved={setLocaleState} />
       <QueryClientProvider client={queryClient}>
         <AppContext.Provider value={value}>{children}</AppContext.Provider>

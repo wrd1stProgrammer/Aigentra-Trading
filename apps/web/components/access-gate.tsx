@@ -3,9 +3,10 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useId, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { CircleNotch, LockKey, Ticket, WarningCircle, X } from "@phosphor-icons/react";
 import { useAppContext } from "@/components/app-provider";
+import { shouldRenderProtectedGateChildren } from "@/lib/access-gate-policy";
 import {
   isProtectedSourceUnlocked,
   subscriberAccessQueryKey,
@@ -31,9 +32,27 @@ type ProtectedContentGateProps = {
   readonly children: ReactNode;
   readonly onUnlocked?: (result: SubscriberUnlockResponse) => void;
   readonly iconOnly?: boolean;
+  readonly deferLockedChildren?: boolean;
+  readonly lockedPreview?: ReactNode;
 };
 
+export type SubscriberAccessQueryResult = UseQueryResult<SubscriberAccessState, Error>;
+
 export function ProtectedContentGate({
+  ...props
+}: ProtectedContentGateProps) {
+  const accessQuery = useSubscriberAccess();
+  return <ProtectedContentGateContent {...props} accessQuery={accessQuery} />;
+}
+
+export function ProtectedContentGateWithAccess({
+  accessQuery,
+  ...props
+}: ProtectedContentGateProps & { readonly accessQuery: SubscriberAccessQueryResult }) {
+  return <ProtectedContentGateContent {...props} accessQuery={accessQuery} />;
+}
+
+function ProtectedContentGateContent({
   mode,
   lockPlacement = "content",
   sourceKey,
@@ -45,15 +64,19 @@ export function ProtectedContentGate({
   className = "",
   children,
   onUnlocked,
-  iconOnly = false
-}: ProtectedContentGateProps) {
+  iconOnly = false,
+  deferLockedChildren = false,
+  lockedPreview = null,
+  accessQuery
+}: ProtectedContentGateProps & { readonly accessQuery: SubscriberAccessQueryResult }) {
   const { t } = useAppContext();
   const queryClient = useQueryClient();
-  const accessQuery = useSubscriberAccess();
   const access = accessQuery.data;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pendingChildren = shouldRenderProtectedGateChildren({ phase: "pending", deferLockedChildren }) ? children : lockedPreview;
+  const lockedChildren = shouldRenderProtectedGateChildren({ phase: "locked", deferLockedChildren }) ? children : lockedPreview;
 
   if (!access) {
     return (
@@ -61,7 +84,7 @@ export function ProtectedContentGate({
         className={className}
         label={accessQuery.isError ? t("common.liveDataUnavailable") : t("common.loading")}
       >
-        {children}
+        {pendingChildren}
       </SubscriberAccessPending>
     );
   }
@@ -107,7 +130,7 @@ export function ProtectedContentGate({
   return (
     <div className={`relative rounded-2xl ${className}`}>
       <div className="pointer-events-none select-none overflow-hidden rounded-2xl">
-        <div className="blur-[3px]">{children}</div>
+        <div className="blur-[3px]">{lockedChildren}</div>
       </div>
       <button
         type="button"

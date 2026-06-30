@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { useCallback, useMemo, useState, useEffect, useRef, type MouseEvent } from "react";
@@ -22,7 +22,6 @@ import {
   getPaperOrders,
   getRecentTradePlans,
   LEAGUE_LIVE_REFETCH_INTERVAL_MS,
-  leaderboardBundleQueryKey,
   leaderboardBundleQueryOptions,
   type EquitySnapshot,
   type LeaderboardBundle,
@@ -37,11 +36,16 @@ import type { Locale } from "@/lib/i18n";
 import { buildStandings, traderVisuals, type LeagueSymbol, type TraderStanding } from "@/lib/league";
 import { EquityAreaChart } from "@/components/leaderboard-sidebar-equity-chart";
 import { PageLoadingOverlay } from "@/components/page-loading-overlay";
-import { ProtectedContentGate } from "@/components/access-gate";
+import { ProtectedContentGate, ProtectedContentGateWithAccess } from "@/components/access-gate";
 import { FREE_LEADERBOARD_LIMIT, useSubscriberAccess } from "@/components/use-subscriber-access";
 import { fallbackTraders, traderDetailKey, traderNameKey, traderShortKey } from "@/lib/traders";
 import { formatCurrency, formatNumber, formatRelativeDateTime } from "@/lib/format";
 import { statusLabel } from "@/lib/status";
+import {
+  buildLeaguePeriodUrl,
+  shouldShowLeaderboardInitialOverlay,
+  shouldUseLeaderboardPreviewLimit
+} from "@/lib/leaderboard-loading-policy";
 import { activePositionLeverage, appendLeverageSample, formatLeverageBadge, orderLeverage, planLeverage, positionLeverage } from "@/components/leaderboard-leverage";
 import {
   isDisplayableOverviewReview,
@@ -156,19 +160,6 @@ type ReadonlyURLSearchParamsLike = {
   toString(): string;
 };
 
-function nextLeagueSearch(searchParams: ReadonlyURLSearchParamsLike, leagueMonth: string | undefined) {
-  const next = new URLSearchParams(searchParams.toString());
-  if (leagueMonth) {
-    next.set("league", "monthly");
-    next.set("leagueMonth", leagueMonth);
-  } else {
-    next.set("league", "current");
-    next.delete("leagueMonth");
-  }
-  const query = next.toString();
-  return query ? `?${query}` : "";
-}
-
 function buildLeagueMonthOptions(now = new Date()): LeagueMonthOption[] {
   const currentYear = now.getUTCFullYear();
   const currentMonth = now.getUTCMonth() + 1;
@@ -195,7 +186,6 @@ function leaderboardBundlePeriodKey(bundle?: LeaderboardBundle) {
 export function LeaderboardPageClient() {
   const { locale, t } = useAppContext();
   const queryClient = useQueryClient();
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const session = useSession();
@@ -224,8 +214,6 @@ export function LeaderboardPageClient() {
   };
   const selectedLeagueMonthParts = parseLeagueMonth(selectedLeagueMonth) ?? fallbackLeagueMonth;
   const selectedLeagueMonthValue = formatUtcLeagueMonth(selectedLeagueMonthParts.year, selectedLeagueMonthParts.month);
-  const selectedLeagueHref = `${pathname}${nextLeagueSearch(searchParams, selectedLeagueMonthValue)}`;
-  const currentLeagueHref = `${pathname}${nextLeagueSearch(searchParams, undefined)}`;
   const leagueMonthsForSelectedYear = useMemo(
     () => leagueMonthOptions.filter((option) => option.year === selectedLeagueMonthParts.year),
     [leagueMonthOptions, selectedLeagueMonthParts.year]
@@ -314,7 +302,7 @@ export function LeaderboardPageClient() {
   }, [access?.email, locale, queryClient, subscriberPreferences, subscriberPreferencesQuery, subscriberPreferencesQueryKey]);
 
   const setLeaguePeriod = useCallback((leagueMonth: string | undefined) => {
-    const nextUrl = `${pathname}${nextLeagueSearch(searchParams, leagueMonth)}`;
+    const nextUrl = buildLeaguePeriodUrl(pathname, searchParams.toString(), leagueMonth);
     setSelectedLeagueMonth(leagueMonth);
     if (typeof window !== "undefined") {
       const currentUrl = `${window.location.pathname}${window.location.search}`;
@@ -322,15 +310,11 @@ export function LeaderboardPageClient() {
         window.history.replaceState(null, "", nextUrl);
       }
     }
-    router.replace(nextUrl, { scroll: false });
-  }, [pathname, router, searchParams]);
+  }, [pathname, searchParams]);
 
   const activateCurrentLeague = useCallback(() => {
     setLeaguePeriod(undefined);
-    void queryClient.invalidateQueries({
-      queryKey: leaderboardBundleQueryKey("BTCUSDT", locale, { includeRelated: false, leagueMonth: undefined })
-    });
-  }, [locale, queryClient, setLeaguePeriod]);
+  }, [setLeaguePeriod]);
 
   const activateSelectedLeagueMonth = useCallback(() => {
     setLeaguePeriod(selectedLeagueMonthValue);
@@ -372,11 +356,19 @@ export function LeaderboardPageClient() {
     [liveReturnMetricByTrader, selectedLeagueMonth, standings]
   );
   const accessReady = session.status === "unauthenticated" || Boolean(access) || (session.status === "authenticated" && accessQuery.isError);
+  const subscriberAccessPending = !accessReady;
+  const subscriberAccessUnavailable = session.status === "authenticated" && accessQuery.isError && !access;
   const isSubscribed = access?.isSubscribed === true;
   const shouldLimitForFreeAccess = accessReady && Boolean(access) && !isSubscribed;
+  const shouldUsePreviewLimit = shouldUseLeaderboardPreviewLimit({
+    subscriberAccessPending,
+    subscriberAccessUnavailable,
+    freeAccessLimited: shouldLimitForFreeAccess
+  });
+  const shouldShowLockedRows = shouldLimitForFreeAccess || subscriberAccessUnavailable;
   const visibleStandingsBase = useMemo(
-    () => (shouldLimitForFreeAccess ? displayStandings.slice(0, FREE_LEADERBOARD_LIMIT) : displayStandings),
-    [displayStandings, shouldLimitForFreeAccess]
+    () => (shouldUsePreviewLimit ? displayStandings.slice(0, FREE_LEADERBOARD_LIMIT) : displayStandings),
+    [displayStandings, shouldUsePreviewLimit]
   );
   const visibleStandings = useMemo(
     () => favoritesOnly ? visibleStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : visibleStandingsBase,
@@ -472,15 +464,12 @@ export function LeaderboardPageClient() {
     setActiveTraderId(traderId);
   }, []);
 
-  const selectedBundleReady = (btcQuery.isSuccess && !btcQuery.isPlaceholderData) || btcQuery.isError;
-  const currentBundleReady = !selectedLeagueMonth || (currentLeagueBundleQuery.isSuccess && !currentLeagueBundleQuery.isPlaceholderData) || currentLeagueBundleQuery.isError;
-  const liveExposureReady = [
-    liveExposurePositionsQuery,
-    liveExposureOrdersQuery,
-    pendingPlansQuery
-  ].every((query) => (query.isSuccess && !query.isPlaceholderData) || query.isError);
-  const criticalDataReady = selectedBundleReady && currentBundleReady && accessReady && liveExposureReady;
-  const initialLoading = !criticalDataReady;
+  const hasRenderableLeaderboard = displayStandings.length > 0;
+  const initialLoading = shouldShowLeaderboardInitialOverlay({
+    hasRenderableLeaderboard,
+    rankingPending: btcQuery.isPending,
+    rankingPlaceholder: btcQuery.isPlaceholderData
+  });
   const isFetching = btcQuery.isFetching || currentLeagueBundleQuery.isFetching || liveExposurePositionsQuery.isFetching || liveExposureOrdersQuery.isFetching || pendingPlansQuery.isFetching;
   const showBackgroundFetching = !initialLoading && isFetching;
 
@@ -509,16 +498,19 @@ export function LeaderboardPageClient() {
 
 
 
-        <ProtectedContentGate
+        <ProtectedContentGateWithAccess
+          accessQuery={accessQuery}
           mode="subscription"
           title={t("access.subscriptionLockedTitle")}
           description={t("access.subscriptionLockedDescription")}
+          deferLockedChildren
+          lockedPreview={<LeagueOverviewLockedPreview t={t} />}
         >
           <OptionActivityStream
             locale={locale}
             traderNameMap={traderNameMap}
           />
-        </ProtectedContentGate>
+        </ProtectedContentGateWithAccess>
       </section>
 
       <section className="grid w-full items-start gap-3 md:gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
@@ -536,12 +528,9 @@ export function LeaderboardPageClient() {
                   data-testid="leaderboard-month-selector"
                   className="inline-flex items-center gap-1 rounded-xl bg-white/[0.02] border border-white/[0.08] p-1 shadow-[inset_0_1px_1px_rgba(255,255,255,0.01)]"
                 >
-                  <Link
-                    href={selectedLeagueHref}
-                    replace
-                    scroll={false}
+                  <button
+                    type="button"
                     data-league-period="monthly"
-                    role="button"
                     onClick={activateSelectedLeagueMonth}
                     className={`focus-ring rounded-lg px-3 py-1.5 text-xs font-bold transition duration-200 ${
                       selectedLeagueMonth
@@ -551,13 +540,10 @@ export function LeaderboardPageClient() {
                     aria-pressed={Boolean(selectedLeagueMonth)}
                   >
                     {t("leaderboard.monthlyLeague")}
-                  </Link>
-                  <Link
-                    href={currentLeagueHref}
-                    replace
-                    scroll={false}
+                  </button>
+                  <button
+                    type="button"
                     data-league-period="current"
-                    role="button"
                     onClick={activateCurrentLeague}
                     className={`focus-ring rounded-lg px-3 py-1.5 text-xs font-bold transition duration-200 ${
                       selectedLeagueMonth
@@ -567,7 +553,7 @@ export function LeaderboardPageClient() {
                     aria-pressed={!selectedLeagueMonth}
                   >
                     {t("leaderboard.currentLeague")}
-                  </Link>
+                  </button>
                 </div>
 
                 {/* Display Year/Month Dropdowns as independent filters */}
@@ -710,12 +696,9 @@ export function LeaderboardPageClient() {
                   data-testid="leaderboard-month-selector"
                   className="inline-flex flex-1 items-center gap-1 rounded-xl bg-white/[0.02] border border-white/[0.08] p-1 shadow-[inset_0_1px_1px_rgba(255,255,255,0.01)]"
                 >
-                  <Link
-                    href={selectedLeagueHref}
-                    replace
-                    scroll={false}
+                  <button
+                    type="button"
                     data-league-period="monthly"
-                    role="button"
                     onClick={activateSelectedLeagueMonth}
                     className={`focus-ring flex-1 text-center rounded-lg py-1.5 text-xs font-bold transition duration-200 ${
                       selectedLeagueMonth
@@ -725,13 +708,10 @@ export function LeaderboardPageClient() {
                     aria-pressed={Boolean(selectedLeagueMonth)}
                   >
                     {t("leaderboard.monthlyLeague")}
-                  </Link>
-                  <Link
-                    href={currentLeagueHref}
-                    replace
-                    scroll={false}
+                  </button>
+                  <button
+                    type="button"
                     data-league-period="current"
-                    role="button"
                     onClick={activateCurrentLeague}
                     className={`focus-ring flex-1 text-center rounded-lg py-1.5 text-xs font-bold transition duration-200 ${
                       selectedLeagueMonth
@@ -741,7 +721,7 @@ export function LeaderboardPageClient() {
                     aria-pressed={!selectedLeagueMonth}
                   >
                     {t("leaderboard.currentLeague")}
-                  </Link>
+                  </button>
                 </div>
 
                 <div className="inline-flex items-center justify-center rounded-xl bg-white/[0.02] border border-white/[0.08] p-1 h-[34px] px-3.5">
@@ -887,8 +867,10 @@ export function LeaderboardPageClient() {
             returnColumns={returnColumns}
             onToggleFavorite={toggleFavoriteTrader}
           />
-          {shouldLimitForFreeAccess && hiddenTraderCount > 0 ? (
-            <LeaderboardLockedRows count={hiddenTraderCount} t={t} />
+          {subscriberAccessPending && hiddenTraderCount > 0 ? (
+            <LeaderboardAccessPendingRows count={hiddenTraderCount} t={t} />
+          ) : shouldShowLockedRows && hiddenTraderCount > 0 ? (
+            <LeaderboardLockedRows count={hiddenTraderCount} t={t} accessQuery={accessQuery} />
           ) : null}
         </div>
 
@@ -982,10 +964,53 @@ function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, act
   );
 }
 
-function LeaderboardLockedRows({ count, t }: { readonly count: number; readonly t: (key: string) => string }) {
+function LeagueOverviewLockedPreview({ t }: { readonly t: (key: string) => string }) {
+  return (
+    <div className="overflow-hidden rounded-b-2xl p-3 text-left md:rounded-b-[22px] md:p-5">
+      <div className="flex min-h-[238px] flex-col justify-center rounded-2xl border border-white/[0.07] bg-black/75 p-4 font-mono text-xs leading-5 text-zinc-400 shadow-inner md:min-h-[326px] md:p-5">
+        <div className="space-y-2">
+          {Array.from({ length: 5 }, (_, index) => (
+            <div key={index} className="flex items-center gap-2 rounded-lg border-b border-white/[0.025] px-2 py-1.5">
+              <span className="h-3 w-20 rounded bg-white/[0.08]" />
+              <span className="size-1.5 rounded-full bg-emerald-400/70" />
+              <span className="h-3 w-24 rounded bg-white/[0.07]" />
+              <span className="h-3 flex-1 rounded bg-white/[0.05]" />
+            </div>
+          ))}
+        </div>
+        <p className="mt-4 text-center font-sans text-xs text-zinc-500">{t("common.loading")}</p>
+      </div>
+    </div>
+  );
+}
+
+function LeaderboardAccessPendingRows({ count, t }: { readonly count: number; readonly t: (key: string) => string }) {
   return (
     <div className="border-t border-white/10 bg-zinc-950/30 px-4 pb-6 pt-5 md:px-6">
-      <ProtectedContentGate
+      <div className="flex min-h-[132px] items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-white">{t("common.loading")}</p>
+          <p className="mt-1 text-xs leading-5 text-zinc-400 text-pretty">{t("common.loadingLiveDataDetail")}</p>
+        </div>
+        <span className="font-mono text-xl font-bold text-zinc-200">+{count}</span>
+      </div>
+    </div>
+  );
+}
+
+function LeaderboardLockedRows({
+  count,
+  t,
+  accessQuery
+}: {
+  readonly count: number;
+  readonly t: (key: string) => string;
+  readonly accessQuery: ReturnType<typeof useSubscriberAccess>;
+}) {
+  return (
+    <div className="border-t border-white/10 bg-zinc-950/30 px-4 pb-6 pt-5 md:px-6">
+      <ProtectedContentGateWithAccess
+        accessQuery={accessQuery}
         mode="subscription"
         title={t("access.leaderboardPreviewTitle")}
         description={t("access.leaderboardPreviewBody")}
@@ -998,7 +1023,7 @@ function LeaderboardLockedRows({ count, t }: { readonly count: number; readonly 
           </div>
           <span className="font-mono text-xl font-bold text-zinc-200">+{count}</span>
         </div>
-      </ProtectedContentGate>
+      </ProtectedContentGateWithAccess>
     </div>
   );
 }

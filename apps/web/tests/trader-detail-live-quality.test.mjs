@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import vm from "node:vm";
+import ts from "typescript";
 
 const dataSource = readFileSync(new URL("../components/trader-profile-detail/data.ts", import.meta.url), "utf8");
 const sidePanelsSource = readFileSync(new URL("../components/trader-profile-detail/side-panels.tsx", import.meta.url), "utf8");
@@ -9,6 +11,7 @@ const chartSource = readFileSync(new URL("../components/live-candle-chart.tsx", 
 const pageSource = readFileSync(new URL("../components/trader-profile-page-client.tsx", import.meta.url), "utf8");
 const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
+const detailLoadingPolicy = loadTsModule("../lib/trader-detail-loading-policy.ts");
 
 test("management review scenarios use event-aware titles instead of repeated generic labels", () => {
   assert.match(dataSource, /managementReviewScenarioTitle/, "review scenarios need a dedicated semantic title helper");
@@ -74,14 +77,64 @@ test("trader detail does not auto-expand heavy review limits before user scroll"
 
 test("trader detail shows centered loading affordances for review and chart data", () => {
   assert.match(pageSource, /PageLoadingOverlay/, "trader detail should use the shared centered loading overlay");
-  assert.match(
-    pageSource,
-    /const initialLoading = detailQuery\.isFetching && hydratedDetailContextKey !== detailContextKey;/,
-    "detail overlay should stay active until a real bundle hydrates the current trader context"
-  );
   assert.match(pageSource, /common\.loadingTraderDetailData/, "detail loading copy should be localized");
   assert.match(chartSource, /showInitialChartSpinner/, "live chart should expose an initial candle-loading spinner state");
   assert.match(chartSource, /CircleNotch/, "chart loading UI should use a visible spinner instead of only skeleton pulses");
   assert.doesNotMatch(chartSource, /<span className="text-xs font-bold">\{t\("chart\.loadingHistory"\)\}<\/span>/, "chart should not flash visible historical-loading copy over the chart");
   assert.match(i18nSource, /"common\.loadingTraderDetailData"/, "trader-detail loading copy should exist in the dictionary");
 });
+
+test("trader detail loading policy keeps fallback content visible during slow refetches", () => {
+  assert.equal(
+    detailLoadingPolicy.shouldShowTraderDetailInitialOverlay({
+      hasRenderableDetail: true,
+      isFetching: true,
+      isHydratedDetail: false
+    }),
+    false,
+    "cached or leaderboard fallback detail should remain visible while the live bundle refetches"
+  );
+  assert.equal(
+    detailLoadingPolicy.shouldShowTraderDetailInitialOverlay({
+      hasRenderableDetail: false,
+      isFetching: true,
+      isHydratedDetail: false
+    }),
+    true,
+    "a genuinely empty detail view should still show the initial overlay while fetching"
+  );
+  assert.equal(
+    detailLoadingPolicy.shouldShowTraderDetailInitialOverlay({
+      hasRenderableDetail: false,
+      isFetching: true,
+      isHydratedDetail: true
+    }),
+    false,
+    "a hydrated detail context should not re-open the full-page overlay"
+  );
+  assert.equal(
+    detailLoadingPolicy.shouldShowTraderDetailInitialOverlay({
+      hasRenderableDetail: false,
+      isFetching: false,
+      isHydratedDetail: false
+    }),
+    false,
+    "idle detail views should not show a loading overlay"
+  );
+});
+
+function loadTsModule(relativePath) {
+  const source = readFileSync(new URL(relativePath, import.meta.url), "utf8");
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2020
+    }
+  });
+  const module = { exports: {} };
+  vm.runInNewContext(outputText, {
+    exports: module.exports,
+    module
+  });
+  return module.exports;
+}

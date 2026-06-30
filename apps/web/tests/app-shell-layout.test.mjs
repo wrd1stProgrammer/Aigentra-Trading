@@ -1,8 +1,28 @@
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import vm from "node:vm";
+import ts from "typescript";
 
 const source = readFileSync(new URL("../components/app-shell.tsx", import.meta.url), "utf8");
+const navigationPolicySource = readFileSync(new URL("../lib/app-shell-navigation.ts", import.meta.url), "utf8");
+
+function loadAppShellNavigationPolicy() {
+  const { outputText } = ts.transpileModule(navigationPolicySource, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2020
+    }
+  });
+  const module = { exports: {} };
+  vm.runInNewContext(outputText, {
+    exports: module.exports,
+    module
+  });
+  return module.exports;
+}
+
+const navigationPolicy = loadAppShellNavigationPolicy();
 
 test("app shell gives leaderboard and detail pages reference-style horizontal gutters", () => {
   assert.match(source, /APP_SHELL_CONTAINER_CLASS/, "shell should centralize the content width token");
@@ -25,4 +45,54 @@ test("app shell mobile nav uses a bottom tab bar without forcing body overflow",
   assert.match(source, /md:hidden/, "mobile bottom nav should not appear on desktop");
   assert.match(source, /whitespace-nowrap/, "nav links should not wrap Korean labels one glyph per line");
   assert.match(source, /hidden md:inline/, "visual nav labels should wait for medium viewports");
+});
+
+test("app shell nav marks the clicked tab active before the next route finishes", () => {
+  assert.doesNotMatch(source, /event\.preventDefault\(\)/, "shell nav should keep Next Link's native navigation path");
+  assert.doesNotMatch(source, /router\.push\(href\)/, "shell nav should not replace Next Link navigation with a manual router push");
+  assert.match(source, /setPendingPathname\(href\)/, "plain clicks should still mark the next tab active immediately");
+  assert.equal(
+    navigationPolicy.visibleShellPathname("/leaderboard", "/consensus"),
+    "/consensus",
+    "pending route state should win immediately for active nav feedback"
+  );
+  assert.equal(
+    navigationPolicy.visibleShellPathname("/consensus", null),
+    "/consensus",
+    "actual pathname should take over after the router catches up"
+  );
+  assert.equal(
+    navigationPolicy.isShellLinkActive("/leaderboard", "/leaderboard/atr-trail-boss"),
+    true,
+    "nested leaderboard routes should keep the leaderboard tab active"
+  );
+  assert.equal(
+    navigationPolicy.isShellLinkActive("/", "/leaderboard"),
+    false,
+    "the home tab should only be active on the exact root path"
+  );
+  assert.equal(
+    navigationPolicy.shouldHandleShellNavigationClick({
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false
+    }),
+    true,
+    "plain primary clicks should use the immediate navigation path"
+  );
+  assert.equal(
+    navigationPolicy.shouldHandleShellNavigationClick({
+      defaultPrevented: false,
+      button: 0,
+      metaKey: true,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false
+    }),
+    false,
+    "modifier clicks should keep native browser behavior"
+  );
 });

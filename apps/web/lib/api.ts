@@ -22,7 +22,7 @@ const EVENT_STREAM_API_BASE_URL = resolveEventStreamBaseUrl();
 export const LEAGUE_QUERY_STALE_TIME_MS = 60_000;
 export const LEAGUE_QUERY_GC_TIME_MS = 10 * 60_000;
 export const LEAGUE_LIVE_REFETCH_INTERVAL_MS = 60_000;
-export const TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS = 20_000;
+export const TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS = 60_000;
 const DEFAULT_BROWSER_REQUEST_TIMEOUT_MS = 12_000;
 const FAST_BROWSER_REQUEST_TIMEOUT_MS = 8_000;
 const SLOW_BROWSER_REQUEST_TIMEOUT_MS = 15_000;
@@ -927,8 +927,20 @@ export function getTraderManagementReviews(
 }
 
 export function getTraderExecutionEventsUrl(traderId: string, symbol: string) {
+  if (shouldSkipLocalCrossOriginEventStream(EVENT_STREAM_API_BASE_URL)) return null;
   const params = new URLSearchParams({ symbol });
   return `${EVENT_STREAM_API_BASE_URL}/api/league/traders/${encodeURIComponent(traderId)}/execution-events?${params.toString()}`;
+}
+
+function shouldSkipLocalCrossOriginEventStream(baseUrl: string) {
+  if (typeof window === "undefined") return false;
+  const localHosts = new Set(["localhost", "127.0.0.1"]);
+  if (!localHosts.has(window.location.hostname)) return false;
+  try {
+    return new URL(baseUrl, window.location.origin).origin !== window.location.origin;
+  } catch {
+    return false;
+  }
 }
 
 export function getCachedLeaderboardBundle(symbol: string, locale: Locale = "en", options?: LeaderboardBundleRequestOptions) {
@@ -967,7 +979,8 @@ export function traderDetailBundleQueryOptions(traderId: string, symbol: string,
     staleTime: TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS,
     gcTime: LEAGUE_QUERY_GC_TIME_MS,
     refetchInterval: TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS,
-    refetchIntervalInBackground: false
+    refetchIntervalInBackground: false,
+    retry: false
   };
 }
 

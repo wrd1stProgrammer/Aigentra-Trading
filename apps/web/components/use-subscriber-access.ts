@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { z } from "zod";
 
 export const FREE_LEADERBOARD_LIMIT = 5;
+const SUBSCRIBER_ACCESS_STALE_TIME_MS = 5 * 60_000;
 
 const subscriberAccessSchema = z.object({
   userId: z.string().nullable(),
@@ -58,9 +59,9 @@ export function useSubscriberAccess() {
     queryKey: subscriberAccessQueryKey(userId, email),
     queryFn: () => (isAuthenticated ? readClientSubscriberAccess() : guestSubscriberAccess),
     enabled: session.status !== "loading",
-    staleTime: 30_000,
+    staleTime: SUBSCRIBER_ACCESS_STALE_TIME_MS,
     gcTime: 5 * 60_000,
-    retry: 1,
+    retry: false,
     placeholderData: isAuthenticated ? undefined : guestSubscriberAccess
   });
 }

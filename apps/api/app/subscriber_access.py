@@ -46,7 +46,7 @@ def read_subscriber_access_state(
     clean_email = normalize_email(email)
     whop_status = read_whop_subscription_status(db, user_id=clean_user_id, email=clean_email, settings=settings)
     unlocked_keys = read_unlocked_source_keys(db, email=clean_email)
-    coupons_used = count_review_unlocks(db, email=clean_email)
+    coupons_used = len(unlocked_keys)
     is_subscribed = whop_status["status"] == "active"
     coupons_remaining = max(0, FREE_REVIEW_COUPON_LIMIT - coupons_used)
     return SubscriberAccessState(

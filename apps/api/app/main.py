@@ -6,6 +6,7 @@ from decimal import Decimal
 import inspect
 import os
 import re
+import threading
 import time
 from typing import Any, Dict, Optional
 
@@ -303,15 +304,16 @@ def schedule_thread_refresh(func, *args) -> None:
     try:
         asyncio.get_running_loop().create_task(runner())
     except RuntimeError:
-        try:
-            func(*args)
-        except Exception:
-            return
+        threading.Thread(target=func, args=args, daemon=True).start()
+
+
+def run_coroutine_in_thread(func, *args, **kwargs):
+    return asyncio.run(func(*args, **kwargs))
 
 
 async def run_maybe_threaded(func, *args, **kwargs):
     if inspect.iscoroutinefunction(func):
-        return await func(*args, **kwargs)
+        return await asyncio.to_thread(run_coroutine_in_thread, func, *args, **kwargs)
     return await asyncio.to_thread(func, *args, **kwargs)
 
 
@@ -2804,7 +2806,15 @@ def monthly_leaderboard_summaries(
             total_fees = float(end_snapshot.total_fees) - float(start_snapshot.total_fees)
         total_pnl = end_equity - start_equity
         monthly_return = round((total_pnl / start_equity) * 100, 2) if start_equity > 0 else 0.0
-        closed_positions, wins, losses = monthly_position_win_loss_counts(db, trader.id, symbol, period_start, period_end)
+        monthly_positions = monthly_position_query(db, trader.id, symbol, period_start, period_end)
+        position_pnls = [float(position.realized_pnl or 0) for position in monthly_positions]
+        closed_positions = len(monthly_positions)
+        wins = sum(1 for value in position_pnls if value > 0)
+        losses = sum(1 for value in position_pnls if value < 0)
+        biggest_win = round(max(position_pnls), 4) if position_pnls else 0.0
+        biggest_loss = round(min(position_pnls), 4) if position_pnls else 0.0
+        long_trades = sum(1 for position in monthly_positions if str(position.side).lower() == "long")
+        short_trades = sum(1 for position in monthly_positions if str(position.side).lower() == "short")
         win_rate = round((wins / closed_positions) * 100, 2) if closed_positions else None
         live_summary = trader_snapshot_summary(db, trader.id, symbol) or {}
         live_cumulative_return = float_or_default(live_summary.get("cumulativeReturn"), monthly_return)
@@ -2838,12 +2848,12 @@ def monthly_leaderboard_summaries(
                 "leverage": None,
                 "openOrders": 0,
                 "openPositions": 0,
-                "biggestWin": monthly_biggest_position_pnl(db, trader.id, symbol, period_start, period_end, biggest=True),
-                "biggestLoss": monthly_biggest_position_pnl(db, trader.id, symbol, period_start, period_end, biggest=False),
+                "biggestWin": biggest_win,
+                "biggestLoss": biggest_loss,
                 "averageLeverage": None,
                 "sharpe": 0.0,
-                "longTrades": monthly_position_side_count(db, trader.id, symbol, period_start, period_end, "long"),
-                "shortTrades": monthly_position_side_count(db, trader.id, symbol, period_start, period_end, "short"),
+                "longTrades": long_trades,
+                "shortTrades": short_trades,
                 "openNotional": 0.0,
                 "openMargin": 0.0,
                 "openOrderNotional": 0.0,
@@ -5272,7 +5282,7 @@ async def league_leaderboard(symbol: str = Query("BTCUSDT"), db: Session = Depen
 
 
 @app.get("/api/league/leaderboard-fast")
-async def league_leaderboard_fast(
+def league_leaderboard_fast(
     symbol: str = Query("BTCUSDT"),
     include_empty: bool = Query(True),
     include_related: bool = Query(False, alias="includeRelated"),
@@ -5332,9 +5342,11 @@ async def league_leaderboard_fast(
             if trader_id
         }
         missing_ids = known_trader_ids - existing_ids
-        if refresh or missing_ids:
-            refresh_leaderboard_snapshots(db, clean_symbol, missing_ids if not refresh else None)
+        if refresh:
+            refresh_leaderboard_snapshots(db, clean_symbol, None)
             db.commit()
+        elif missing_ids:
+            schedule_thread_refresh(refresh_league_bundle_cache_background, clean_symbol, include_empty, include_related, clean_locale)
 
         payload = build_league_bundle_payload(
             db,
@@ -5448,7 +5460,7 @@ async def refresh_leaderboard_snapshots_api(
 
 
 @app.get("/api/league/traders/{trader_id}")
-async def league_trader_detail(
+def league_trader_detail(
     trader_id: str,
     symbol: str = Query("BTCUSDT"),
     locale: str = Query(CANONICAL_AI_LOCALE),
@@ -5966,7 +5978,7 @@ async def candidate_trades(
 
 
 @app.get("/api/trade-plans")
-async def trade_plans(
+def trade_plans(
     limit: int = Query(20, ge=1, le=100),
     symbol: Optional[str] = Query(None),
     trader_id: Optional[str] = Query(None),
@@ -6067,7 +6079,7 @@ async def paper_trader_summary(symbol: str = Query("BTCUSDT"), db: Session = Dep
 
 @app.get("/api/paper/orders")
 @app.get("/api/paper-trading/orders")
-async def paper_orders(
+def paper_orders(
     limit: int = Query(20, ge=1, le=100),
     symbol: Optional[str] = Query(None),
     trader_id: Optional[str] = Query(None),
@@ -6079,7 +6091,7 @@ async def paper_orders(
 
 @app.get("/api/paper/positions")
 @app.get("/api/paper-trading/positions")
-async def paper_positions(
+def paper_positions(
     limit: int = Query(20, ge=1, le=100),
     symbol: Optional[str] = Query(None),
     trader_id: Optional[str] = Query(None),
@@ -6090,7 +6102,7 @@ async def paper_positions(
 
 
 @app.get("/api/paper/positions/active")
-async def active_paper_positions(
+def active_paper_positions(
     limit: int = Query(20, ge=1, le=100),
     symbol: Optional[str] = Query(None),
     trader_id: Optional[str] = Query(None),
@@ -6183,7 +6195,7 @@ async def paper_agent_states(
 @app.get("/api/paper/equity-snapshots")
 @app.get("/api/paper-trading/equity-snapshots")
 @app.get("/api/equity-snapshots")
-async def paper_equity_snapshots(
+def paper_equity_snapshots(
     limit: int = Query(20, ge=1, le=100),
     symbol: Optional[str] = Query(None),
     trader_id: Optional[str] = Query(None),

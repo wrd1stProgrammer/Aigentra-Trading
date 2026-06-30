@@ -83,6 +83,7 @@ def latest_checkout_record(
             desc(WhopCheckoutRecord.created_at),
             desc(WhopCheckoutRecord.id),
         )
+        .limit(1)
     ).scalars().first()
 
 

@@ -1,11 +1,15 @@
 from fastapi.testclient import TestClient
 
 import pytest
+from sqlalchemy import event
 
+import app.db as db_module
+import app.subscriber_access as subscriber_access
 from app.core.config import get_settings
 from app.db import ReviewUnlockRecord, WhopCheckoutRecord, init_db, reset_db_engine, session_scope
 from app.main import app
 from app.subscriber_access import FREE_REVIEW_COUPON_LIMIT, unlock_review_source
+from app.whop_status import read_whop_subscription_status
 
 
 @pytest.fixture(autouse=True)
@@ -138,3 +142,94 @@ def test_subscriber_access_api_requires_token_and_reports_remaining_coupons(temp
     assert authorized.status_code == 200
     assert authorized.json()["couponsRemaining"] == FREE_REVIEW_COUPON_LIMIT
     assert authorized.json()["isSubscribed"] is False
+
+
+def test_subscriber_access_reuses_unlocked_keys_for_coupon_count(temp_db, monkeypatch):
+    def fake_whop_status(*args, **kwargs):
+        return {
+            "status": "none",
+            "checkoutStatus": "none",
+            "planKey": None,
+            "planId": None,
+            "checkoutId": None,
+            "paymentId": None,
+            "membershipId": None,
+            "currency": None,
+            "amount": None,
+            "sandbox": True,
+        }
+
+    def fail_count_query(*args, **kwargs):
+        raise AssertionError("subscriber access should not issue a second unlock count query")
+
+    monkeypatch.setattr(subscriber_access, "read_whop_subscription_status", fake_whop_status)
+    monkeypatch.setattr(subscriber_access, "count_review_unlocks", fail_count_query)
+    with session_scope() as db:
+        db.add_all(
+            [
+                ReviewUnlockRecord(
+                    user_id="google-1",
+                    email="operator@example.com",
+                    source_key="scenario:range-maker:BTCUSDT:review-1",
+                    source_type="scenario",
+                    status="used",
+                ),
+                ReviewUnlockRecord(
+                    user_id="google-1",
+                    email="operator@example.com",
+                    source_key="scenario:range-maker:BTCUSDT:review-2",
+                    source_type="scenario",
+                    status="used",
+                ),
+            ]
+        )
+        db.flush()
+
+        state = subscriber_access.read_subscriber_access_state(
+            db,
+            user_id="google-1",
+            email="operator@example.com",
+            settings=get_settings(),
+        )
+
+    assert state.coupons_used == 2
+    assert state.coupons_remaining == FREE_REVIEW_COUPON_LIMIT - 2
+
+
+def test_whop_subscription_status_bounds_checkout_selects(temp_db):
+    with session_scope() as db:
+        db.add(
+            WhopCheckoutRecord(
+                checkout_id="ch_active",
+                internal_order_id="atl_active",
+                user_id="google-1",
+                email="operator@example.com",
+                plan_key="aigentra_pro_monthly",
+                status="payment_succeeded",
+                purchase_url="https://whop.com/checkout/ch_active",
+            )
+        )
+        db.commit()
+
+    checkout_selects: list[str] = []
+
+    def capture_sql(_conn, _cursor, statement, _parameters, _context, _executemany):
+        lowered = statement.lower()
+        if lowered.lstrip().startswith("select") and "whop_checkouts" in lowered:
+            checkout_selects.append(statement)
+
+    event.listen(db_module.engine, "before_cursor_execute", capture_sql)
+    try:
+        with session_scope() as db:
+            payload = read_whop_subscription_status(
+                db,
+                user_id="google-1",
+                email="operator@example.com",
+                settings=get_settings(),
+            )
+    finally:
+        event.remove(db_module.engine, "before_cursor_execute", capture_sql)
+
+    assert payload["status"] == "active"
+    assert len(checkout_selects) == 2
+    assert all("limit" in statement.lower() for statement in checkout_selects)

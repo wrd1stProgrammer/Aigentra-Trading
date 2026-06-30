@@ -216,6 +216,7 @@ class TradePlanRecord(CommonMixin, Base):
     __tablename__ = "trade_plans"
     __table_args__ = (
         Index("ix_trade_plans_trader_symbol_created", "trader_id", "symbol", "created_at", "id"),
+        Index("ix_trade_plans_symbol_status_created", "symbol", "status", "created_at", "id"),
     )
 
     run_id: Mapped[Optional[int]] = mapped_column(ForeignKey("trader_run_logs.id"), nullable=True, index=True)
@@ -408,6 +409,7 @@ class PaperOrderRecord(CommonMixin, Base):
     __tablename__ = "paper_orders"
     __table_args__ = (
         Index("ix_paper_orders_trader_symbol_status_created", "trader_id", "symbol", "status", "created_at", "id"),
+        Index("ix_paper_orders_symbol_status_created", "symbol", "status", "created_at", "id"),
     )
 
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)
@@ -433,6 +435,7 @@ class PaperPositionRecord(CommonMixin, Base):
     __tablename__ = "paper_positions"
     __table_args__ = (
         Index("ix_paper_positions_trader_symbol_status_created", "trader_id", "symbol", "status", "created_at", "id"),
+        Index("ix_paper_positions_symbol_status_created", "symbol", "status", "created_at", "id"),
     )
 
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)
@@ -511,6 +514,10 @@ class WhopCheckoutRecord(Base):
         UniqueConstraint("checkout_id", name="uq_whop_checkouts_checkout_id"),
         UniqueConstraint("internal_order_id", name="uq_whop_checkouts_internal_order_id"),
         Index("ix_whop_checkouts_email_created", "email", "created_at"),
+        Index("ix_whop_checkouts_user_updated", "user_id", "updated_at", "created_at", "id"),
+        Index("ix_whop_checkouts_email_updated", "email", "updated_at", "created_at", "id"),
+        Index("ix_whop_checkouts_user_status_updated", "user_id", "status", "updated_at", "created_at", "id"),
+        Index("ix_whop_checkouts_email_status_updated", "email", "status", "updated_at", "created_at", "id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -555,6 +562,7 @@ class ReviewUnlockRecord(CommonMixin, Base):
     __table_args__ = (
         UniqueConstraint("email", "source_key", name="uq_review_unlocks_email_source_key"),
         Index("ix_review_unlocks_email_created", "email", "created_at"),
+        Index("ix_review_unlocks_email_created_id", "email", "created_at", "id"),
         Index("ix_review_unlocks_user_created", "user_id", "created_at"),
     )
 

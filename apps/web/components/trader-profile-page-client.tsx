@@ -23,6 +23,7 @@ import {
 import { formatCurrency, formatDateTime, formatNumber, formatRelativeDateTime, intlLocale } from "@/lib/format";
 import { useAppContext } from "@/components/app-provider";
 import { buildScenarios, buildStandings, type LeagueSymbol, type TraderScenario } from "@/lib/league";
+import { shouldShowTraderDetailInitialOverlay } from "@/lib/trader-detail-loading-policy";
 import { fallbackTraders } from "@/lib/traders";
 import { buildScenarioTimelineItems } from "@/components/trader-profile-detail/data";
 import { buildHoldingItems } from "@/components/trader-profile-detail/holdings";
@@ -419,7 +420,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
         setHistoryHasMore(false);
       }
     } catch (err) {
-      if (isAbortLike(err)) return;
+      if (abortController.signal.aborted || historyContextKeyRef.current !== requestContextKey || isAbortLike(err)) return;
       console.error("Failed to load trade history:", err);
     } finally {
       if (historyContextKeyRef.current === requestContextKey) {
@@ -502,7 +503,10 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   useEffect(() => {
     if (!clientHydrated || typeof window === "undefined" || typeof EventSource === "undefined") return;
 
-    const source = new EventSource(getTraderExecutionEventsUrl(traderId, symbol));
+    const executionEventsUrl = getTraderExecutionEventsUrl(traderId, symbol);
+    if (!executionEventsUrl) return;
+
+    const source = new EventSource(executionEventsUrl);
     const detailKey = traderDetailBundleQueryKey(traderId, symbol, locale);
     const leaderboardKey = leaderboardBundleQueryKey(symbol, locale);
 
@@ -570,8 +574,13 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     };
   }, [detailQuery.data, extraReviews, fallback]);
 
-  const initialLoading = detailQuery.isFetching && hydratedDetailContextKey !== detailContextKey;
-  const loading = detailQuery.isPending && !detailQuery.data;
+  const hasRenderableDetail = Boolean(trader);
+  const initialLoading = shouldShowTraderDetailInitialOverlay({
+    hasRenderableDetail,
+    isFetching: detailQuery.isFetching,
+    isHydratedDetail: hydratedDetailContextKey === detailContextKey
+  });
+  const loading = detailQuery.isPending && !detailQuery.data && !hasRenderableDetail;
   const error = detailQuery.error ? (detailQuery.error instanceof Error ? detailQuery.error.message : String(detailQuery.error)) : null;
 
   const prefetchLeaderboard = useCallback(() => {

@@ -7,7 +7,7 @@ const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-c
 const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
 const nextConfigSource = readFileSync(new URL("../next.config.ts", import.meta.url), "utf8");
 const backendProxyRouteSource = readFileSync(new URL("../app/backend-api/[...path]/route.ts", import.meta.url), "utf8");
-const overlaySource = readFileSync(new URL("../components/page-loading-overlay.tsx", import.meta.url), "utf8");
+const loadingPolicy = loadTsModule("../lib/leaderboard-loading-policy.ts");
 const overviewFilter = loadTsModule("../components/leaderboard-overview-filter.ts");
 const formatSource = readFileSync(new URL("../lib/format.ts", import.meta.url), "utf8");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
@@ -162,47 +162,30 @@ test("leaderboard supports isolated UTC monthly league selection", () => {
   assert.match(apiSource, /leagueMonth\?: string/, "leaderboard API options should accept a UTC YYYY-MM month");
   assert.match(apiSource, /params\.set\("leagueMonth", options\.leagueMonth\)/, "leaderboard API should send the selected UTC month to the backend");
   assert.match(apiSource, /options\?\.leagueMonth \?\? "current"/, "browser cache and query keys should separate current and monthly bundles");
-  assert.match(leaderboardSource, /includeRelated: false/, "leaderboard first paint should use the summary bundle and load live context separately");
-  assert.match(leaderboardSource, /data-testid="leaderboard-month-selector"/, "leaderboard should expose a stable monthly selector target");
-  assert.match(leaderboardSource, /selectedLeagueMonth/, "leaderboard should keep selected month in component state");
-  assert.match(leaderboardSource, /leagueMonth: selectedLeagueMonth/, "leaderboard query should be parameterized by the selected month");
-  assert.match(leaderboardSource, /useSearchParams/, "league tab selection should be reflected in the URL");
-  assert.match(leaderboardSource, /router\.replace\(nextUrl, \{ scroll: false \}\)/, "league tab selection should preserve browser back navigation state");
-  assert.match(leaderboardSource, /next\.set\("league", "current"\)/, "current league tab should have a URL state marker");
+  assert.equal(
+    loadingPolicy.buildLeaguePeriodUrl("/leaderboard", "league=monthly&leagueMonth=2026-06&filter=favorites", undefined),
+    "/leaderboard?league=current&filter=favorites",
+    "current league tab should clear the stale month while preserving other URL state"
+  );
+  assert.equal(
+    loadingPolicy.buildLeaguePeriodUrl("/leaderboard", "league=current&filter=favorites", "2026-06"),
+    "/leaderboard?league=monthly&filter=favorites&leagueMonth=2026-06",
+    "monthly league tab should encode the selected UTC month while preserving other URL state"
+  );
   assert.match(leaderboardSource, /Date\.UTC/, "month options should be generated from UTC dates");
   assert.match(i18nSource, /"leaderboard\.monthlyLeague"/, "monthly selector copy should be localized");
 });
 
-test("league tab switches update URL state immediately before async route refresh", () => {
-  assert.match(
-    leaderboardSource,
-    /data-league-period="monthly"/,
-    "monthly tab should be a real navigable control with a stable target"
+test("league period URL policy preserves refreshable state without stale monthly params", () => {
+  assert.equal(
+    loadingPolicy.buildLeaguePeriodUrl("/leaderboard", "league=current&range=ALL", "2026-06"),
+    "/leaderboard?league=monthly&range=ALL&leagueMonth=2026-06",
+    "monthly selection should preserve unrelated search state"
   );
-  assert.match(
-    leaderboardSource,
-    /href=\{selectedLeagueHref\}/,
-    "monthly tab should have an href so fast pre-hydration clicks still switch tabs"
-  );
-  assert.match(
-    leaderboardSource,
-    /href=\{currentLeagueHref\}/,
-    "current tab should have an href so back/refresh preserves explicit current state"
-  );
-  assert.match(
-    leaderboardSource,
-    /const nextUrl = `\$\{pathname\}\$\{nextLeagueSearch\(searchParams, leagueMonth\)\}`/,
-    "league tab handlers should compute one canonical URL for state and router updates"
-  );
-  assert.match(
-    leaderboardSource,
-    /window\.history\.replaceState\(null, "", nextUrl\)/,
-    "league tab clicks should update the address bar synchronously so back/refresh preserves the chosen tab"
-  );
-  assert.match(
-    leaderboardSource,
-    /router\.replace\(nextUrl, \{ scroll: false \}\)/,
-    "Next router should still be notified after the immediate URL state update"
+  assert.equal(
+    loadingPolicy.buildLeaguePeriodUrl("/leaderboard", "?league=monthly&leagueMonth=2026-06&range=7D", undefined),
+    "/leaderboard?league=current&range=7D",
+    "current selection should remove a stale monthly value"
   );
 });
 
@@ -307,19 +290,34 @@ test("leaderboard trader links do not prefetch detail bundles during the click p
   );
 });
 
-test("leaderboard uses the shared full-screen loading overlay", () => {
-  assert.match(leaderboardSource, /PageLoadingOverlay/, "leaderboard should render the shared loading overlay");
-  assert.match(leaderboardSource, /common\.loadingLeagueData/, "leaderboard overlay should use localized loading copy");
-  assert.match(
-    leaderboardSource,
-    /const criticalDataReady = selectedBundleReady && currentBundleReady && accessReady && liveExposureReady;/,
-    "leaderboard overlay should wait for the selected bundle, access state, and live exposure state only"
+test("leaderboard initial loading policy only blocks a truly empty ranking load", () => {
+  assert.equal(
+    loadingPolicy.shouldShowLeaderboardInitialOverlay({
+      hasRenderableLeaderboard: false,
+      rankingPending: true,
+      rankingPlaceholder: false
+    }),
+    true,
+    "empty first loads should still show the loading overlay"
   );
-  assert.doesNotMatch(leaderboardSource, /overviewInitialReady|overviewRequired/, "league overview readiness should not hold the central loading overlay");
-  assert.match(leaderboardSource, /const showBackgroundFetching = !initialLoading && isFetching/, "inline loading chip should only appear after the central initial overlay has finished");
-  assert.match(overlaySource, /fixed inset-0/, "loading overlay should cover the viewport");
-  assert.match(overlaySource, /createPortal/, "loading overlay should be portaled outside animated page containers");
-  assert.match(overlaySource, /backdrop-blur-\[3px\]/, "loading overlay should blur the existing page");
+  assert.equal(
+    loadingPolicy.shouldShowLeaderboardInitialOverlay({
+      hasRenderableLeaderboard: true,
+      rankingPending: true,
+      rankingPlaceholder: false
+    }),
+    false,
+    "renderable standings should keep the shell interactive while slower queries finish"
+  );
+  assert.equal(
+    loadingPolicy.shouldShowLeaderboardInitialOverlay({
+      hasRenderableLeaderboard: false,
+      rankingPending: true,
+      rankingPlaceholder: true
+    }),
+    false,
+    "placeholder standings should keep period transitions from blanking the page"
+  );
 });
 
 test("leaderboard favorites are account-backed and clear on logout", () => {

@@ -1,6 +1,7 @@
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -256,6 +257,29 @@ def test_leaderboard_fast_serves_expired_cache_while_refreshing_in_background(mo
     assert scheduled == [("BTCUSDT", True, True, "en")]
 
 
+def test_leaderboard_fast_schedules_missing_snapshot_refresh_without_blocking(temp_api_db, monkeypatch):
+    main.LEAGUE_BUNDLE_CACHE.clear()
+    scheduled: list[tuple[str, tuple]] = []
+
+    def fail_sync_refresh(*args, **kwargs):
+        raise AssertionError("missing leaderboard snapshots should refresh after the response")
+
+    def fake_schedule_thread_refresh(func, *args):
+        scheduled.append((func.__name__, args))
+
+    monkeypatch.setattr(main, "refresh_leaderboard_snapshots", fail_sync_refresh)
+    monkeypatch.setattr(main, "schedule_thread_refresh", fake_schedule_thread_refresh)
+
+    response = client.get("/api/league/leaderboard-fast?symbol=BTCUSDT&locale=en")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["cacheHit"] is False
+    assert data["scheduledRefresh"] is True
+    assert data["missingSnapshotCount"] == len(main.list_traders())
+    assert scheduled == [("refresh_league_bundle_cache_background", ("BTCUSDT", True, False, "en"))]
+
+
 def test_leaderboard_fast_returns_utc_monthly_league_without_live_cache_pollution(temp_api_db):
     main.LEAGUE_BUNDLE_CACHE.clear()
     may_start = datetime(2026, 5, 1, tzinfo=timezone.utc)
@@ -380,6 +404,66 @@ def test_leaderboard_fast_rejects_invalid_utc_month():
 
     assert response.status_code == 400
     assert response.json()["detail"] == "leagueMonth must use UTC YYYY-MM format."
+
+
+def test_monthly_leaderboard_reuses_position_rows_per_trader(monkeypatch):
+    trader = SimpleNamespace(id="channel-rider", name="Channel Cartographer", baseRiskPercent=0.35)
+    start_snapshot = SimpleNamespace(
+        cash_balance=Decimal("10000"),
+        equity=Decimal("10000"),
+        realized_pnl=Decimal("0"),
+        unrealized_pnl=Decimal("0"),
+        total_fees=Decimal("0"),
+    )
+    end_snapshot = SimpleNamespace(
+        cash_balance=Decimal("10500"),
+        equity=Decimal("10500"),
+        realized_pnl=Decimal("500"),
+        unrealized_pnl=Decimal("0"),
+        total_fees=Decimal("2"),
+    )
+    positions = [
+        SimpleNamespace(realized_pnl=Decimal("12.5"), side="long"),
+        SimpleNamespace(realized_pnl=Decimal("-3"), side="short"),
+    ]
+    position_query_calls = 0
+
+    def fake_monthly_equity_points(*args, **kwargs):
+        return start_snapshot, end_snapshot, [start_snapshot, end_snapshot]
+
+    def fake_monthly_position_query(*args, **kwargs):
+        nonlocal position_query_calls
+        position_query_calls += 1
+        return positions
+
+    def fake_live_summary(*args, **kwargs):
+        return {
+            "cumulativeReturn": 5.0,
+            "return24h": 0.25,
+            "return7d": 1.5,
+            "return30d": 4.0,
+        }
+
+    monkeypatch.setattr(main, "list_traders", lambda: [trader])
+    monkeypatch.setattr(main, "monthly_equity_points", fake_monthly_equity_points)
+    monkeypatch.setattr(main, "monthly_position_query", fake_monthly_position_query)
+    monkeypatch.setattr(main, "trader_snapshot_summary", fake_live_summary)
+
+    summaries = main.monthly_leaderboard_summaries(
+        object(),
+        "BTCUSDT",
+        datetime(2026, 6, 1, tzinfo=timezone.utc),
+        datetime(2026, 7, 1, tzinfo=timezone.utc),
+    )
+
+    assert position_query_calls == 1
+    assert summaries[0]["closedPositions"] == 2
+    assert summaries[0]["wins"] == 1
+    assert summaries[0]["losses"] == 1
+    assert summaries[0]["biggestWin"] == 12.5
+    assert summaries[0]["biggestLoss"] == -3.0
+    assert summaries[0]["longTrades"] == 1
+    assert summaries[0]["shortTrades"] == 1
 
 
 def test_trader_detail_serves_expired_cache_while_refreshing_in_background(monkeypatch):

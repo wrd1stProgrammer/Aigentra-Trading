@@ -1,16 +1,24 @@
 import json
+import inspect
 from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import event
+from sqlalchemy import create_engine, event, inspect as inspect_database
 
 import app.core.config as config
 import app.db as db_module
 from app.db import (
     MarketSnapshotRecord,
+    PaperOrderRecord,
+    PaperPositionRecord,
     PositionManagementReviewRecord,
+    ReviewUnlockRecord,
     TraderLeaderboardSnapshotRecord,
     TraderRunLogRecord,
+    TradePlanRecord,
+    WhopCheckoutRecord,
     init_db,
     reset_db_engine,
     session_scope,
@@ -191,6 +199,114 @@ def test_slim_record_queries_do_not_fetch_json_payload_columns(tmp_path):
     assert "payload" not in records[0]
     assert "payload_json" not in select_sql
     assert "raw_json" not in select_sql
+
+
+def test_latency_sensitive_public_routes_have_covering_indexes():
+    def columns_for(model, index_name: str) -> tuple[str, ...]:
+        for index in model.__table__.indexes:
+            if index.name == index_name:
+                return tuple(column.name for column in index.columns)
+        return ()
+
+    assert columns_for(PaperOrderRecord, "ix_paper_orders_symbol_status_created") == (
+        "symbol",
+        "status",
+        "created_at",
+        "id",
+    )
+    assert columns_for(PaperPositionRecord, "ix_paper_positions_symbol_status_created") == (
+        "symbol",
+        "status",
+        "created_at",
+        "id",
+    )
+    assert columns_for(TradePlanRecord, "ix_trade_plans_symbol_status_created") == (
+        "symbol",
+        "status",
+        "created_at",
+        "id",
+    )
+    assert columns_for(WhopCheckoutRecord, "ix_whop_checkouts_user_status_updated") == (
+        "user_id",
+        "status",
+        "updated_at",
+        "created_at",
+        "id",
+    )
+    assert columns_for(WhopCheckoutRecord, "ix_whop_checkouts_email_status_updated") == (
+        "email",
+        "status",
+        "updated_at",
+        "created_at",
+        "id",
+    )
+    assert columns_for(ReviewUnlockRecord, "ix_review_unlocks_email_created_id") == (
+        "email",
+        "created_at",
+        "id",
+    )
+
+
+def test_public_read_timeout_indexes_are_applied_by_alembic(tmp_path, monkeypatch):
+    db_path = tmp_path / "migration-indexes.db"
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.delenv("NEON_DATABASE_URL", raising=False)
+    config.get_settings.cache_clear()
+    project_root = Path(__file__).resolve().parents[3]
+    alembic_config = Config(str(project_root / "alembic.ini"))
+    alembic_config.set_main_option("script_location", str(project_root / "apps/api/alembic"))
+    alembic_config.set_main_option("prepend_sys_path", str(project_root / "apps/api"))
+    engine = create_engine(f"sqlite:///{db_path}", future=True)
+    with engine.begin() as connection:
+        connection.exec_driver_sql("CREATE TABLE trade_plans (id INTEGER PRIMARY KEY, symbol VARCHAR(32), status VARCHAR(80), created_at DATETIME)")
+        connection.exec_driver_sql("CREATE TABLE paper_orders (id INTEGER PRIMARY KEY, symbol VARCHAR(32), status VARCHAR(80), created_at DATETIME)")
+        connection.exec_driver_sql("CREATE TABLE paper_positions (id INTEGER PRIMARY KEY, symbol VARCHAR(32), status VARCHAR(80), created_at DATETIME)")
+        connection.exec_driver_sql(
+            "CREATE TABLE whop_checkouts (id INTEGER PRIMARY KEY, user_id VARCHAR(180), email VARCHAR(240), status VARCHAR(60), updated_at DATETIME, created_at DATETIME)"
+        )
+        connection.exec_driver_sql("CREATE TABLE review_unlocks (id INTEGER PRIMARY KEY, email VARCHAR(240), created_at DATETIME)")
+    engine.dispose()
+
+    command.stamp(alembic_config, "202606300001")
+    command.upgrade(alembic_config, "head")
+
+    engine = create_engine(f"sqlite:///{db_path}", future=True)
+    try:
+        inspector = inspect_database(engine)
+        index_names_by_table = {
+            table_name: {index["name"] for index in inspector.get_indexes(table_name)}
+            for table_name in [
+                "paper_orders",
+                "paper_positions",
+                "trade_plans",
+                "whop_checkouts",
+                "review_unlocks",
+            ]
+        }
+    finally:
+        engine.dispose()
+        config.get_settings.cache_clear()
+
+    assert "ix_paper_orders_symbol_status_created" in index_names_by_table["paper_orders"]
+    assert "ix_paper_positions_symbol_status_created" in index_names_by_table["paper_positions"]
+    assert "ix_trade_plans_symbol_status_created" in index_names_by_table["trade_plans"]
+    assert "ix_whop_checkouts_user_status_updated" in index_names_by_table["whop_checkouts"]
+    assert "ix_whop_checkouts_email_status_updated" in index_names_by_table["whop_checkouts"]
+    assert "ix_review_unlocks_email_created_id" in index_names_by_table["review_unlocks"]
+
+
+def test_latency_sensitive_read_routes_run_in_fastapi_threadpool():
+    for route_handler in [
+        main.league_leaderboard_fast,
+        main.league_trader_detail,
+        main.trade_plans,
+        main.paper_orders,
+        main.paper_positions,
+        main.active_paper_positions,
+        main.paper_equity_snapshots,
+    ]:
+        assert not inspect.iscoroutinefunction(route_handler)
 
 
 def test_leaderboard_bundle_keeps_management_reviews_slim(tmp_path):
