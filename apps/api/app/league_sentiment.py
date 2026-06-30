@@ -207,7 +207,17 @@ async def get_or_create_league_sentiment_opinion(
             error_message=error_message,
         )
 
-    opinion = sanitize_league_sentiment_opinion(opinion.model_copy(update={"sourceCounts": dict(payload.sourceCounts)}))
+    opinion = sanitize_league_sentiment_opinion(
+        opinion.model_copy(
+            update={
+                "sourceCounts": dict(payload.sourceCounts),
+                "sourceBreakdown": dict(payload.sourceBreakdown),
+                "dataFreshness": dict(payload.dataFreshness),
+                "evidenceRefs": trusted_evidence_refs(opinion.evidenceRefs, payload.evidenceRefs),
+                "invalidatesAt": opinion.invalidatesAt or payload.intervalEnd,
+            }
+        )
+    )
     record = LeagueSentimentOpinionRecord(
         symbol=symbol,
         trader_id="aigentra-opinion",
@@ -381,6 +391,38 @@ def build_league_sentiment_payload(
         entry_review_summaries,
         management_review_summaries,
     )
+    active_position_summaries = add_source_refs(active_position_summaries, "position")
+    pending_order_summaries = add_source_refs(pending_order_summaries, "order")
+    closed_position_summaries = add_source_refs(closed_position_summaries, "closed_position")
+    event_summaries = add_source_refs(event_summaries, "event")
+    entry_review_summaries_raw = add_source_refs(entry_review_summaries, "entry_review")
+    management_review_summaries_raw = add_source_refs(management_review_summaries, "management_review")
+    entry_review_summaries = dedupe_latest_summaries(
+        entry_review_summaries_raw,
+        ("traderId", "decision", "riskLevel"),
+    )
+    management_review_summaries = dedupe_latest_summaries(
+        management_review_summaries_raw,
+        ("traderId", "phase", "decision", "action", "side"),
+    )
+    active_position_summaries = add_exposure_distances(active_position_summaries, market)
+    pending_order_summaries = add_exposure_distances(pending_order_summaries, market, price_key="limitPrice")
+    evidence_refs = build_evidence_refs(
+        active_position_summaries,
+        pending_order_summaries,
+        closed_position_summaries,
+        event_summaries,
+        entry_review_summaries,
+        management_review_summaries,
+    )
+    breakdown = source_breakdown(
+        counts,
+        active_position_summaries,
+        pending_order_summaries,
+    )
+    previous_opinion = summarize_previous_opinion(
+        latest_previous_opinion(db, symbol, CANONICAL_AI_LOCALE, interval_start)
+    )
     return LeagueSentimentPayload(
         symbol=symbol,
         locale=locale,
@@ -396,6 +438,25 @@ def build_league_sentiment_payload(
         recentEntryReviews=entry_review_summaries[:60],
         recentManagementReviews=management_review_summaries[:60],
         longShortContext=long_short_context(active_position_summaries, pending_order_summaries),
+        sourceBreakdown=breakdown,
+        dataFreshness=data_freshness(
+            now=now,
+            generated_at=iso_utc(now) or "",
+            market=market,
+            active_positions=active_position_summaries,
+            pending_orders=pending_order_summaries,
+            closed_positions=closed_position_summaries,
+            events=event_summaries,
+            entry_reviews=entry_review_summaries_raw,
+            management_reviews=management_review_summaries_raw,
+        ),
+        evidenceRefs=evidence_refs,
+        derivedSignals=derived_signals(
+            active_positions=active_position_summaries,
+            pending_orders=pending_order_summaries,
+            counts=counts,
+        ),
+        previousOpinion=previous_opinion,
     )
 
 
@@ -685,6 +746,299 @@ def long_short_context(positions: list[dict[str, Any]], orders: list[dict[str, A
     }
 
 
+def add_source_refs(records: list[dict[str, Any]], source_prefix: str) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for index, item in enumerate(records):
+        record_id = item.get("id")
+        ref_id = f"{source_prefix}:{record_id if record_id not in {None, ''} else index}"
+        enriched.append({**item, "sourceRef": ref_id})
+    return enriched
+
+
+def dedupe_latest_summaries(records: list[dict[str, Any]], key_fields: tuple[str, ...]) -> list[dict[str, Any]]:
+    seen: set[tuple[Any, ...]] = set()
+    deduped: list[dict[str, Any]] = []
+    for item in records:
+        key = tuple(item.get(field) or "" for field in key_fields)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def add_exposure_distances(
+    records: list[dict[str, Any]],
+    market: dict[str, Any],
+    *,
+    price_key: str = "entryPrice",
+) -> list[dict[str, Any]]:
+    market_price = numeric(market.get("price"))
+    enriched: list[dict[str, Any]] = []
+    for item in records:
+        current_price = market_price or numeric(item.get("currentPrice")) or numeric(item.get(price_key))
+        if current_price is None or current_price <= 0:
+            enriched.append(item)
+            continue
+        side = item.get("side")
+        take_profit = numeric(item.get("takeProfit"))
+        stop_loss = numeric(item.get("stopLoss"))
+        enriched.append(
+            {
+                **item,
+                "distanceToTakeProfitPct": price_distance_pct(side, current_price, take_profit, favorable=True),
+                "distanceToStopLossPct": price_distance_pct(side, current_price, stop_loss, favorable=False),
+            }
+        )
+    return enriched
+
+
+def price_distance_pct(side: Any, current_price: float, target_price: Optional[float], *, favorable: bool) -> Optional[float]:
+    if target_price is None or current_price <= 0:
+        return None
+    side_value = side_label(side)
+    if side_value == "SHORT":
+        distance = current_price - target_price if favorable else target_price - current_price
+    else:
+        distance = target_price - current_price if favorable else current_price - target_price
+    return round((distance / current_price) * 100, 4)
+
+
+def source_breakdown(
+    counts: dict[str, int],
+    active_positions: list[dict[str, Any]],
+    pending_orders: list[dict[str, Any]],
+) -> dict[str, Any]:
+    active_context = exposure_group(active_positions)
+    pending_context = exposure_group(pending_orders)
+    return {
+        "activeExposure": {
+            **active_context,
+            "total": int(counts.get("activePositions", 0)),
+            "long": int(counts.get("activeLongPositions", 0)),
+            "short": int(counts.get("activeShortPositions", 0)),
+        },
+        "pendingOrders": {
+            **pending_context,
+            "total": int(counts.get("pendingOrders", 0)),
+            "long": int(counts.get("pendingLongOrders", 0)),
+            "short": int(counts.get("pendingShortOrders", 0)),
+        },
+        "recentOutcomes": {
+            "closedPositions": int(counts.get("recentClosedPositions", 0)),
+            "tradeEvents": int(counts.get("recentTradeEvents", 0)),
+            "takeProfits": int(counts.get("recentTakeProfits", 0)),
+            "stopLosses": int(counts.get("recentStopLosses", 0)),
+        },
+        "aiReviews": {
+            "entry": int(counts.get("recentEntryReviews", 0)),
+            "approvedEntry": int(counts.get("recentApprovedEntryReviews", 0)),
+            "rejectedEntry": int(counts.get("recentRejectedEntryReviews", 0)),
+            "management": int(counts.get("recentManagementReviews", 0)),
+        },
+    }
+
+
+def exposure_group(records: list[dict[str, Any]]) -> dict[str, Any]:
+    long_notional = sum(float(item.get("notional") or 0) for item in records if item.get("side") == "LONG")
+    short_notional = sum(float(item.get("notional") or 0) for item in records if item.get("side") == "SHORT")
+    return {
+        "longNotional": round(long_notional, 4),
+        "shortNotional": round(short_notional, 4),
+        "dominantSide": "LONG" if long_notional > short_notional else "SHORT" if short_notional > long_notional else "BALANCED",
+    }
+
+
+def data_freshness(
+    *,
+    now: datetime,
+    generated_at: str,
+    market: dict[str, Any],
+    active_positions: list[dict[str, Any]],
+    pending_orders: list[dict[str, Any]],
+    closed_positions: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    entry_reviews: list[dict[str, Any]],
+    management_reviews: list[dict[str, Any]],
+) -> dict[str, Any]:
+    latest_outcome_at = latest_timestamp(closed_positions + events, ("closedAt", "createdAt"))
+    market_updated_at = parse_iso_datetime(market.get("updatedAt"))
+    latest_active_position_at = latest_timestamp(active_positions, ("updatedAt", "openedAt"))
+    latest_pending_order_at = latest_timestamp(pending_orders, ("updatedAt", "submittedAt"))
+    latest_entry_review_at = latest_timestamp(entry_reviews, ("createdAt",))
+    latest_management_review_at = latest_timestamp(management_reviews, ("createdAt",))
+    return {
+        "generatedAt": generated_at,
+        "marketUpdatedAt": iso_utc(market_updated_at),
+        "marketAgeMinutes": age_minutes(now, market_updated_at),
+        "latestActivePositionAt": iso_utc(latest_active_position_at),
+        "latestActivePositionAgeMinutes": age_minutes(now, latest_active_position_at),
+        "latestPendingOrderAt": iso_utc(latest_pending_order_at),
+        "latestPendingOrderAgeMinutes": age_minutes(now, latest_pending_order_at),
+        "latestOutcomeAt": iso_utc(latest_outcome_at),
+        "latestOutcomeAgeMinutes": age_minutes(now, latest_outcome_at),
+        "latestEntryReviewAt": iso_utc(latest_entry_review_at),
+        "latestEntryReviewAgeMinutes": age_minutes(now, latest_entry_review_at),
+        "latestManagementReviewAt": iso_utc(latest_management_review_at),
+        "latestManagementReviewAgeMinutes": age_minutes(now, latest_management_review_at),
+    }
+
+
+def derived_signals(
+    *,
+    active_positions: list[dict[str, Any]],
+    pending_orders: list[dict[str, Any]],
+    counts: dict[str, int],
+) -> dict[str, Any]:
+    active = long_short_context(active_positions, [])
+    pending = long_short_context([], pending_orders)
+    total_reviews = int(counts.get("recentEntryReviews", 0)) + int(counts.get("recentManagementReviews", 0))
+    total_outcomes = int(counts.get("recentTakeProfits", 0)) + int(counts.get("recentStopLosses", 0))
+    return {
+        "activeExposure": {
+            **active,
+            "concentration": exposure_concentration(active_positions),
+        },
+        "pendingIntent": pending,
+        "recentOutcomeBalance": {
+            "takeProfits": int(counts.get("recentTakeProfits", 0)),
+            "stopLosses": int(counts.get("recentStopLosses", 0)),
+            "sampleSize": total_outcomes,
+        },
+        "aiReviewVolume": {
+            "total": total_reviews,
+            "entry": int(counts.get("recentEntryReviews", 0)),
+            "management": int(counts.get("recentManagementReviews", 0)),
+        },
+    }
+
+
+def exposure_concentration(records: list[dict[str, Any]]) -> dict[str, Any]:
+    total = sum(float(item.get("notional") or 0) for item in records)
+    if total <= 0:
+        return {"topTraderId": None, "topSharePct": None}
+    by_trader: dict[str, float] = {}
+    for item in records:
+        trader_id = str(item.get("traderId") or "unknown")
+        by_trader[trader_id] = by_trader.get(trader_id, 0.0) + float(item.get("notional") or 0)
+    top_trader, top_value = max(by_trader.items(), key=lambda entry: entry[1])
+    return {"topTraderId": top_trader, "topSharePct": round((top_value / total) * 100, 2)}
+
+
+def build_evidence_refs(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for group in groups:
+        for item in group:
+            ref_id = item.get("sourceRef")
+            if not ref_id or ref_id in seen:
+                continue
+            seen.add(str(ref_id))
+            source_type = evidence_source_type(str(ref_id))
+            refs.append(
+                {
+                    "id": str(ref_id),
+                    "sourceType": source_type,
+                    "label": evidence_label(source_type, item),
+                    "traderId": item.get("traderId"),
+                    "traderName": item.get("traderName"),
+                    "side": item.get("side"),
+                    "price": numeric(item.get("entryPrice"))
+                    or numeric(item.get("limitPrice"))
+                    or numeric(item.get("currentPrice"))
+                    or numeric(item.get("price")),
+                    "timestamp": item.get("updatedAt")
+                    or item.get("submittedAt")
+                    or item.get("closedAt")
+                    or item.get("createdAt")
+                    or item.get("openedAt"),
+                }
+            )
+            if len(refs) >= 12:
+                return refs
+    return refs
+
+
+def evidence_source_type(ref_id: str) -> str:
+    prefix = ref_id.split(":", 1)[0]
+    return {
+        "position": "active_position",
+        "order": "pending_order",
+        "closed_position": "closed_position",
+        "event": "trade_event",
+        "entry_review": "entry_review",
+        "management_review": "management_review",
+    }.get(prefix, "source")
+
+
+def evidence_label(source_type: str, item: dict[str, Any]) -> str:
+    trader = item.get("traderName") or item.get("traderId") or "Unknown trader"
+    side = item.get("side")
+    decision = item.get("decision") or item.get("eventType") or item.get("closeReason")
+    price = numeric(item.get("entryPrice")) or numeric(item.get("limitPrice")) or numeric(item.get("currentPrice")) or numeric(item.get("price"))
+    pieces = [str(trader), source_type.replace("_", " ")]
+    if side:
+        pieces.append(str(side))
+    if decision:
+        pieces.append(str(decision))
+    if price is not None:
+        pieces.append(f"@ {price:g}")
+    return " ".join(pieces)
+
+
+def trusted_evidence_refs(
+    opinion_refs: list[dict[str, Any]],
+    payload_refs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    known = {str(ref.get("id")): ref for ref in payload_refs if ref.get("id")}
+    trusted = [known[str(ref.get("id"))] for ref in opinion_refs if str(ref.get("id")) in known]
+    return trusted[:8] if trusted else payload_refs[:8]
+
+
+def latest_timestamp(records: list[dict[str, Any]], keys: tuple[str, ...]) -> Optional[datetime]:
+    values: list[datetime] = []
+    for item in records:
+        for key in keys:
+            parsed = parse_iso_datetime(item.get(key))
+            if parsed is not None:
+                values.append(parsed)
+                break
+    return max(values) if values else None
+
+
+def parse_iso_datetime(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return ensure_utc(parsed)
+
+
+def age_minutes(now: datetime, value: Optional[datetime]) -> Optional[int]:
+    if value is None:
+        return None
+    return max(0, int((ensure_utc(now) - ensure_utc(value)).total_seconds() // 60))
+
+
+def summarize_previous_opinion(record: Optional[LeagueSentimentOpinionRecord]) -> Optional[dict[str, Any]]:
+    if record is None:
+        return None
+    opinion = from_json(record.payload_json) if record.payload_json else {}
+    if not isinstance(opinion, dict):
+        opinion = {}
+    return {
+        "intervalStart": iso_utc(record.interval_start),
+        "intervalEnd": iso_utc(record.interval_end),
+        "createdAt": iso_utc(record.created_at),
+        "bias": opinion.get("bias") or record.bias,
+        "confidence": opinion.get("confidence") or record.confidence,
+        "riskLevel": opinion.get("riskLevel") or record.risk_level,
+        "headline": opinion.get("headline"),
+    }
+
+
 def fallback_league_sentiment_opinion(payload: LeagueSentimentPayload) -> LeagueSentimentOpinionResult:
     counts = payload.sourceCounts
     long_count = int(counts.get("activeLongPositions", 0)) + int(counts.get("pendingLongOrders", 0))
@@ -711,6 +1065,11 @@ def fallback_league_sentiment_opinion(payload: LeagueSentimentPayload) -> League
         bias=bias,
         confidence=45 if bias in {"NEUTRAL", "MIXED"} else 58,
         riskLevel=risk,
+        confidenceReason=(
+            "신뢰도는 AI 해석 실패 후 검증된 집계와 데이터 신선도만 사용해 제한했습니다."
+            if ko
+            else "Confidence is capped because the provider failed and only verified counts plus freshness metadata were used."
+        ),
         headline=(
             "지금은 새 방향보다 활성 셋업의 무효화 조건을 먼저 확인할 구간입니다."
             if ko
@@ -754,6 +1113,10 @@ def fallback_league_sentiment_opinion(payload: LeagueSentimentPayload) -> League
         action="새 포지션보다 기존 활성 셋업의 무효화 조건을 먼저 확인하세요." if ko else "Prioritize invalidation checks on active setups before chasing new direction.",
         longShortContext=f"LONG {long_count} / SHORT {short_count}",
         sourceCounts=dict(counts),
+        sourceBreakdown=dict(payload.sourceBreakdown),
+        dataFreshness=dict(payload.dataFreshness),
+        evidenceRefs=payload.evidenceRefs[:8],
+        invalidatesAt=payload.intervalEnd,
         provider="system",
         model="safe-hourly-fallback",
         fallback=True,
@@ -768,6 +1131,7 @@ def serialize_league_sentiment_record(
     locale: str,
     stale: bool = False,
     next_refresh_at: Optional[datetime] = None,
+    now: Optional[datetime] = None,
 ) -> dict[str, Any]:
     opinion = from_json(record.payload_json) if record.payload_json else {}
     if not isinstance(opinion, dict):
@@ -782,6 +1146,11 @@ def serialize_league_sentiment_record(
     if isinstance(localized_opinion, dict):
         localized_opinion = dict(localized_opinion)
         localized_opinion.pop("dataQuality", None)
+    reference_now = ensure_utc(now or utc_now())
+    refresh_at = ensure_utc(next_refresh_at or record.interval_end)
+    refresh_overdue_minutes = max(0, int((reference_now - refresh_at).total_seconds() // 60))
+    opinion_anchor = record.created_at or record.interval_start
+    opinion_age_minutes = max(0, int((reference_now - ensure_utc(opinion_anchor)).total_seconds() // 60))
     return {
         "id": record.id,
         "symbol": record.symbol,
@@ -794,7 +1163,11 @@ def serialize_league_sentiment_record(
         "updatedAt": iso_utc(record.updated_at),
         "cacheHit": cache_hit,
         "stale": stale,
-        "nextRefreshAt": iso_utc(next_refresh_at or record.interval_end),
+        "staleReason": "previous_interval" if stale else None,
+        "refreshOverdue": refresh_overdue_minutes > 0,
+        "refreshOverdueMinutes": refresh_overdue_minutes,
+        "opinionAgeMinutes": opinion_age_minutes,
+        "nextRefreshAt": iso_utc(refresh_at),
         "translation": translation_meta,
         "opinion": localized_opinion,
     }

@@ -470,6 +470,7 @@ export type LeagueSentimentOpinion = {
   bias: LeagueSentimentBias | string;
   confidence: number;
   riskLevel: string;
+  confidenceReason?: string | null;
   headline: string;
   summary: string;
   keyDrivers: string[];
@@ -478,6 +479,35 @@ export type LeagueSentimentOpinion = {
   action: string;
   longShortContext: string;
   sourceCounts: Record<string, number>;
+  sourceBreakdown?: Record<string, any>;
+  dataFreshness?: {
+    generatedAt?: string | null;
+    marketUpdatedAt?: string | null;
+    marketAgeMinutes?: number | null;
+    latestActivePositionAt?: string | null;
+    latestActivePositionAgeMinutes?: number | null;
+    latestPendingOrderAt?: string | null;
+    latestPendingOrderAgeMinutes?: number | null;
+    latestOutcomeAt?: string | null;
+    latestOutcomeAgeMinutes?: number | null;
+    latestEntryReviewAt?: string | null;
+    latestEntryReviewAgeMinutes?: number | null;
+    latestManagementReviewAt?: string | null;
+    latestManagementReviewAgeMinutes?: number | null;
+    [key: string]: any;
+  } | null;
+  evidenceRefs?: Array<{
+    id: string;
+    sourceType: string;
+    label: string;
+    traderId?: string | null;
+    traderName?: string | null;
+    side?: string | null;
+    price?: number | null;
+    timestamp?: string | null;
+    [key: string]: any;
+  }>;
+  invalidatesAt?: string | null;
   provider: string;
   model: string;
   fallback: boolean;
@@ -495,6 +525,10 @@ export type LeagueSentimentOpinionResponse = {
   updatedAt?: string | null;
   cacheHit: boolean;
   stale?: boolean;
+  staleReason?: string | null;
+  refreshOverdue?: boolean;
+  refreshOverdueMinutes?: number;
+  opinionAgeMinutes?: number;
   opinion: LeagueSentimentOpinion;
 };
 

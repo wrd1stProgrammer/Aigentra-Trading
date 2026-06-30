@@ -194,12 +194,27 @@ def management_review_schema() -> dict[str, Any]:
 
 
 def league_sentiment_schema() -> dict[str, Any]:
+    nullable_string = {"type": ["string", "null"]}
+    nullable_integer = {"type": ["integer", "null"]}
+    source_group_schema = {
+        "type": "object",
+        "properties": {
+            "total": {"type": "integer"},
+            "long": {"type": "integer"},
+            "short": {"type": "integer"},
+            "longNotional": {"type": "number"},
+            "shortNotional": {"type": "number"},
+            "dominantSide": {"type": "string"},
+        },
+        "additionalProperties": False,
+    }
     return {
         "type": "object",
         "properties": {
             "bias": {"type": "string", "enum": sorted(VALID_LEAGUE_BIASES)},
             "confidence": {"type": "integer", "description": "Integer confidence from 0 to 100."},
             "riskLevel": {"type": "string", "enum": sorted(VALID_RISK_LEVELS)},
+            "confidenceReason": {"type": "string"},
             "headline": {"type": "string"},
             "summary": {"type": "string"},
             "keyDrivers": {"type": "array", "items": {"type": "string"}},
@@ -208,11 +223,89 @@ def league_sentiment_schema() -> dict[str, Any]:
             "action": {"type": "string"},
             "longShortContext": {"type": "string"},
             "sourceCounts": {"type": "object", "additionalProperties": {"type": "integer"}},
+            "sourceBreakdown": {
+                "type": "object",
+                "properties": {
+                    "activeExposure": source_group_schema,
+                    "pendingOrders": source_group_schema,
+                    "recentOutcomes": {
+                        "type": "object",
+                        "properties": {
+                            "closedPositions": {"type": "integer"},
+                            "tradeEvents": {"type": "integer"},
+                            "takeProfits": {"type": "integer"},
+                            "stopLosses": {"type": "integer"},
+                        },
+                        "additionalProperties": False,
+                    },
+                    "aiReviews": {
+                        "type": "object",
+                        "properties": {
+                            "entry": {"type": "integer"},
+                            "approvedEntry": {"type": "integer"},
+                            "rejectedEntry": {"type": "integer"},
+                            "management": {"type": "integer"},
+                        },
+                        "additionalProperties": False,
+                    },
+                },
+                "required": ["activeExposure", "pendingOrders", "recentOutcomes", "aiReviews"],
+                "additionalProperties": False,
+            },
+            "dataFreshness": {
+                "type": "object",
+                "properties": {
+                    "generatedAt": {"type": "string"},
+                    "marketUpdatedAt": nullable_string,
+                    "marketAgeMinutes": nullable_integer,
+                    "latestActivePositionAt": nullable_string,
+                    "latestActivePositionAgeMinutes": nullable_integer,
+                    "latestPendingOrderAt": nullable_string,
+                    "latestPendingOrderAgeMinutes": nullable_integer,
+                    "latestOutcomeAt": nullable_string,
+                    "latestOutcomeAgeMinutes": nullable_integer,
+                    "latestEntryReviewAt": nullable_string,
+                    "latestEntryReviewAgeMinutes": nullable_integer,
+                    "latestManagementReviewAt": nullable_string,
+                    "latestManagementReviewAgeMinutes": nullable_integer,
+                },
+                "required": [
+                    "generatedAt",
+                    "marketUpdatedAt",
+                    "marketAgeMinutes",
+                    "latestActivePositionAt",
+                    "latestActivePositionAgeMinutes",
+                    "latestPendingOrderAt",
+                    "latestPendingOrderAgeMinutes",
+                    "latestOutcomeAt",
+                    "latestOutcomeAgeMinutes",
+                    "latestEntryReviewAt",
+                    "latestEntryReviewAgeMinutes",
+                    "latestManagementReviewAt",
+                    "latestManagementReviewAgeMinutes",
+                ],
+                "additionalProperties": False,
+            },
+            "evidenceRefs": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "sourceType": {"type": "string"},
+                        "label": {"type": "string"},
+                    },
+                    "required": ["id", "sourceType", "label"],
+                    "additionalProperties": False,
+                },
+            },
+            "invalidatesAt": nullable_string,
         },
         "required": [
             "bias",
             "confidence",
             "riskLevel",
+            "confidenceReason",
             "headline",
             "summary",
             "keyDrivers",
@@ -221,6 +314,10 @@ def league_sentiment_schema() -> dict[str, Any]:
             "action",
             "longShortContext",
             "sourceCounts",
+            "sourceBreakdown",
+            "dataFreshness",
+            "evidenceRefs",
+            "invalidatesAt",
         ],
         "additionalProperties": False,
     }

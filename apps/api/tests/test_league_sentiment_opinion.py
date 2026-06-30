@@ -19,7 +19,7 @@ from app.db import (
     reset_db_engine,
     session_scope,
 )
-from app.league_sentiment import build_league_sentiment_payload
+from app.league_sentiment import build_league_sentiment_payload, serialize_league_sentiment_record
 from app.main import app
 from app.repositories import to_json
 
@@ -134,6 +134,7 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
                 bias="MIXED",
                 confidence=72,
                 riskLevel="MEDIUM",
+                confidenceReason="Balanced active exposure keeps confidence capped.",
                 headline="롱과 숏이 엇갈려 있어 확인 구간입니다.",
                 summary="페이퍼 트레이딩이라는 표현 없이, 롱 포지션은 수익 중이고 숏 대기 주문도 있어 다음 1시간 종가 확인이 중요합니다.",
                 keyDrivers=["진입 중 롱 1건", "진입대기 숏 1건", "최근 익절 1건"],
@@ -142,6 +143,10 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
                 action="신규 추격보다 기존 계획의 무효화 조건을 우선하세요.",
                 longShortContext="LONG 1 / SHORT 1",
                 sourceCounts={"activePositions": 1, "pendingOrders": 1, "recentClosedPositions": 1},
+                sourceBreakdown={"activeExposure": {"total": 1}, "pendingOrders": {"total": 1}},
+                dataFreshness={"generatedAt": "2026-06-18T08:35:00+00:00"},
+                evidenceRefs=[{"id": "position:1", "sourceType": "active_position", "label": "range-maker LONG"}],
+                invalidatesAt="2026-06-18T09:00:00+00:00",
                 provider="mock",
                 model="mock-league-opinion",
                 fallback=False,
@@ -162,6 +167,9 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
     assert first.json()["nextRefreshAt"] == first.json()["intervalEnd"]
     assert first.json()["opinion"]["bias"] == "MIXED"
     assert first.json()["opinion"]["sourceCounts"]["activePositions"] == 1
+    assert first.json()["opinion"]["confidenceReason"] == "Balanced active exposure keeps confidence capped."
+    assert first.json()["opinion"]["evidenceRefs"][0]["sourceType"] == "active_position"
+    assert first.json()["opinion"]["dataFreshness"]["generatedAt"]
     assert "dataQuality" not in first.json()["opinion"]
     assert "페이퍼 트레이딩" not in str(first.json()["opinion"])
     assert "paper trading" not in str(first.json()["opinion"]).lower()
@@ -183,6 +191,7 @@ def test_existing_league_sentiment_opinion_hydrates_requested_locale_translation
         "bias": "MIXED",
         "confidence": 74,
         "riskLevel": "MEDIUM",
+        "confidenceReason": "Both sides are present, so confidence is moderate.",
         "headline": "Mixed BTC positioning needs confirmation.",
         "summary": "Long and short plans are both active, so the next hourly close matters.",
         "keyDrivers": ["One active LONG", "One pending SHORT"],
@@ -191,6 +200,10 @@ def test_existing_league_sentiment_opinion_hydrates_requested_locale_translation
         "action": "Avoid chasing until direction clears.",
         "longShortContext": "LONG 1 / SHORT 1",
         "sourceCounts": {"activePositions": 1, "pendingOrders": 1},
+        "sourceBreakdown": {"activeExposure": {"total": 1}, "pendingOrders": {"total": 1}},
+        "dataFreshness": {"generatedAt": interval_start.isoformat()},
+        "evidenceRefs": [{"id": "position:1", "sourceType": "active_position", "label": "range-maker LONG"}],
+        "invalidatesAt": (interval_start + timedelta(hours=1)).isoformat(),
         "provider": "mock",
         "model": "mock-league-opinion",
         "fallback": False,
@@ -211,6 +224,7 @@ def test_existing_league_sentiment_opinion_hydrates_requested_locale_translation
                 confidence=74,
                 risk_level="MEDIUM",
                 fallback=False,
+                created_at=interval_start,
                 payload_json=to_json(payload),
             )
         )
@@ -226,6 +240,7 @@ def test_existing_league_sentiment_opinion_hydrates_requested_locale_translation
             "watchConditions": ["다음 1시간 종가를 확인하세요."],
             "action": "방향이 정리될 때까지 추격 진입은 피하세요.",
             "longShortContext": "LONG 1 / SHORT 1",
+            "confidenceReason": "양쪽 근거가 있어 신뢰도는 중간 수준입니다.",
         }
 
     monkeypatch.setattr("app.league_sentiment.utc_now", lambda: interval_start + timedelta(minutes=12))
@@ -245,6 +260,8 @@ def test_existing_league_sentiment_opinion_hydrates_requested_locale_translation
     assert data["translation"]["status"] == "ok"
     assert data["opinion"]["headline"] == "BTC 포지션이 엇갈려 확인이 필요합니다."
     assert data["opinion"]["summary"] == "롱과 숏 계획이 모두 살아 있어 다음 1시간 종가가 중요합니다."
+    assert data["opinion"]["confidenceReason"] == "양쪽 근거가 있어 신뢰도는 중간 수준입니다."
+    assert data["opinion"]["evidenceRefs"][0]["id"] == "position:1"
 
     with session_scope() as db:
         translations = db.query(AITranslationCacheRecord).all()
@@ -261,6 +278,7 @@ def test_league_sentiment_opinion_can_return_previous_hour_without_blocking(temp
         "bias": "MIXED",
         "confidence": 68,
         "riskLevel": "MEDIUM",
+        "confidenceReason": "Previous opinion is only a temporary read.",
         "headline": "직전 시간대 의견입니다.",
         "summary": "새 시간대 생성 중에도 먼저 보여줄 수 있는 최근 의견입니다.",
         "keyDrivers": ["최근 의견"],
@@ -269,6 +287,10 @@ def test_league_sentiment_opinion_can_return_previous_hour_without_blocking(temp
         "action": "기존 의견을 참고하세요.",
         "longShortContext": "LONG 1 / SHORT 1",
         "sourceCounts": {"activePositions": 1},
+        "sourceBreakdown": {"activeExposure": {"total": 1}},
+        "dataFreshness": {"generatedAt": previous_hour.isoformat()},
+        "evidenceRefs": [{"id": "position:1", "sourceType": "active_position", "label": "range-maker LONG"}],
+        "invalidatesAt": current_hour.isoformat(),
         "provider": "mock",
         "model": "mock-league-opinion",
         "fallback": False,
@@ -288,6 +310,7 @@ def test_league_sentiment_opinion_can_return_previous_hour_without_blocking(temp
                 confidence=68,
                 risk_level="MEDIUM",
                 fallback=False,
+                created_at=previous_hour,
                 payload_json=to_json(payload),
             )
         )
@@ -312,6 +335,8 @@ def test_league_sentiment_opinion_can_return_previous_hour_without_blocking(temp
     assert data["stale"] is True
     assert data["intervalStart"] == previous_hour.isoformat()
     assert data["nextRefreshAt"] == current_hour.isoformat()
+    assert data["staleReason"] == "previous_interval"
+    assert data["opinionAgeMinutes"] == 60
     assert data["opinion"]["headline"] == "직전 시간대 의견입니다."
 
 
@@ -336,7 +361,135 @@ def test_league_sentiment_opinion_uses_safe_fallback_when_provider_fails(temp_db
     assert data["status"] == "fallback"
     assert data["opinion"]["fallback"] is True
     assert data["opinion"]["bias"] in {"LONG_BIASED", "SHORT_BIASED", "NEUTRAL", "MIXED", "RISK_OFF"}
+    assert data["opinion"]["confidenceReason"]
+    assert data["opinion"]["sourceBreakdown"]["activeExposure"]["total"] >= 1
+    assert data["opinion"]["dataFreshness"]["generatedAt"]
+    assert data["opinion"]["evidenceRefs"]
     assert "provider failed" not in data["opinion"]["summary"].lower()
+
+
+def test_league_sentiment_payload_exposes_freshness_breakdown_refs_and_quiet_reviews(temp_db):
+    seed_sentiment_context()
+    with session_scope() as db:
+        db.add_all(
+            [
+                PositionManagementReviewRecord(
+                    trader_id="range-maker",
+                    symbol="BTCUSDT",
+                    status="ok",
+                    phase="OPEN_POSITION",
+                    provider="openai",
+                    model="gpt-4.1-mini",
+                    decision="HOLD",
+                    confidence=64,
+                    action_type="HOLD",
+                    payload_json='{"review":{"structuredReview":{"headline":"이전 반복 리뷰입니다."}}}',
+                    created_at=datetime(2026, 6, 18, 8, 5, tzinfo=timezone.utc),
+                ),
+                PositionManagementReviewRecord(
+                    trader_id="range-maker",
+                    symbol="BTCUSDT",
+                    status="ok",
+                    phase="OPEN_POSITION",
+                    provider="openai",
+                    model="gpt-4.1-mini",
+                    decision="HOLD",
+                    confidence=86,
+                    action_type="HOLD",
+                    payload_json='{"review":{"structuredReview":{"headline":"최신 유지 리뷰입니다."}}}',
+                    created_at=datetime(2026, 6, 18, 8, 45, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+        db.flush()
+
+        payload = build_league_sentiment_payload(
+            db,
+            symbol="BTCUSDT",
+            locale="en",
+            interval_start=datetime(2026, 6, 18, 8, 0, tzinfo=timezone.utc),
+            interval_end=datetime(2026, 6, 18, 9, 0, tzinfo=timezone.utc),
+            now=datetime(2026, 6, 18, 8, 50, tzinfo=timezone.utc),
+            recent_hours=24,
+        )
+
+    dumped = payload.model_dump()
+    assert dumped["dataFreshness"]["latestManagementReviewAt"] == "2026-06-18T08:45:00+00:00"
+    assert dumped["dataFreshness"]["latestManagementReviewAgeMinutes"] == 5
+    assert dumped["sourceBreakdown"]["activeExposure"]["total"] == 1
+    assert dumped["sourceBreakdown"]["pendingOrders"]["short"] == 1
+    assert dumped["sourceBreakdown"]["aiReviews"]["management"] >= 3
+    assert dumped["derivedSignals"]["activeExposure"]["dominantSide"] in {"LONG", "SHORT", "BALANCED"}
+    assert dumped["activePositions"][0]["sourceRef"].startswith("position:")
+    assert any(ref["sourceType"] == "active_position" for ref in dumped["evidenceRefs"])
+    latest_range_reviews = [
+        item
+        for item in dumped["recentManagementReviews"]
+        if item.get("traderId") == "range-maker" and item.get("decision") == "HOLD" and item.get("action") == "HOLD"
+    ]
+    assert len(latest_range_reviews) == 1
+    assert latest_range_reviews[0]["headline"] == "최신 유지 리뷰입니다."
+
+
+def test_serialized_league_sentiment_record_marks_overdue_previous_opinion(temp_db):
+    now = datetime(2026, 6, 18, 10, 30, tzinfo=timezone.utc)
+    previous_hour = datetime(2026, 6, 18, 8, 0, tzinfo=timezone.utc)
+    payload = {
+        "bias": "MIXED",
+        "confidence": 68,
+        "riskLevel": "MEDIUM",
+        "confidenceReason": "Previous opinion is stale.",
+        "headline": "Previous opinion.",
+        "summary": "A previous read.",
+        "keyDrivers": ["Previous context"],
+        "risks": ["Fresh context is missing"],
+        "watchConditions": ["Wait for refresh"],
+        "action": "Treat as stale.",
+        "longShortContext": "Mixed.",
+        "sourceCounts": {"activePositions": 1},
+        "sourceBreakdown": {"activeExposure": {"total": 1}},
+        "dataFreshness": {"generatedAt": previous_hour.isoformat()},
+        "evidenceRefs": [],
+        "invalidatesAt": (previous_hour + timedelta(hours=1)).isoformat(),
+        "provider": "mock",
+        "model": "mock-league-opinion",
+        "fallback": False,
+    }
+    with session_scope() as db:
+        record = LeagueSentimentOpinionRecord(
+            symbol="BTCUSDT",
+            trader_id="aigentra-opinion",
+            status="ok",
+            locale="en",
+            interval_start=previous_hour,
+            interval_end=previous_hour + timedelta(hours=1),
+            provider="mock",
+            model="mock-league-opinion",
+            bias="MIXED",
+            confidence=68,
+            risk_level="MEDIUM",
+            fallback=False,
+            created_at=previous_hour,
+            payload_json=to_json(payload),
+        )
+        db.add(record)
+        db.flush()
+
+        serialized = serialize_league_sentiment_record(
+            db,
+            record,
+            cache_hit=True,
+            locale="en",
+            stale=True,
+            next_refresh_at=previous_hour + timedelta(hours=1),
+            now=now,
+        )
+
+    assert serialized["stale"] is True
+    assert serialized["staleReason"] == "previous_interval"
+    assert serialized["refreshOverdue"] is True
+    assert serialized["refreshOverdueMinutes"] == 90
+    assert serialized["opinionAgeMinutes"] == 150
 
 
 def test_league_sentiment_prompt_prioritizes_user_usefulness_and_specificity(temp_db):
@@ -357,4 +510,6 @@ def test_league_sentiment_prompt_prioritizes_user_usefulness_and_specificity(tem
     assert "Start with what the user should do now" in prompt
     assert "Each keyDrivers item must connect one observed fact to why it matters" in prompt
     assert "watchConditions must be concrete checks with a source, timeframe, or price area from the payload" in prompt
+    assert "confidenceReason must explain why confidence is high, capped, or low" in prompt
+    assert "Use sourceRef or evidenceRefs labels" in prompt
     assert "Avoid generic sentences like 'monitor market conditions'" in prompt

@@ -78,6 +78,10 @@ def sample_league_sentiment_payload() -> LeagueSentimentPayload:
         intervalEnd="2026-06-24T01:00:00+00:00",
         market={"price": 66000.0},
         sourceCounts={"activePositions": 1},
+        sourceBreakdown={"activeExposure": {"total": 1, "long": 1, "short": 0}},
+        dataFreshness={"generatedAt": "2026-06-24T00:00:00+00:00"},
+        evidenceRefs=[{"id": "position:1", "sourceType": "active_position", "label": "channel-rider LONG"}],
+        derivedSignals={"activeExposure": {"dominantSide": "LONG"}},
         activePositions=[{"traderId": "channel-rider", "side": "LONG"}],
         longShortContext={"longCount": 1, "shortCount": 0},
     )
@@ -177,6 +181,7 @@ async def test_openai_provider_uses_separate_models_per_review_surface(monkeypat
                                 '"bias":"MIXED",'
                                 '"confidence":70,'
                                 '"riskLevel":"MEDIUM",'
+                                '"confidenceReason":"Only one active long is present.",'
                                 '"headline":"Market is mixed.",'
                                 '"summary":"Signals are balanced.",'
                                 '"keyDrivers":["One active long."],'
@@ -184,7 +189,11 @@ async def test_openai_provider_uses_separate_models_per_review_surface(monkeypat
                                 '"watchConditions":["Watch the next hourly close."],'
                                 '"action":"Avoid chasing.",'
                                 '"longShortContext":"LONG 1 / SHORT 0",'
-                                '"sourceCounts":{"activePositions":1}'
+                                '"sourceCounts":{"activePositions":1},'
+                                '"sourceBreakdown":{"activeExposure":{"total":1}},'
+                                '"dataFreshness":{"generatedAt":"2026-06-24T00:00:00+00:00"},'
+                                '"evidenceRefs":[{"id":"position:1","sourceType":"active_position","label":"channel-rider LONG"}],'
+                                '"invalidatesAt":"2026-06-24T01:00:00+00:00"'
                                 "}"
                             )
                         }

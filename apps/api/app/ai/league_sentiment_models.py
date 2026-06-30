@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -18,12 +18,18 @@ class LeagueSentimentPayload(BaseModel):
     recentEntryReviews: List[Dict[str, Any]] = Field(default_factory=list)
     recentManagementReviews: List[Dict[str, Any]] = Field(default_factory=list)
     longShortContext: Dict[str, Any] = Field(default_factory=dict)
+    sourceBreakdown: Dict[str, Any] = Field(default_factory=dict)
+    dataFreshness: Dict[str, Any] = Field(default_factory=dict)
+    evidenceRefs: List[Dict[str, Any]] = Field(default_factory=list)
+    derivedSignals: Dict[str, Any] = Field(default_factory=dict)
+    previousOpinion: Optional[Dict[str, Any]] = None
 
 
 class LeagueSentimentOpinionResult(BaseModel):
     bias: str
     confidence: int
     riskLevel: str
+    confidenceReason: str = ""
     headline: str
     summary: str
     keyDrivers: List[str] = Field(default_factory=list)
@@ -32,6 +38,10 @@ class LeagueSentimentOpinionResult(BaseModel):
     action: str
     longShortContext: str
     sourceCounts: Dict[str, int] = Field(default_factory=dict)
+    sourceBreakdown: Dict[str, Any] = Field(default_factory=dict)
+    dataFreshness: Dict[str, Any] = Field(default_factory=dict)
+    evidenceRefs: List[Dict[str, Any]] = Field(default_factory=list)
+    invalidatesAt: Optional[str] = None
     provider: str = "mock"
     model: str = "mock-league-opinion"
     fallback: bool = False

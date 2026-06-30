@@ -184,6 +184,7 @@ class BaseAIProvider:
             bias=bias,
             confidence=max(0, min(self._normalize_confidence(raw.get("confidence", 50)), 100)),
             riskLevel=risk_level,
+            confidenceReason=self._normalize_optional_text(raw.get("confidenceReason")) or "Confidence reflects the available source mix and freshness.",
             headline=self._normalize_optional_text(raw.get("headline")) or "Market context needs review.",
             summary=self._normalize_optional_text(raw.get("summary")) or "Not enough reliable trader context is available.",
             keyDrivers=self._normalize_limited_string_list(raw.get("keyDrivers"), 4),
@@ -192,10 +193,38 @@ class BaseAIProvider:
             action=self._normalize_optional_text(raw.get("action")) or "Wait for the next hourly context refresh.",
             longShortContext=self._normalize_optional_text(raw.get("longShortContext")) or "No active long/short skew.",
             sourceCounts=normalized_counts,
+            sourceBreakdown=self._normalize_dict(raw.get("sourceBreakdown")),
+            dataFreshness=self._normalize_dict(raw.get("dataFreshness")),
+            evidenceRefs=self._normalize_evidence_refs(raw.get("evidenceRefs")),
+            invalidatesAt=self._normalize_optional_text(raw.get("invalidatesAt")),
             provider=self.name,
             model=self.model,
             fallback=self.fallback,
         )
+
+    def _normalize_dict(self, value: Any) -> dict[str, Any]:
+        return value if isinstance(value, dict) else {}
+
+    def _normalize_evidence_refs(self, value: Any) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            return []
+        refs: list[dict[str, Any]] = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            ref_id = self._normalize_optional_text(item.get("id"))
+            source_type = self._normalize_optional_text(item.get("sourceType"))
+            label = self._normalize_optional_text(item.get("label"))
+            if not ref_id or not source_type or not label:
+                continue
+            refs.append(
+                {
+                    "id": ref_id,
+                    "sourceType": source_type,
+                    "label": label,
+                }
+            )
+        return refs[:8]
 
     def _normalize_string_list(self, value: Any) -> list[str]:
         if value is None or value == "":
@@ -1232,9 +1261,9 @@ def management_prompt(payload: PositionManagementPayload) -> str:
 def league_sentiment_prompt(payload: LeagueSentimentPayload) -> str:
     locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
     language_instruction = (
-        "Write headline, summary, keyDrivers, risks, watchConditions, action, and longShortContext in Korean."
+        "Write headline, summary, confidenceReason, keyDrivers, risks, watchConditions, action, and longShortContext in Korean."
         if locale == "ko"
-        else "Write headline, summary, keyDrivers, risks, watchConditions, action, and longShortContext in English."
+        else "Write headline, summary, confidenceReason, keyDrivers, risks, watchConditions, action, and longShortContext in English."
     )
     try:
         payload_data = payload.model_dump(mode="json")
@@ -1242,18 +1271,21 @@ def league_sentiment_prompt(payload: LeagueSentimentPayload) -> str:
         payload_data = payload.model_dump()
     return (
         "You are Aigentra's hourly aggregate sentiment analyst for a futures simulation league. "
-        "Return only strict JSON with keys bias, confidence, riskLevel, headline, summary, keyDrivers, risks, "
-        "watchConditions, action, longShortContext, sourceCounts. "
+        "Return only strict JSON with keys bias, confidence, riskLevel, confidenceReason, headline, summary, keyDrivers, risks, "
+        "watchConditions, action, longShortContext, sourceCounts, sourceBreakdown, dataFreshness, evidenceRefs, invalidatesAt. "
         "Valid bias values are LONG_BIASED, SHORT_BIASED, NEUTRAL, MIXED, RISK_OFF. "
         "Valid riskLevel values are LOW, MEDIUM, HIGH, EXTREME. Confidence must be an integer from 0 to 100. "
         "This is not financial advice and must not tell users to place real trades. It is a context summary of simulation agents only. "
         "Never use the phrases 'paper trading', 'paper-trading', 'paper league', or '페이퍼 트레이딩' in user-facing fields. "
         "Use only the supplied payload. Never invent traders, prices, PnL, order states, reviews, wins, losses, or market levels. "
         "The backend sourceCounts are authoritative; echo them exactly in sourceCounts. "
+        "Also echo sourceBreakdown and dataFreshness from the payload without inventing new counts or timestamps. "
+        "Use sourceRef or evidenceRefs labels when grounding keyDrivers, risks, and watchConditions; evidenceRefs must use only ids supplied in the payload. "
         "Active positions and pending orders define the current directional skew. Recent take-profit/stop-loss events change risk and confidence, "
         "but they must not automatically flip direction. Entry reviews describe why a setup was accepted or rejected. "
         "Management reviews describe what changed after entry. Ignore records that are fallback, provider-error, or explicitly failed if they appear in the payload. "
         "If active/pending data is thin or conflicting, choose NEUTRAL or MIXED and keep confidence at or below 55. "
+        "confidenceReason must explain why confidence is high, capped, or low, including data freshness when it matters. "
         "If both long and short exposures are meaningful, choose MIXED unless one side has clearly stronger active notional, confidence, or fresh review quality. "
         "If recent losses cluster, failed reviews dominate, or market risk is unclear, choose RISK_OFF even if one side has more entries. "
         "Write for a beginner: use plain language, short sentences, and explain what the current league context means. "

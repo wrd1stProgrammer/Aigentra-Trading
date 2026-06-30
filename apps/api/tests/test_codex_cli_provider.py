@@ -183,6 +183,19 @@ def test_codex_cli_strict_schema_converts_freeform_maps_to_empty_objects():
     }
 
 
+def test_league_sentiment_schema_requires_freshness_and_evidence_contract():
+    from app.ai.anthropic_provider import league_sentiment_schema
+
+    schema = league_sentiment_schema()
+
+    assert "confidenceReason" in schema["required"]
+    assert "sourceBreakdown" in schema["required"]
+    assert "dataFreshness" in schema["required"]
+    assert "evidenceRefs" in schema["required"]
+    assert "invalidatesAt" in schema["required"]
+    assert schema["properties"]["evidenceRefs"]["items"]["required"] == ["id", "sourceType", "label"]
+
+
 @pytest.mark.asyncio
 async def test_get_ai_provider_falls_back_to_openai_when_codex_cli_fails(tmp_path, monkeypatch):
     codex_bin, _record_path = fake_codex_executable(tmp_path, {"error": "bad"}, exit_code=7)
@@ -271,6 +284,7 @@ async def test_codex_cli_provider_normalizes_all_review_surfaces():
                     "bias": "MIXED",
                     "confidence": 61,
                     "riskLevel": "MEDIUM",
+                    "confidenceReason": "Only one active example is present.",
                     "headline": "League is mixed.",
                     "summary": "Long and short exposure are balanced.",
                     "keyDrivers": ["One active long."],
@@ -279,6 +293,10 @@ async def test_codex_cli_provider_normalizes_all_review_surfaces():
                     "action": "Do not chase.",
                     "longShortContext": "LONG 1 / SHORT 0",
                     "sourceCounts": {"activePositions": 1},
+                    "sourceBreakdown": {"activeExposure": {"total": 1}},
+                    "dataFreshness": {"generatedAt": "2026-06-24T00:00:00+00:00"},
+                    "evidenceRefs": [{"id": "position:1", "sourceType": "active_position", "label": "channel-rider LONG"}],
+                    "invalidatesAt": "2026-06-24T01:00:00+00:00",
                 },
             ]
 

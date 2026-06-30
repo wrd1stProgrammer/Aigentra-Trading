@@ -6,6 +6,13 @@ import { CircleNotch, ClockCounterClockwise, Gauge, ShieldWarning, TrendDown, Tr
 import { formatNumber, intlLocale } from "@/lib/format";
 import type { LeagueSentimentOpinionResponse } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
+import {
+  dataAgeLabel,
+  leagueSentimentFreshnessView,
+  leagueSentimentSourceGroups,
+  refreshCountdownLabel,
+  type LeagueSentimentFreshnessStatus,
+} from "@/lib/league-sentiment-ui-policy";
 
 type Props = {
   data?: LeagueSentimentOpinionResponse;
@@ -29,10 +36,14 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, isLoading = f
   const bias = opinion?.bias ?? "NEUTRAL";
   const tone = biasTone[bias] ?? biasTone.NEUTRAL;
   const sourceCounts = opinion?.sourceCounts ?? {};
-  const activeCount = (sourceCounts.activePositions ?? 0) + (sourceCounts.pendingOrders ?? 0);
+  const sourceGroups = leagueSentimentSourceGroups(sourceCounts);
   const nextRefreshAt = data?.nextRefreshAt ?? null;
   const generatedAt = data?.createdAt ?? data?.updatedAt ?? data?.intervalStart ?? null;
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const freshness = leagueSentimentFreshnessView(data, nowMs);
+  const freshnessDetail = formatFreshnessDetail(freshness, t);
+  const dataFreshness = opinion?.dataFreshness ?? {};
+  const evidenceRefs = opinion?.evidenceRefs?.slice(0, 6) ?? [];
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 30_000);
@@ -62,6 +73,10 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, isLoading = f
                   <Gauge size={14} />
                   {formatNumber(opinion.confidence, 0, locale)}%
                 </span>
+                <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold ${freshnessTone(freshness.status)}`}>
+                  <ClockCounterClockwise size={14} />
+                  {t(freshness.labelKey)}
+                </span>
               </div>
             )}
           </div>
@@ -87,15 +102,16 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, isLoading = f
               <p className="text-base font-bold leading-6 text-zinc-950 dark:text-white sm:text-lg sm:leading-7">
                 {opinion.headline}
               </p>
-              {data?.cacheHit && (
-                <span className="shrink-0 self-start rounded-full bg-zinc-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-600 dark:bg-white/10 dark:text-zinc-300">
-                  cached
-                </span>
-              )}
             </div>
             <p className="mt-2 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
               {opinion.summary}
             </p>
+            {opinion.confidenceReason && (
+              <p className="mt-2 text-xs font-semibold leading-5 text-zinc-600 dark:text-zinc-400">
+                <span className="text-zinc-950 dark:text-white">{t("consensus.confidenceReason")} </span>
+                {opinion.confidenceReason}
+              </p>
+            )}
             {opinion.action && (
               <p className="mt-3 border-l-2 border-emerald-500 pl-3 text-sm font-semibold leading-6 text-zinc-800 dark:text-zinc-200 sm:mt-4">
                 {opinion.action}
@@ -111,6 +127,22 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, isLoading = f
               <OpinionList tone="neutral" title={t("consensus.opinionWatch")} items={opinion.watchConditions} empty={t("consensus.opinionNoWatch")} />
             </div>
           )}
+          {!shouldShowLoading && evidenceRefs.length > 0 && (
+            <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-white/[0.08]">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">{t("consensus.evidenceRefs")}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {evidenceRefs.map((ref) => (
+                  <span
+                    key={ref.id}
+                    className="max-w-full truncate rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold text-zinc-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300"
+                    title={ref.label}
+                  >
+                    {ref.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <aside className="border-t border-zinc-200 bg-zinc-50/70 p-4 dark:border-white/[0.08] dark:bg-black/20 sm:p-6 lg:border-l lg:border-t-0">
@@ -119,22 +151,39 @@ export function ConsensusHourlyOpinion({ data, isFetching = false, isLoading = f
           </p>
           <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 divide-y-0 sm:mt-4 sm:block sm:divide-y sm:divide-zinc-200 sm:dark:divide-white/[0.08]">
             <Metric label={t("consensus.opinionRisk")} value={shouldShowLoading ? "-" : localizedRiskLevel(opinion.riskLevel, t)} />
-            <Metric label={t("consensus.opinionActiveSources")} value={shouldShowLoading ? "-" : String(activeCount)} />
             <Metric label={t("consensus.opinionLongShort")} value={shouldShowLoading ? "-" : opinion.longShortContext} compact />
             <Metric
               label={t("consensus.nextOpinionCountdown")}
               value={shouldShowLoading ? "-" : formatMinutesUntil(nextRefreshAt, nowMs, t)}
-              detail={isFetching ? t("common.loading") : t("consensus.opinionRefreshBackground")}
+              detail={isFetching ? t("common.loading") : freshness.status === "overdue" ? freshnessDetail : t("consensus.opinionRefreshBackground")}
               icon={<ClockCounterClockwise size={15} />}
               compact
             />
             <Metric
               label={t("consensus.opinionGeneratedAt")}
               value={shouldShowLoading ? "-" : formatDateTime(generatedAt, locale)}
-              detail={data?.stale ? t("consensus.opinionStale") : undefined}
+              detail={data?.stale ? freshnessDetail : undefined}
+              compact
+            />
+            <Metric
+              label={t("consensus.opinionInvalidatesAt")}
+              value={shouldShowLoading ? "-" : formatDateTime(opinion.invalidatesAt ?? data?.intervalEnd ?? null, locale)}
               compact
             />
           </div>
+          {!shouldShowLoading && (
+            <>
+              <SourceGroupList groups={sourceGroups} t={t} />
+              <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-white/[0.08]">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">{t("consensus.dataFreshness")}</p>
+                <div className="mt-2 space-y-1.5">
+                  <FreshnessRow label={t("consensus.freshness.market")} value={dataAgeLabel(dataFreshness.marketAgeMinutes, t)} />
+                  <FreshnessRow label={t("consensus.freshness.positions")} value={dataAgeLabel(dataFreshness.latestActivePositionAgeMinutes, t)} />
+                  <FreshnessRow label={t("consensus.freshness.reviews")} value={dataAgeLabel(dataFreshness.latestManagementReviewAgeMinutes ?? dataFreshness.latestEntryReviewAgeMinutes, t)} />
+                </div>
+              </div>
+            </>
+          )}
         </aside>
       </div>
     </section>
@@ -202,6 +251,40 @@ function Metric({
   );
 }
 
+function SourceGroupList({
+  groups,
+  t,
+}: {
+  groups: ReturnType<typeof leagueSentimentSourceGroups>;
+  t: (key: string) => string;
+}) {
+  return (
+    <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-white/[0.08]">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">{t("consensus.sourceGroups")}</p>
+      <div className="mt-2 space-y-2">
+        {groups.map((group) => (
+          <div key={group.key} className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-xs font-semibold text-zinc-700 dark:text-zinc-300">{t(group.labelKey)}</p>
+              <p className="mt-0.5 font-mono text-[11px] text-zinc-500">{group.detail}</p>
+            </div>
+            <span className="font-mono text-sm font-bold text-zinc-950 dark:text-white">{group.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FreshnessRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-xs">
+      <span className="min-w-0 truncate text-zinc-500">{label}</span>
+      <span className="shrink-0 font-mono font-semibold text-zinc-800 dark:text-zinc-200">{value}</span>
+    </div>
+  );
+}
+
 function biasIcon(bias: string) {
   if (bias === "LONG_BIASED") return <TrendUp size={14} weight="bold" />;
   if (bias === "SHORT_BIASED") return <TrendDown size={14} weight="bold" />;
@@ -221,10 +304,19 @@ function formatDateTime(value: string | null, locale: Locale) {
 }
 
 function formatMinutesUntil(value: string | null, nowMs: number, t: (key: string) => string) {
-  if (!value) return "-";
-  const target = new Date(value).getTime();
-  if (!Number.isFinite(target)) return "-";
-  const minutes = Math.max(0, Math.ceil((target - nowMs) / 60_000));
-  if (minutes <= 0) return t("consensus.opinionGeneratingNow");
-  return t("consensus.minutesRemaining").replace("{minutes}", String(minutes));
+  return refreshCountdownLabel(value, nowMs, t);
+}
+
+function freshnessTone(status: LeagueSentimentFreshnessStatus) {
+  if (status === "overdue") return "border-rose-500/30 bg-rose-500/[0.08] text-rose-600 dark:text-rose-300";
+  if (status === "stale") return "border-amber-500/30 bg-amber-500/[0.08] text-amber-700 dark:text-amber-300";
+  if (status === "cached") return "border-sky-500/25 bg-sky-500/[0.08] text-sky-700 dark:text-sky-300";
+  return "border-emerald-500/25 bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-300";
+}
+
+function formatFreshnessDetail(
+  freshness: ReturnType<typeof leagueSentimentFreshnessView>,
+  t: (key: string) => string,
+) {
+  return t(freshness.detailKey).replace("{minutes}", String(freshness.overdueMinutes));
 }
