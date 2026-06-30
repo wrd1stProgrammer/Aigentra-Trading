@@ -33,6 +33,14 @@ export type LeaderboardSecondaryDataInput = {
   primaryPlaceholder: boolean;
 };
 
+export type OverviewInitialRequestPolicyInput = {
+  hasCachedReviews: boolean;
+};
+
+export function shouldPreferCachedOverviewInitialPage({ hasCachedReviews }: OverviewInitialRequestPolicyInput) {
+  return hasCachedReviews;
+}
+
 export function shouldFetchLeaderboardSecondaryData({
   primaryFetching,
   primaryPlaceholder

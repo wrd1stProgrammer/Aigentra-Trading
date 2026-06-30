@@ -9,12 +9,15 @@ from sqlalchemy import create_engine, event, inspect as inspect_database
 
 import app.core.config as config
 import app.db as db_module
+import app.subscribers_routes as subscribers_routes
+import app.whop_status as whop_status
 from app.db import (
     MarketSnapshotRecord,
     PaperOrderRecord,
     PaperPositionRecord,
     PositionManagementReviewRecord,
     ReviewUnlockRecord,
+    SubscriberPreferenceRecord,
     TraderLeaderboardSnapshotRecord,
     TraderRunLogRecord,
     TradePlanRecord,
@@ -220,6 +223,19 @@ def test_latency_sensitive_public_routes_have_covering_indexes():
         "created_at",
         "id",
     )
+    assert columns_for(PaperPositionRecord, "ix_paper_positions_trader_symbol_status_closed") == (
+        "trader_id",
+        "symbol",
+        "status",
+        "closed_at",
+        "id",
+    )
+    assert columns_for(PaperPositionRecord, "ix_paper_positions_symbol_status_closed") == (
+        "symbol",
+        "status",
+        "closed_at",
+        "id",
+    )
     assert columns_for(TradePlanRecord, "ix_trade_plans_symbol_status_created") == (
         "symbol",
         "status",
@@ -261,7 +277,9 @@ def test_public_read_timeout_indexes_are_applied_by_alembic(tmp_path, monkeypatc
     with engine.begin() as connection:
         connection.exec_driver_sql("CREATE TABLE trade_plans (id INTEGER PRIMARY KEY, symbol VARCHAR(32), status VARCHAR(80), created_at DATETIME)")
         connection.exec_driver_sql("CREATE TABLE paper_orders (id INTEGER PRIMARY KEY, symbol VARCHAR(32), status VARCHAR(80), created_at DATETIME)")
-        connection.exec_driver_sql("CREATE TABLE paper_positions (id INTEGER PRIMARY KEY, symbol VARCHAR(32), status VARCHAR(80), created_at DATETIME)")
+        connection.exec_driver_sql(
+            "CREATE TABLE paper_positions (id INTEGER PRIMARY KEY, trader_id VARCHAR(80), symbol VARCHAR(32), status VARCHAR(80), created_at DATETIME, closed_at DATETIME)"
+        )
         connection.exec_driver_sql(
             "CREATE TABLE whop_checkouts (id INTEGER PRIMARY KEY, user_id VARCHAR(180), email VARCHAR(240), status VARCHAR(60), updated_at DATETIME, created_at DATETIME)"
         )
@@ -290,6 +308,8 @@ def test_public_read_timeout_indexes_are_applied_by_alembic(tmp_path, monkeypatc
 
     assert "ix_paper_orders_symbol_status_created" in index_names_by_table["paper_orders"]
     assert "ix_paper_positions_symbol_status_created" in index_names_by_table["paper_positions"]
+    assert "ix_paper_positions_trader_symbol_status_closed" in index_names_by_table["paper_positions"]
+    assert "ix_paper_positions_symbol_status_closed" in index_names_by_table["paper_positions"]
     assert "ix_trade_plans_symbol_status_created" in index_names_by_table["trade_plans"]
     assert "ix_whop_checkouts_user_status_updated" in index_names_by_table["whop_checkouts"]
     assert "ix_whop_checkouts_email_status_updated" in index_names_by_table["whop_checkouts"]
@@ -307,6 +327,84 @@ def test_latency_sensitive_read_routes_run_in_fastapi_threadpool():
         main.paper_equity_snapshots,
     ]:
         assert not inspect.iscoroutinefunction(route_handler)
+
+
+def test_subscriber_access_status_uses_index_specific_whop_checkout_queries(tmp_path):
+    reset_db_engine(f"sqlite:///{tmp_path / 'subscriber-access-sql.db'}")
+    init_db()
+    captured_sql: list[str] = []
+
+    def capture_sql(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if "whop_checkouts" in statement.lower():
+            captured_sql.append(statement.lower())
+
+    event.listen(db_module.engine, "before_cursor_execute", capture_sql)
+    try:
+        with session_scope() as db:
+            db.add(
+                WhopCheckoutRecord(
+                    user_id="user-1",
+                    email="member@example.com",
+                    status="payment_succeeded",
+                    plan_key="pro",
+                    checkout_id="checkout-1",
+                    internal_order_id="order-1",
+                    purchase_url="https://example.com/checkout",
+                    raw_json="{}",
+                )
+            )
+            db.commit()
+
+        with session_scope() as db:
+            payload = whop_status.read_whop_subscription_status(
+                db,
+                user_id="user-1",
+                email="member@example.com",
+                settings=config.get_settings(),
+            )
+    finally:
+        event.remove(db_module.engine, "before_cursor_execute", capture_sql)
+        config.get_settings.cache_clear()
+
+    assert payload["status"] == "active"
+    assert captured_sql
+    assert all(" or " not in statement for statement in captured_sql)
+
+
+def test_subscriber_preferences_existing_read_does_not_commit(tmp_path):
+    reset_db_engine(f"sqlite:///{tmp_path / 'subscriber-preferences-read.db'}")
+    init_db()
+    with session_scope() as db:
+        db.add(
+            SubscriberPreferenceRecord(
+                user_id="google-1",
+                email="operator@example.com",
+                status="active",
+                subscription_status="active",
+                favorite_trader_ids_json="[]",
+            )
+        )
+
+    commits: list[str] = []
+
+    def capture_commit(_session):
+        commits.append("commit")
+
+    event.listen(db_module.SessionLocal, "after_commit", capture_commit)
+    db = db_module.SessionLocal()
+    try:
+        payload = subscribers_routes.read_subscriber_preferences(
+            user_id="google-1",
+            email="operator@example.com",
+            _=None,
+            db=db,
+        )
+    finally:
+        db.close()
+        event.remove(db_module.SessionLocal, "after_commit", capture_commit)
+
+    assert payload["email"] == "operator@example.com"
+    assert commits == []
 
 
 def test_leaderboard_bundle_keeps_management_reviews_slim(tmp_path):

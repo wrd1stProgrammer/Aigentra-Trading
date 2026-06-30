@@ -231,5 +231,6 @@ def test_whop_subscription_status_bounds_checkout_selects(temp_db):
         event.remove(db_module.engine, "before_cursor_execute", capture_sql)
 
     assert payload["status"] == "active"
-    assert len(checkout_selects) == 2
+    assert len(checkout_selects) == 4
     assert all("limit" in statement.lower() for statement in checkout_selects)
+    assert all(" or " not in statement.lower() for statement in checkout_selects)

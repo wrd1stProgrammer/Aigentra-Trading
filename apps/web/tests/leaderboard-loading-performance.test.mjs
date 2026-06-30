@@ -101,6 +101,19 @@ test("locked overview can defer heavy protected children until subscriber access
   );
 });
 
+test("league overview initial page fetches real indexed rows instead of a cold-cache warming shell", () => {
+  assert.equal(
+    loadingPolicy.shouldPreferCachedOverviewInitialPage({ hasCachedReviews: false }),
+    false,
+    "cold overview loads should fetch real rows through the indexed backend query"
+  );
+  assert.equal(
+    loadingPolicy.shouldPreferCachedOverviewInitialPage({ hasCachedReviews: true }),
+    true,
+    "existing overview rows may use the cache while a refresh warms in the background"
+  );
+});
+
 test("session and subscriber access policy avoid tab-focus refetch churn", () => {
   assert.equal(
     sessionRefetchPolicy.DASHBOARD_SESSION_REFETCH_POLICY.refetchOnWindowFocus,

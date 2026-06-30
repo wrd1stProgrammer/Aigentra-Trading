@@ -436,6 +436,8 @@ class PaperPositionRecord(CommonMixin, Base):
     __table_args__ = (
         Index("ix_paper_positions_trader_symbol_status_created", "trader_id", "symbol", "status", "created_at", "id"),
         Index("ix_paper_positions_symbol_status_created", "symbol", "status", "created_at", "id"),
+        Index("ix_paper_positions_trader_symbol_status_closed", "trader_id", "symbol", "status", "closed_at", "id"),
+        Index("ix_paper_positions_symbol_status_closed", "symbol", "status", "closed_at", "id"),
     )
 
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)

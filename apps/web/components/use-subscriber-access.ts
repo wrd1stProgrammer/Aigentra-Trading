@@ -3,20 +3,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { z } from "zod";
+import {
+  guestSubscriberAccess,
+  readCachedSubscriberAccess,
+  subscriberAccessPlaceholderData,
+  subscriberAccessSchema,
+  writeCachedSubscriberAccess,
+  type SubscriberAccessState
+} from "@/lib/subscriber-access-cache-policy";
 
-export const FREE_LEADERBOARD_LIMIT = 5;
+export { FREE_LEADERBOARD_LIMIT, guestSubscriberAccess, type SubscriberAccessState } from "@/lib/subscriber-access-cache-policy";
+
 const SUBSCRIBER_ACCESS_STALE_TIME_MS = 5 * 60_000;
-
-const subscriberAccessSchema = z.object({
-  userId: z.string().nullable(),
-  email: z.string().nullable(),
-  subscriptionStatus: z.enum(["none", "pending", "active", "inactive"]),
-  isSubscribed: z.boolean(),
-  couponLimit: z.number().int().nonnegative(),
-  couponsUsed: z.number().int().nonnegative(),
-  couponsRemaining: z.number().int().nonnegative(),
-  unlockedSourceKeys: z.array(z.string())
-});
 
 const unlockResponseSchema = z.object({
   sourceKey: z.string(),
@@ -26,7 +24,6 @@ const unlockResponseSchema = z.object({
   access: subscriberAccessSchema
 });
 
-export type SubscriberAccessState = z.infer<typeof subscriberAccessSchema>;
 export type SubscriberUnlockResponse = z.infer<typeof unlockResponseSchema>;
 
 export const subscriberAccessQueryKeyPrefix = ["subscriber", "access"] as const;
@@ -39,30 +36,32 @@ export function subscriberAccessQueryKey(userId?: string | null, email?: string 
   ] as const;
 }
 
-export const guestSubscriberAccess: SubscriberAccessState = {
-  userId: null,
-  email: null,
-  subscriptionStatus: "none",
-  isSubscribed: false,
-  couponLimit: 3,
-  couponsUsed: 3,
-  couponsRemaining: 0,
-  unlockedSourceKeys: []
-};
-
 export function useSubscriberAccess() {
   const session = useSession();
   const userId = session.data?.user?.id ?? session.data?.user?.email ?? null;
   const email = session.data?.user?.email ?? null;
   const isAuthenticated = Boolean(email);
+  const cachedAccess = isAuthenticated ? readCachedSubscriberAccess(userId, email) : null;
   return useQuery({
     queryKey: subscriberAccessQueryKey(userId, email),
-    queryFn: () => (isAuthenticated ? readClientSubscriberAccess() : guestSubscriberAccess),
+    queryFn: async () => {
+      if (!isAuthenticated) return guestSubscriberAccess;
+      const access = await readClientSubscriberAccess();
+      writeCachedSubscriberAccess(access);
+      return access;
+    },
     enabled: session.status !== "loading",
     staleTime: SUBSCRIBER_ACCESS_STALE_TIME_MS,
     gcTime: 5 * 60_000,
     retry: false,
-    placeholderData: isAuthenticated ? undefined : guestSubscriberAccess
+    placeholderData: (previousData) =>
+      subscriberAccessPlaceholderData({
+        isAuthenticated,
+        userId,
+        email,
+        previousData,
+        cachedAccess
+      })
   });
 }
 

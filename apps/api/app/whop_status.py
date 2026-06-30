@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Final, Literal, TypedDict
 
-from sqlalchemy import desc, or_, select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -72,9 +72,19 @@ def latest_checkout_record(
     email: str,
     statuses: frozenset[str] | None = None,
 ) -> WhopCheckoutRecord | None:
-    query = select(WhopCheckoutRecord).where(
-        or_(WhopCheckoutRecord.user_id == user_id, WhopCheckoutRecord.email == email)
+    return newer_checkout_record(
+        latest_checkout_record_by_user_id(db, user_id=user_id, statuses=statuses),
+        latest_checkout_record_by_email(db, email=email, statuses=statuses),
     )
+
+
+def latest_checkout_record_by_user_id(
+    db: Session,
+    *,
+    user_id: str,
+    statuses: frozenset[str] | None = None,
+) -> WhopCheckoutRecord | None:
+    query = select(WhopCheckoutRecord).where(WhopCheckoutRecord.user_id == user_id)
     if statuses is not None:
         query = query.where(WhopCheckoutRecord.status.in_(statuses))
     return db.execute(
@@ -85,6 +95,38 @@ def latest_checkout_record(
         )
         .limit(1)
     ).scalars().first()
+
+
+def latest_checkout_record_by_email(
+    db: Session,
+    *,
+    email: str,
+    statuses: frozenset[str] | None = None,
+) -> WhopCheckoutRecord | None:
+    query = select(WhopCheckoutRecord).where(WhopCheckoutRecord.email == email)
+    if statuses is not None:
+        query = query.where(WhopCheckoutRecord.status.in_(statuses))
+    return db.execute(
+        query.order_by(
+            desc(WhopCheckoutRecord.updated_at),
+            desc(WhopCheckoutRecord.created_at),
+            desc(WhopCheckoutRecord.id),
+        )
+        .limit(1)
+    ).scalars().first()
+
+
+def newer_checkout_record(
+    first: WhopCheckoutRecord | None,
+    second: WhopCheckoutRecord | None,
+) -> WhopCheckoutRecord | None:
+    if first is None:
+        return second
+    if second is None:
+        return first
+    if (second.updated_at, second.created_at, second.id) > (first.updated_at, first.created_at, first.id):
+        return second
+    return first
 
 
 def subscription_state(

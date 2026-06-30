@@ -46,7 +46,8 @@ import {
   shouldFetchCurrentLeagueCompanion,
   shouldFetchLeaderboardSecondaryData,
   shouldShowLeaderboardInitialOverlay,
-  shouldUseLeaderboardPreviewLimit
+  shouldUseLeaderboardPreviewLimit,
+  shouldPreferCachedOverviewInitialPage
 } from "@/lib/leaderboard-loading-policy";
 import { activePositionLeverage, appendLeverageSample, formatLeverageBadge, orderLeverage, planLeverage, positionLeverage } from "@/components/leaderboard-leverage";
 import {
@@ -1885,7 +1886,7 @@ function OptionActivityStream({
       setIsWarming(false);
       try {
         const page = await loadOverviewReviewPage(OVERVIEW_INITIAL_LIMIT, 0, locale, {
-          preferCached: true,
+          preferCached: shouldPreferCachedOverviewInitialPage({ hasCachedReviews }) || undefined,
           signal: abortController.signal
         });
         let fetchedReviews = page.reviews;

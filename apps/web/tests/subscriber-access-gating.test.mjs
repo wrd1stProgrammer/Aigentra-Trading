@@ -1,6 +1,26 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import vm from "node:vm";
+import ts from "typescript";
+
+const require = createRequire(import.meta.url);
+const subscriberAccessCacheStorage = new Map();
+const subscriberAccessPolicy = loadTsModule("../lib/subscriber-access-cache-policy.ts", {
+  Date,
+  encodeURIComponent,
+  JSON,
+  require,
+  window: {
+    sessionStorage: {
+      getItem: (key) => subscriberAccessCacheStorage.get(key) ?? null,
+      setItem: (key, value) => {
+        subscriberAccessCacheStorage.set(key, value);
+      }
+    }
+  }
+});
 
 const appShellSource = readFileSync(new URL("../components/app-shell.tsx", import.meta.url), "utf8");
 const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8");
@@ -43,6 +63,64 @@ test("subscriber access query state is scoped to the signed-in account", () => {
     subscriberAccessSource,
     /placeholderData: \(previousData\) => previousData \?\? guestSubscriberAccess/,
     "subscriber access should not show previous account access as placeholder data"
+  );
+});
+
+test("subscriber access placeholder and browser cache only reuse the current account", () => {
+  subscriberAccessCacheStorage.clear();
+  const currentAccess = subscriberAccessFixture({ userId: "google-1", email: "operator@example.com", isSubscribed: true });
+  const otherAccess = subscriberAccessFixture({ userId: "google-2", email: "other@example.com", isSubscribed: true });
+
+  assert.equal(
+    subscriberAccessPolicy.subscriberAccessPlaceholderData({
+      isAuthenticated: true,
+      userId: "google-1",
+      email: "operator@example.com",
+      previousData: currentAccess
+    }),
+    currentAccess,
+    "same-account previous access should keep the UI stable while a refetch runs"
+  );
+  assert.equal(
+    subscriberAccessPolicy.subscriberAccessPlaceholderData({
+      isAuthenticated: true,
+      userId: "google-1",
+      email: "operator@example.com",
+      previousData: otherAccess
+    }),
+    undefined,
+    "previous access from another account must not be reused"
+  );
+  assert.deepEqual(
+    subscriberAccessPolicy.subscriberAccessPlaceholderData({ isAuthenticated: false }),
+    subscriberAccessPolicy.guestSubscriberAccess,
+    "signed-out users should still get the guest preview state"
+  );
+
+  subscriberAccessPolicy.writeCachedSubscriberAccess(currentAccess);
+  assert.deepEqual(
+    subscriberAccessPolicy.readCachedSubscriberAccess("google-1", "operator@example.com"),
+    currentAccess,
+    "same-account browser cache should seed the authenticated leaderboard"
+  );
+  assert.equal(
+    subscriberAccessPolicy.readCachedSubscriberAccess("google-2", "other@example.com"),
+    null,
+    "another account should not read the current account cache entry"
+  );
+
+  const cacheKey = subscriberAccessPolicy.subscriberAccessBrowserCacheKey("google-1", "operator@example.com");
+  subscriberAccessCacheStorage.set(
+    cacheKey,
+    JSON.stringify({
+      savedAt: Date.now() - subscriberAccessPolicy.SUBSCRIBER_ACCESS_BROWSER_CACHE_MS - 1,
+      access: currentAccess
+    })
+  );
+  assert.equal(
+    subscriberAccessPolicy.readCachedSubscriberAccess("google-1", "operator@example.com"),
+    null,
+    "expired access cache should not mask a fresh entitlement lookup"
   );
 });
 
@@ -125,3 +203,34 @@ test("locked content uses a click-through blur with a charge confirmation dialog
   assert.match(accessGateSource, /unlockProtectedSource/, "coupon unlocks should call the server before revealing content");
   assert.match(accessGateSource, /review_coupon_limit_reached/, "coupon exhaustion should produce a specific localized state");
 });
+
+function subscriberAccessFixture(overrides = {}) {
+  return {
+    userId: "google-1",
+    email: "operator@example.com",
+    subscriptionStatus: "active",
+    isSubscribed: false,
+    couponLimit: 3,
+    couponsUsed: 0,
+    couponsRemaining: 3,
+    unlockedSourceKeys: [],
+    ...overrides
+  };
+}
+
+function loadTsModule(relativePath, globals = {}) {
+  const source = readFileSync(new URL(relativePath, import.meta.url), "utf8");
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2020
+    }
+  });
+  const module = { exports: {} };
+  vm.runInNewContext(outputText, {
+    exports: module.exports,
+    module,
+    ...globals
+  });
+  return module.exports;
+}

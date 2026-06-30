@@ -49,9 +49,20 @@ class SubscriberPreferencesView:
     locale: str
 
 
+@dataclass(frozen=True)
+class SubscriberPreferencesLookup:
+    preferences: SubscriberPreferencesView
+    created: bool
+
+
 def get_or_create_subscriber_preferences(db: Session, user_id: str, email: str) -> SubscriberPreferencesView:
+    return get_or_create_subscriber_preferences_lookup(db, user_id=user_id, email=email).preferences
+
+
+def get_or_create_subscriber_preferences_lookup(db: Session, user_id: str, email: str) -> SubscriberPreferencesLookup:
     clean_email = normalize_email(email)
     record = db.execute(select(SubscriberPreferenceRecord).where(SubscriberPreferenceRecord.email == clean_email)).scalar_one_or_none()
+    created = False
     if record is None:
         record = SubscriberPreferenceRecord(
             user_id=normalize_text(user_id),
@@ -64,7 +75,8 @@ def get_or_create_subscriber_preferences(db: Session, user_id: str, email: str) 
         )
         db.add(record)
         db.flush()
-    return to_preferences_view(record)
+        created = True
+    return SubscriberPreferencesLookup(preferences=to_preferences_view(record), created=created)
 
 
 def upsert_subscriber_preferences(

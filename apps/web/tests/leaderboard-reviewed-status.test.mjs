@@ -30,7 +30,16 @@ test("leaderboard preview omits the lower current-state block", () => {
 test("league overview stream is restricted to AI review records", () => {
   assert.match(leaderboardSource, /data-testid="league-overview-section"/, "overview section should have a stable first-load target");
   assert.match(leaderboardSource, /data-testid="league-overview-stream"/, "overview stream should have a stable first-load target");
-  assert.match(leaderboardSource, /preferCached: true/, "initial overview load should prefer cached data and background warm cold misses");
+  assert.equal(
+    loadingPolicy.shouldPreferCachedOverviewInitialPage({ hasCachedReviews: false }),
+    false,
+    "cold overview first loads should fetch indexed rows instead of an empty cache-warming shell"
+  );
+  assert.equal(
+    loadingPolicy.shouldPreferCachedOverviewInitialPage({ hasCachedReviews: true }),
+    true,
+    "warm overview remounts should reuse cached rows while the first page refreshes"
+  );
   assert.match(leaderboardSource, /page\.warming/, "overview should retry instead of resolving an empty cold-cache warming response");
   assert.match(leaderboardSource, /const aiReviewLogsOnly = reviewsList/, "overview should derive log rows only from loaded AI review records");
   assert.doesNotMatch(leaderboardSource, /pendingPlans\.forEach/, "pending trade plans must not appear in League Overview");
@@ -109,7 +118,7 @@ test("league overview stream keeps a page cache and stops duplicate infinite loa
   assert.doesNotMatch(leaderboardSource, /onInitialReady/, "overview loading should stay inside its own section instead of blocking the parent loading barrier");
   assert.match(leaderboardSource, /OVERVIEW_BACKGROUND_RETRY_MS/, "overview should continue cold-cache refresh checks in the background");
   assert.match(leaderboardSource, /isWarming/, "overview should show a non-blocking warming state after bounded cold-cache retries");
-  assert.doesNotMatch(leaderboardSource, /preferCached: false/, "overview must not fall back to a synchronous cold-cache rebuild from the browser");
+  assert.doesNotMatch(leaderboardSource, /preferCached: false/, "overview should omit the flag rather than send noisy false params");
 });
 
 test("league overview does not auto-paginate before the user scrolls the log", () => {

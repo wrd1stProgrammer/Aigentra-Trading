@@ -10,6 +10,7 @@ from app.db import SubscriberPreferenceRecord, get_db, session_scope
 from app.subscribers import (
     TelegramSettingsInput,
     get_or_create_subscriber_preferences,
+    get_or_create_subscriber_preferences_lookup,
     preferences_payload,
     upsert_subscriber_preferences,
 )
@@ -133,11 +134,12 @@ def read_subscriber_preferences(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     try:
-        preferences = get_or_create_subscriber_preferences(db, user_id=user_id, email=email)
-        db.commit()
+        lookup = get_or_create_subscriber_preferences_lookup(db, user_id=user_id, email=email)
+        if lookup.created:
+            db.commit()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return preferences_payload(preferences)
+    return preferences_payload(lookup.preferences)
 
 
 @router.get("/access")
