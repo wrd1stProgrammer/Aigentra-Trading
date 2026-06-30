@@ -8,17 +8,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /srv/aigentra
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && apt-get install -y --no-install-recommends curl ca-certificates nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
-    curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh; \
-    CODEX_BIN="$(PATH="/root/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH" command -v codex || true)"; \
-    if [ -z "$CODEX_BIN" ]; then \
-        CODEX_BIN="$(find /root /usr/local -type f -name codex -perm /111 2>/dev/null | head -n 1)"; \
-    fi; \
-    test -n "$CODEX_BIN"; \
-    install -m 0755 "$CODEX_BIN" /usr/local/bin/codex; \
+    npm install -g @openai/codex@0.142.4; \
     /usr/local/bin/codex --version
 
 RUN addgroup --system app && adduser --system --ingroup app app
