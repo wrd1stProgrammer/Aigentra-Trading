@@ -46,7 +46,7 @@ def test_traders_list():
     response = client.get("/api/traders")
     assert response.status_code == 200
     data = response.json()
-    assert len(data["traders"]) == 20
+    assert len(data["traders"]) == 22
     assert {trader["id"] for trader in data["traders"]} == {
         "channel-rider",
         "volume-breaker",
@@ -68,7 +68,14 @@ def test_traders_list():
         "momentum-ignition",
         "bollinger-reversion",
         "atr-trail-commander",
+        "liquidation-pressure-sniper",
+        "volatility-skew-sentinel",
     }
+    by_id = {trader["id"]: trader for trader in data["traders"]}
+    assert by_id["liquidation-pressure-sniper"]["lifecycleStatus"] == "new"
+    assert by_id["volatility-skew-sentinel"]["lifecycleStatus"] == "new"
+    assert by_id["volatility-squeezer"]["lifecycleStatus"] == "retired"
+    assert by_id["imbalance-hunter"]["retiredFromMonth"] == "2026-07"
 
 
 def test_ai_provider_status_defaults_to_mock():
@@ -452,10 +459,13 @@ def test_leaderboard_fast_returns_utc_monthly_league_without_live_cache_pollutio
     assert monthly_data["source"] == "equity_snapshots_monthly"
     assert monthly_data["summaries"][0]["traderId"] == "channel-rider"
     assert monthly_data["summaries"][0]["monthlyReturn"] == 12.0
-    assert monthly_data["summaries"][0]["return7d"] == 2.5
-    assert monthly_data["summaries"][0]["return30d"] == 8.5
+    assert monthly_data["summaries"][0]["cumulativeReturn"] == 12.0
+    assert monthly_data["summaries"][0]["return24h"] == 12.0
+    assert monthly_data["summaries"][0]["return7d"] == 12.0
+    assert monthly_data["summaries"][0]["return30d"] == 12.0
     assert monthly_data["summaries"][1]["monthlyReturn"] == 4.0
-    assert monthly_data["summaries"][1]["return7d"] == -1.25
+    assert monthly_data["summaries"][1]["cumulativeReturn"] == 4.0
+    assert monthly_data["summaries"][1]["return7d"] == 4.0
     assert monthly_data["summaries"][1]["return30d"] == 4.0
     assert monthly_data["positions"] == []
     assert monthly_data["orders"] == []
@@ -471,6 +481,52 @@ def test_leaderboard_fast_rejects_invalid_utc_month():
 
     assert response.status_code == 400
     assert response.json()["detail"] == "leagueMonth must use UTC YYYY-MM format."
+
+
+def test_monthly_leaderboard_retired_july_traders_are_hidden_but_current_keeps_catalog(temp_api_db):
+    main.LEAGUE_BUNDLE_CACHE.clear()
+
+    june = client.get("/api/league/leaderboard-fast?symbol=BTCUSDT&locale=ko&leagueMonth=2026-06&refresh=true")
+    monthly = client.get("/api/league/leaderboard-fast?symbol=BTCUSDT&locale=ko&leagueMonth=2026-07&refresh=true")
+    current = client.get("/api/league/leaderboard-fast?symbol=BTCUSDT&locale=ko&refresh=true")
+
+    assert june.status_code == 200
+    june_trader_ids = {trader["id"] for trader in june.json()["traders"]}
+    assert "liquidation-pressure-sniper" not in june_trader_ids
+    assert "volatility-skew-sentinel" not in june_trader_ids
+
+    assert monthly.status_code == 200
+    monthly_data = monthly.json()
+    monthly_trader_ids = {trader["id"] for trader in monthly_data["traders"]}
+    monthly_summary_ids = {summary["traderId"] for summary in monthly_data["summaries"]}
+    assert "volatility-squeezer" not in monthly_trader_ids
+    assert "imbalance-hunter" not in monthly_trader_ids
+    assert "volatility-squeezer" not in monthly_summary_ids
+    assert "imbalance-hunter" not in monthly_summary_ids
+    assert {"liquidation-pressure-sniper", "volatility-skew-sentinel"}.issubset(monthly_trader_ids)
+    assert {"liquidation-pressure-sniper", "volatility-skew-sentinel"}.issubset(monthly_summary_ids)
+
+    assert current.status_code == 200
+    current_ids = {trader["id"] for trader in current.json()["traders"]}
+    assert {
+        "volatility-squeezer",
+        "imbalance-hunter",
+        "liquidation-pressure-sniper",
+        "volatility-skew-sentinel",
+    }.issubset(current_ids)
+
+
+def test_scanner_trader_catalog_skips_retired_strategies_after_july_without_removing_them_from_management():
+    started_at = datetime(2026, 7, 1, tzinfo=timezone.utc)
+
+    scanner_ids = {trader.id for trader in main.list_scanner_traders(started_at)}
+    all_ids = {trader.id for trader in main.list_traders()}
+
+    assert "volatility-squeezer" not in scanner_ids
+    assert "imbalance-hunter" not in scanner_ids
+    assert "volatility-squeezer" in all_ids
+    assert "imbalance-hunter" in all_ids
+    assert {"liquidation-pressure-sniper", "volatility-skew-sentinel"}.issubset(scanner_ids)
 
 
 def test_monthly_leaderboard_reuses_position_rows_per_trader(monkeypatch):
@@ -511,7 +567,7 @@ def test_monthly_leaderboard_reuses_position_rows_per_trader(monkeypatch):
             "return30d": 4.0,
         }
 
-    monkeypatch.setattr(main, "list_traders", lambda: [trader])
+    monkeypatch.setattr(main, "list_traders_for_league_month", lambda league_month: [trader])
     monkeypatch.setattr(main, "monthly_equity_points", fake_monthly_equity_points)
     monkeypatch.setattr(main, "monthly_position_query", fake_monthly_position_query)
     monkeypatch.setattr(main, "trader_snapshot_summary", fake_live_summary)

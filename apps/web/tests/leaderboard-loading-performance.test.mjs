@@ -54,6 +54,18 @@ test("league overview shell is not blocked by slower live exposure or subscriber
 });
 
 test("leaderboard period tabs preserve URL state without duplicate route work", () => {
+  const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    leaderboardSource,
+    /if \(searchParams\.get\("league"\) === "current"\) return undefined;/,
+    "plain /leaderboard loads should default to the current UTC monthly league unless the current tab is explicit"
+  );
+  assert.match(
+    leaderboardSource,
+    /currentUtcLeagueMonth\(\)/,
+    "monthly default should be computed from UTC now instead of a hard-coded league month"
+  );
   assert.equal(
     loadingPolicy.buildLeaguePeriodUrl("/leaderboard", "league=current&foo=bar", "2026-06"),
     "/leaderboard?league=monthly&foo=bar&leagueMonth=2026-06",
@@ -66,7 +78,7 @@ test("leaderboard period tabs preserve URL state without duplicate route work", 
   );
 });
 
-test("locked overview can defer heavy protected children until subscriber access is known", () => {
+test("locked leaderboard rows can defer heavy protected children until subscriber access is known", () => {
   assert.equal(
     accessGatePolicy.shouldRenderProtectedGateChildren({
       phase: "pending",
@@ -101,16 +113,55 @@ test("locked overview can defer heavy protected children until subscriber access
   );
 });
 
-test("league overview initial page fetches real indexed rows instead of a cold-cache warming shell", () => {
-  assert.equal(
-    loadingPolicy.shouldPreferCachedOverviewInitialPage({ hasCachedReviews: false }),
-    false,
-    "cold overview loads should fetch real rows through the indexed backend query"
+test("live race board does not fan out a separate overview review request", () => {
+  const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8");
+  const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
+
+  assert.match(leaderboardSource, /data-testid="live-race-board"/, "race board should render from the leaderboard page itself");
+  assert.match(leaderboardSource, /buildRaceBoardItems/, "race board should derive its rows from already loaded leaderboard state");
+  assert.doesNotMatch(leaderboardSource, /getLeagueOverviewReviews/, "leaderboard should not request overview reviews for the replacement panel");
+  assert.doesNotMatch(apiSource, /overview-reviews/, "the web client should not expose the removed overview review hot path");
+});
+
+test("live race board uses a compact lane instead of a split hero layout", () => {
+  const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8");
+  const leaderboardDetailLinkCount = leaderboardSource.match(/href=\{`\/leaderboard\/\$\{/g)?.length ?? 0;
+  const disabledPrefetchCount = leaderboardSource.match(/prefetch=\{false\}/g)?.length ?? 0;
+
+  assert.match(
+    leaderboardSource,
+    /data-testid="live-race-board-lane"/,
+    "race board should expose a bounded compact lane for visual QA"
+  );
+  assert.match(
+    leaderboardSource,
+    /laneItems = raceItems\.slice\(1, 5\)/,
+    "race board should cap secondary tiles to four items so the panel stays compact"
+  );
+  assert.match(
+    leaderboardSource,
+    /grid-flow-col/,
+    "race board should stay short on small screens by using a horizontal race lane"
+  );
+  assert.doesNotMatch(
+    leaderboardSource,
+    /xl:grid-cols-\[minmax\(0,0\.92fr\)_minmax\(420px,1\.08fr\)\]/,
+    "race board should not keep the old split layout that left unused space on the left"
+  );
+  assert.doesNotMatch(
+    leaderboardSource,
+    /RaceSparkline/,
+    "race board should avoid miniature charts in the compact overview"
+  );
+  assert.doesNotMatch(
+    leaderboardSource,
+    /leaderboard\.liveRace\.noFeed|statusFeedSummary|statusFeedTime|statusFeedRecencyScore|LatestStatusFeedNote/,
+    "leaderboard should not show feed placeholders or score race traders by feed recency"
   );
   assert.equal(
-    loadingPolicy.shouldPreferCachedOverviewInitialPage({ hasCachedReviews: true }),
-    true,
-    "existing overview rows may use the cache while a refresh warms in the background"
+    disabledPrefetchCount,
+    leaderboardDetailLinkCount,
+    "leaderboard detail links should not prefetch and compete with the first visible data request"
   );
 });
 

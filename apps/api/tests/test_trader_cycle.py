@@ -491,8 +491,7 @@ def test_review_policies_have_trader_specific_post_loss_discipline():
 
 def test_btc_specialist_profiles_are_differentiated_with_concrete_evaluators():
     traders = list_traders()
-    btc_specialists = traders[10:]
-    assert [trader.id for trader in btc_specialists] == [
+    expected_btc_ids = [
         "donchian-breakout",
         "ichimoku-cloud-pilot",
         "vwap-reclaimer",
@@ -504,6 +503,8 @@ def test_btc_specialist_profiles_are_differentiated_with_concrete_evaluators():
         "bollinger-reversion",
         "atr-trail-commander",
     ]
+    btc_specialists = [trader for trader in traders if trader.id in expected_btc_ids]
+    assert [trader.id for trader in btc_specialists] == expected_btc_ids
     signatures = {
         (trader.concept, trader.currentPlan, tuple(trader.aiReviewChecklist))
         for trader in btc_specialists

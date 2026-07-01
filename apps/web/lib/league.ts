@@ -37,6 +37,18 @@ export const traderVisuals: Record<string, { tone: string; accent: string; initi
     initials: "LH",
     alias: "Leverage Desk"
   },
+  "liquidation-pressure-sniper": {
+    tone: "from-emerald-500 to-cyan-800",
+    accent: "#2dd4bf",
+    initials: "LP",
+    alias: "Liquidation Desk"
+  },
+  "volatility-skew-sentinel": {
+    tone: "from-amber-400 to-rose-700",
+    accent: "#f59e0b",
+    initials: "SK",
+    alias: "Skew Desk"
+  },
   "liquidity-reaper": {
     tone: "from-zinc-600 to-stone-950",
     accent: "#52525b",

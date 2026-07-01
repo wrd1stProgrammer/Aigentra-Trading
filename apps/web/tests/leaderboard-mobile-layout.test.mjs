@@ -14,7 +14,7 @@ test("mobile leaderboard uses compact ranking rows instead of dashboard metric g
 test("leaderboard return metric headers use the selected column labels", () => {
   assert.match(source, /function topReturnColumns/, "leaderboard should choose return metric columns at table level");
   assert.match(source, /primaryReturnColumn\.label/, "primary return header should show the actual selected metric label");
-  assert.match(source, /secondaryReturnColumn\.label/, "secondary return header should show the actual selected metric label");
+  assert.match(source, /secondaryReturnColumn\?\.label \?\? t\("leaderboard\.trades"\)/, "secondary header should show the selected metric label or trades when monthly mode has one return column");
   assert.doesNotMatch(source, /t\("leaderboard\.bestReturn"\)/, "leaderboard should not render a generic best-return column header");
   assert.doesNotMatch(source, /t\("leaderboard\.nextReturn"\)/, "leaderboard should not render a generic next-return column header");
 });

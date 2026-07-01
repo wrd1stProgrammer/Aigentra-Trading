@@ -376,6 +376,18 @@ TRADER_REVIEW_POLICIES: Dict[str, Dict[str, Any]] = {
         "adjustWhen": "edge exists but leverage/risk should be reduced",
         "rejectWhen": "this is only funding overheat without structure or opposite squeeze risk is uncontrolled",
     },
+    "liquidation-pressure-sniper": {
+        "temperament": "forced-flow reversal specialist; decisive after real liquidation pressure, but never approve a blind knife-catch",
+        "approveWhen": "Coinalyze liquidation imbalance, long/short crowding, OI behavior, and 15m reclaim/rejection all agree",
+        "adjustWhen": "forced-flow edge exists but the second retest entry should be smaller or leverage capped",
+        "rejectWhen": "liquidations are stale, structure has not confirmed, or crowding is still accelerating against the setup",
+    },
+    "volatility-skew-sentinel": {
+        "temperament": "options-skew contrarian; waits for spot confirmation before fading fear or upside chase",
+        "approveWhen": "Deribit IV skew/volume pressure diverges from BTC structure and realized volatility still permits clear invalidation",
+        "adjustWhen": "skew is valid but volatility is high, so size/leverage or TP distance must be reduced",
+        "rejectWhen": "skew has normalized, option flow agrees with spot continuation, or the trigger candle is only noise",
+    },
     "liquidity-reaper": {
         "temperament": "fast reversal specialist; approve sharp sweep setups, but do not confuse real breakout with stop hunt",
         "approveWhen": "wick, sweep distance, reclaim/fail close, volume, and stop placement are coherent",
@@ -480,6 +492,8 @@ TRADER_POST_LOSS_DISCIPLINE: Dict[str, str] = {
     "volume-breaker": "After a failed breakout, demand a new level flip with renewed volume/OI participation; late retests are rejected.",
     "pullback-architect": "After a stopped pullback, cancel the prior scale map and require HTF trend plus EMA zone recovery before another staged entry.",
     "leverage-hunter": "After a leverage stop, cap aggressiveness and require both crowding and structure trigger to refresh before considering approval.",
+    "liquidation-pressure-sniper": "After a liquidation-pressure loss, require a fresh liquidation window and a new 15m structure trigger; do not retry the same forced-flow pocket.",
+    "volatility-skew-sentinel": "After an options-skew loss, wait for skew to rebuild or flip and require fresh spot confirmation; stale skew readings are disqualified.",
     "liquidity-reaper": "After a failed sweep, require a different liquidity pool or a much cleaner reclaim/failure candle; repeated wick fades are blocked.",
     "volatility-squeezer": "After a squeeze failure, wait for a fresh compression base and reject immediate re-entry into the same expansion candle.",
     "trend-sentinel": "After a trend stop, require HTF trend repair and a new trailing-stop path; do not approve normal pullback language after structure broke.",
@@ -515,6 +529,14 @@ TRADER_MANAGEMENT_POLICIES: Dict[str, Dict[str, Any]] = {
     "leverage-hunter": {
         "bias": "crowding setups demand faster stop tightening and risk reduction",
         "allowedAggression": "add only when OI/funding crowding strengthens and structure trigger still holds; pyramid on confirmed squeeze acceleration; reduce decisively when flow flips",
+    },
+    "liquidation-pressure-sniper": {
+        "bias": "forced-flow reversals must work quickly after liquidation pressure releases",
+        "allowedAggression": "add only on the planned retest while Coinalyze pressure remains aligned; pyramid after TP1 only if OI stops expanding against the trade",
+    },
+    "volatility-skew-sentinel": {
+        "bias": "options-skew trades should protect once skew starts normalizing",
+        "allowedAggression": "average only at the planned trigger retest with skew still elevated; no pyramiding if realized volatility jumps or spot confirms the option-flow direction",
     },
     "liquidity-reaper": {
         "bias": "protect quickly after range midpoint; close if wick extreme is accepted",

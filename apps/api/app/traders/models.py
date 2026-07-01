@@ -26,6 +26,10 @@ class TraderProfile(BaseModel):
     aiReviewChecklist: List[str]
     mockPerformance: Dict[str, Any]
     currentPlan: str
+    launchMonth: Optional[str] = None
+    retiredFromMonth: Optional[str] = None
+    lifecycleStatus: str = "active"
+    lifecycleLabel: Optional[str] = None
 
 
 class EntryPlan(BaseModel):

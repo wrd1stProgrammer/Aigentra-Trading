@@ -3,6 +3,8 @@ export const traderIds = [
   "volume-breaker",
   "pullback-architect",
   "leverage-hunter",
+  "liquidation-pressure-sniper",
+  "volatility-skew-sentinel",
   "liquidity-reaper",
   "volatility-squeezer",
   "trend-sentinel",
@@ -65,6 +67,74 @@ export const fallbackTraders = [
     mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
   },
   {
+    id: "liquidation-pressure-sniper",
+    name: "Liquidation Pressure Sniper",
+    description: "Uses liquidation, open-interest, and crowding pressure to trade forced futures flushes only after price confirms.",
+    concept: "Coinalyze-backed liquidation specialist: it waits for forced flow to appear, then enters only when BTC structure agrees.",
+    longConditions: [
+      "Long liquidations have flushed or shorts look trapped",
+      "15m price action reclaims after the flush",
+      "OI pressure stops expanding against the entry",
+      "Risk/reward remains valid after fee buffer"
+    ],
+    shortConditions: [
+      "Short liquidations look exhausted or longs remain crowded",
+      "15m price action rejects after the flush",
+      "OI/funding no longer validates the crowded side",
+      "Risk/reward remains valid after fee buffer"
+    ],
+    entryRules: ["55% on confirmed pressure reversal", "45% on controlled retest"],
+    takeProfitRules: ["TP1 at forced-flow release", "TP2 near the next liquidation pocket"],
+    stopLossRules: ["Beyond the flush/rejection trigger", "Exit if liquidation pressure flips"],
+    aiReviewChecklist: [
+      "Is this forced flow or normal volatility?",
+      "Does long/short ratio support the direction?",
+      "Is OI confirming or warning against the trade?",
+      "Is the retest entry still reachable?"
+    ],
+    lifecycleStatus: "new",
+    lifecycleLabel: "NEW",
+    launchMonth: "2026-07",
+    riskLevel: "HIGH",
+    currentPlan: "Waiting for liquidation pressure to align with a clean BTC structure trigger.",
+    baseRiskPercent: 0.54,
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "volatility-skew-sentinel",
+    name: "Volatility Skew Sentinel",
+    description: "Reads Deribit BTC option skew and realized-volatility pressure before trading confirmed spot/futures direction.",
+    concept: "Options-volatility sentinel: put/call IV skew, option volume, realized volatility, and BTC structure decide whether fear or upside chase is mispriced.",
+    longConditions: [
+      "Put skew is elevated while BTC stops making lower closes",
+      "15m reclaim confirms fear is not accelerating",
+      "Realized volatility allows defined invalidation",
+      "4H trend is not strongly bearish"
+    ],
+    shortConditions: [
+      "Call skew or upside option chase is elevated",
+      "15m rejection confirms upside premium is fading",
+      "Realized volatility allows defined invalidation",
+      "4H trend is not strongly bullish"
+    ],
+    entryRules: ["55% on skew-confirmed trigger", "45% on retest if skew remains elevated"],
+    takeProfitRules: ["TP1 when skew trade reaches the first risk target", "TP2 near the next options-driven liquidity zone"],
+    stopLossRules: ["Beyond trigger candle", "Exit if skew normalizes before price follows"],
+    aiReviewChecklist: [
+      "Is the skew signal fresh or stale?",
+      "Does price confirm the options signal?",
+      "Is realized volatility too high for the stop?",
+      "Should the second slice be cancelled?"
+    ],
+    lifecycleStatus: "new",
+    lifecycleLabel: "NEW",
+    launchMonth: "2026-07",
+    riskLevel: "MEDIUM_HIGH",
+    currentPlan: "Waiting for Deribit BTC option skew to diverge from confirmed price structure.",
+    baseRiskPercent: 0.46,
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
     id: "liquidity-reaper",
     name: "Liquidity Sweeper",
     description: "Targets stop-sweep traps around prior highs or lows after price quickly reclaims or fails the swept level.",
@@ -79,6 +149,9 @@ export const fallbackTraders = [
     name: "Squeeze Operator",
     description: "Waits for volatility to compress, then joins the first expansion only when candle body, volume, and direction confirm.",
     concept: "Quiet markets often expand suddenly; this trader looks for the first clean release while avoiding one-candle fakeouts.",
+    retiredFromMonth: "2026-07",
+    lifecycleStatus: "retired",
+    lifecycleLabel: "RETIRED",
     riskLevel: "MEDIUM",
     currentPlan: "Waiting for compressed BTC volatility to release with volume.",
     baseRiskPercent: 0.55,
@@ -336,6 +409,9 @@ export const fallbackTraders = [
       "Does continuation room justify holding?",
       "Should later scale be cancelled if price runs?"
     ],
+    retiredFromMonth: "2026-07",
+    lifecycleStatus: "retired",
+    lifecycleLabel: "RETIRED",
     riskLevel: "MEDIUM_HIGH",
     currentPlan: "Waiting for BTC displacement to leave an imbalance and retest it cleanly.",
     baseRiskPercent: 0.57,

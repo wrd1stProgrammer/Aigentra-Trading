@@ -113,6 +113,14 @@ All spacing derives from a 4px base.
 - **Structure**: time, trader identity, decision summary, optional severity dot.
 - **Mobile**: stack time/trader above summary; keep the whole row tappable.
 
+### Live Race Board
+
+- **Structure**: one compact header strip with the current period, three live metrics, and a five-card race lane derived from the existing leaderboard bundle. Avoid split hero layouts that leave unused space.
+- **Data priority**: rank, trader, 24h movement, live exposure state, and side/leverage badges. Omit broad portfolio totals and narrative snippets here because the ranking table and detail panel already own them.
+- **States**: active movers use emerald for favorable movement, rose for slipping, amber for pending exposure, and neutral for watch-only traders. Loading uses the existing page loading policy rather than an internal spinner.
+- **Mobile**: keep the board short with a horizontally swipeable race lane inside the card. Avoid page-level horizontal overflow and keep Korean copy within compact phrases.
+- **Performance**: render from already loaded standings, summaries, and exposures. No overview-review fetch, narrative snippet, infinite scroll, chart sparkline, or additional initial request.
+
 ## 6. Motion & Interaction
 
 | Type | Duration | Easing | Usage |

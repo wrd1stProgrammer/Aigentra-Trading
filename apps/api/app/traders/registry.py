@@ -1,5 +1,7 @@
-from typing import Dict, List
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
 
+from app.traders.alternative_data_specialists import LiquidationPressureSniper, VolatilitySkewSentinel
 from app.traders.btc_specialists import (
     AtrTrailCommander,
     BollingerReversion,
@@ -26,8 +28,56 @@ from app.traders.volume_breaker import VolumeBreaker
 from app.traders.volatility_squeezer import VolatilitySqueezer
 
 
+NEW_TRADER_IDS = {
+    "liquidation-pressure-sniper",
+    "volatility-skew-sentinel",
+}
+TRADER_RETIRED_FROM_MONTH = {
+    "volatility-squeezer": "2026-07",
+    "imbalance-hunter": "2026-07",
+}
+
+
+def _month_key(value: Optional[datetime] = None) -> str:
+    current = value or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    return f"{current.year:04d}-{current.month:02d}"
+
+
+def _is_same_or_after_month(value: str, floor: str) -> bool:
+    return value >= floor
+
+
+def apply_trader_lifecycle(profile: TraderProfile) -> TraderProfile:
+    update = {}
+    if profile.id in NEW_TRADER_IDS:
+        update.update({"launchMonth": "2026-07", "lifecycleStatus": "new", "lifecycleLabel": "NEW"})
+    if profile.id in TRADER_RETIRED_FROM_MONTH:
+        update.update(
+            {
+                "retiredFromMonth": TRADER_RETIRED_FROM_MONTH[profile.id],
+                "lifecycleStatus": "retired",
+                "lifecycleLabel": "RETIRED",
+            }
+        )
+    return profile.model_copy(update=update) if update else profile
+
+
+def is_trader_retired_for_month(trader_id: str, league_month: Optional[str]) -> bool:
+    retired_from = TRADER_RETIRED_FROM_MONTH.get(trader_id)
+    return bool(retired_from and league_month and _is_same_or_after_month(league_month, retired_from))
+
+
+def is_trader_launched_for_month(trader: TraderProfile, league_month: Optional[str]) -> bool:
+    if not league_month or not trader.launchMonth:
+        return True
+    return _is_same_or_after_month(league_month, trader.launchMonth)
+
+
 def _with_execution_profile(strategy: TraderStrategy) -> TraderStrategy:
-    strategy.profile = apply_execution_profile(strategy.profile)
+    strategy.profile = apply_trader_lifecycle(apply_execution_profile(strategy.profile))
     original_evaluate = strategy.evaluate
 
     def evaluate_with_execution_profile(snapshot: dict) -> TradeCandidate:
@@ -48,6 +98,8 @@ TRADER_STRATEGIES: Dict[str, TraderStrategy] = {
         VolumeBreaker(),
         PullbackArchitect(),
         LeverageHunter(),
+        LiquidationPressureSniper(),
+        VolatilitySkewSentinel(),
         LiquidityReaper(),
         VolatilitySqueezer(),
         TrendSentinel(),
@@ -84,6 +136,20 @@ def public_trader_profile(profile: TraderProfile) -> TraderProfile:
 
 def list_traders() -> List[TraderProfile]:
     return [public_trader_profile(strategy.profile) for strategy in TRADER_STRATEGIES.values()]
+
+
+def list_traders_for_league_month(league_month: Optional[str]) -> List[TraderProfile]:
+    return [
+        trader
+        for trader in list_traders()
+        if is_trader_launched_for_month(trader, league_month)
+        and not is_trader_retired_for_month(trader.id, league_month)
+    ]
+
+
+def list_scanner_traders(started_at: Optional[datetime] = None) -> List[TraderProfile]:
+    scanner_month = _month_key(started_at)
+    return list_traders_for_league_month(scanner_month)
 
 
 def get_strategy(trader_id: str) -> TraderStrategy:

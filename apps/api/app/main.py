@@ -151,7 +151,7 @@ from app.traders.models import (
     TradePlan,
     TradeReviewPayload,
 )
-from app.traders.registry import get_strategy, list_traders, public_trader_profile
+from app.traders.registry import get_strategy, list_scanner_traders, list_traders, list_traders_for_league_month, public_trader_profile
 from app.traders.strategy_base import default_leverage_plan, default_order_intent, default_risk_plan, estimate_risk_reward, round_price
 
 
@@ -2790,7 +2790,8 @@ def monthly_leaderboard_summaries(
     period_end: datetime,
 ) -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
-    for trader in list_traders():
+    league_month = f"{period_start.year:04d}-{period_start.month:02d}"
+    for trader in list_traders_for_league_month(league_month):
         start_snapshot, end_snapshot, snapshots = monthly_equity_points(db, trader.id, symbol, period_start, period_end)
         if start_snapshot is None or end_snapshot is None:
             start_equity = float(settings.paper_default_equity)
@@ -2816,11 +2817,6 @@ def monthly_leaderboard_summaries(
         long_trades = sum(1 for position in monthly_positions if str(position.side).lower() == "long")
         short_trades = sum(1 for position in monthly_positions if str(position.side).lower() == "short")
         win_rate = round((wins / closed_positions) * 100, 2) if closed_positions else None
-        live_summary = trader_snapshot_summary(db, trader.id, symbol) or {}
-        live_cumulative_return = float_or_default(live_summary.get("cumulativeReturn"), monthly_return)
-        live_return_24h = float_or_default(live_summary.get("return24h"), 0.0)
-        live_return_7d = float_or_default(live_summary.get("return7d"), 0.0)
-        live_return_30d = float_or_default(live_summary.get("return30d"), 0.0)
         summaries.append(
             {
                 "traderId": trader.id,
@@ -2834,11 +2830,12 @@ def monthly_leaderboard_summaries(
                 "unrealizedPnl": round(unrealized_pnl, 4),
                 "totalFees": round(total_fees, 4),
                 "totalPnl": round(total_pnl, 4),
-                "cumulativeReturn": live_cumulative_return,
+                "rankScore": monthly_return,
+                "cumulativeReturn": monthly_return,
                 "monthlyReturn": monthly_return,
-                "return24h": live_return_24h,
-                "return7d": live_return_7d,
-                "return30d": live_return_30d,
+                "return24h": monthly_return,
+                "return7d": monthly_return,
+                "return30d": monthly_return,
                 "winRate": win_rate,
                 "closedPositions": closed_positions,
                 "wins": wins,
@@ -2958,7 +2955,7 @@ def build_monthly_league_bundle_payload(
             "end": period_end.isoformat(),
             "timezone": "UTC",
         },
-        "traders": list_traders(),
+        "traders": list_traders_for_league_month(league_month),
         "summaries": summaries,
         "positions": [],
         "orders": [],
@@ -2997,7 +2994,7 @@ def build_monthly_league_warming_payload(
             "end": period_end.isoformat(),
             "timezone": "UTC",
         },
-        "traders": list_traders(),
+        "traders": list_traders_for_league_month(league_month),
         "summaries": [],
         "positions": [],
         "orders": [],
@@ -4106,7 +4103,7 @@ async def run_scanner_once(
 
     candidate_jobs: list[tuple[Any, str, dict[str, Any]]] = []
     changed_traders_by_symbol: dict[str, set[str]] = {symbol: set() for symbol in clean_symbols}
-    traders_list = list_traders()
+    traders_list = list_scanner_traders(started_at)
     trader_ids = [trader.id for trader in traders_list]
 
     for symbol, snapshot in snapshots.items():

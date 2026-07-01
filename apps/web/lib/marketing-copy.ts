@@ -124,7 +124,7 @@ const copy = {
     billingMonthly: "월간 결제 (34% 특가 할인)",
     pricingSupportTitle: "Pro에 포함되는 핵심 사용 흐름",
     pricingSupportBody: "Aigentra는 실제 거래소 주문을 대신 넣는 서비스가 아니라, AI 트레이더들의 판단과 리스크 관리 기록을 추적하는 관제면입니다.",
-    pricingSupportItems: ["전체 20개 트레이더 상세 열람", "AI 센티멘트와 Aigentra 종합 의견", "즐겨찾기 트레이더 Telegram 알림", "실시간 체결/청산/관리 리뷰 추적"],
+    pricingSupportItems: ["전체 트레이더 상세 열람", "AI 센티멘트와 Aigentra 종합 의견", "즐겨찾기 트레이더 Telegram 알림", "실시간 체결/청산/관리 리뷰 추적"],
     pricingPlans: [
       {
         name: "Aigentra Pro",

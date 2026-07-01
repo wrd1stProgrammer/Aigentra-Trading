@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
-import { useCallback, useMemo, useState, useEffect, useRef, type MouseEvent } from "react";
+import { useCallback, useMemo, useState, useEffect, type MouseEvent } from "react";
 import {
   ArrowRight,
   Calendar,
@@ -18,7 +18,6 @@ import {
   getEquitySnapshots,
   getActivePaperPositions,
   getCachedLeaderboardBundle,
-  getLeagueOverviewReviews,
   getPaperOrders,
   getRecentTradePlans,
   LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -28,61 +27,30 @@ import {
   type LeaderboardBundleRequestOptions,
   type PaperOrder,
   type PaperPosition,
-  type TraderStatusFeed,
   type TraderProfile,
 } from "@/lib/api";
 import { useAppContext } from "@/components/app-provider";
 import type { Locale } from "@/lib/i18n";
-import { buildStandings, traderVisuals, type LeagueSymbol, type TraderStanding } from "@/lib/league";
+import { buildStandings, traderVisuals, type TraderStanding } from "@/lib/league";
 import { EquityAreaChart } from "@/components/leaderboard-sidebar-equity-chart";
 import { PageLoadingOverlay } from "@/components/page-loading-overlay";
-import { ProtectedContentGate, ProtectedContentGateWithAccess } from "@/components/access-gate";
+import { ProtectedContentGateWithAccess } from "@/components/access-gate";
 import { FREE_LEADERBOARD_LIMIT, useSubscriberAccess } from "@/components/use-subscriber-access";
 import { fallbackTraders, traderDetailKey, traderNameKey, traderShortKey } from "@/lib/traders";
-import { formatCurrency, formatNumber, formatRelativeDateTime } from "@/lib/format";
+import { formatCurrency, formatNumber } from "@/lib/format";
 import { statusLabel } from "@/lib/status";
 import {
   buildLeaguePeriodUrl,
   shouldFetchCurrentLeagueCompanion,
   shouldFetchLeaderboardSecondaryData,
   shouldShowLeaderboardInitialOverlay,
-  shouldUseLeaderboardPreviewLimit,
-  shouldPreferCachedOverviewInitialPage
+  shouldUseLeaderboardPreviewLimit
 } from "@/lib/leaderboard-loading-policy";
 import { activePositionLeverage, appendLeverageSample, formatLeverageBadge, orderLeverage, planLeverage, positionLeverage } from "@/components/leaderboard-leverage";
-import {
-  isDisplayableOverviewReview,
-  overviewReviewDecision,
-  type OverviewReviewRecord
-} from "@/components/leaderboard-overview-filter";
-import { LatestStatusFeedNote } from "@/components/trader-profile-detail/status-feed-thread";
 import type { SubscriberPreferences } from "@/lib/subscriber-preferences";
 
-const SYMBOLS: LeagueSymbol[] = ["BTCUSDT"];
 const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_108px_108px_60px_80px_36px] gap-3";
-const OVERVIEW_INITIAL_LIMIT = 12;
-const OVERVIEW_PAGE_LIMIT = 10;
-const OVERVIEW_CACHE_TTL_MS = 60_000;
-const OVERVIEW_WARMING_RETRY_LIMIT = 2;
-const OVERVIEW_BACKGROUND_RETRY_MS = 5_000;
 const LIVE_EXPOSURE_LIMIT = 100;
-const DEFAULT_LEAGUE_MONTH = "2026-06";
-
-type OverviewActivityCache = {
-  locale: Locale;
-  reviews: OverviewReviewRecord[];
-  offset: number;
-  hasMore: boolean;
-  fetchedAt: number;
-};
-
-const overviewActivityCache: OverviewActivityCache = {
-  locale: "en",
-  reviews: [],
-  offset: 0,
-  hasMore: true,
-  fetchedAt: 0
-};
 
 
 type TraderExposure = {
@@ -143,6 +111,10 @@ function formatUtcLeagueMonth(year: number, month: number) {
   return `${year}-${String(month).padStart(2, "0")}`;
 }
 
+function currentUtcLeagueMonth(now = new Date()) {
+  return formatUtcLeagueMonth(now.getUTCFullYear(), now.getUTCMonth() + 1);
+}
+
 function parseLeagueMonth(value?: string) {
   const match = /^(\d{4})-(\d{2})$/.exec(value ?? "");
   if (!match) return null;
@@ -152,10 +124,21 @@ function parseLeagueMonth(value?: string) {
   };
 }
 
+function isSameOrAfterLeagueMonth(value: string, floor: string) {
+  return value >= floor;
+}
+
+function isTraderVisibleInLeagueMonth(trader: TraderProfile, leagueMonth?: string) {
+  if (!leagueMonth) return true;
+  if (trader.launchMonth && !isSameOrAfterLeagueMonth(leagueMonth, trader.launchMonth)) return false;
+  if (trader.retiredFromMonth && isSameOrAfterLeagueMonth(leagueMonth, trader.retiredFromMonth)) return false;
+  return true;
+}
+
 function initialLeagueMonthFromSearchParams(searchParams: URLSearchParams | ReadonlyURLSearchParamsLike) {
   if (searchParams.get("league") === "current") return undefined;
   const month = searchParams.get("leagueMonth");
-  return parseLeagueMonth(month ?? undefined) ? String(month) : DEFAULT_LEAGUE_MONTH;
+  return parseLeagueMonth(month ?? undefined) ? String(month) : currentUtcLeagueMonth();
 }
 
 type ReadonlyURLSearchParamsLike = {
@@ -206,7 +189,7 @@ export function LeaderboardPageClient() {
   const [favoriteTraderIds, setFavoriteTraderIds] = useState<Set<string>>(() => new Set());
 
   const leagueMonthOptions = useMemo(() => {
-    return buildLeagueMonthOptions().filter((option) => option.year === 2026 && option.month === 6);
+    return buildLeagueMonthOptions();
   }, []);
   const leagueYears = useMemo(() => [...new Set(leagueMonthOptions.map((option) => option.year))], [leagueMonthOptions]);
   const fallbackLeagueMonth = leagueMonthOptions[0] ?? {
@@ -357,14 +340,14 @@ export function LeaderboardPageClient() {
   }, [btcQuery.data, fallbackBundle]);
 
   const traders = bundle.traders?.length ? bundle.traders : (fallbackTraders as unknown as TraderProfile[]);
-  const standings = useMemo(() => buildStandings(traders, bundle.summaries ?? []), [bundle.summaries, traders]);
-  const liveReturnMetricByTrader = useMemo(
-    () => buildLiveReturnMetricMap(currentLeagueBundleQuery.data?.summaries ?? []),
-    [currentLeagueBundleQuery.data?.summaries]
+  const periodTraders = useMemo(
+    () => traders.filter((trader) => isTraderVisibleInLeagueMonth(trader, selectedLeagueMonth)),
+    [selectedLeagueMonth, traders]
   );
+  const standings = useMemo(() => buildStandings(periodTraders, bundle.summaries ?? []), [bundle.summaries, periodTraders]);
   const displayStandings = useMemo(
-    () => (selectedLeagueMonth ? applyLiveReturnMetrics(standings, liveReturnMetricByTrader) : standings),
-    [liveReturnMetricByTrader, selectedLeagueMonth, standings]
+    () => standings,
+    [standings]
   );
   const accessReady = session.status === "unauthenticated" || Boolean(access) || (session.status === "authenticated" && accessQuery.isError);
   const subscriberAccessPending = !accessReady;
@@ -385,17 +368,15 @@ export function LeaderboardPageClient() {
     () => favoritesOnly ? visibleStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : visibleStandingsBase,
     [favoriteTraderIds, favoritesOnly, visibleStandingsBase]
   );
-  const returnColumns = useMemo(() => topReturnColumns(visibleStandings, t), [t, visibleStandings]);
+  const returnColumns = useMemo(
+    () => selectedLeagueMonth ? [fallbackReturnColumn("monthly", t)] : topReturnColumns(visibleStandings, t),
+    [selectedLeagueMonth, t, visibleStandings]
+  );
   const hiddenTraderCount = Math.max(0, displayStandings.length - visibleStandingsBase.length);
   const activeTrader = visibleStandings.find((item) => item.id === activeTraderId) ?? visibleStandings[0] ?? null;
-  const leader = visibleStandings[0] ?? null;
-  const totalEquity = visibleStandings.reduce((sum, item) => sum + item.equity, 0);
-  const totalPnl = visibleStandings.reduce((sum, item) => sum + item.totalPnl, 0);
   const openPositions = visibleStandings.reduce((sum, item) => sum + item.openPositions, 0);
   const openOrders = visibleStandings.reduce((sum, item) => sum + item.openOrders, 0);
   const activeTraderCount = visibleStandings.filter((item) => item.openPositions || item.openOrders).length;
-  const traderNameMap = useMemo(() => new Map(visibleStandings.map((item) => [item.id, item.name])), [visibleStandings]);
-  const latestStatusFeedByTrader = useMemo(() => buildLatestStatusFeedMap(bundle.statusFeeds ?? []), [bundle.statusFeeds]);
   const currentSummaryByTrader = useMemo(
     () => buildCurrentSummaryMap(currentLeagueBundleQuery.data?.summaries ?? []),
     [currentLeagueBundleQuery.data?.summaries]
@@ -497,37 +478,17 @@ export function LeaderboardPageClient() {
         detail={t("common.loadingLiveDataDetail")}
       />
 
-      <section
-        data-testid="league-overview-section"
-        className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#070908] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)] md:rounded-[22px]"
-        style={{
-          backgroundImage: "linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px), radial-gradient(circle at 50% 25%, rgba(16,185,129,0.12), transparent 40%)",
-          backgroundSize: "96px 96px, 96px 96px, auto"
-        }}
-      >
-        <div className="flex flex-col gap-2 border-b border-white/10 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-7 md:py-5">
-          <div>
-            <p className="font-mono text-xs uppercase tracking-[0.16em] text-emerald-400 md:text-sm">[ LEAGUE OVERVIEW ]</p>
-            <p className="mt-1 text-xs text-zinc-500 md:hidden">{t("leaderboard.latestActivity")}</p>
-          </div>
-        </div>
-
-
-
-        <ProtectedContentGateWithAccess
-          accessQuery={accessQuery}
-          mode="subscription"
-          title={t("access.subscriptionLockedTitle")}
-          description={t("access.subscriptionLockedDescription")}
-          deferLockedChildren
-          lockedPreview={<LeagueOverviewLockedPreview t={t} />}
-        >
-          <OptionActivityStream
-            locale={locale}
-            traderNameMap={traderNameMap}
-          />
-        </ProtectedContentGateWithAccess>
-      </section>
+      <LiveRaceBoard
+        standings={visibleStandings}
+        exposureByTrader={exposureByTrader}
+        currentSummaryByTrader={currentSummaryByTrader}
+        openPositions={openPositions}
+        openOrders={openOrders}
+        activeTraderCount={activeTraderCount}
+        leaguePeriodLabel={leaguePeriodLabel}
+        locale={locale}
+        t={t}
+      />
 
       <section className="grid w-full items-start gap-3 md:gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
         <div className="data-card rounded-[22px] border-zinc-200/80 dark:border-white/[0.08] w-full min-w-0 overflow-hidden shadow-sm transition hover:border-emerald-500/20 duration-300">
@@ -898,7 +859,6 @@ export function LeaderboardPageClient() {
           snapshotsLoading={activeSnapshotsQuery.isFetching}
           exposure={activeTrader ? exposureByTrader.get(activeTrader.id) : undefined}
           currentSummary={activeTrader ? currentSummaryByTrader.get(activeTrader.id) : undefined}
-          latestStatusFeed={activeTrader ? latestStatusFeedByTrader.get(activeTrader.id) : undefined}
         />
       </section>
     </div>
@@ -918,7 +878,7 @@ function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, act
   onActivate: (traderId: string) => void;
 }) {
   const primaryReturnColumn = returnColumns[0] ?? fallbackReturnColumn("cumulative", t);
-  const secondaryReturnColumn = returnColumns[1] ?? fallbackReturnColumn("return7d", t);
+  const secondaryReturnColumn = returnColumns[1] ?? null;
 
   return (
     <div className="hidden overflow-x-auto lg:block w-full">
@@ -928,7 +888,7 @@ function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, act
           <div className="whitespace-nowrap">{t("leaderboard.trader")}</div>
           <div className="text-right whitespace-nowrap">{t("leaderboard.progressStatus")}</div>
           <div className="text-right whitespace-nowrap">{primaryReturnColumn.label}</div>
-          <div className="text-right whitespace-nowrap">{secondaryReturnColumn.label}</div>
+          <div className="text-right whitespace-nowrap">{secondaryReturnColumn?.label ?? t("leaderboard.trades")}</div>
           <div className="text-right whitespace-nowrap">{t("leaderboard.mdd")}</div>
           <div className="text-right whitespace-nowrap">{t("common.winRate")}</div>
           <div aria-hidden />
@@ -940,12 +900,13 @@ function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, act
             const progress = traderProgress(trader, exposure, t, locale, currentSummaryByTrader.get(trader.id));
             const isActive = activeTraderId === trader.id;
             const primaryReturnValue = returnMetricValue(trader, primaryReturnColumn.key);
-            const secondaryReturnValue = returnMetricValue(trader, secondaryReturnColumn.key);
+            const secondaryReturnValue = secondaryReturnColumn ? returnMetricValue(trader, secondaryReturnColumn.key) : null;
             const isFavorite = favoriteTraderIds.has(trader.id);
             return (
               <Link
                 key={trader.id}
                 href={`/leaderboard/${trader.id}`}
+                prefetch={false}
                 data-trader-row={trader.id}
                 onFocus={() => onActivate(trader.id)}
                 onMouseEnter={() => onActivate(trader.id)}
@@ -959,7 +920,11 @@ function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, act
                 <TraderIdentity trader={trader} progress={progress} t={t} />
                 <ProgressCell progress={progress} />
                 <MetricValue value={formatSignedPercent(primaryReturnValue)} tone={primaryReturnValue >= 0 ? "good" : "bad"} />
-                <MetricValue value={formatSignedPercent(secondaryReturnValue)} tone={secondaryReturnValue >= 0 ? "good" : "bad"} />
+                {secondaryReturnColumn ? (
+                  <MetricValue value={formatSignedPercent(secondaryReturnValue)} tone={(secondaryReturnValue ?? 0) >= 0 ? "good" : "bad"} />
+                ) : (
+                  <MetricValue value={formatNumber(trader.trades, 0, locale)} />
+                )}
                 <MetricValue value={formatDrawdown(trader.maxDrawdown)} />
                 <MetricValue value={formatNullablePercent(trader.winRate)} />
                 <FavoriteButton
@@ -975,26 +940,6 @@ function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, act
             );
           })}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function LeagueOverviewLockedPreview({ t }: { readonly t: (key: string) => string }) {
-  return (
-    <div className="overflow-hidden rounded-b-2xl p-3 text-left md:rounded-b-[22px] md:p-5">
-      <div className="flex min-h-[238px] flex-col justify-center rounded-2xl border border-white/[0.07] bg-black/75 p-4 font-mono text-xs leading-5 text-zinc-400 shadow-inner md:min-h-[326px] md:p-5">
-        <div className="space-y-2">
-          {Array.from({ length: 5 }, (_, index) => (
-            <div key={index} className="flex items-center gap-2 rounded-lg border-b border-white/[0.025] px-2 py-1.5">
-              <span className="h-3 w-20 rounded bg-white/[0.08]" />
-              <span className="size-1.5 rounded-full bg-emerald-400/70" />
-              <span className="h-3 w-24 rounded bg-white/[0.07]" />
-              <span className="h-3 flex-1 rounded bg-white/[0.05]" />
-            </div>
-          ))}
-        </div>
-        <p className="mt-4 text-center font-sans text-xs text-zinc-500">{t("common.loading")}</p>
       </div>
     </div>
   );
@@ -1074,12 +1019,14 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
               <Link
                 key={trader.id}
                 href={`/leaderboard/${trader.id}`}
+                prefetch={false}
                 className="focus-ring grid grid-cols-[38px_minmax(0,1fr)_88px_28px] items-center gap-2 px-3 py-3.5 transition hover:bg-white/[0.02]"
               >
                 <RankBadge rank={trader.rank} compact />
                 <div className="flex min-w-0 items-center gap-2.5">
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-1.5">
+                      <TraderLifecycleBadge trader={trader} t={t} compact />
                       <p className="truncate text-[15px] font-bold text-white">
                         {displayName}
                       </p>
@@ -1115,7 +1062,7 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
   );
 }
 
-function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, currentSummary, latestStatusFeed }: {
+function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, currentSummary }: {
   trader: TraderStanding | null;
   t: (key: string) => string;
   locale: Locale;
@@ -1123,7 +1070,6 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
   snapshotsLoading: boolean;
   exposure?: TraderExposure;
   currentSummary?: TraderStanding["summary"];
-  latestStatusFeed?: TraderStatusFeed;
 }) {
   if (!trader) {
     return (
@@ -1144,11 +1090,13 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <p className="text-zinc-500 text-xs uppercase tracking-wider font-bold">{t("leaderboard.previewTitle")}</p>
-              <h3 className="mt-1 truncate text-2xl font-bold tracking-tight text-white">
-                {displayName}
-              </h3>
+              <div className="mt-1 flex min-w-0 items-center gap-2">
+                <TraderLifecycleBadge trader={trader} t={t} sidebar />
+                <h3 className="truncate text-2xl font-bold tracking-tight text-white">
+                  {displayName}
+                </h3>
+              </div>
               <p className="text-zinc-400 mt-2 text-xs leading-relaxed font-sans break-keep">{t(traderDetailKey(trader.id))}</p>
-              <LatestStatusFeedNote feed={latestStatusFeed} locale={locale} t={t} />
             </div>
             <RankBadge rank={trader.rank} />
           </div>
@@ -1181,6 +1129,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
 
         <Link
           href={`/leaderboard/${trader.id}`}
+          prefetch={false}
           className="action-button focus-ring w-full justify-center rounded-full bg-emerald-500 shadow-neon-emerald hover:bg-emerald-400 text-white font-bold tracking-wide transition duration-300 py-3"
         >
           {t("leaderboard.viewTrader")}
@@ -1231,6 +1180,7 @@ function TraderIdentity({ trader, progress, t }: { trader: TraderStanding; progr
       <TraderMark trader={trader} />
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
+          <TraderLifecycleBadge trader={trader} t={t} compact />
           <p className="truncate text-sm font-bold tracking-tight text-white">
             {displayName}
           </p>
@@ -1240,6 +1190,40 @@ function TraderIdentity({ trader, progress, t }: { trader: TraderStanding; progr
         <p className="text-zinc-500 mt-1 truncate text-xs font-mono">{t(traderShortKey(trader.id))}</p>
       </div>
     </div>
+  );
+}
+
+function TraderLifecycleBadge({
+  trader,
+  t,
+  compact = false,
+  sidebar = false
+}: {
+  trader: Pick<TraderStanding, "lifecycleStatus" | "launchMonth" | "retiredFromMonth" | "lifecycleLabel">;
+  t: (key: string) => string;
+  compact?: boolean;
+  sidebar?: boolean;
+}) {
+  const status = String(trader.lifecycleStatus ?? "").toLowerCase();
+  const isNew = status === "new" || Boolean(trader.launchMonth && !trader.retiredFromMonth);
+  const isRetired = status === "retired" || Boolean(trader.retiredFromMonth);
+  if (!isNew && !isRetired) return null;
+  const label = isNew
+    ? (sidebar ? t("leaderboard.newTraderBadge") : "N")
+    : (sidebar ? t("leaderboard.retiredTraderBadge") : "OFF");
+  const title = isNew ? t("leaderboard.newTraderTitle") : t("leaderboard.retiredTraderTitle");
+  const tone = isNew
+    ? "border-emerald-400/45 bg-emerald-400/10 text-emerald-200"
+    : "border-zinc-500/35 bg-zinc-500/10 text-zinc-400";
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center justify-center rounded border font-mono font-black uppercase leading-none ${tone} ${
+        sidebar ? "h-6 px-2 text-[10px] tracking-[0.12em]" : compact ? "h-4 min-w-4 px-1 text-[9px]" : "h-5 px-1.5 text-[10px]"
+      }`}
+      title={title}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -1418,21 +1402,6 @@ function buildExposureMap(positions: PaperPosition[], orders: PaperOrder[], plan
   return map;
 }
 
-function buildLatestStatusFeedMap(feeds: TraderStatusFeed[]) {
-  const map = new Map<string, TraderStatusFeed>();
-  for (const feed of feeds) {
-    const traderId = String(feed.traderId ?? feed.trader_id ?? "");
-    if (!traderId) continue;
-    const current = map.get(traderId);
-    const feedTime = feed.createdAt ?? feed.created_at;
-    const currentTime = current?.createdAt ?? current?.created_at;
-    if (!current || timeValue(feedTime) > timeValue(currentTime)) {
-      map.set(traderId, feed);
-    }
-  }
-  return map;
-}
-
 function buildCurrentSummaryMap(summaries: LeaderboardBundle["summaries"]) {
   const map = new Map<string, TraderStanding["summary"]>();
   for (const summary of summaries) {
@@ -1440,38 +1409,6 @@ function buildCurrentSummaryMap(summaries: LeaderboardBundle["summaries"]) {
     map.set(summary.traderId, summary);
   }
   return map;
-}
-
-function buildLiveReturnMetricMap(summaries: LeaderboardBundle["summaries"]) {
-  const map = new Map<string, Pick<TraderStanding, "returnPct" | "return7d" | "return24h" | "return30d">>();
-  for (const summary of summaries) {
-    if (!summary?.traderId) continue;
-    map.set(summary.traderId, {
-      returnPct: numberValue(summary.cumulativeReturn) ?? 0,
-      return7d: numberValue(summary.return7d) ?? 0,
-      return24h: numberValue(summary.return24h) ?? 0,
-      return30d: numberValue(summary.return30d) ?? 0
-    });
-  }
-  return map;
-}
-
-function applyLiveReturnMetrics(
-  standings: readonly TraderStanding[],
-  liveReturnMetricByTrader: ReadonlyMap<string, Pick<TraderStanding, "returnPct" | "return7d" | "return24h" | "return30d">>
-) {
-  if (!liveReturnMetricByTrader.size) return [...standings];
-  return standings.map((trader) => {
-    const live = liveReturnMetricByTrader.get(trader.id);
-    if (!live) return trader;
-    return {
-      ...trader,
-      returnPct: live.returnPct,
-      return7d: live.return7d,
-      return24h: live.return24h,
-      return30d: live.return30d
-    };
-  });
 }
 
 function getElapsedTimeString(updatedAt: string | null | undefined): string {
@@ -1625,24 +1562,10 @@ async function saveLeaderboardFavoritePreferences(
   return await response.json() as SubscriberPreferences;
 }
 
-function traderName(id: string | null | undefined, t: (key: string) => string, traderNameMap: Map<string, string>) {
-  if (!id) return "-";
-  const localizationKey = traderNameKey(id);
-  const translated = t(localizationKey);
-  if (translated !== localizationKey) {
-    return translated;
-  }
-  return traderNameMap.get(id) ?? id.split("-").map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ");
-}
-
 function localizedTraderName(trader: TraderStanding, t: (key: string) => string) {
   const localizationKey = traderNameKey(trader.id);
   const translated = t(localizationKey);
   return translated === localizationKey ? trader.name : translated;
-}
-
-function sideText(value?: string | null) {
-  return value ? String(value).toUpperCase() : "-";
 }
 
 function planEntryPrice(plan?: Record<string, any>) {
@@ -1728,446 +1651,271 @@ function timeValue(value?: string | null) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-// -------------------------------------------------------------
-// LEAGUE OVERVIEW COMPONENTS
-// -------------------------------------------------------------
+type RaceMood = "surging" | "slipping" | "live" | "pending" | "watch";
 
-function getReviewImportance(decision: string, text: string): 'critical' | 'important' | 'watch' | 'routine' {
-  const upperDecision = decision.toUpperCase();
-  const upperText = text.toUpperCase();
+type RaceBoardItem = {
+  readonly trader: TraderStanding;
+  readonly progress: TraderProgress;
+  readonly mood: RaceMood;
+  readonly return24h: number;
+  readonly score: number;
+};
 
-  const criticalWords = [
-    "LIQUIDATION", "STOP_LOSS", "CLOSE_POSITION", "FORCE_EXIT", 
-    "CANCEL_REMAINING_ORDERS", "CANCEL_REMAINING", "EXIT", 
-    "청산", "손절", "강제 종료", "종료"
-  ];
-  
-  const importantWords = [
-    "MOVE_STOP", "STOP_UPDATED", "REDUCE", "TAKE_PARTIAL", 
-    "PARTIAL_TAKE", "ADJUST", "TIGHTEN", "LEVERAGE",
-    "익절", "조절", "수정", "이동", "레버리지"
-  ];
-  
-  const watchWords = [
-    "PENDING", "OPEN", "HOLD", "REVIEW", "CONTINUATION", 
-    "CONFIRMATION", "SCAN", "MONITOR",
-    "유지", "대기", "관찰", "검토", "감시", "상태 유지"
-  ];
-
-  if (criticalWords.some(word => upperDecision.includes(word) || upperText.includes(word))) {
-    return 'critical';
+const RACE_MOOD_STYLES: Record<RaceMood, { readonly dot: string; readonly badge: string; readonly value: string; readonly rail: string }> = {
+  surging: {
+    dot: "bg-emerald-300",
+    badge: "bg-emerald-400/12 text-emerald-200 ring-emerald-300/25",
+    value: "value-good",
+    rail: "from-emerald-400/70 to-emerald-400/5"
+  },
+  slipping: {
+    dot: "bg-rose-300",
+    badge: "bg-rose-400/12 text-rose-200 ring-rose-300/25",
+    value: "value-bad",
+    rail: "from-rose-400/70 to-rose-400/5"
+  },
+  live: {
+    dot: "bg-sky-300",
+    badge: "bg-sky-400/12 text-sky-200 ring-sky-300/25",
+    value: "value-info",
+    rail: "from-sky-400/70 to-sky-400/5"
+  },
+  pending: {
+    dot: "bg-amber-300",
+    badge: "bg-amber-400/12 text-amber-200 ring-amber-300/25",
+    value: "value-warn",
+    rail: "from-amber-400/70 to-amber-400/5"
+  },
+  watch: {
+    dot: "bg-zinc-400",
+    badge: "bg-white/[0.06] text-zinc-300 ring-white/10",
+    value: "text-zinc-200",
+    rail: "from-zinc-400/60 to-zinc-400/5"
   }
-  if (importantWords.some(word => upperDecision.includes(word) || upperText.includes(word))) {
-    return 'important';
-  }
-  if (watchWords.some(word => upperDecision.includes(word) || upperText.includes(word))) {
-    return 'watch';
-  }
-  return 'routine';
-}
+};
 
-function extractOverviewReviews(value: unknown): OverviewReviewRecord[] {
-  if (Array.isArray(value)) return value.filter(isOverviewReviewRecord);
-  const record = recordValue(value);
-  if (!record) return [];
-  const managementReviews = record.managementReviews;
-  if (Array.isArray(managementReviews)) return managementReviews.filter(isOverviewReviewRecord);
-  const aiReviews = record.aiReviews;
-  if (Array.isArray(aiReviews)) return aiReviews.filter(isOverviewReviewRecord);
-  const reviews = record.reviews;
-  if (Array.isArray(reviews)) return reviews.filter(isOverviewReviewRecord);
-  return [];
-}
-
-async function loadOverviewReviewPage(limit: number, offset: number, locale: Locale, options?: { readonly preferCached?: boolean; readonly signal?: AbortSignal }) {
-  const response = await getLeagueOverviewReviews(limit, offset, locale, undefined, undefined, options);
-  const reviews = mergeOverviewReviews([], extractOverviewReviews(response));
-  return {
-    reviews,
-    nextOffset: Number.isFinite(response.nextOffset) ? response.nextOffset : offset + reviews.length,
-    hasMore: response.hasMore,
-    warming: response.warming === true
-  };
-}
-
-function isAbortError(error: unknown) {
-  if (error instanceof DOMException && error.name === "AbortError") return true;
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  return /aborted|abort|socket hang up|ECONNRESET/i.test(message);
-}
-
-function mergeOverviewReviews(existing: readonly OverviewReviewRecord[], incoming: readonly OverviewReviewRecord[]) {
-  const seen = new Set<string>();
-  const merged: OverviewReviewRecord[] = [];
-  for (const review of [...incoming, ...existing]) {
-    const key = overviewReviewKey(review);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(review);
-  }
-  return merged.sort((left, right) => overviewReviewTime(right) - overviewReviewTime(left));
-}
-
-function overviewReviewKey(review: OverviewReviewRecord) {
-  const id = review.id;
-  const source = review.overviewSource ?? "review";
-  if (id !== null && id !== undefined && id !== "") return `${source}:id:${String(id)}`;
-  return [
-    source,
-    review.traderId ?? review.trader_id,
-    review.createdAt ?? review.created_at,
-    review.decision ?? review.action,
-    review.rationale ?? recordValue(review.review)?.rationale ?? recordValue(review.event)?.reason
-  ].map((value) => String(value ?? "")).join("|");
-}
-
-function overviewReviewTime(review: OverviewReviewRecord) {
-  const createdAt = String(review.createdAt ?? review.created_at ?? "");
-  const time = createdAt ? Date.parse(createdAt) : 0;
-  return Number.isFinite(time) ? time : 0;
-}
-
-function isOverviewReviewRecord(value: unknown): value is OverviewReviewRecord {
-  return typeof value === "object" && value !== null;
-}
-
-function recordValue(value: unknown) {
-  return typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
-}
-
-function OptionActivityStream({
+function LiveRaceBoard({
+  standings,
+  exposureByTrader,
+  currentSummaryByTrader,
+  openPositions,
+  openOrders,
+  activeTraderCount,
+  leaguePeriodLabel,
   locale,
-  traderNameMap
+  t
 }: {
-  locale: Locale;
-  traderNameMap: Map<string, string>;
+  readonly standings: readonly TraderStanding[];
+  readonly exposureByTrader: ReadonlyMap<string, TraderExposure>;
+  readonly currentSummaryByTrader: ReadonlyMap<string, TraderStanding["summary"]>;
+  readonly openPositions: number;
+  readonly openOrders: number;
+  readonly activeTraderCount: number;
+  readonly leaguePeriodLabel: string;
+  readonly locale: Locale;
+  readonly t: (key: string) => string;
 }) {
-  const { t } = useAppContext();
-  const [reviewsList, setReviewsList] = useState<OverviewReviewRecord[]>(() => overviewActivityCache.reviews);
-  const [offset, setOffset] = useState(() => overviewActivityCache.offset);
-  const [hasMore, setHasMore] = useState(() => overviewActivityCache.hasMore);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isWarming, setIsWarming] = useState(false);
-  const [hasLoadError, setHasLoadError] = useState(false);
-  const [hasOverviewUserScrolled, setHasOverviewUserScrolled] = useState(false);
-
-  const isFetchingRef = useRef(false);
-  const warmingAttemptsRef = useRef(0);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const observerTarget = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let active = true;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    const abortController = new AbortController();
-    const refreshOverviewActivityCache = async () => {
-      if (isFetchingRef.current) return;
-      if (overviewActivityCache.locale !== locale) {
-        overviewActivityCache.locale = locale;
-        overviewActivityCache.reviews = [];
-        overviewActivityCache.offset = 0;
-        overviewActivityCache.hasMore = true;
-        overviewActivityCache.fetchedAt = 0;
-        warmingAttemptsRef.current = 0;
-        setHasOverviewUserScrolled(false);
-      }
-      const hasCachedReviews = overviewActivityCache.reviews.length > 0;
-      const cacheIsFresh = (hasCachedReviews || !overviewActivityCache.hasMore) && Date.now() - overviewActivityCache.fetchedAt < OVERVIEW_CACHE_TTL_MS;
-      if (cacheIsFresh) {
-        setReviewsList(overviewActivityCache.reviews);
-        setOffset(overviewActivityCache.offset);
-        setHasMore(overviewActivityCache.hasMore);
-        return;
-      }
-      isFetchingRef.current = true;
-      setIsLoading(!hasCachedReviews);
-      let keepLoadingForWarmup = false;
-      setHasLoadError(false);
-      setIsWarming(false);
-      try {
-        const page = await loadOverviewReviewPage(OVERVIEW_INITIAL_LIMIT, 0, locale, {
-          preferCached: shouldPreferCachedOverviewInitialPage({ hasCachedReviews }) || undefined,
-          signal: abortController.signal
-        });
-        let fetchedReviews = page.reviews;
-        let nextOffset = page.nextOffset;
-        let hasMorePage = page.hasMore;
-        if (page.warming && fetchedReviews.length === 0) {
-          overviewActivityCache.fetchedAt = 0;
-          warmingAttemptsRef.current += 1;
-          if (active) {
-            const keepInitialSpinner = warmingAttemptsRef.current <= OVERVIEW_WARMING_RETRY_LIMIT;
-            keepLoadingForWarmup = keepInitialSpinner;
-            setIsWarming(true);
-            retryTimer = setTimeout(
-              refreshOverviewActivityCache,
-              keepInitialSpinner ? 1500 : OVERVIEW_BACKGROUND_RETRY_MS
-            );
-          }
-          return;
-        }
-        warmingAttemptsRef.current = 0;
-        const mergedReviews = mergeOverviewReviews(overviewActivityCache.reviews, fetchedReviews);
-        overviewActivityCache.reviews = mergedReviews;
-        overviewActivityCache.offset = Math.max(hasCachedReviews ? overviewActivityCache.offset : 0, nextOffset);
-        overviewActivityCache.hasMore = hasMorePage;
-        overviewActivityCache.fetchedAt = Date.now();
-        if (active) {
-          setReviewsList(overviewActivityCache.reviews);
-          setOffset(overviewActivityCache.offset);
-          setHasMore(overviewActivityCache.hasMore);
-          setIsWarming(false);
-        }
-      } catch (err) {
-        if (isAbortError(err) || abortController.signal.aborted) return;
-        console.error("Failed to load initial reviews:", err);
-        overviewActivityCache.hasMore = false;
-        overviewActivityCache.fetchedAt = Date.now();
-        if (active) {
-          setHasMore(false);
-          setHasLoadError(true);
-          setIsWarming(false);
-        }
-      } finally {
-        isFetchingRef.current = false;
-        if (active && !keepLoadingForWarmup) setIsLoading(false);
-      }
-    };
-    refreshOverviewActivityCache();
-    return () => {
-      active = false;
-      abortController.abort();
-      if (retryTimer) clearTimeout(retryTimer);
-    };
-  }, [locale]);
-
-  const loadMore = useCallback(async () => {
-    if (isFetchingRef.current || !hasMore) return;
-    isFetchingRef.current = true;
-    setIsLoading(true);
-    try {
-      const nextOffset = offset;
-      const page = await loadOverviewReviewPage(OVERVIEW_PAGE_LIMIT, nextOffset, locale);
-      const fetchedReviews = page.reviews;
-      const existingKeys = new Set(overviewActivityCache.reviews.map(overviewReviewKey));
-      const uniqueReviews = fetchedReviews.filter((review) => !existingKeys.has(overviewReviewKey(review)));
-
-      if (fetchedReviews.length === 0 || uniqueReviews.length === 0) {
-        overviewActivityCache.hasMore = false;
-        setHasMore(false);
-        return;
-      }
-
-      overviewActivityCache.reviews = mergeOverviewReviews(overviewActivityCache.reviews, uniqueReviews);
-      overviewActivityCache.offset = page.nextOffset;
-      overviewActivityCache.hasMore = page.hasMore;
-      overviewActivityCache.fetchedAt = Date.now();
-      setReviewsList(overviewActivityCache.reviews);
-      setOffset(overviewActivityCache.offset);
-      setHasMore(overviewActivityCache.hasMore);
-    } catch (err) {
-      console.error("Failed to load more reviews:", err);
-      overviewActivityCache.hasMore = false;
-      setHasMore(false);
-      setHasLoadError(true);
-    } finally {
-      isFetchingRef.current = false;
-      setIsLoading(false);
-    }
-  }, [locale, offset, hasMore]);
-
-  const handleOverviewScroll = useCallback(() => {
-    const container = containerRef.current;
-    if (!container || container.scrollTop <= 12) return;
-    setHasOverviewUserScrolled(true);
-  }, []);
-
-  // Set up IntersectionObserver
-  useEffect(() => {
-    if (!hasOverviewUserScrolled || !hasMore || isLoading) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          loadMore();
-        }
-      },
-      {
-        root: containerRef.current,
-        threshold: 0.1
-      }
-    );
-
-    if (observerTarget.current) {
-      observer.observe(observerTarget.current);
-    }
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [loadMore, hasOverviewUserScrolled, hasMore, isLoading]);
-
-  const logItems = useMemo(() => {
-    const items: Array<{
-      id: string;
-      time: string;
-      type: "AUDIT";
-      traderId: string;
-      trader: string;
-      text: string;
-      rawTime: number;
-      importance?: "critical" | "important" | "watch" | "routine";
-    }> = [];
-
-    const aiReviewLogsOnly = reviewsList.filter(isDisplayableOverviewReview);
-    aiReviewLogsOnly.forEach((review) => {
-      const traderId = String(review.traderId ?? review.trader_id ?? "");
-      const createdAt = String(review.createdAt ?? review.created_at ?? "");
-      const decision = overviewReviewDecision(review) || "HOLD";
-      const timeStr = formatRelativeDateTime(createdAt, locale, t);
-      const rawTimeVal = createdAt ? Date.parse(createdAt) : Date.now() - 1000 * 120;
-      
-      let rText = "";
-      const payload = (review.payload ?? {}) as Record<string, any>;
-      const nested = review.review ?? payload.review ?? {};
-      const event = review.event ?? payload.event ?? {};
-      const aiReview = recordValue(payload.aiReview) ?? ({} as Record<string, unknown>);
-      const structuredReview = recordValue(review.structuredReview)
-        ?? recordValue(payload.structuredReview)
-        ?? recordValue(payload.aiStructuredReview)
-        ?? recordValue(aiReview.structuredReview);
-      const rawTxt = String(
-        review.rationale
-        ?? nested.rationale
-        ?? structuredReview?.headline
-        ?? structuredReview?.action
-        ?? payload.approvalReason
-        ?? payload.aiApprovalReason
-        ?? aiReview.approvalReason
-        ?? event.reason
-        ?? "-"
-      );
-      if (rawTxt && rawTxt !== "-") {
-        rText = rawTxt.substring(0, 150) + (rawTxt.length > 150 ? "..." : "");
-      }
-
-      const importance = getReviewImportance(decision, rText);
-      const entryReview = review.overviewSource === "entry_review";
-
-      items.push({
-        id: `${review.overviewSource ?? "review"}-${review.id ?? createdAt}-${traderId}`,
-        time: timeStr,
-        type: "AUDIT",
-        traderId,
-        trader: traderName(traderId, t, traderNameMap),
-        text: `${entryReview ? t("leaderboard.entryReviewCompleted") : t("leaderboard.riskAuditCompleted")}: [${decision}] ${rText || t("leaderboard.maintainStatus")}`,
-        rawTime: rawTimeVal,
-        importance
-      });
-    });
-
-    items.sort((a, b) => b.rawTime - a.rawTime);
-
-    return items;
-  }, [reviewsList, traderNameMap, locale, t]);
-
-  const showInitialState = logItems.length === 0;
+  const raceItems = useMemo(
+    () =>
+      buildRaceBoardItems({
+        standings,
+        exposureByTrader,
+        currentSummaryByTrader,
+        locale,
+        t
+      }),
+    [currentSummaryByTrader, exposureByTrader, locale, standings, t]
+  );
+  const leadingItem = raceItems[0] ?? null;
+  const laneItems = raceItems.slice(1, 5);
+  const heatValue = raceItems.reduce((peak, item) => Math.max(peak, item.return24h), Number.NEGATIVE_INFINITY);
+  const heatLabel = Number.isFinite(heatValue) ? formatSignedPercent(heatValue) : "-";
 
   return (
-    <div className="overflow-hidden rounded-b-2xl p-3 text-left md:rounded-b-[22px] md:p-5">
-      <div className="flex min-h-[238px] flex-col justify-between rounded-2xl border border-white/[0.07] bg-black/75 p-4 font-mono text-xs leading-5 text-zinc-300 shadow-inner md:min-h-[326px] md:p-5 md:text-[13px] md:leading-6">
-        <div
-          data-testid="league-overview-stream"
-          ref={containerRef}
-          onScroll={handleOverviewScroll}
-          className="max-h-[178px] space-y-1.5 overflow-y-auto pr-2 scroll-smooth scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10 md:max-h-[264px]"
-        >
-          {showInitialState && isLoading ? (
-            <div className="flex min-h-[120px] items-center justify-center gap-2 text-zinc-500">
-              <CircleNotch className="animate-spin animate-duration-1000 text-emerald-400" size={13} />
-              <span>{t("leaderboard.loadingOlderLogs")}</span>
+    <section
+      data-testid="live-race-board"
+      className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#070908] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)]"
+      style={{
+        backgroundImage: "linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px)",
+        backgroundSize: "92px 92px, 92px 92px, auto"
+      }}
+    >
+      <div className="px-4 py-3.5 md:px-5 md:py-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-emerald-300">{t("leaderboard.liveRace.title")}</p>
+              <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 font-mono text-[10px] font-semibold text-zinc-400">
+                {leaguePeriodLabel}
+              </span>
             </div>
-          ) : null}
-          {showInitialState && !isLoading && isWarming ? (
-            <div className="flex min-h-[120px] items-center justify-center gap-2 px-4 text-center font-sans text-xs text-zinc-500">
-              <CircleNotch className="animate-spin animate-duration-1000 text-emerald-400" size={13} />
-              <span>{t("leaderboard.overviewPreparing")}</span>
+            <div className="mt-1.5 flex flex-col gap-1 md:flex-row md:items-baseline md:gap-3">
+              <h2 className="text-lg font-bold tracking-tight text-white md:text-xl">{t("leaderboard.liveRace.heading")}</h2>
+              <p className="max-w-[58ch] break-keep text-xs leading-5 text-zinc-500 md:text-sm">{t("leaderboard.liveRace.subtitle")}</p>
             </div>
-          ) : null}
-          {showInitialState && !isLoading && hasLoadError ? (
-            <div className="flex min-h-[120px] items-center justify-center px-4 text-center font-sans text-xs text-zinc-500">
-              {t("common.liveDataUnavailable")}
-            </div>
-          ) : null}
-          {showInitialState && !isLoading && !isWarming && !hasLoadError ? (
-            <div className="flex min-h-[120px] items-center justify-center px-4 text-center font-sans text-xs text-zinc-500">
-              {t("leaderboard.endOfActivity")}
-            </div>
-          ) : null}
-          {logItems.map((log) => {
-            let dotColor = "bg-emerald-400";
-            if (log.importance === "critical") {
-              dotColor = "bg-rose-500";
-            } else if (log.importance === "important") {
-              dotColor = "bg-amber-500";
-            } else if (log.importance === "watch") {
-              dotColor = "bg-sky-500";
-            } else {
-              dotColor = "bg-emerald-400";
-            }
+          </div>
 
-            return (
-              <Link
-                key={log.id}
-                href={`/leaderboard/${log.traderId}`}
-                className="group -mx-2 flex flex-col gap-1 rounded-lg border-b border-white/[0.025] px-2 py-1.5 transition-colors last:border-0 hover:bg-white/[0.035] sm:flex-row sm:items-start sm:gap-2.5"
-              >
-                <span className="flex items-center gap-2 sm:block">
-                  <span className="shrink-0 select-none font-mono text-zinc-500 transition-colors group-hover:text-zinc-400">[{log.time}]</span>
-                  <span className="flex min-w-0 items-center gap-1.5 font-sans font-bold sm:hidden">
-                    <span className={`inline-block size-1.5 rounded-full ${dotColor} animate-pulse`} />
-                    <span className="truncate text-zinc-400 transition-colors group-hover:text-emerald-400">{log.trader}</span>
-                  </span>
-                </span>
-                <span className="hidden items-center gap-1.5 font-sans font-bold sm:flex sm:shrink-0">
-                  <span className={`inline-block size-1.5 rounded-full ${dotColor} animate-pulse`} />
-                  <span className="text-zinc-400 transition-colors group-hover:text-emerald-400">{log.trader}</span>
-                </span>
-                <span className="line-clamp-2 flex-1 break-keep font-sans text-zinc-300 transition-colors group-hover:text-white md:truncate">{log.text}</span>
-                <span className="hidden shrink-0 self-center font-mono text-[10px] text-zinc-500 opacity-0 transition-opacity group-hover:opacity-100 sm:inline">
-                  {t("leaderboard.viewArrow")} →
-                </span>
-              </Link>
-            );
-          })}
-          
-          {/* Intersection Observer Sentinel */}
-          <div ref={observerTarget} className="h-1" />
-          
-          {!showInitialState && isLoading && (
-            <div className="flex items-center justify-center py-2 text-zinc-500 font-mono text-[10px] gap-1.5 animate-pulse">
-              <CircleNotch className="animate-spin animate-duration-1000 text-emerald-400" size={12} />
-              <span>{t("leaderboard.loadingOlderLogs")}</span>
-            </div>
-          )}
-          
-          {!hasMore && (
-            <div className="text-center py-2 text-zinc-600 font-mono text-[9px] uppercase tracking-wider select-none">
-              — {t("leaderboard.endOfActivity")} —
-            </div>
-          )}
+          <div className="grid grid-cols-3 gap-1.5 sm:min-w-[420px]">
+            <RaceMetric label={t("leaderboard.activeTraders")} value={formatNumber(activeTraderCount, 0, locale)} />
+            <RaceMetric label={t("leaderboard.liveRace.exposure")} value={`${formatNumber(openPositions, 0, locale)} / ${formatNumber(openOrders, 0, locale)}`} />
+            <RaceMetric label={t("leaderboard.liveRace.heat")} value={heatLabel} tone={heatValue >= 0 ? "good" : "bad"} />
+          </div>
         </div>
-        
-        <div className="mt-3 flex items-center gap-2 border-t border-white/[0.04] pt-2 font-mono text-[10px] text-emerald-400 select-none md:mt-4">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-          </span>
-          <span>
-            {t("leaderboard.systemStatusConnected")}
-          </span>
+
+        <div
+          data-testid="live-race-board-lane"
+          className="mt-3 grid min-w-0 auto-cols-[minmax(220px,76vw)] grid-flow-col gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:auto-cols-auto lg:grid-flow-row lg:grid-cols-[minmax(260px,0.9fr)_repeat(4,minmax(0,1fr))] lg:overflow-visible lg:pb-0"
+        >
+          {leadingItem ? (
+            <Link
+              href={`/leaderboard/${leadingItem.trader.id}`}
+              prefetch={false}
+              className="focus-ring group block min-w-0 overflow-hidden rounded-xl border border-emerald-300/18 bg-black/45 transition-[border-color,background-color,transform] duration-200 ease-out hover:-translate-y-0.5 hover:border-emerald-300/30 hover:bg-white/[0.04] active:scale-[0.99]"
+            >
+              <RaceLeaderCard item={leadingItem} t={t} />
+            </Link>
+          ) : null}
+
+          {laneItems.map((item) => (
+            <Link
+              key={item.trader.id}
+              href={`/leaderboard/${item.trader.id}`}
+              prefetch={false}
+              className="focus-ring group min-w-0 rounded-xl border border-white/[0.08] bg-white/[0.025] px-3 py-2.5 transition-[border-color,background-color,transform] duration-200 ease-out hover:-translate-y-0.5 hover:border-white/15 hover:bg-white/[0.045] active:scale-[0.99]"
+            >
+              <RaceLaneItem item={item} t={t} />
+            </Link>
+          ))}
         </div>
       </div>
+    </section>
+  );
+}
+
+function RaceMetric({ label, value, tone = "neutral" }: { readonly label: string; readonly value: string; readonly tone?: "good" | "bad" | "neutral" }) {
+  const toneClass = tone === "good" ? "value-good" : tone === "bad" ? "value-bad" : "text-white";
+  return (
+    <div className="min-w-0 rounded-lg border border-white/[0.07] bg-white/[0.025] px-2.5 py-2">
+      <p className="truncate text-[10px] font-semibold text-zinc-500">{label}</p>
+      <p className={`mt-0.5 truncate font-mono text-sm font-bold tabular-nums ${toneClass}`}>{value}</p>
     </div>
   );
+}
+
+function RaceLeaderCard({ item, t }: { readonly item: RaceBoardItem; readonly t: (key: string) => string }) {
+  const styles = RACE_MOOD_STYLES[item.mood];
+  const displayName = localizedTraderName(item.trader, t);
+  return (
+    <article className="relative min-w-0 px-3 py-3">
+      <div className={`absolute inset-x-0 top-0 h-px bg-gradient-to-r ${styles.rail}`} />
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <TraderMark trader={item.trader} />
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <TraderLifecycleBadge trader={item.trader} t={t} compact />
+              <p className="min-w-0 truncate text-base font-bold tracking-tight text-white">{displayName}</p>
+              <RaceMoodBadge mood={item.mood} t={t} />
+            </div>
+            <p className="mt-1 truncate font-mono text-xs text-zinc-500">{traderVisuals[item.trader.id]?.alias ?? item.trader.name}</p>
+          </div>
+        </div>
+        <RankBadge rank={item.trader.rank} />
+      </div>
+      <div className="mt-3 flex min-w-0 items-end justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <StatusPill label={item.progress.label} tone={item.progress.tone} />
+            <SideBadge progress={item.progress} />
+            <LeverageBadge progress={item.progress} />
+          </div>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className={`font-mono text-xl font-bold tabular-nums ${styles.value}`}>{formatSignedPercent(item.return24h)}</p>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function RaceLaneItem({ item, t }: { readonly item: RaceBoardItem; readonly t: (key: string) => string }) {
+  const styles = RACE_MOOD_STYLES[item.mood];
+  const displayName = localizedTraderName(item.trader, t);
+  return (
+    <article className="min-w-0">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`size-2 shrink-0 rounded-full ${styles.dot}`} />
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <TraderLifecycleBadge trader={item.trader} t={t} compact />
+              <p className="truncate text-sm font-bold text-white">{displayName}</p>
+            </div>
+            <p className="mt-0.5 truncate text-[11px] text-zinc-500">{item.progress.detail || t("leaderboard.status.watching")}</p>
+          </div>
+        </div>
+        <p className={`shrink-0 font-mono text-sm font-bold tabular-nums ${styles.value}`}>{formatSignedPercent(item.return24h)}</p>
+      </div>
+      <div className="mt-3 flex min-w-0 flex-wrap items-center gap-1.5">
+        <RaceMoodBadge mood={item.mood} t={t} />
+        <SideBadge progress={item.progress} />
+        <LeverageBadge progress={item.progress} />
+      </div>
+    </article>
+  );
+}
+
+function RaceMoodBadge({ mood, t }: { readonly mood: RaceMood; readonly t: (key: string) => string }) {
+  return (
+    <span className={`inline-flex shrink-0 items-center rounded-md px-2 py-1 font-mono text-[10px] font-bold leading-none ring-1 ${RACE_MOOD_STYLES[mood].badge}`}>
+      {t(`leaderboard.liveRace.mood.${mood}`)}
+    </span>
+  );
+}
+
+function buildRaceBoardItems({
+  standings,
+  exposureByTrader,
+  currentSummaryByTrader,
+  locale,
+  t
+}: {
+  readonly standings: readonly TraderStanding[];
+  readonly exposureByTrader: ReadonlyMap<string, TraderExposure>;
+  readonly currentSummaryByTrader: ReadonlyMap<string, TraderStanding["summary"]>;
+  readonly locale: Locale;
+  readonly t: (key: string) => string;
+}) {
+  return standings
+    .map((trader) => {
+      const progress = traderProgress(trader, exposureByTrader.get(trader.id), t, locale, currentSummaryByTrader.get(trader.id));
+      const return24h = returnMetricValue(trader, "return24h");
+      const mood = raceMood(progress, return24h);
+      const score = raceScore({ trader, progress, return24h });
+      return { trader, progress, mood, return24h, score };
+    })
+    .sort((left, right) => right.score - left.score || Math.abs(right.return24h) - Math.abs(left.return24h) || left.trader.rank - right.trader.rank)
+    .slice(0, 5);
+}
+
+function raceMood(progress: TraderProgress, return24h: number): RaceMood {
+  if (return24h >= 1) return "surging";
+  if (return24h <= -1) return "slipping";
+  if (progress.side) return "live";
+  if (progress.tone === "warn") return "pending";
+  return "watch";
+}
+
+function raceScore({
+  trader,
+  progress,
+  return24h
+}: {
+  readonly trader: TraderStanding;
+  readonly progress: TraderProgress;
+  readonly return24h: number;
+}) {
+  const exposureScore = progress.side ? 28 : progress.tone === "warn" ? 20 : progress.tone === "bad" ? 18 : 0;
+  const rankScore = Math.max(0, 10 - trader.rank);
+  return Math.abs(return24h) * 6 + exposureScore + rankScore;
 }

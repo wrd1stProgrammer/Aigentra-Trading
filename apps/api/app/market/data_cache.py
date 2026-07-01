@@ -15,12 +15,14 @@ except ImportError:
         pass
 
 from app.clients.binance_client import BinanceClient, Candle
+from app.clients.external_derivatives_client import ExternalDerivativesClient
 from app.clients.market_data_client import MarketDataClient
 from app.core.config import get_settings
 
 
 KLINE_CACHE: Dict[tuple[str, str, int], tuple[float, list[Candle]]] = {}
 DERIVATIVES_CACHE: Dict[tuple[str, str], tuple[float, Dict[str, Any]]] = {}
+EXTERNAL_DERIVATIVES_CACHE: Dict[str, tuple[float, Dict[str, Any]]] = {}
 SERIES_CACHE: Dict[tuple[str, str, str, int], tuple[float, list[Dict[str, Any]]]] = {}
 _REDIS_CLIENT: Optional[Any] = None
 _REDIS_DISABLED_UNTIL = 0.0
@@ -60,6 +62,7 @@ def market_cache_runtime() -> dict[str, Any]:
         "redisKeyPrefix": settings.redis_key_prefix,
         "memoryKlineEntries": len(KLINE_CACHE),
         "memoryDerivativeEntries": len(DERIVATIVES_CACHE),
+        "memoryExternalDerivativeEntries": len(EXTERNAL_DERIVATIVES_CACHE),
         "memorySeriesEntries": len(SERIES_CACHE),
     }
 
@@ -284,5 +287,36 @@ async def cached_series(
         ttl = 45
     SERIES_CACHE[key] = (now + ttl, data)
     _trim_cache(SERIES_CACHE)
+    await _redis_set_json(redis_key, data, ttl)
+    return data
+
+
+async def cached_external_derivatives(symbol: str) -> Dict[str, Any]:
+    clean_symbol = symbol.upper()
+    now = time.monotonic()
+    cached = EXTERNAL_DERIVATIVES_CACHE.get(clean_symbol)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    ttl = 180
+    redis_key = _cache_key("external_derivatives:v1", clean_symbol)
+    redis_payload = await _redis_get_json(redis_key)
+    if isinstance(redis_payload, dict):
+        EXTERNAL_DERIVATIVES_CACHE[clean_symbol] = (now + ttl, redis_payload)
+        _trim_cache(EXTERNAL_DERIVATIVES_CACHE, max_entries=80)
+        return redis_payload
+
+    try:
+        data = await ExternalDerivativesClient().get_context(clean_symbol)
+    except (httpx.HTTPError, KeyError, TypeError, ValueError):
+        data = {
+            "enabled": get_settings().external_derivatives_enabled,
+            "symbol": clean_symbol,
+            "coinalyze": {"available": False, "reason": "request_failed"},
+            "deribit": {"available": False, "reason": "request_failed"},
+        }
+        ttl = 45
+    EXTERNAL_DERIVATIVES_CACHE[clean_symbol] = (now + ttl, data)
+    _trim_cache(EXTERNAL_DERIVATIVES_CACHE, max_entries=80)
     await _redis_set_json(redis_key, data, ttl)
     return data

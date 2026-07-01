@@ -2,7 +2,7 @@ import asyncio
 from typing import Any, Dict
 
 from app.clients.binance_client import BinanceClient, Candle
-from app.market.data_cache import cached_derivative, cached_klines, cached_series
+from app.market.data_cache import cached_derivative, cached_external_derivatives, cached_klines, cached_series
 from app.market.derivatives import classify_market_regime, derivative_context
 from app.market.indicators import (
     adx,
@@ -52,6 +52,7 @@ async def build_market_snapshot(client: BinanceClient, symbol: str) -> Dict[str,
         top_account_ratio,
         top_position_ratio,
         taker_buy_sell,
+        external_derivatives,
     ) = await asyncio.gather(
         cached_derivative(client, symbol, "open_interest"),
         cached_derivative(client, symbol, "premium_index"),
@@ -61,6 +62,7 @@ async def build_market_snapshot(client: BinanceClient, symbol: str) -> Dict[str,
         cached_series(client, symbol, "top_long_short_account", period="5m", limit=36),
         cached_series(client, symbol, "top_long_short_position", period="5m", limit=36),
         cached_series(client, symbol, "taker_buy_sell", period="5m", limit=36),
+        cached_external_derivatives(symbol),
     )
 
     timeframes: Dict[str, Any] = {}
@@ -116,5 +118,6 @@ async def build_market_snapshot(client: BinanceClient, symbol: str) -> Dict[str,
         "intervals": list(INTERVAL_LIMITS.keys()),
         "timeframes": timeframes,
         "derivatives": derivatives,
+        "externalDerivatives": external_derivatives,
         "marketRegime": classify_market_regime(timeframes, derivatives),
     }
