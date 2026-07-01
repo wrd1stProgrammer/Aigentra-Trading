@@ -124,7 +124,7 @@ test("subscriber access placeholder and browser cache only reuse the current acc
   );
 });
 
-test("authenticated subscriber access errors stay unknown instead of guest", () => {
+test("authenticated subscriber access timeouts degrade to a conservative non-cacheable preview", () => {
   assert.doesNotMatch(
     subscriberAccessSource,
     /if \(!response\.ok\) return guestSubscriberAccess/,
@@ -147,8 +147,18 @@ test("authenticated subscriber access errors stay unknown instead of guest", () 
   );
   assert.match(
     subscriberAccessRouteSource,
-    /error\.status === 503 \|\| error\.status === 504/,
-    "subscriber access route should preserve upstream unavailable and timeout statuses instead of collapsing them into a generic 502"
+    /subscriberAccessFallback/,
+    "subscriber access route should return a conservative preview fallback when entitlement lookup is temporarily unavailable"
+  );
+  assert.match(
+    subscriberAccessSource,
+    /if \(!access\.unavailable\) writeCachedSubscriberAccess\(access\);/,
+    "temporary fallback access should not poison the account-scoped browser cache"
+  );
+  assert.match(
+    subscriberAccessSource,
+    /refetchInterval: subscriberAccessRefetchInterval/,
+    "temporary fallback access should retry in the background instead of staying stale for the normal cache window"
   );
 });
 

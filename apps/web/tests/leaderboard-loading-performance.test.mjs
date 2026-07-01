@@ -43,13 +43,13 @@ test("league overview shell is not blocked by slower live exposure or subscriber
       rankingPlaceholder: false,
       rankingWarming: true
     }),
-    true,
-    "a cold-cache monthly warming bundle should keep the loading affordance instead of rendering zero-return rows"
+    false,
+    "a cold-cache monthly warming bundle should not keep the full-page overlay alive after the shell has a fallback roster"
   );
   assert.match(
     readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8"),
-    /displayStandings\.length > 0 && !leaderboardWarming/,
-    "warming rows built from the trader catalog should not count as renderable monthly standings"
+    /const hasRenderableLeaderboard = displayStandings\.length > 0;/,
+    "warming rows built from the trader catalog should count as renderable shell content"
   );
 });
 

@@ -15,6 +15,7 @@ import {
 export { FREE_LEADERBOARD_LIMIT, guestSubscriberAccess, type SubscriberAccessState } from "@/lib/subscriber-access-cache-policy";
 
 const SUBSCRIBER_ACCESS_STALE_TIME_MS = 5 * 60_000;
+const SUBSCRIBER_ACCESS_FALLBACK_REFETCH_MS = 10_000;
 
 const unlockResponseSchema = z.object({
   sourceKey: z.string(),
@@ -47,13 +48,15 @@ export function useSubscriberAccess() {
     queryFn: async () => {
       if (!isAuthenticated) return guestSubscriberAccess;
       const access = await readClientSubscriberAccess();
-      writeCachedSubscriberAccess(access);
+      if (!access.unavailable) writeCachedSubscriberAccess(access);
       return access;
     },
     enabled: session.status !== "loading",
     staleTime: SUBSCRIBER_ACCESS_STALE_TIME_MS,
     gcTime: 5 * 60_000,
     retry: false,
+    refetchInterval: subscriberAccessRefetchInterval,
+    refetchIntervalInBackground: false,
     placeholderData: (previousData) =>
       subscriberAccessPlaceholderData({
         isAuthenticated,
@@ -63,6 +66,10 @@ export function useSubscriberAccess() {
         cachedAccess
       })
   });
+}
+
+function subscriberAccessRefetchInterval(query: { state: { data?: SubscriberAccessState } }) {
+  return query.state.data?.unavailable ? SUBSCRIBER_ACCESS_FALLBACK_REFETCH_MS : false;
 }
 
 export function isProtectedSourceUnlocked(access: SubscriberAccessState, sourceKey: string | null | undefined) {

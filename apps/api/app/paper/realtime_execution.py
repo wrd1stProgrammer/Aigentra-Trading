@@ -429,6 +429,14 @@ async def run_realtime_execution_once(
     return REALTIME_EXECUTION_STATE["lastResult"]
 
 
+def run_realtime_execution_once_sync(
+    *,
+    symbols: Optional[list[str]] = None,
+    on_result: Optional[RealtimeResultCallback] = None,
+) -> dict[str, Any]:
+    return asyncio.run(run_realtime_execution_once(symbols=symbols, on_result=on_result))
+
+
 async def auto_realtime_execution_loop(*, on_result: Optional[RealtimeResultCallback] = None) -> None:
     settings = get_settings()
     interval = max(0.5, min(10.0, float(settings.realtime_paper_execution_interval_seconds or 1.0)))
@@ -461,7 +469,7 @@ async def auto_realtime_execution_loop(*, on_result: Optional[RealtimeResultCall
             )
             next_tick += interval
             try:
-                await run_realtime_execution_once(symbols=symbols, on_result=on_result)
+                await asyncio.to_thread(run_realtime_execution_once_sync, symbols=symbols, on_result=on_result)
             except Exception as exc:
                 REALTIME_EXECUTION_STATE.update(
                     {

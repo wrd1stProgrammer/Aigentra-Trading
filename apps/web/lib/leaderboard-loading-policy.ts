@@ -8,10 +8,9 @@ export type LeaderboardInitialOverlayInput = {
 export function shouldShowLeaderboardInitialOverlay({
   hasRenderableLeaderboard,
   rankingPending,
-  rankingPlaceholder,
-  rankingWarming = false
+  rankingPlaceholder
 }: LeaderboardInitialOverlayInput) {
-  return !hasRenderableLeaderboard && ((rankingPending && !rankingPlaceholder) || rankingWarming);
+  return !hasRenderableLeaderboard && rankingPending && !rankingPlaceholder;
 }
 
 export type LeaderboardPreviewLimitInput = {

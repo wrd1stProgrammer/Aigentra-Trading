@@ -1,6 +1,6 @@
 const DEFAULT_API_BASE_URL = "http://localhost:8000";
 const EXTERNAL_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
-const BACKEND_PROXY_TIMEOUT_MS = Number(process.env.BACKEND_PROXY_TIMEOUT_MS ?? 12_000);
+const BACKEND_PROXY_TIMEOUT_MS = Number(process.env.BACKEND_PROXY_TIMEOUT_MS ?? 20_000);
 const BACKEND_PROXY_FAST_TIMEOUT_MS = Number(process.env.BACKEND_PROXY_FAST_TIMEOUT_MS ?? 8_000);
 
 type BackendApiContext = {

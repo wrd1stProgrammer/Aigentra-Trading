@@ -46,6 +46,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       REDIS_MARKET_CACHE_ENABLED: "true"
       ENABLE_AUTO_SCANNER: "false"
+      ENABLE_REALTIME_PAPER_EXECUTION: "false"
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
@@ -78,6 +79,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       REDIS_MARKET_CACHE_ENABLED: "true"
       ENABLE_AUTO_SCANNER: ${ENABLE_AUTO_SCANNER:-true}
+      ENABLE_REALTIME_PAPER_EXECUTION: ${ENABLE_REALTIME_PAPER_EXECUTION:-true}
+      REALTIME_PAPER_EXECUTION_ROLE: "worker"
     volumes:
       - /opt/aigentra-trading/.codex:/srv/aigentra/.codex:rw
     command: ["python", "-m", "app.worker"]

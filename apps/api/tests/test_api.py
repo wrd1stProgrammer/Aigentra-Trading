@@ -551,13 +551,13 @@ def test_monthly_leaderboard_reuses_position_rows_per_trader(monkeypatch):
     ]
     position_query_calls = 0
 
-    def fake_monthly_equity_points(*args, **kwargs):
-        return start_snapshot, end_snapshot, [start_snapshot, end_snapshot]
+    def fake_monthly_equity_points_by_trader(*args, **kwargs):
+        return {trader.id: (start_snapshot, end_snapshot, [start_snapshot, end_snapshot])}
 
-    def fake_monthly_position_query(*args, **kwargs):
+    def fake_monthly_positions_by_trader(*args, **kwargs):
         nonlocal position_query_calls
         position_query_calls += 1
-        return positions
+        return {trader.id: positions}
 
     def fake_live_summary(*args, **kwargs):
         return {
@@ -568,8 +568,8 @@ def test_monthly_leaderboard_reuses_position_rows_per_trader(monkeypatch):
         }
 
     monkeypatch.setattr(main, "list_traders_for_league_month", lambda league_month: [trader])
-    monkeypatch.setattr(main, "monthly_equity_points", fake_monthly_equity_points)
-    monkeypatch.setattr(main, "monthly_position_query", fake_monthly_position_query)
+    monkeypatch.setattr(main, "monthly_equity_points_by_trader", fake_monthly_equity_points_by_trader)
+    monkeypatch.setattr(main, "monthly_positions_by_trader", fake_monthly_positions_by_trader)
     monkeypatch.setattr(main, "trader_snapshot_summary", fake_live_summary)
 
     summaries = main.monthly_leaderboard_summaries(
@@ -587,6 +587,61 @@ def test_monthly_leaderboard_reuses_position_rows_per_trader(monkeypatch):
     assert summaries[0]["biggestLoss"] == -3.0
     assert summaries[0]["longTrades"] == 1
     assert summaries[0]["shortTrades"] == 1
+
+
+def test_monthly_league_bundle_omits_status_feeds_unless_related_requested(monkeypatch):
+    def fail_status_feeds(*args, **kwargs):
+        raise AssertionError("summary monthly leaderboard should not serialize status feeds")
+
+    monkeypatch.setattr(main, "monthly_leaderboard_summaries", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main, "list_traders_for_league_month", lambda league_month: [])
+    monkeypatch.setattr(main, "list_status_feed_payloads", fail_status_feeds)
+
+    payload = main.build_monthly_league_bundle_payload(
+        object(),
+        "BTCUSDT",
+        "2026-07",
+        datetime(2026, 7, 1, tzinfo=timezone.utc),
+        datetime(2026, 8, 1, tzinfo=timezone.utc),
+        include_empty=True,
+        include_related=False,
+        locale="ko",
+    )
+
+    assert payload["statusFeeds"] == []
+
+
+def test_monthly_leaderboard_cache_uses_month_roster_size(monkeypatch):
+    monthly_traders = [SimpleNamespace(id=f"monthly-{index}") for index in range(20)]
+    all_traders = [*monthly_traders, SimpleNamespace(id="new-1"), SimpleNamespace(id="new-2")]
+    payload = {
+        "symbol": "BTCUSDT",
+        "traders": [{"id": trader.id} for trader in monthly_traders],
+        "summaries": [{"traderId": "monthly-0"}],
+    }
+    cache_key = ("BTCUSDT", True, False, "ko", "2026-07")
+
+    monkeypatch.setattr(main, "init_db", lambda: None)
+    monkeypatch.setattr(main, "list_traders", lambda: all_traders)
+    monkeypatch.setattr(main, "list_traders_for_league_month", lambda league_month: monthly_traders)
+    main.LEAGUE_BUNDLE_CACHE.clear()
+    main.LEAGUE_BUNDLE_CACHE[cache_key] = (time.monotonic() + 60, payload)
+
+    try:
+        result = main.league_leaderboard_fast(
+            symbol="BTCUSDT",
+            include_empty=True,
+            include_related=False,
+            refresh=False,
+            locale="ko",
+            league_month="2026-07",
+            db=object(),
+        )
+    finally:
+        main.LEAGUE_BUNDLE_CACHE.clear()
+
+    assert result["cacheHit"] is True
+    assert result["summaries"] == payload["summaries"]
 
 
 def test_trader_detail_serves_expired_cache_while_refreshing_in_background(monkeypatch):

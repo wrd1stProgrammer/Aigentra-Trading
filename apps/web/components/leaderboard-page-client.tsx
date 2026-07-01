@@ -460,7 +460,7 @@ export function LeaderboardPageClient() {
   }, []);
 
   const leaderboardWarming = bundle.warming === true && !bundle.summaries?.length;
-  const hasRenderableLeaderboard = displayStandings.length > 0 && !leaderboardWarming;
+  const hasRenderableLeaderboard = displayStandings.length > 0;
   const initialLoading = shouldShowLeaderboardInitialOverlay({
     hasRenderableLeaderboard,
     rankingPending: btcQuery.isPending,

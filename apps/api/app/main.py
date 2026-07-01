@@ -68,7 +68,7 @@ from app.locales import (
     normalize_locale as normalize_supported_locale,
 )
 from app.market.data_cache import KLINE_CACHE as MARKET_KLINE_CACHE
-from app.market.data_cache import cached_klines, cached_klines_before, market_cache_runtime, warm_market_cache
+from app.market.data_cache import cached_klines, cached_klines_before, market_cache_runtime
 from app.market.snapshot import build_market_snapshot
 from app.paper.engine import (
     PaperEngineResult,
@@ -355,6 +355,9 @@ async def handle_realtime_paper_execution_result(
     refresh_leaderboard_snapshots(db, symbol, {trader_id})
     event_ids = [event.id for event in result.events if event.id is not None]
     if event_ids:
+        if threading.current_thread() is not threading.main_thread():
+            await create_realtime_status_feeds_for_events(event_ids, symbol, trader_id)
+            return
         try:
             asyncio.get_running_loop().create_task(create_realtime_status_feeds_for_events(event_ids, symbol, trader_id))
         except RuntimeError:
@@ -380,8 +383,6 @@ async def lifespan(app: FastAPI):
     global AUTO_SCANNER_TASK, AUTO_MANAGEMENT_TASK, REALTIME_EXECUTION_TASK
     init_db()
     cleanup_stale_running_runs()
-    warm_initial_league_cache()
-    await warm_market_cache(binance_client())
     if settings.enable_auto_scanner:
         AUTO_SCANNER_TASK = asyncio.create_task(auto_scanner_loop())
         AUTO_MANAGEMENT_TASK = asyncio.create_task(auto_management_loop())
@@ -408,7 +409,6 @@ async def lifespan(app: FastAPI):
             await REALTIME_EXECUTION_TASK
         except asyncio.CancelledError:
             pass
-
 
 app = FastAPI(
     title="AI Trader League API",
@@ -2769,8 +2769,14 @@ def monthly_equity_points(
     return start_snapshot, end_snapshot, in_period
 
 
-def monthly_drawdown_percent(start_equity: float, snapshots: list[EquitySnapshotRecord], end_equity: float) -> float:
-    values = [start_equity, *[float(snapshot.equity) for snapshot in snapshots], end_equity]
+def monthly_drawdown_percent(start_equity: float, snapshots: list[Any], end_equity: float) -> float:
+    snapshot_values: list[float] = []
+    for snapshot in snapshots:
+        if hasattr(snapshot, "equity"):
+            snapshot_values.append(float(snapshot.equity))
+        else:
+            snapshot_values.append(float(snapshot))
+    values = [start_equity, *snapshot_values, end_equity]
     values = [value for value in values if value > 0]
     if not values:
         return 0.0
@@ -2791,8 +2797,12 @@ def monthly_leaderboard_summaries(
 ) -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
     league_month = f"{period_start.year:04d}-{period_start.month:02d}"
-    for trader in list_traders_for_league_month(league_month):
-        start_snapshot, end_snapshot, snapshots = monthly_equity_points(db, trader.id, symbol, period_start, period_end)
+    traders = list_traders_for_league_month(league_month)
+    trader_ids = [trader.id for trader in traders]
+    equity_points_by_trader = monthly_equity_points_by_trader(db, trader_ids, symbol, period_start, period_end)
+    positions_by_trader = monthly_positions_by_trader(db, trader_ids, symbol, period_start, period_end)
+    for trader in traders:
+        start_snapshot, end_snapshot, snapshots = equity_points_by_trader.get(trader.id, (None, None, []))
         if start_snapshot is None or end_snapshot is None:
             start_equity = float(settings.paper_default_equity)
             end_equity = start_equity
@@ -2807,7 +2817,7 @@ def monthly_leaderboard_summaries(
             total_fees = float(end_snapshot.total_fees) - float(start_snapshot.total_fees)
         total_pnl = end_equity - start_equity
         monthly_return = round((total_pnl / start_equity) * 100, 2) if start_equity > 0 else 0.0
-        monthly_positions = monthly_position_query(db, trader.id, symbol, period_start, period_end)
+        monthly_positions = positions_by_trader.get(trader.id, [])
         position_pnls = [float(position.realized_pnl or 0) for position in monthly_positions]
         closed_positions = len(monthly_positions)
         wins = sum(1 for value in position_pnls if value > 0)
@@ -2871,6 +2881,124 @@ def monthly_leaderboard_summaries(
     return sorted(summaries, key=lambda item: (-float(item["monthlyReturn"]), -float(item["equity"]), str(item["traderId"])))
 
 
+def monthly_equity_points_by_trader(
+    db: Session,
+    trader_ids: list[str],
+    symbol: str,
+    period_start: datetime,
+    period_end: datetime,
+) -> dict[str, tuple[Optional[EquitySnapshotRecord], Optional[EquitySnapshotRecord], list[Any]]]:
+    if not trader_ids:
+        return {}
+
+    period_ranked = (
+        select(
+            EquitySnapshotRecord.id.label("id"),
+            EquitySnapshotRecord.trader_id.label("trader_id"),
+            func.row_number()
+            .over(
+                partition_by=EquitySnapshotRecord.trader_id,
+                order_by=(EquitySnapshotRecord.created_at.asc(), EquitySnapshotRecord.id.asc()),
+            )
+            .label("first_rank"),
+            func.row_number()
+            .over(
+                partition_by=EquitySnapshotRecord.trader_id,
+                order_by=(desc(EquitySnapshotRecord.created_at), desc(EquitySnapshotRecord.id)),
+            )
+            .label("last_rank"),
+        )
+        .where(
+            EquitySnapshotRecord.trader_id.in_(trader_ids),
+            EquitySnapshotRecord.symbol == symbol,
+            EquitySnapshotRecord.created_at >= period_start,
+            EquitySnapshotRecord.created_at < period_end,
+        )
+        .subquery()
+    )
+    boundary_rows = db.execute(
+        select(EquitySnapshotRecord, period_ranked.c.first_rank, period_ranked.c.last_rank)
+        .join(period_ranked, EquitySnapshotRecord.id == period_ranked.c.id)
+        .where(or_(period_ranked.c.first_rank == 1, period_ranked.c.last_rank == 1))
+    ).all()
+    first_in_period_by_trader: dict[str, EquitySnapshotRecord] = {}
+    last_in_period_by_trader: dict[str, EquitySnapshotRecord] = {}
+    for record, first_rank, last_rank in boundary_rows:
+        if first_rank == 1:
+            first_in_period_by_trader[record.trader_id] = record
+        if last_rank == 1:
+            last_in_period_by_trader[record.trader_id] = record
+
+    equity_ranges = db.execute(
+        select(
+            EquitySnapshotRecord.trader_id,
+            func.min(EquitySnapshotRecord.equity),
+            func.max(EquitySnapshotRecord.equity),
+        )
+        .where(
+            EquitySnapshotRecord.trader_id.in_(trader_ids),
+            EquitySnapshotRecord.symbol == symbol,
+            EquitySnapshotRecord.created_at >= period_start,
+            EquitySnapshotRecord.created_at < period_end,
+        )
+        .group_by(EquitySnapshotRecord.trader_id)
+    ).all()
+    drawdown_values_by_trader: dict[str, list[float]] = {}
+    for trader_id, min_equity, max_equity in equity_ranges:
+        values = [float(value) for value in (max_equity, min_equity) if value is not None]
+        drawdown_values_by_trader[trader_id] = values
+
+    baseline_by_trader: dict[str, EquitySnapshotRecord] = {}
+    for trader_id in trader_ids:
+        baseline = db.execute(
+            select(EquitySnapshotRecord)
+            .where(
+                EquitySnapshotRecord.trader_id == trader_id,
+                EquitySnapshotRecord.symbol == symbol,
+                EquitySnapshotRecord.created_at < period_start,
+            )
+            .order_by(desc(EquitySnapshotRecord.created_at), desc(EquitySnapshotRecord.id))
+            .limit(1)
+        ).scalar_one_or_none()
+        if baseline is not None:
+            baseline_by_trader[trader_id] = baseline
+
+    result: dict[str, tuple[Optional[EquitySnapshotRecord], Optional[EquitySnapshotRecord], list[Any]]] = {}
+    for trader_id in trader_ids:
+        first_snapshot = first_in_period_by_trader.get(trader_id)
+        last_snapshot = last_in_period_by_trader.get(trader_id)
+        baseline = baseline_by_trader.get(trader_id)
+        start_snapshot = baseline or first_snapshot
+        end_snapshot = last_snapshot or baseline
+        snapshots = drawdown_values_by_trader.get(trader_id, [])
+        result[trader_id] = (start_snapshot, end_snapshot, snapshots)
+    return result
+
+
+def monthly_positions_by_trader(
+    db: Session,
+    trader_ids: list[str],
+    symbol: str,
+    period_start: datetime,
+    period_end: datetime,
+) -> dict[str, list[PaperPositionRecord]]:
+    if not trader_ids:
+        return {}
+    positions = db.execute(
+        select(PaperPositionRecord).where(
+            PaperPositionRecord.trader_id.in_(trader_ids),
+            PaperPositionRecord.symbol == symbol,
+            PaperPositionRecord.status == "closed",
+            PaperPositionRecord.closed_at >= period_start,
+            PaperPositionRecord.closed_at < period_end,
+        )
+    ).scalars().all()
+    by_trader: dict[str, list[PaperPositionRecord]] = {}
+    for position in positions:
+        by_trader.setdefault(position.trader_id, []).append(position)
+    return by_trader
+
+
 def monthly_position_query(db: Session, trader_id: str, symbol: str, period_start: datetime, period_end: datetime):
     return db.execute(
         select(PaperPositionRecord).where(
@@ -2930,6 +3058,7 @@ def build_monthly_league_bundle_payload(
     period_end: datetime,
     *,
     include_empty: bool = True,
+    include_related: bool = False,
     locale: str = CANONICAL_AI_LOCALE,
 ) -> dict[str, Any]:
     summaries = monthly_leaderboard_summaries(db, clean_symbol, period_start, period_end)
@@ -2960,7 +3089,7 @@ def build_monthly_league_bundle_payload(
         "positions": [],
         "orders": [],
         "managementReviews": [],
-        "statusFeeds": list_status_feed_payloads(db, symbol=clean_symbol, limit=120, locale=locale),
+        "statusFeeds": list_status_feed_payloads(db, symbol=clean_symbol, limit=120, locale=locale) if include_related else [],
         "scanner": scanner_status_payload(),
     }
 
@@ -3871,6 +4000,7 @@ def refresh_league_bundle_cache_background(
                     period_start,
                     period_end,
                     include_empty=include_empty,
+                    include_related=include_related,
                     locale=clean_locale,
                 )
                 LEAGUE_BUNDLE_CACHE[refresh_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
@@ -5360,7 +5490,11 @@ def league_leaderboard_fast(
         monthly_period[0] if monthly_period else "current",
     )
     cached = LEAGUE_BUNDLE_CACHE.get(cache_key)
-    if cached and len(cached[1].get("traders", [])) != len(list_traders()):
+    expected_trader_count = (
+        len(list_traders_for_league_month(monthly_period[0])) if monthly_period else len(list_traders())
+    )
+    cached_trader_count = len(cached[1].get("traders", [])) if cached else 0
+    if cached and cached_trader_count > 0 and cached_trader_count != expected_trader_count:
         LEAGUE_BUNDLE_CACHE.pop(cache_key, None)
         cached = None
     now = time.monotonic()
@@ -5408,10 +5542,10 @@ def league_leaderboard_fast(
                 period_start,
                 period_end,
                 include_empty=include_empty,
+                include_related=include_related,
                 locale=clean_locale,
             )
-            if not refresh:
-                LEAGUE_BUNDLE_CACHE[cache_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
+            LEAGUE_BUNDLE_CACHE[cache_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
             return payload
 
         known_trader_ids = {trader.id for trader in list_traders()}

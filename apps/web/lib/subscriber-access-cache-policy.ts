@@ -11,7 +11,8 @@ export const subscriberAccessSchema = z.object({
   couponLimit: z.number().int().nonnegative(),
   couponsUsed: z.number().int().nonnegative(),
   couponsRemaining: z.number().int().nonnegative(),
-  unlockedSourceKeys: z.array(z.string())
+  unlockedSourceKeys: z.array(z.string()),
+  unavailable: z.boolean().optional()
 });
 
 export const subscriberAccessCacheRecordSchema = z.object({
