@@ -22,6 +22,20 @@ def rounded(value):
     return Decimal(value).quantize(Decimal("0.0001"))
 
 
+def fee_inclusive_breakeven(entry_price, quantity, entry_fee, taker_fee_rate, side):
+    entry = Decimal(str(entry_price))
+    qty = Decimal(str(quantity))
+    fee = Decimal(str(entry_fee))
+    taker = Decimal(str(taker_fee_rate))
+    match side:
+        case "short":
+            return ((entry * qty) - fee) / (qty * (Decimal("1") + taker))
+        case "long":
+            return ((entry * qty) + fee) / (qty * (Decimal("1") - taker))
+        case _:
+            raise AssertionError(f"unexpected side: {side}")
+
+
 @pytest.fixture()
 def temp_db(tmp_path):
     db_path = tmp_path / "paper.db"
@@ -211,7 +225,14 @@ def test_position_management_moves_stop_to_breakeven(temp_db):
         )
 
         assert second.closed_positions == []
-        assert position.stop_loss_price == Decimal("100.0000000000")
+        expected_stop = fee_inclusive_breakeven(
+            entry_price=100,
+            quantity=1,
+            entry_fee=position.entry_fee,
+            taker_fee_rate=Decimal("0.0005"),
+            side="long",
+        )
+        assert rounded(position.stop_loss_price) == rounded(expected_stop)
         third = process_candle(
             db,
             "paper-trader",
@@ -292,7 +313,14 @@ def test_orderflow_sniper_can_move_stop_to_breakeven_before_one_r(temp_db):
         )
 
         assert second.closed_positions == []
-        assert position.stop_loss_price == Decimal("100.0000000000")
+        expected_stop = fee_inclusive_breakeven(
+            entry_price=100,
+            quantity=1,
+            entry_fee=position.entry_fee,
+            taker_fee_rate=Decimal("0.0005"),
+            side="long",
+        )
+        assert rounded(position.stop_loss_price) == rounded(expected_stop)
         events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
         assert [event.event_type for event in events] == ["order_filled", "stop_moved_to_breakeven"]
 
@@ -334,7 +362,14 @@ def test_newly_filled_position_waits_for_next_candle_before_breakeven_management
 
         assert second.filled_orders == []
         assert position.status == "open"
-        assert position.stop_loss_price == Decimal("100.0000000000")
+        expected_stop = fee_inclusive_breakeven(
+            entry_price=100,
+            quantity=1,
+            entry_fee=position.entry_fee,
+            taker_fee_rate=Decimal("0.0005"),
+            side="short",
+        )
+        assert rounded(position.stop_loss_price) == rounded(expected_stop)
         events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
         assert [event.event_type for event in events] == ["order_filled", "stop_moved_to_breakeven"]
 
@@ -370,7 +405,14 @@ def test_60_hour_profitable_long_moves_stop_to_breakeven(temp_db):
         )
 
         db.refresh(position)
-        assert position.stop_loss_price == Decimal("100.0000000000")
+        expected_stop = fee_inclusive_breakeven(
+            entry_price=100,
+            quantity=position.quantity,
+            entry_fee=position.entry_fee,
+            taker_fee_rate=Decimal("0.0005"),
+            side="long",
+        )
+        assert rounded(position.stop_loss_price) == rounded(expected_stop)
         assert [event.event_type for event in result.events] == ["stop_moved_to_breakeven"]
         payload = from_json(result.events[0].payload_json) or {}
         assert payload["reason"] == "profitable_after_60h_breakeven"
@@ -408,7 +450,14 @@ def test_60_hour_profitable_short_moves_stop_to_breakeven(temp_db):
         )
 
         db.refresh(position)
-        assert position.stop_loss_price == Decimal("100.0000000000")
+        expected_stop = fee_inclusive_breakeven(
+            entry_price=100,
+            quantity=position.quantity,
+            entry_fee=position.entry_fee,
+            taker_fee_rate=Decimal("0.0005"),
+            side="short",
+        )
+        assert rounded(position.stop_loss_price) == rounded(expected_stop)
         assert [event.event_type for event in result.events] == ["stop_moved_to_breakeven"]
         payload = from_json(result.events[0].payload_json) or {}
         assert payload["reason"] == "profitable_after_60h_breakeven"
@@ -624,7 +673,14 @@ def test_partial_take_profit_reduces_position_size(temp_db):
         assert position.status == "open"
         assert rounded(position.quantity) == Decimal("0.5000")
         assert rounded(position.take_profit_price) == Decimal("120.0000")
-        assert rounded(position.stop_loss_price) == Decimal("100.0000")
+        expected_stop = fee_inclusive_breakeven(
+            entry_price=100,
+            quantity=position.quantity,
+            entry_fee=position.entry_fee,
+            taker_fee_rate=Decimal("0.0005"),
+            side="long",
+        )
+        assert rounded(position.stop_loss_price) == rounded(expected_stop)
         assert [event.event_type for event in second.events] == [
             "take_partial_profit",
             "stop_moved_to_breakeven",
@@ -687,7 +743,14 @@ def test_short_partial_take_profit_moves_stop_to_breakeven(temp_db):
         assert position.status == "open"
         assert rounded(position.quantity) == Decimal("0.5000")
         assert rounded(position.take_profit_price) == Decimal("80.0000")
-        assert rounded(position.stop_loss_price) == Decimal("100.0000")
+        expected_stop = fee_inclusive_breakeven(
+            entry_price=100,
+            quantity=position.quantity,
+            entry_fee=position.entry_fee,
+            taker_fee_rate=Decimal("0.0005"),
+            side="short",
+        )
+        assert rounded(position.stop_loss_price) == rounded(expected_stop)
         assert [event.event_type for event in result.events] == [
             "take_partial_profit",
             "stop_moved_to_breakeven",

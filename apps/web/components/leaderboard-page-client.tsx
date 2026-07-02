@@ -369,7 +369,7 @@ export function LeaderboardPageClient() {
     [favoriteTraderIds, favoritesOnly, visibleStandingsBase]
   );
   const returnColumns = useMemo(
-    () => selectedLeagueMonth ? [fallbackReturnColumn("monthly", t)] : topReturnColumns(visibleStandings, t),
+    () => selectedLeagueMonth ? [fallbackReturnColumn("monthly", t), topShortTermReturnColumn(visibleStandings, t)] : topReturnColumns(visibleStandings, t),
     [selectedLeagueMonth, t, visibleStandings]
   );
   const hiddenTraderCount = Math.max(0, displayStandings.length - visibleStandingsBase.length);
@@ -859,6 +859,7 @@ export function LeaderboardPageClient() {
           snapshotsLoading={activeSnapshotsQuery.isFetching}
           exposure={activeTrader ? exposureByTrader.get(activeTrader.id) : undefined}
           currentSummary={activeTrader ? currentSummaryByTrader.get(activeTrader.id) : undefined}
+          isMonthlyLeague={Boolean(selectedLeagueMonth)}
         />
       </section>
     </div>
@@ -1000,6 +1001,7 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
   onToggleFavorite: (traderId: string) => void;
 }) {
   const primaryReturnColumn = returnColumns[0] ?? fallbackReturnColumn("cumulative", t);
+  const secondaryReturnColumn = returnColumns[1] ?? null;
 
   return (
     <div className="lg:hidden">
@@ -1015,6 +1017,7 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
             const displayName = localizedTraderName(trader, t);
             const isFavorite = favoriteTraderIds.has(trader.id);
             const returnValue = returnMetricValue(trader, primaryReturnColumn.key);
+            const secondaryReturnValue = secondaryReturnColumn ? returnMetricValue(trader, secondaryReturnColumn.key) : null;
             return (
               <Link
                 key={trader.id}
@@ -1042,6 +1045,11 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
                 <div className="min-w-0 text-right">
                   <p className={`font-mono text-[15px] font-bold ${returnValue >= 0 ? "value-good" : "value-bad"}`}>{formatSignedPercent(returnValue)}</p>
                   <p className="mt-0.5 truncate text-[11px] font-semibold text-zinc-500">{primaryReturnColumn.label}</p>
+                  {secondaryReturnColumn ? (
+                    <p className={`mt-0.5 truncate font-mono text-[11px] font-semibold ${Number(secondaryReturnValue ?? 0) >= 0 ? "value-good" : "value-bad"}`}>
+                      {secondaryReturnColumn.label} {formatSignedPercent(secondaryReturnValue)}
+                    </p>
+                  ) : null}
                   {progress.detail ? <p className="mt-0.5 truncate text-[11px] font-semibold text-zinc-400">{progress.detail}</p> : null}
                 </div>
                 <FavoriteButton
@@ -1062,7 +1070,7 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
   );
 }
 
-function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, currentSummary }: {
+function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, currentSummary, isMonthlyLeague }: {
   trader: TraderStanding | null;
   t: (key: string) => string;
   locale: Locale;
@@ -1070,6 +1078,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
   snapshotsLoading: boolean;
   exposure?: TraderExposure;
   currentSummary?: TraderStanding["summary"];
+  isMonthlyLeague: boolean;
 }) {
   if (!trader) {
     return (
@@ -1082,6 +1091,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
   const progress = traderProgress(trader, exposure, t, locale, currentSummary);
   const state = progress.label;
   const displayName = localizedTraderName(trader, t);
+  const previewShortTermColumn = topShortTermReturnColumn([trader], t);
 
   return (
     <aside className="data-card rounded-[22px] border-zinc-200/80 dark:border-white/[0.08] hidden xl:block shadow-sm transition hover:border-emerald-500/20 duration-300 w-full min-w-0 sticky top-[74px] p-5 overflow-hidden">
@@ -1123,7 +1133,11 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
             <MiniCell label={t("common.return7d")} value={formatSignedPercent(trader.return7d)} />
             <MiniCell label={t("leaderboard.mdd")} value={formatDrawdown(trader.maxDrawdown)} />
             <MiniCell label={t("common.winRate")} value={formatNullablePercent(trader.winRate)} />
-            <MiniCell label={t("leaderboard.trades")} value={formatNumber(trader.trades, 0, locale)} />
+            {isMonthlyLeague ? (
+              <MiniCell label={previewShortTermColumn.label} value={formatSignedPercent(returnMetricValue(trader, previewShortTermColumn.key))} />
+            ) : (
+              <MiniCell label={t("leaderboard.trades")} value={formatNumber(trader.trades, 0, locale)} />
+            )}
           </div>
         </section>
 
@@ -1261,16 +1275,26 @@ function LeverageBadge({ progress }: { progress: TraderProgress }) {
 
 function topReturnColumns(standings: readonly TraderStanding[], t: (key: string) => string): readonly ReturnColumn[] {
   const columns = RETURN_METRIC_KEYS.map((key) => {
-    const peakValue = standings.reduce((peak, trader) => Math.max(peak, returnMetricValue(trader, key)), Number.NEGATIVE_INFINITY);
     return {
       key,
       label: returnMetricLabel(key, t),
-      peakValue: Number.isFinite(peakValue) ? peakValue : 0
+      peakValue: peakReturnMetric(standings, key)
     };
   });
   const positives = columns.filter((metric) => metric.peakValue > 0).sort((a, b) => b.peakValue - a.peakValue);
   const fallback = columns.filter((metric) => metric.peakValue <= 0).sort((a, b) => b.peakValue - a.peakValue);
   return [...positives, ...fallback].slice(0, 2);
+}
+
+function topShortTermReturnColumn(standings: readonly TraderStanding[], t: (key: string) => string): ReturnColumn {
+  const return24hPeak = peakReturnMetric(standings, "return24h");
+  const return7dPeak = peakReturnMetric(standings, "return7d");
+  const key: ReturnMetricKey = return24hPeak >= return7dPeak ? "return24h" : "return7d";
+  return {
+    key,
+    label: returnMetricLabel(key, t),
+    peakValue: Math.max(return24hPeak, return7dPeak)
+  };
 }
 
 function fallbackReturnColumn(key: ReturnMetricKey, t: (key: string) => string): ReturnColumn {
@@ -1279,6 +1303,11 @@ function fallbackReturnColumn(key: ReturnMetricKey, t: (key: string) => string):
     label: returnMetricLabel(key, t),
     peakValue: 0
   };
+}
+
+function peakReturnMetric(standings: readonly TraderStanding[], key: ReturnMetricKey): number {
+  const peakValue = standings.reduce((peak, trader) => Math.max(peak, returnMetricValue(trader, key)), Number.NEGATIVE_INFINITY);
+  return Number.isFinite(peakValue) ? peakValue : 0;
 }
 
 function returnMetricLabel(key: ReturnMetricKey, t: (key: string) => string): string {

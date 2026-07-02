@@ -178,8 +178,18 @@ test("monthly league pins the visible return metric to the selected UTC month", 
   );
   assert.match(
     leaderboardSource,
-    /selectedLeagueMonth \? \[fallbackReturnColumn\("monthly", t\)\] : topReturnColumns\(visibleStandings, t\)/,
-    "monthly tabs should show the selected-month return column while current tabs keep the dynamic picker"
+    /selectedLeagueMonth \? \[fallbackReturnColumn\("monthly", t\), topShortTermReturnColumn\(visibleStandings, t\)\] : topReturnColumns\(visibleStandings, t\)/,
+    "monthly tabs should show the selected-month return column plus one dynamically selected 24h or 7d column"
+  );
+  assert.match(
+    leaderboardSource,
+    /function topShortTermReturnColumn/,
+    "monthly short-term companion metric should be selected at the column level"
+  );
+  assert.doesNotMatch(
+    leaderboardSource,
+    /bestShortTerm|returnMetricCellLabel/,
+    "monthly short-term cells should not show a generic best-of label or switch labels row by row"
   );
 });
 

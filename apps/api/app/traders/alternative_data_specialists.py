@@ -243,15 +243,26 @@ class LiquidationPressureSniper(TraderStrategy):
         long_ratio = fvalue(coinalyze.get("longAccountPercent"), 50.0)
         oi_change = fvalue(coinalyze.get("openInterestChange6hPercent"))
         buy_share = fvalue(coinalyze.get("takerBuyShare"), float(g["takerBuyShare"]))
-        reclaim_long = float(g["close15m"]) > float(g["open15m"]) and float(g["lowerWick"]) >= 0.18 and g["trend4h"] != "bearish"
-        reject_short = float(g["close15m"]) < float(g["open15m"]) and float(g["upperWick"]) >= 0.18 and g["trend4h"] != "bullish"
-        long_flush = liquidation_bias >= 0.18 and reclaim_long and buy_share >= 0.48
-        short_squeeze_exhaustion = liquidation_bias <= -0.18 and reject_short and buy_share <= 0.52
-        crowded_long_break = long_ratio >= 64 and reject_short and oi_change <= 0.8
-        crowded_short_reclaim = long_ratio <= 42 and reclaim_long and oi_change <= 0.8
+        volume_z = float(g["volumeZ15m"])
+        reclaim_long = (
+            float(g["close15m"]) > float(g["open15m"])
+            and float(g["lowerWick"]) >= 0.18
+            and g["trend4h"] != "bearish"
+            and g["trend1h"] != "bearish"
+        )
+        reject_short = (
+            float(g["close15m"]) < float(g["open15m"])
+            and float(g["upperWick"]) >= 0.18
+            and g["trend4h"] != "bullish"
+            and g["trend1h"] != "bullish"
+        )
+        long_flush = liquidation_bias >= 0.22 and reclaim_long and buy_share >= 0.52 and volume_z >= 0.15
+        short_squeeze_exhaustion = liquidation_bias <= -0.22 and reject_short and buy_share <= 0.48 and volume_z >= 0.15
+        crowded_long_break = long_ratio >= 66 and reject_short and oi_change <= -0.1 and buy_share <= 0.5 and volume_z >= 0.25
+        crowded_short_reclaim = long_ratio <= 40 and reclaim_long and oi_change <= -0.1 and buy_share >= 0.5 and volume_z >= 0.25
         score = 40 + (16 if available else 0) + min(18, int(abs(liquidation_bias) * 70))
         score += 9 if abs(oi_change) >= 0.35 else 0
-        score += 7 if float(g["volumeZ15m"]) >= -0.1 else -4
+        score += 7 if volume_z >= 0.25 else -4
         gate_scores = {
             **g,
             "externalAvailable": available,

@@ -135,3 +135,34 @@ def test_observation_candidate_receives_closed_position_r_outcome(temp_db):
     assert updated.outcome_status == "take_profit"
     assert updated.outcome_r == pytest.approx(2.0)
     assert payload["outcome"]["positionId"] == 77
+
+
+def test_liquidation_pressure_sniper_rejects_bullish_same_side_short_retry():
+    snapshot = sample_snapshot()
+    snapshot["timeframes"]["15m"].update(
+        {
+            "open": 68100.0,
+            "high": 68600.0,
+            "low": 67880.0,
+            "close": 68000.0,
+            "volumeZscore": 0.0,
+        }
+    )
+    snapshot["timeframes"]["1h"]["trend"] = "bullish"
+    snapshot["timeframes"]["4h"]["trend"] = "range"
+    snapshot["externalDerivatives"] = {
+        "coinalyze": {
+            "available": True,
+            "longLiquidations6h": 100000.0,
+            "shortLiquidations6h": 20000.0,
+            "longAccountPercent": 68.0,
+            "openInterestChange6hPercent": 0.5,
+            "takerBuyShare": 0.49,
+            "source": "test",
+        }
+    }
+
+    candidate = get_strategy("liquidation-pressure-sniper").evaluate(snapshot)
+
+    assert not candidate.created
+    assert candidate.reason == "Liquidation pressure has not aligned with a confirmed 15m structure trigger."

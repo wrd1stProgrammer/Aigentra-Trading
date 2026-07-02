@@ -38,9 +38,11 @@ test("monthly league UI does not overwrite selected-month returns with live trai
   );
   assert.match(
     leaderboardSource,
-    /selectedLeagueMonth \? \[fallbackReturnColumn\("monthly", t\)\] : topReturnColumns\(visibleStandings, t\)/,
-    "monthly tabs should display the selected-month return column"
+    /selectedLeagueMonth \? \[fallbackReturnColumn\("monthly", t\), topShortTermReturnColumn\(visibleStandings, t\)\] : topReturnColumns\(visibleStandings, t\)/,
+    "monthly tabs should display the selected-month return column with one dynamically selected 24h or 7d companion metric"
   );
+  assert.doesNotMatch(i18nSource, /24H \/ 7D 최고|Best 24H \/ 7D/, "monthly UI should not expose a generic best-of short-term label");
+  assert.doesNotMatch(i18nSource, /24H 최고/, "short-term race labels should not read as a static best-of metric");
 });
 
 test("new and retired trader lifecycle badges are modeled for leaderboard surfaces", () => {

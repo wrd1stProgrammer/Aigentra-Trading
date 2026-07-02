@@ -8,6 +8,7 @@ from app.db import (
     CandidateTradeRecord,
     EquitySnapshotRecord,
     MarketSnapshotRecord,
+    ObservationCandidateRecord,
     PaperOrderRecord,
     PaperPositionRecord,
     PositionManagementReviewRecord,
@@ -31,6 +32,7 @@ TABLE_MODELS = {
     MarketSnapshotRecord.__tablename__: MarketSnapshotRecord,
     TraderRunLogRecord.__tablename__: TraderRunLogRecord,
     CandidateTradeRecord.__tablename__: CandidateTradeRecord,
+    ObservationCandidateRecord.__tablename__: ObservationCandidateRecord,
     AIReviewRecord.__tablename__: AIReviewRecord,
     TradePlanRecord.__tablename__: TradePlanRecord,
     PositionManagementReviewRecord.__tablename__: PositionManagementReviewRecord,
@@ -53,6 +55,7 @@ DELETE_ORDER = [
     PaperPositionRecord.__tablename__,
     PaperOrderRecord.__tablename__,
     TradePlanRecord.__tablename__,
+    ObservationCandidateRecord.__tablename__,
     AIReviewRecord.__tablename__,
     CandidateTradeRecord.__tablename__,
     TraderRunLogRecord.__tablename__,
@@ -124,6 +127,7 @@ def reset_trader_history(
 def collect_reset_target_ids(db: Session, trader_ids: list[str], symbols: list[str]) -> dict[str, list[int]]:
     run_ids = ids_for_model(db, TraderRunLogRecord, trader_ids, symbols)
     candidate_ids = ids_for_model(db, CandidateTradeRecord, trader_ids, symbols, run_ids=run_ids)
+    observation_ids = ids_for_model(db, ObservationCandidateRecord, trader_ids, symbols, run_ids=run_ids)
     review_ids = ids_for_model(db, AIReviewRecord, trader_ids, symbols, run_ids=run_ids)
     plan_ids = ids_for_model(db, TradePlanRecord, trader_ids, symbols, run_ids=run_ids)
     management_ids = ids_for_model(db, PositionManagementReviewRecord, trader_ids, symbols)
@@ -143,6 +147,7 @@ def collect_reset_target_ids(db: Session, trader_ids: list[str], symbols: list[s
         MarketSnapshotRecord.__tablename__: snapshot_ids,
         TraderRunLogRecord.__tablename__: run_ids,
         CandidateTradeRecord.__tablename__: candidate_ids,
+        ObservationCandidateRecord.__tablename__: observation_ids,
         AIReviewRecord.__tablename__: review_ids,
         TradePlanRecord.__tablename__: plan_ids,
         PositionManagementReviewRecord.__tablename__: management_ids,

@@ -778,8 +778,9 @@ def _move_stop_to_breakeven(
     if position.side == "short" and position.stop_loss_price <= position.entry_price:
         return
 
+    new_stop = _fee_inclusive_breakeven_stop(db, position)
     previous_stop = position.stop_loss_price
-    position.stop_loss_price = position.entry_price
+    position.stop_loss_price = new_stop
     position.updated_at = utc_now()
     event = create_trade_event(
         db,
@@ -788,17 +789,39 @@ def _move_stop_to_breakeven(
         "stop_moved_to_breakeven",
         order_id=position.order_id,
         position_id=position.id,
-        price=position.entry_price,
+        price=new_stop,
         quantity=position.quantity,
         payload={
             "paperOnly": True,
             "previousStop": previous_stop,
-            "newStop": position.entry_price,
+            "newStop": new_stop,
+            "feeInclusive": True,
+            "entryPrice": position.entry_price,
             "reason": reason,
             **(payload_extra or {}),
         },
     )
     result.events.append(event)
+
+
+def _fee_inclusive_breakeven_stop(db: Session, position: PaperPositionRecord) -> Decimal:
+    if position.quantity <= 0:
+        return position.entry_price
+    settings = ensure_risk_settings(db, position.trader_id or "", position.symbol)
+    taker_fee_rate = settings.taker_fee_rate
+    match position.side:
+        case "long":
+            denominator = position.quantity * (Decimal("1") - taker_fee_rate)
+            if denominator <= 0:
+                return position.entry_price
+            return ((position.entry_price * position.quantity) + position.entry_fee) / denominator
+        case "short":
+            denominator = position.quantity * (Decimal("1") + taker_fee_rate)
+            if denominator <= 0:
+                return position.entry_price
+            return ((position.entry_price * position.quantity) - position.entry_fee) / denominator
+        case _:
+            return position.entry_price
 
 
 def _position_gross_pnl(position: PaperPositionRecord, price: Decimal) -> Decimal:

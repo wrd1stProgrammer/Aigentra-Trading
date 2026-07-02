@@ -14,6 +14,7 @@ from app.db import (
     CandidateTradeRecord,
     EquitySnapshotRecord,
     MarketSnapshotRecord,
+    ObservationCandidateRecord,
     PaperOrderRecord,
     PaperPositionRecord,
     PositionManagementReviewRecord,
@@ -307,6 +308,24 @@ def seed_trader_history_for_reset(db) -> dict[str, int]:
         "channel-rider",
         seeded_review,
     )
+    db.add(
+        ObservationCandidateRecord(
+            run_id=run.id,
+            candidate_trade_id=candidate.id,
+            ai_review_id=review.id,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="observed",
+            observation_type="OBSERVE_ONLY",
+            side="long",
+            setup_type="TEST_OBSERVATION",
+            setup_score=71,
+            decision="WATCH",
+            entry_price=68000,
+            stop_loss=67000,
+            first_take_profit=70000,
+        )
+    )
     seeded_plan = TradePlan(status="REJECTED", symbol="BTCUSDT", notes=["test"])
     plan = create_trade_plan(
         db,
@@ -475,6 +494,7 @@ def trader_history_counts(db) -> dict[str, int]:
         "market_snapshots": MarketSnapshotRecord,
         "trader_run_logs": TraderRunLogRecord,
         "candidate_trades": CandidateTradeRecord,
+        "observation_candidates": ObservationCandidateRecord,
         "ai_reviews": AIReviewRecord,
         "trade_plans": TradePlanRecord,
         "position_management_reviews": PositionManagementReviewRecord,
@@ -503,6 +523,7 @@ def test_trader_history_reset_dry_run_counts_without_mutation(temp_db):
     assert result["executed"] is False
     assert result["resettableCounts"]["trade_events"] == 1
     assert result["resettableCounts"]["telegram_alert_deliveries"] == 1
+    assert result["resettableCounts"]["observation_candidates"] == 1
     assert result["preservedTables"] == ["subscriber_preferences"]
     assert after == before
 
