@@ -1,7 +1,7 @@
 "use client";
 
 import type { PaperPosition } from "@/lib/api";
-import { formatClockTime, formatNumber } from "@/lib/format";
+import { formatClockTime, formatFixedNumber, formatNumber } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
 import { statusLabel } from "@/lib/status";
 import { ShareNetwork } from "@phosphor-icons/react";
@@ -165,7 +165,7 @@ function MobilePositionCard({
             {t("detail.roi")}
           </span>
           <div className={`mt-1 font-mono text-lg font-extrabold tracking-tight ${isRoePositive ? "text-[#0ecb81]" : "text-[#f6465d]"}`}>
-            {roe !== null ? `${roe >= 0 ? "+" : ""}${formatNumber(roe, 0, locale)}%` : "-"}
+            {roe !== null ? `${roe >= 0 ? "+" : ""}${formatFixedNumber(roe, 2, locale)}%` : "-"}
           </div>
         </div>
         <div className="text-right">

@@ -35,6 +35,14 @@ export function formatNumber(value: number | null | undefined, digits = 2, local
   }).format(value);
 }
 
+export function formatFixedNumber(value: number | null | undefined, digits = 2, locale?: Locale): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "-";
+  return new Intl.NumberFormat(intlLocale(locale), {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits
+  }).format(value);
+}
+
 export function formatDateTime(value: string | null | undefined, locale?: Locale): string {
   if (!value) return "-";
   const date = new Date(value);

@@ -63,6 +63,16 @@ const detailData = loadTsModule("../components/trader-profile-detail/data.ts", {
   "@/lib/status": { statusLabel: (value) => String(value ?? "") }
 });
 
+test("live chart status copy stays minimal and position ROE keeps two decimals", () => {
+  assert.match(i18nSource, /"chart\.liveSource": "실시간 캔들"/, "Korean chart source copy should be short");
+  assert.match(i18nSource, /"chart\.liveSource": "Live candles"/, "English chart source copy should be short");
+  assert.doesNotMatch(i18nSource, /전일 대비 계산 중|Calculating daily change/, "temporary day-change copy should not remain in locale text");
+  assert.doesNotMatch(chartSource, /chart\.dayChangeUnavailable/, "live chart should not render an unavailable day-change badge");
+  assert.match(chartSource, /dayChangePct !== null \? \(/, "day-change badge should render only when a percent exists");
+  assert.match(binancePanelSource, /formatFixedNumber\(roe, 2, locale\)/, "desktop ROE should keep two decimal places");
+  assert.match(mobileBinancePanelSource, /formatFixedNumber\(roe, 2, locale\)/, "mobile ROE should keep two decimal places");
+});
+
 test("AI management scenarios normalize short English reason labels and expose four-level importance", () => {
   assert.match(dataSource, /scenarioDisplayText/, "scenario bodies should run through a display-text normalizer");
   assert.match(dataSource, /scenarioImportance/, "scenario timeline should derive an importance level");

@@ -27,6 +27,7 @@ from app.repositories import from_json, to_json, update_observation_candidate_ou
 
 PROFITABLE_HOLD_BREAKEVEN_HOURS = 60
 PROFITABLE_HOLD_BREAKEVEN_SECONDS = PROFITABLE_HOLD_BREAKEVEN_HOURS * 60 * 60
+FIRST_TAKE_PROFIT_BREAKEVEN_PROGRESS = Decimal("0.5")
 
 
 @dataclass(frozen=True)
@@ -676,6 +677,34 @@ def _risk_distance(position: PaperPositionRecord) -> Optional[Decimal]:
     return distance if distance > 0 else None
 
 
+def _next_take_profit_price(position: PaperPositionRecord) -> Optional[Decimal]:
+    payload = from_json(position.payload_json) or {}
+    take_profits = payload.get("takeProfits")
+    if isinstance(take_profits, list):
+        for take_profit in take_profits:
+            if not isinstance(take_profit, dict) or take_profit.get("status") == "filled":
+                continue
+            try:
+                return to_decimal(take_profit.get("price"), "take_profit_price")
+            except ValueError:
+                continue
+    return position.take_profit_price
+
+
+def _first_take_profit_breakeven_trigger(position: PaperPositionRecord) -> Optional[Decimal]:
+    take_profit_price = _next_take_profit_price(position)
+    if take_profit_price is None:
+        return None
+    target_distance = abs(take_profit_price - position.entry_price)
+    if target_distance <= 0:
+        return None
+    if position.side == "long" and take_profit_price > position.entry_price:
+        return position.entry_price + target_distance * FIRST_TAKE_PROFIT_BREAKEVEN_PROGRESS
+    if position.side == "short" and take_profit_price < position.entry_price:
+        return position.entry_price - target_distance * FIRST_TAKE_PROFIT_BREAKEVEN_PROGRESS
+    return None
+
+
 def _management_exit_signal(position: PaperPositionRecord, candle: Candle) -> tuple[Optional[Decimal], Optional[str]]:
     policy = trader_holding_policy(position.trader_id or "")
     if position.take_profit_price is None:
@@ -707,12 +736,40 @@ def _maybe_move_stop_to_breakeven(
         return
     policy = trader_holding_policy(position.trader_id or "")
     move_reason: Optional[str] = None
+    first_take_profit_trigger = _first_take_profit_breakeven_trigger(position)
+    first_take_profit_price = _next_take_profit_price(position)
     payload_extra: dict[str, Any] = {"holdingPolicy": policy.as_prompt_dict()}
     if position.side == "long":
-        if candle.high >= position.entry_price + risk_distance * policy.breakeven_progress_r and position.stop_loss_price < position.entry_price:
+        if (
+            first_take_profit_trigger is not None
+            and candle.high >= first_take_profit_trigger
+            and position.stop_loss_price < position.entry_price
+        ):
+            move_reason = "first_take_profit_halfway_breakeven"
+            payload_extra.update(
+                {
+                    "firstTakeProfitPrice": first_take_profit_price,
+                    "breakevenTriggerPrice": first_take_profit_trigger,
+                    "progressToFirstTakeProfit": FIRST_TAKE_PROFIT_BREAKEVEN_PROGRESS,
+                }
+            )
+        elif candle.high >= position.entry_price + risk_distance * policy.breakeven_progress_r and position.stop_loss_price < position.entry_price:
             move_reason = "strategy_holding_policy_breakeven"
     if position.side == "short":
-        if candle.low <= position.entry_price - risk_distance * policy.breakeven_progress_r and position.stop_loss_price > position.entry_price:
+        if (
+            first_take_profit_trigger is not None
+            and candle.low <= first_take_profit_trigger
+            and position.stop_loss_price > position.entry_price
+        ):
+            move_reason = "first_take_profit_halfway_breakeven"
+            payload_extra.update(
+                {
+                    "firstTakeProfitPrice": first_take_profit_price,
+                    "breakevenTriggerPrice": first_take_profit_trigger,
+                    "progressToFirstTakeProfit": FIRST_TAKE_PROFIT_BREAKEVEN_PROGRESS,
+                }
+            )
+        elif candle.low <= position.entry_price - risk_distance * policy.breakeven_progress_r and position.stop_loss_price > position.entry_price:
             move_reason = "strategy_holding_policy_breakeven"
     if move_reason is None and _held_profitably_for_breakeven_window(position, candle):
         move_reason = "profitable_after_60h_breakeven"

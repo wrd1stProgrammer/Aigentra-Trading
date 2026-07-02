@@ -1726,19 +1726,17 @@ export function LiveCandleChart({
               <span className="font-mono text-lg font-bold tracking-tight text-white sm:text-xl">
                 {marketPrice !== null ? formatter.format(marketPrice) : "-"}
               </span>
-              <span
-                className={`inline-flex items-center rounded-md px-1.5 py-0.5 font-mono text-[11px] font-bold leading-none ring-1 ${
-                  dayChangePct === null
-                    ? "bg-zinc-500/10 text-zinc-400 ring-zinc-500/20"
-                    : dayChangePct >= 0
+              {dayChangePct !== null ? (
+                <span
+                  className={`inline-flex items-center rounded-md px-1.5 py-0.5 font-mono text-[11px] font-bold leading-none ring-1 ${
+                    dayChangePct >= 0
                       ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20 dark:bg-emerald-500/12 dark:ring-emerald-500/30"
                       : "bg-rose-500/10 text-rose-400 ring-rose-500/20 dark:bg-rose-500/12 dark:ring-rose-500/30"
-                }`}
-              >
-                {dayChangePct === null
-                  ? t("chart.dayChangeUnavailable")
-                  : `${dayChangePct >= 0 ? "+" : ""}${percentFormatter.format(dayChangePct)}%`}
-              </span>
+                  }`}
+                >
+                  {`${dayChangePct >= 0 ? "+" : ""}${percentFormatter.format(dayChangePct)}%`}
+                </span>
+              ) : null}
             </div>
           </div>
 

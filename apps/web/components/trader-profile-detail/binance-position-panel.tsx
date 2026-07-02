@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { PaperOrder, PaperPosition } from "@/lib/api";
-import { formatClockTime, formatNumber } from "@/lib/format";
+import { formatClockTime, formatFixedNumber, formatNumber } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
 import { useAppContext } from "@/components/app-provider";
 import { isOpenChartExposure } from "@/components/live-candle-chart-overlays";
@@ -228,7 +228,7 @@ function PositionRow({
           {formatSignedWholeCurrency(pnl, locale)}
         </div>
         <div className={`mt-0.5 font-mono text-[10px] font-semibold ${pnlToneClass(roe)}`}>
-          {roe !== null ? `(${roe > 0 ? "+" : ""}${formatNumber(roe, 0, locale)}%)` : "-"}
+          {roe !== null ? `(${roe > 0 ? "+" : ""}${formatFixedNumber(roe, 2, locale)}%)` : "-"}
         </div>
       </PositionCell>
       <PositionCell className="font-mono text-zinc-700 dark:text-zinc-300">{entryDuration}</PositionCell>

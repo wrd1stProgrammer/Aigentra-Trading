@@ -757,6 +757,61 @@ def test_short_partial_take_profit_moves_stop_to_breakeven(temp_db):
         ]
 
 
+def test_options_skew_moves_stop_to_breakeven_at_halfway_to_first_take_profit(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "volatility-skew-sentinel", "BTCUSDT", max_leverage=10)
+
+        from app.repositories import to_json
+        order_payload = {
+            "initialQuantity": 1.0,
+            "takeProfits": [
+                {"price": 120.0, "weight": 0.5, "status": "pending", "reason": "TP1"},
+                {"price": 140.0, "weight": 0.5, "status": "pending", "reason": "TP2"},
+            ],
+        }
+
+        order = place_paper_order(
+            db,
+            trader_id="volatility-skew-sentinel",
+            symbol="BTCUSDT",
+            side="long",
+            quantity=1.0,
+            leverage=5,
+            take_profit_price=120.0,
+            stop_loss_price=80.0,
+        )
+        order.payload_json = to_json(order_payload)
+        db.flush()
+
+        process_candle(
+            db,
+            "volatility-skew-sentinel",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 99, "close": 100},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+
+        result = process_candle(
+            db,
+            "volatility-skew-sentinel",
+            "BTCUSDT",
+            {"open": 100, "high": 111, "low": 100, "close": 109},
+        )
+
+        db.refresh(position)
+        expected_stop = fee_inclusive_breakeven(
+            entry_price=100,
+            quantity=position.quantity,
+            entry_fee=position.entry_fee,
+            taker_fee_rate=Decimal("0.0005"),
+            side="long",
+        )
+        assert rounded(position.stop_loss_price) == rounded(expected_stop)
+        assert [event.event_type for event in result.events] == ["stop_moved_to_breakeven"]
+        payload = from_json(result.events[0].payload_json) or {}
+        assert payload["reason"] == "first_take_profit_halfway_breakeven"
+
+
 def test_close_position_cancels_remaining_orders_for_same_plan(temp_db):
     with session_scope() as db:
         upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)

@@ -20,7 +20,7 @@ except ImportError:
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.clients.binance_client import ALLOWED_SYMBOLS
+from app.clients.binance_client import ALLOWED_SYMBOLS, Candle as MarketCandle
 from app.clients.market_data_client import MarketDataClient
 from app.core.config import get_settings
 from app.db import PaperOrderRecord, PaperPositionRecord, session_scope
@@ -87,6 +87,17 @@ def execution_tick_candle(symbol: str, price: Decimal, previous_price: Optional[
     }
 
 
+def execution_market_candle(symbol: str, candle: MarketCandle) -> dict[str, Any]:
+    return {
+        "symbol": normalize_execution_symbol(symbol),
+        "open": Decimal(str(candle.open)),
+        "high": Decimal(str(candle.high)),
+        "low": Decimal(str(candle.low)),
+        "close": Decimal(str(candle.close)),
+        "timestamp": datetime.fromtimestamp(candle.openTime / 1000, timezone.utc),
+    }
+
+
 def active_exposure_trader_ids(db: Session, symbol: str) -> list[str]:
     clean_symbol = normalize_execution_symbol(symbol)
     order_traders = db.execute(
@@ -113,6 +124,28 @@ async def fetch_execution_price(symbol: str, market_client: Optional[MarketDataC
     if price <= 0:
         raise ValueError("market data provider returned an invalid mark price")
     return price
+
+
+async def fetch_execution_candle(
+    symbol: str,
+    market_client: Optional[MarketDataClient] = None,
+    *,
+    previous_price: Optional[Decimal] = None,
+) -> tuple[Decimal, dict[str, Any]]:
+    client = market_client or MarketDataClient(timeout_seconds=3.0)
+    candles = await client.get_klines(normalize_execution_symbol(symbol), "1m", 2)
+    if candles:
+        candle = execution_market_candle(symbol, candles[-1])
+        close_price = to_positive_execution_price(candle["close"])
+        return close_price, candle
+    price = await fetch_execution_price(symbol, client)
+    return price, execution_tick_candle(symbol, price, previous_price)
+
+
+def to_positive_execution_price(value: Decimal) -> Decimal:
+    if value <= 0:
+        raise ValueError("market data provider returned an invalid execution price")
+    return value
 
 
 def _result_has_execution_change(result: PaperEngineResult) -> bool:
@@ -303,12 +336,16 @@ async def run_realtime_execution_once(
                     continue
 
                 try:
+                    previous_price = _LAST_PRICE_BY_SYMBOL.get(symbol)
                     if price_by_symbol and symbol in price_by_symbol:
-                        price = Decimal(str(price_by_symbol[symbol]))
+                        price = to_positive_execution_price(Decimal(str(price_by_symbol[symbol])))
+                        candle = execution_tick_candle(symbol, price, previous_price)
                     else:
-                        price = await fetch_execution_price(symbol, market_client_factory())
-                    if price <= 0:
-                        raise ValueError("execution price must be positive")
+                        price, candle = await fetch_execution_candle(
+                            symbol,
+                            market_client_factory(),
+                            previous_price=previous_price,
+                        )
                 except Exception as exc:
                     counts["errors"] += 1
                     results.append(
@@ -320,7 +357,6 @@ async def run_realtime_execution_once(
                     )
                     continue
 
-                candle = execution_tick_candle(symbol, price, _LAST_PRICE_BY_SYMBOL.get(symbol))
                 _LAST_PRICE_BY_SYMBOL[symbol] = price
                 symbol_changed_traders: list[str] = []
 
