@@ -11,6 +11,7 @@ import {
   CaretDown,
   CircleNotch,
   Medal,
+  PauseCircle,
   Star,
   Trophy,
 } from "@phosphor-icons/react";
@@ -98,6 +99,14 @@ const periodLabels = {
 
 function periodLabel(locale: Locale, period: keyof typeof periodLabels.en) {
   return (locale === "ko" ? periodLabels.ko : periodLabels.en)[period];
+}
+
+function monthReturnMetricLabel(locale: Locale, month: number, t: (key: string) => string) {
+  const monthLabel =
+    locale === "ko"
+      ? String(month)
+      : new Intl.DateTimeFormat(locale, { month: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2024, month - 1, 1)));
+  return t("leaderboard.monthlyReturnWithMonth").replace("{month}", monthLabel);
 }
 
 type LeagueMonthOption = {
@@ -208,7 +217,7 @@ export function LeaderboardPageClient() {
     includeRelated: false,
     leagueMonth: selectedLeagueMonth
   }), [selectedLeagueMonth]);
-  const leaguePeriodLabel = selectedLeagueMonth ? `${selectedLeagueMonth} UTC` : t("leaderboard.currentLeague");
+  const liveRacePeriodLabel = t("leaderboard.liveRace.period");
 
   const fallbackBundle = useMemo<LeaderboardBundle>(() => ({
     symbol: "BTCUSDT",
@@ -368,19 +377,23 @@ export function LeaderboardPageClient() {
     () => favoritesOnly ? visibleStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : visibleStandingsBase,
     [favoriteTraderIds, favoritesOnly, visibleStandingsBase]
   );
+  const monthlyReturnLabel = selectedLeagueMonth ? monthReturnMetricLabel(locale, selectedLeagueMonthParts.month, t) : t("leaderboard.monthlyReturn");
   const returnColumns = useMemo(
-    () => selectedLeagueMonth ? [fallbackReturnColumn("monthly", t), topShortTermReturnColumn(visibleStandings, t)] : topReturnColumns(visibleStandings, t),
-    [selectedLeagueMonth, t, visibleStandings]
+    () => selectedLeagueMonth ? [fallbackReturnColumn("monthly", t, monthlyReturnLabel), topShortTermReturnColumn(visibleStandings, t)] : topReturnColumns(visibleStandings, t),
+    [monthlyReturnLabel, selectedLeagueMonth, t, visibleStandings]
   );
   const hiddenTraderCount = Math.max(0, displayStandings.length - visibleStandingsBase.length);
   const activeTrader = visibleStandings.find((item) => item.id === activeTraderId) ?? visibleStandings[0] ?? null;
-  const openPositions = visibleStandings.reduce((sum, item) => sum + item.openPositions, 0);
-  const openOrders = visibleStandings.reduce((sum, item) => sum + item.openOrders, 0);
-  const activeTraderCount = visibleStandings.filter((item) => item.openPositions || item.openOrders).length;
   const currentSummaryByTrader = useMemo(
     () => buildCurrentSummaryMap(currentLeagueBundleQuery.data?.summaries ?? []),
     [currentLeagueBundleQuery.data?.summaries]
   );
+  const currentLeagueStandings = useMemo(() => {
+    const currentBundle = currentLeagueBundleQuery.data;
+    if (!currentBundle?.summaries?.length) return null;
+    const currentTraders = currentBundle.traders?.length ? currentBundle.traders : traders;
+    return buildStandings(currentTraders, currentBundle.summaries);
+  }, [currentLeagueBundleQuery.data, traders]);
 
   const liveExposurePositionsQuery = useQuery({
     queryKey: ["paper", "positions", "active", "BTCUSDT", "leaderboard"],
@@ -420,6 +433,17 @@ export function LeaderboardPageClient() {
     () => buildExposureMap(liveExposurePositions, liveExposureOrders, pendingPlans),
     [liveExposureOrders, liveExposurePositions, pendingPlans]
   );
+  const liveRaceStandingsBase = useMemo(() => {
+    const liveStandings = selectedLeagueMonth && currentLeagueStandings ? currentLeagueStandings : standings;
+    return shouldUsePreviewLimit ? liveStandings.slice(0, FREE_LEADERBOARD_LIMIT) : liveStandings;
+  }, [currentLeagueStandings, selectedLeagueMonth, shouldUsePreviewLimit, standings]);
+  const liveRaceStandings = useMemo(
+    () => (favoritesOnly ? liveRaceStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : liveRaceStandingsBase),
+    [favoriteTraderIds, favoritesOnly, liveRaceStandingsBase]
+  );
+  const liveRaceOpenPositions = liveRaceStandings.reduce((sum, item) => sum + item.openPositions, 0);
+  const liveRaceOpenOrders = liveRaceStandings.reduce((sum, item) => sum + item.openOrders, 0);
+  const liveRaceActiveTraderCount = liveRaceStandings.filter((item) => item.openPositions || item.openOrders).length;
 
 
   // Dynamic snapshot symbol
@@ -479,13 +503,13 @@ export function LeaderboardPageClient() {
       />
 
       <LiveRaceBoard
-        standings={visibleStandings}
+        standings={liveRaceStandings}
         exposureByTrader={exposureByTrader}
         currentSummaryByTrader={currentSummaryByTrader}
-        openPositions={openPositions}
-        openOrders={openOrders}
-        activeTraderCount={activeTraderCount}
-        leaguePeriodLabel={leaguePeriodLabel}
+        openPositions={liveRaceOpenPositions}
+        openOrders={liveRaceOpenOrders}
+        activeTraderCount={liveRaceActiveTraderCount}
+        leaguePeriodLabel={liveRacePeriodLabel}
         locale={locale}
         t={t}
       />
@@ -917,7 +941,7 @@ function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, act
                     : "hover:bg-white/[0.02] border-l-transparent hover:border-l-emerald-500/50"
                 }`}
               >
-                <RankBadge rank={trader.rank} />
+                <TraderRankBadge trader={trader} t={t} />
                 <TraderIdentity trader={trader} progress={progress} t={t} />
                 <ProgressCell progress={progress} />
                 <MetricValue value={formatSignedPercent(primaryReturnValue)} tone={primaryReturnValue >= 0 ? "good" : "bad"} />
@@ -1025,7 +1049,7 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
                 prefetch={false}
                 className="focus-ring grid grid-cols-[38px_minmax(0,1fr)_88px_28px] items-center gap-2 px-3 py-3.5 transition hover:bg-white/[0.02]"
               >
-                <RankBadge rank={trader.rank} compact />
+                <TraderRankBadge trader={trader} t={t} compact />
                 <div className="flex min-w-0 items-center gap-2.5">
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-1.5">
@@ -1108,7 +1132,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
               </div>
               <p className="text-zinc-400 mt-2 text-xs leading-relaxed font-sans break-keep">{t(traderDetailKey(trader.id))}</p>
             </div>
-            <RankBadge rank={trader.rank} />
+            <TraderRankBadge trader={trader} t={t} />
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <StatusPill label={state} tone={progress.tone} />
@@ -1178,6 +1202,32 @@ function RankBadge({ rank, compact = false }: { rank: number; compact?: boolean 
   );
 }
 
+function isRetiredTraderLifecycle(trader: Pick<TraderStanding, "lifecycleStatus" | "retiredFromMonth">) {
+  const status = String(trader.lifecycleStatus ?? "").toLowerCase();
+  return status === "retired" || Boolean(trader.retiredFromMonth);
+}
+
+function TraderRankBadge({
+  trader,
+  t,
+  compact = false
+}: {
+  trader: Pick<TraderStanding, "rank" | "lifecycleStatus" | "retiredFromMonth">;
+  t: (key: string) => string;
+  compact?: boolean;
+}) {
+  if (!isRetiredTraderLifecycle(trader)) return <RankBadge rank={trader.rank} compact={compact} />;
+  return (
+    <span
+      className={`${compact ? "size-8" : "size-10"} grid place-items-center rounded-full border border-zinc-500/25 bg-zinc-500/10 text-zinc-400`}
+      title={t("leaderboard.retiredTraderTitle")}
+    >
+      <PauseCircle size={compact ? 17 : 20} weight="bold" />
+      <span className="sr-only">{t("leaderboard.retiredRankBadge")}</span>
+    </span>
+  );
+}
+
 function TraderMark({ trader, compact = false }: { trader: TraderStanding; compact?: boolean }) {
   const visual = traderVisuals[trader.id] ?? traderVisuals["channel-rider"];
   return (
@@ -1220,11 +1270,11 @@ function TraderLifecycleBadge({
 }) {
   const status = String(trader.lifecycleStatus ?? "").toLowerCase();
   const isNew = status === "new" || Boolean(trader.launchMonth && !trader.retiredFromMonth);
-  const isRetired = status === "retired" || Boolean(trader.retiredFromMonth);
+  const isRetired = isRetiredTraderLifecycle(trader);
   if (!isNew && !isRetired) return null;
   const label = isNew
     ? (sidebar ? t("leaderboard.newTraderBadge") : "N")
-    : (sidebar ? t("leaderboard.retiredTraderBadge") : "OFF");
+    : (sidebar ? t("leaderboard.retiredTraderBadge") : t("leaderboard.retiredTraderCompactBadge"));
   const title = isNew ? t("leaderboard.newTraderTitle") : t("leaderboard.retiredTraderTitle");
   const tone = isNew
     ? "border-emerald-400/45 bg-emerald-400/10 text-emerald-200"
@@ -1297,10 +1347,10 @@ function topShortTermReturnColumn(standings: readonly TraderStanding[], t: (key:
   };
 }
 
-function fallbackReturnColumn(key: ReturnMetricKey, t: (key: string) => string): ReturnColumn {
+function fallbackReturnColumn(key: ReturnMetricKey, t: (key: string) => string, labelOverride?: string): ReturnColumn {
   return {
     key,
-    label: returnMetricLabel(key, t),
+    label: labelOverride ?? returnMetricLabel(key, t),
     peakValue: 0
   };
 }
@@ -1849,7 +1899,7 @@ function RaceLeaderCard({ item, t }: { readonly item: RaceBoardItem; readonly t:
             <p className="mt-1 truncate font-mono text-xs text-zinc-500">{traderVisuals[item.trader.id]?.alias ?? item.trader.name}</p>
           </div>
         </div>
-        <RankBadge rank={item.trader.rank} />
+        <TraderRankBadge trader={item.trader} t={t} />
       </div>
       <div className="mt-3 flex min-w-0 items-end justify-between gap-3">
         <div className="min-w-0 flex-1">

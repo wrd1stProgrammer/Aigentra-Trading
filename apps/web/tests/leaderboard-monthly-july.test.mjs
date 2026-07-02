@@ -38,11 +38,22 @@ test("monthly league UI does not overwrite selected-month returns with live trai
   );
   assert.match(
     leaderboardSource,
-    /selectedLeagueMonth \? \[fallbackReturnColumn\("monthly", t\), topShortTermReturnColumn\(visibleStandings, t\)\] : topReturnColumns\(visibleStandings, t\)/,
+    /selectedLeagueMonth \? \[fallbackReturnColumn\("monthly", t, monthlyReturnLabel\), topShortTermReturnColumn\(visibleStandings, t\)\] : topReturnColumns\(visibleStandings, t\)/,
     "monthly tabs should display the selected-month return column with one dynamically selected 24h or 7d companion metric"
   );
+  assert.match(
+    leaderboardSource,
+    /const monthlyReturnLabel = selectedLeagueMonth \? monthReturnMetricLabel\(locale, selectedLeagueMonthParts\.month, t\) : t\("leaderboard\.monthlyReturn"\)/,
+    "monthly tabs should label the primary return metric with the selected UTC month"
+  );
+  assert.match(i18nSource, /"leaderboard\.monthlyReturnWithMonth": "\{month\}월 수익률"/, "Korean monthly return label should include the selected month");
+  assert.match(i18nSource, /"leaderboard\.monthlyReturnWithMonth": "\{month\} Return"/, "English monthly return label should use an interpolated month");
   assert.doesNotMatch(i18nSource, /24H \/ 7D 최고|Best 24H \/ 7D/, "monthly UI should not expose a generic best-of short-term label");
   assert.doesNotMatch(i18nSource, /24H 최고/, "short-term race labels should not read as a static best-of metric");
+  assert.match(i18nSource, /"leaderboard\.currentLeague": "전체"/, "the non-monthly league tab should be labeled as the full league");
+  assert.match(i18nSource, /"leaderboard\.liveRace\.period": "실시간"/, "the live race board should not inherit the selected league tab label");
+  assert.match(leaderboardSource, /leaguePeriodLabel=\{liveRacePeriodLabel\}/, "live race board should keep a stable live period label");
+  assert.doesNotMatch(leaderboardSource, /selectedLeagueMonth \? `\\$\\{selectedLeagueMonth\\} UTC` : t\("leaderboard\.currentLeague"\)/, "live race board should not change its period badge when monthly tabs change");
 });
 
 test("new and retired trader lifecycle badges are modeled for leaderboard surfaces", () => {
@@ -50,9 +61,13 @@ test("new and retired trader lifecycle badges are modeled for leaderboard surfac
   assert.match(tradersSource, /"volatility-skew-sentinel"/, "fallback trader catalog should include the skew trader");
   assert.match(tradersSource, /retiredFromMonth: "2026-07"/, "retired fallback traders should carry the July retirement marker");
   assert.match(leaderboardSource, /TraderLifecycleBadge/, "leaderboard rows should render lifecycle badges");
+  assert.match(leaderboardSource, /function TraderRankBadge/, "retired traders should use a lifecycle-aware rank slot");
+  assert.match(leaderboardSource, /isRetiredTraderLifecycle/, "retired lifecycle detection should be shared by rank and lifecycle badges");
+  assert.match(leaderboardSource, /<TraderRankBadge trader=\{trader\} t=\{t\}/, "trader rows and preview should use a lifecycle-aware rank slot");
   assert.match(leaderboardSource, /isTraderVisibleInLeagueMonth/, "monthly placeholders should apply lifecycle visibility before rendering rows");
   assert.match(leaderboardSource, /t\("leaderboard\.newTraderBadge"\)/, "new trader badge copy should be localized");
   assert.match(leaderboardSource, /t\("leaderboard\.retiredTraderBadge"\)/, "retired trader badge copy should be localized");
+  assert.match(i18nSource, /"leaderboard\.retiredRankBadge": "감시 중단"/, "retired rank icon should carry an accessible localized label");
   assert.match(leagueSource, /"liquidation-pressure-sniper"/, "new trader visuals should be registered");
   assert.match(leagueSource, /"volatility-skew-sentinel"/, "new trader visuals should be registered");
   assert.match(i18nSource, /"traders\.liquidation-pressure-sniper\.name"/, "liquidation trader name should be localized");

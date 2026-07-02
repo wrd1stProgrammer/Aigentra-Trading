@@ -644,6 +644,9 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "APPROVED ENTRY REASON RULE" in entry_contract
     assert "approvalReason must answer the entry reason before risk controls" in entry_contract
     assert "keyReasons[0] must name the market trigger that made this entry worth taking now" in entry_contract
+    assert "For approved entries, structure user-facing copy in this order: entry decision, trader-specific interpretation, then risk boundary" in entry_contract
+    assert "headline must be the plain answer to why this trader entered" in entry_contract
+    assert "Do not write a scattered chain that mixes price, RSI, stop, targets, fee-aware RR, and recent-loss memory before naming the entry thesis" in entry_contract
     assert "Do not answer approval with only higher-timeframe trend alignment, stop/target geometry, fee-aware RR, leverage, or risk percentage" in entry_contract
     assert "Put leverage or riskPercentOverride in action, adjustments, or managerNote, not as the reason the position was entered" in entry_contract
     assert "If there is no concrete entry trigger beyond trend alignment and RR, defer instead of approving" in entry_contract

@@ -31,6 +31,9 @@ test("leaderboard uses a zero-extra-fetch live race board instead of league over
   assert.match(leaderboardSource, /function LiveRaceBoard/, "race board should be a named component inside the leaderboard surface");
   assert.match(leaderboardSource, /buildRaceBoardItems/, "race board items should be derived from existing leaderboard data");
   assert.match(leaderboardSource, /return24h/, "race board should emphasize short-window movement, not duplicate all-time ranking only");
+  assert.match(leaderboardSource, /currentLeagueStandings/, "monthly screens should keep the race board anchored to current live standings");
+  assert.match(leaderboardSource, /standings=\{liveRaceStandings\}/, "race board should receive its own live standings instead of the selected table rows");
+  assert.match(leaderboardSource, /leaderboard\.liveRace\.period/, "race board should use a stable live period label");
   assert.doesNotMatch(leaderboardSource, /\[ LEAGUE OVERVIEW \]/, "old overview title should be fully removed");
   assert.doesNotMatch(leaderboardSource, /data-testid="league-overview-section"/, "old overview section target should be removed");
   assert.doesNotMatch(leaderboardSource, /data-testid="league-overview-stream"/, "old overview stream target should be removed");
@@ -178,7 +181,7 @@ test("monthly league pins the visible return metric to the selected UTC month", 
   );
   assert.match(
     leaderboardSource,
-    /selectedLeagueMonth \? \[fallbackReturnColumn\("monthly", t\), topShortTermReturnColumn\(visibleStandings, t\)\] : topReturnColumns\(visibleStandings, t\)/,
+    /selectedLeagueMonth \? \[fallbackReturnColumn\("monthly", t, monthlyReturnLabel\), topShortTermReturnColumn\(visibleStandings, t\)\] : topReturnColumns\(visibleStandings, t\)/,
     "monthly tabs should show the selected-month return column plus one dynamically selected 24h or 7d column"
   );
   assert.match(

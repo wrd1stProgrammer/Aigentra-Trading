@@ -56,7 +56,8 @@ def structured_review_schema() -> dict[str, Any]:
             "headline": {
                 "type": "string",
                 "description": (
-                    "One plain-language sentence. For entry approval, explain why this entry is being taken now before risk controls; "
+                    "One plain-language sentence. For entry approval, headline must be the plain answer to why this trader entered now: "
+                    "name the trader concept or setup family, the entry zone, and the market trigger before risk controls; "
                     "for position management, explain whether the current position is working, weakening, protected, or invalidated."
                 ),
             },
@@ -69,7 +70,7 @@ def structured_review_schema() -> dict[str, Any]:
                 "items": {"type": "string"},
                 "description": (
                     "Up to two standalone evidence sentences. For entry approval, the first reason must name the concrete market trigger or entry thesis; "
-                    "the second may cover current price versus entry, stop, target, PnL, recent candles, or recent reviews."
+                    "read it through the trader-specific strategy concept, not as a generic indicator list. The second may cover current price versus entry, stop, target, PnL, recent candles, or recent reviews."
                 ),
             },
             "risks": {
@@ -114,7 +115,8 @@ def trade_review_schema() -> dict[str, Any]:
             "approvalReason": {
                 "type": "string",
                 "description": (
-                    "Legacy entry approval rationale. Write 1-2 compact sentences mirroring structuredReview, with the entry reason before risk controls. "
+                    "Legacy entry approval rationale. Write 1-2 compact sentences mirroring structuredReview, with entry decision, trader-specific interpretation, then risk boundary. "
+                    "Do not write a scattered chain that mixes price, RSI, stop, targets, fee-aware RR, and recent-loss memory before naming the entry thesis. "
                     "Do not answer only with higher-timeframe trend, stop/target geometry, RR, leverage, or risk percentage. "
                     "Do not cite setupScore as the main reason or describe approval as paper-trading learning."
                 ),

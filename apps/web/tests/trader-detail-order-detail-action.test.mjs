@@ -466,6 +466,33 @@ test("open position detail shows the saved entry approval rationale instead of g
   assert.notEqual(text, "저장된 AI 판단 근거 없음");
 });
 
+test("legacy entry approval rationale is reorganized into a clear entry thesis before risk notes", () => {
+  const rawRationale =
+    "BTC가 다시 상단 채널에서 페이드되고 있으며, 가격이 60398.1의 확인 한계에 위치하고 있고 60579.3의 탐색이 여전히 저항 구역에 있으며, 15분 RSI가 58.9 근처에 있어 통제된 채널 가장자리 시도를 지지합니다. 61342.8의 손절은 페이드 구역 위에 있으며, 59217.2와 58287.1의 목표는 1.92의 수수료 고려 손익비를 제공하지만, 최근 세 번의 SHORT 손절이 반복되어 위험을 0.35%로 줄여야 합니다.";
+  const text = scenarioCopy.scenarioDetailRationaleText(
+    {
+      id: "position-legacy-approval",
+      source: "position",
+      phase: "OPEN_POSITION",
+      status: "open",
+      rationale: rawRationale
+    },
+    (key) =>
+      ({
+        "detail.noAiRationale": "저장된 AI 판단 근거 없음",
+        "aiReview.entryDecision": "진입 판단",
+        "aiReview.strategyInterpretation": "전략 해석",
+        "aiReview.riskCondition": "리스크 조건"
+      })[key] ?? key
+  );
+
+  assert.match(text, /^진입 판단:/);
+  assert.match(text, /전략 해석:/);
+  assert.match(text, /리스크 조건:/);
+  assert.ok(text.indexOf("진입 판단:") < text.indexOf("리스크 조건:"), "entry thesis should appear before risk controls");
+  assert.doesNotMatch(text, /^BTC가 다시 .*제공하지만, 최근/s, "legacy copy should not stay as one scattered sentence chain");
+});
+
 test("latest scenario feed includes AI-approved entry rationale and management reviews after a trade closes", () => {
   const scenarios = [
     { id: "review-1", source: "review", phase: "OPEN_POSITION", status: "HOLD" },
