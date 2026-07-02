@@ -9,9 +9,19 @@ const opinionCardSource = readFileSync(new URL("../components/consensus-hourly-o
 const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
 const policySource = readFileSync(new URL("../lib/league-sentiment-ui-policy.ts", import.meta.url), "utf8");
+const opinionViewPolicySource = readFileSync(new URL("../lib/consensus-opinion-view-policy.ts", import.meta.url), "utf8");
 
 function loadPolicyModule() {
   const compiled = ts.transpileModule(policySource, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const module = { exports: {} };
+  vm.runInNewContext(compiled, { module, exports: module.exports, require: () => ({}) });
+  return module.exports;
+}
+
+function loadOpinionViewPolicyModule() {
+  const compiled = ts.transpileModule(opinionViewPolicySource, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const module = { exports: {} };
@@ -105,4 +115,59 @@ test("AI sentiment status copy is localized instead of leaking raw backend enums
   assert.match(consensusSource, /localizedActiveRationale/, "raw English position rationales should be replaced with localized fallback copy when needed");
   assert.match(i18nSource, /"consensus\.riskLevel\.MEDIUM"/, "risk level locale keys should exist");
   assert.match(i18nSource, /"consensus\.activeRationale\.inPosition"/, "localized active-position rationale copy should exist");
+});
+
+test("Aigentra opinion card stays compact while preserving decision signals", () => {
+  const { compactItems, compactLongShortContext, compactOpinionInsights, stripEvidenceCitation } = loadOpinionViewPolicyModule();
+
+  assert.equal(
+    stripEvidenceCitation("SHORT 명목 가치가 LONG 명목 가치보다 큽니다. 출처: position:516, position:515."),
+    "SHORT 명목 가치가 LONG 명목 가치보다 큽니다.",
+    "visible compact bullets should remove raw backend evidence ids",
+  );
+  assert.deepEqual(
+    Array.from(compactItems(["첫 근거. 출처: position:1.", "둘째 근거.", "셋째 근거."], "비어 있음", 2)),
+    ["첫 근거.", "둘째 근거."],
+    "compact bullets should keep the highest-priority readable items only",
+  );
+  assert.deepEqual(Array.from(compactItems([], "비어 있음", 1)), ["비어 있음"], "compact bullets should keep an explicit empty state");
+  assert.equal(
+    compactLongShortContext("SHORT 압력이 더 강하며, 4개의 활성 SHORT 포지션과 1개의 활성 LONG 포지션이 있습니다."),
+    "SHORT 압력이 더 강하며",
+    "long-short context should be summarized before display",
+  );
+  assert.deepEqual(
+    Array.from(
+      compactOpinionInsights({
+        drivers: ["숏 노출 우세. 출처: position:1."],
+        risks: ["손절 집중으로 오판 가능. 출처: closed_position:2."],
+        watch: ["60535 돌파 여부 확인. 출처: position:3."],
+        driverLabel: "핵심 근거",
+        riskLabel: "주의할 점",
+        watchLabel: "다음 확인",
+        emptyDriver: "근거 없음",
+        emptyRisk: "리스크 없음",
+        emptyWatch: "확인 없음",
+      }),
+      (insight) => ({ label: insight.label, item: insight.item, tone: insight.tone }),
+    ),
+    [
+      { label: "핵심 근거", item: "숏 노출 우세.", tone: "good" },
+      { label: "주의할 점", item: "손절 집중으로 오판 가능.", tone: "warn" },
+      { label: "다음 확인", item: "60535 돌파 여부 확인.", tone: "neutral" },
+    ],
+    "compact insight policy should keep drivers, risks, and watch conditions visible without raw evidence ids",
+  );
+
+  assert.match(opinionCardSource, /consensus\.opinionAction/, "action copy should be localized and visible as the primary next step");
+  assert.match(opinionCardSource, /consensus\.opinionRisk/, "risk should remain visible in the compact summary");
+  assert.match(opinionCardSource, /consensus\.opinionConfidence/, "confidence should remain visible in the compact summary");
+  assert.match(opinionCardSource, /consensus\.opinionLongShort/, "long/short context should remain visible in the compact summary");
+  assert.match(opinionCardSource, /consensus\.opinionWatch/, "next checks should remain visible");
+  assert.match(opinionCardSource, /compactOpinionInsights/, "drivers, risks, and watch conditions should share one compact display policy");
+  assert.doesNotMatch(opinionCardSource, /lg:grid-cols-\[minmax\(0,1fr\)_320px\]/, "opinion card should not keep the heavy right sidebar layout");
+  assert.doesNotMatch(opinionCardSource, /md:grid-cols-3/, "opinion card should not render three dense evidence cards");
+  assert.doesNotMatch(opinionCardSource, /SourceGroupList|FreshnessRow/, "source and freshness details should not dominate the simplified opinion card");
+  assert.doesNotMatch(opinionCardSource, /opinion\.confidenceReason &&/, "confidence explanation should not expand the compact card");
+  assert.doesNotMatch(opinionCardSource, /Suggested Action/, "visible action label should not leak English copy in localized UI");
 });

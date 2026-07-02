@@ -536,9 +536,9 @@ export function ConsensusPageClient() {
         lockPlacement="viewport"
         title={t("access.consensusLockedTitle")}
         description={t("access.consensusLockedDescription")}
-        className="space-y-4 md:space-y-6"
+        className="min-w-0 max-w-full space-y-4 md:space-y-6"
       >
-      <div data-testid="consensus-hourly-opinion">
+      <div data-testid="consensus-hourly-opinion" className="min-w-0 max-w-full">
         <ConsensusHourlyOpinion
           data={hourlyOpinionQuery.data}
           isFetching={hourlyOpinionQuery.isFetching}
