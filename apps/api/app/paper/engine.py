@@ -28,6 +28,7 @@ from app.repositories import from_json, to_json, update_observation_candidate_ou
 PROFITABLE_HOLD_BREAKEVEN_HOURS = 60
 PROFITABLE_HOLD_BREAKEVEN_SECONDS = PROFITABLE_HOLD_BREAKEVEN_HOURS * 60 * 60
 FIRST_TAKE_PROFIT_BREAKEVEN_PROGRESS = Decimal("0.5")
+MIN_FIRST_TAKE_PROFIT_EXIT_FRACTION = Decimal("0.5")
 
 
 @dataclass(frozen=True)
@@ -326,6 +327,9 @@ def handle_take_profit_exit(
 
     target = take_profits[target_idx]
     weight = Decimal(str(target.get("weight", 0.5)))
+    weight = max(Decimal("0"), min(weight, Decimal("1")))
+    if target_idx == 0:
+        weight = max(weight, MIN_FIRST_TAKE_PROFIT_EXIT_FRACTION)
     
     # Mark target as filled
     target["status"] = "filled"

@@ -698,6 +698,54 @@ def test_partial_take_profit_reduces_position_size(temp_db):
         assert position.close_reason == "take_profit"
 
 
+def test_first_partial_take_profit_closes_at_least_half_position(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)
+
+        from app.repositories import to_json
+        order_payload = {
+            "initialQuantity": 1.0,
+            "takeProfits": [
+                {"price": 110.0, "weight": 0.4, "status": "pending", "reason": "TP1"},
+                {"price": 120.0, "weight": 0.6, "status": "pending", "reason": "TP2"},
+            ],
+        }
+
+        order = place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="long",
+            quantity=1.0,
+            leverage=10,
+            take_profit_price=110.0,
+            stop_loss_price=95.0,
+        )
+        order.payload_json = to_json(order_payload)
+        db.flush()
+
+        process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 100, "high": 104, "low": 99, "close": 103},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+
+        result = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 103, "high": 115, "low": 102, "close": 109},
+        )
+
+        db.refresh(position)
+        assert position.status == "open"
+        assert rounded(position.quantity) == Decimal("0.5000")
+        assert rounded(result.events[0].quantity) == Decimal("0.5000")
+        assert rounded(position.take_profit_price) == Decimal("120.0000")
+
+
 def test_short_partial_take_profit_moves_stop_to_breakeven(temp_db):
     with session_scope() as db:
         upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)

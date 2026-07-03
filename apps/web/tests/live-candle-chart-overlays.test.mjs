@@ -119,6 +119,26 @@ test("managed stop lookup does not mix position and order exposure ids", () => {
   assert.equal(overlayHelpers.latestManagedStopLoss({ records, symbol: "BTCUSDT", orderId: 7 }), 72000);
 });
 
+test("safe-side stop lines render as break-even instead of stop-loss", () => {
+  const t = (key) => ({
+    "chart.stopLoss": "손절",
+    "chart.breakEven": "본절"
+  })[key] ?? key;
+
+  assert.deepEqual(
+    overlayHelpers.stopLossLineState({ side: "LONG", entryPrice: 60000, stopLoss: 60031, t }),
+    { label: "본절", tone: "breakEven" }
+  );
+  assert.deepEqual(
+    overlayHelpers.stopLossLineState({ side: "SHORT", entryPrice: 60000, stopLoss: 59969, t }),
+    { label: "본절", tone: "breakEven" }
+  );
+  assert.deepEqual(
+    overlayHelpers.stopLossLineState({ side: "LONG", entryPrice: 60000, stopLoss: 59600, t }),
+    { label: "손절", tone: "stop" }
+  );
+});
+
 test("execution chart markers render only the selected trade cycle", () => {
   assert.match(source, /const visibleExecutionMarkers = useMemo/, "chart should derive a bounded execution marker set");
   assert.match(source, /if \(!selectedExecutionMarkerId\) return \[\];/, "recent execution chips should not paint chart labels by default");

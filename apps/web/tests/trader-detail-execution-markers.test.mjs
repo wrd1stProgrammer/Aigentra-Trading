@@ -161,6 +161,57 @@ test("execution markers hide neutral generic exits", () => {
   assert.equal(result.some((marker) => marker.shortLabel === "EX"), false);
 });
 
+test("execution markers show fee-aware break-even stop closes as break-even", () => {
+  const markers = loadTsModule("../components/trader-profile-detail/execution-markers.ts");
+  const t = translator({
+    "detail.markerEntry": "진입",
+    "detail.markerTakeProfit": "익절",
+    "detail.markerStopLoss": "손절",
+    "detail.markerBreakEven": "본절",
+    "detail.markerPartialExit": "분할 청산",
+    "detail.markerExit": "청산",
+    "detail.markerBuy": "매수",
+    "detail.markerSell": "매도",
+    "detail.markerLongEntryShort": "B",
+    "detail.markerShortEntryShort": "S",
+    "detail.markerTakeProfitShort": "TP",
+    "detail.markerStopLossShort": "SL",
+    "detail.markerBreakEvenShort": "BE",
+    "detail.markerPartialExitShort": "PX",
+    "detail.markerExitShort": "EX"
+  });
+
+  const result = markers.buildExecutionMarkers({
+    symbol: "BTCUSDT",
+    locale: "ko",
+    t,
+    closedPositions: [{ id: "be-1", symbol: "BTCUSDT", side: "long", openedAt: "2026-06-20T00:00:00Z" }],
+    events: [
+      { id: "fill", eventType: "order_filled", symbol: "BTCUSDT", positionId: "be-1", price: 60000, quantity: 0.2, createdAt: "2026-06-20T00:05:00Z" },
+      {
+        id: "close",
+        eventType: "position_closed",
+        symbol: "BTCUSDT",
+        positionId: "be-1",
+        price: 60031,
+        quantity: 0.2,
+        realizedPnl: 0,
+        payload: { side: "long", reason: "stop_loss", entryPrice: 60000, stopLossPrice: 60031, feeInclusive: true },
+        createdAt: "2026-06-20T01:20:00Z"
+      }
+    ]
+  });
+
+  const close = result.find((marker) => marker.eventId === "close");
+
+  assert.ok(close);
+  assert.equal(close.action, "breakEven");
+  assert.equal(close.actionLabel, "본절");
+  assert.equal(close.markerLabel, "LONG 본절");
+  assert.equal(close.shortLabel, "BE");
+  assert.equal(close.tone, "neutralExit");
+});
+
 test("default execution marker selection only highlights current open positions", () => {
   const markers = loadTsModule("../components/trader-profile-detail/execution-markers.ts");
   const candidates = [

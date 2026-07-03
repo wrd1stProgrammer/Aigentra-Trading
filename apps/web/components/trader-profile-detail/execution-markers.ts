@@ -4,7 +4,7 @@ import type { LeagueSymbol } from "@/lib/league";
 import type { Translator } from "@/components/trader-profile-detail/types";
 
 export type ExecutionMarkerTone = "longEntry" | "shortEntry" | "profitExit" | "lossExit" | "neutralExit";
-export type ExecutionMarkerAction = "entry" | "partialExit" | "exit" | "takeProfit" | "stopLoss";
+export type ExecutionMarkerAction = "entry" | "partialExit" | "exit" | "takeProfit" | "stopLoss" | "breakEven";
 
 export type ExecutionMarker = {
   id: string;
@@ -46,6 +46,7 @@ export type ExecutionMarkerCycle = {
   entryCount: number;
   takeProfitCount: number;
   stopLossCount: number;
+  breakEvenCount: number;
   partialExitCount: number;
   latestTimeMs: number;
   startedTimeMs: number;
@@ -154,12 +155,14 @@ function buildExecutionMarkerCycle({
   const exits = sorted.filter((marker) => marker.action !== "entry");
   const takeProfitCount = exits.filter((marker) => marker.action === "takeProfit").length;
   const stopLossCount = exits.filter((marker) => marker.action === "stopLoss").length;
+  const breakEvenCount = exits.filter((marker) => marker.action === "breakEven").length;
   const partialExitCount = exits.filter((marker) => marker.action === "partialExit").length;
   const representative = entries[0] ?? sorted[0];
   const sideLabelText = representative?.sideLabel && representative.sideLabel !== "-" ? representative.sideLabel : "-";
   const entrySummaryLabel = `${t("detail.markerEntry")}${entries.length || 0}`;
   const exitSummaryLabel = [
     takeProfitCount ? `${t("detail.markerTakeProfit")}${takeProfitCount}` : null,
+    breakEvenCount ? `${t("detail.markerBreakEven")}${breakEvenCount}` : null,
     stopLossCount ? `${t("detail.markerStopLoss")}${stopLossCount}` : null,
     partialExitCount ? `${t("detail.markerPartialExit")}${partialExitCount}` : null
   ].filter(Boolean).join(" · ");
@@ -187,6 +190,7 @@ function buildExecutionMarkerCycle({
     entryCount: entries.length,
     takeProfitCount,
     stopLossCount,
+    breakEvenCount,
     partialExitCount,
     latestTimeMs,
     startedTimeMs,
@@ -339,20 +343,35 @@ function eventAction(eventType: string, event: PaperTradeEvent, payload: Record<
   if (eventType.includes("ORDER_FILLED")) return "entry";
   if (eventType.includes("PARTIAL_TAKE_PROFIT") || eventType.includes("TAKE_PARTIAL_PROFIT")) return "takeProfit";
   if (eventType.includes("TAKE_PROFIT")) return "takeProfit";
-  if (eventType.includes("STOP_LOSS") || eventType.includes("LIQUIDATION")) return "stopLoss";
+  if (eventType.includes("STOP_LOSS")) return isBreakEvenExit(event, payload, pnl) ? "breakEven" : "stopLoss";
+  if (eventType.includes("LIQUIDATION")) return "stopLoss";
   if (eventType.includes("POSITION_REDUCED_BY_AI") || eventType.includes("REDUCE_SIZE") || eventType.includes("REDUCE_RISK")) {
     return pnl !== null && pnl > 0 ? "takeProfit" : "partialExit";
   }
   const reason = normalizeKey(payload?.reason ?? event.reason ?? event.message);
   if (reason.includes("TAKE_PROFIT") || reason.includes("PROFIT") || reason.includes("TP")) return "takeProfit";
+  if (isBreakEvenExit(event, payload, pnl)) return "breakEven";
   if (reason.includes("STOP_LOSS") || reason.includes("LOSS") || reason.includes("SL") || reason.includes("LIQUIDATION")) return "stopLoss";
   if (pnl !== null && pnl > 0.01) return "takeProfit";
   if (pnl !== null && pnl < -0.01) return "stopLoss";
   return "exit";
 }
 
+function isBreakEvenExit(event: PaperTradeEvent, payload: Record<string, unknown> | null, pnl: number | null) {
+  const reason = normalizeKey(payload?.reason ?? event.reason ?? event.message);
+  if (reason.includes("BREAKEVEN") || reason.includes("BREAK_EVEN") || reason.includes("STOP_AT_ENTRY") || reason.includes("본절")) return true;
+  const side = sideLabel(event.side ?? payload?.side);
+  const entryPrice = firstFiniteNumber(payload?.entryPrice, payload?.averageEntryPrice, payload?.avgEntryPrice, payload?.openPrice);
+  const exitPrice = firstFiniteNumber(event.price, payload?.exitPrice, payload?.price, payload?.stopLossPrice, payload?.stopLoss, payload?.newStop, payload?.newStopLoss);
+  if (side === "LONG" && entryPrice !== null && exitPrice !== null && exitPrice >= entryPrice) return true;
+  if (side === "SHORT" && entryPrice !== null && exitPrice !== null && exitPrice <= entryPrice) return true;
+  const feeInclusive = payload?.feeInclusive === true || normalizeKey(payload?.feeInclusive).includes("TRUE");
+  return feeInclusive && pnl !== null && Math.abs(pnl) <= 0.01;
+}
+
 function markerTone(action: ExecutionMarkerAction, side: string, pnl: number | null): ExecutionMarkerTone {
   if (action === "entry") return side === "SHORT" ? "shortEntry" : "longEntry";
+  if (action === "breakEven") return "neutralExit";
   if (pnl !== null) {
     if (pnl > 0.01) return "profitExit";
     if (pnl < -0.01) return "lossExit";
@@ -366,6 +385,7 @@ function actionText(action: ExecutionMarkerAction, t: Translator) {
   if (action === "entry") return t("detail.markerEntry");
   if (action === "takeProfit") return t("detail.markerTakeProfit");
   if (action === "stopLoss") return t("detail.markerStopLoss");
+  if (action === "breakEven") return t("detail.markerBreakEven");
   if (action === "partialExit") return t("detail.markerPartialExit");
   return t("detail.markerExit");
 }
@@ -374,6 +394,7 @@ function shortMarkerLabel(action: ExecutionMarkerAction, side: string, t: Transl
   if (action === "entry") return side === "SHORT" ? t("detail.markerShortEntryShort") : t("detail.markerLongEntryShort");
   if (action === "takeProfit") return t("detail.markerTakeProfitShort");
   if (action === "stopLoss") return t("detail.markerStopLossShort");
+  if (action === "breakEven") return t("detail.markerBreakEvenShort");
   if (action === "partialExit") return t("detail.markerPartialExitShort");
   return t("detail.markerExitShort");
 }
@@ -383,6 +404,15 @@ function numberTradeActions(markers: readonly ExecutionMarker[], t: Translator) 
   return [...markers]
     .sort((left, right) => left.timeMs - right.timeMs)
     .map((marker) => {
+      if (marker.action === "breakEven") {
+        const actionLabel = actionText(marker.action, t);
+        return {
+          ...marker,
+          actionLabel,
+          markerLabel: marker.sideLabel && marker.sideLabel !== "-" ? `${marker.sideLabel} ${actionLabel}` : actionLabel,
+          shortLabel: shortMarkerLabel(marker.action, marker.sideLabel, t),
+        };
+      }
       const tradeLetter = tradeActionLetter(marker);
       const groupKey = `${marker.cycleId}:${tradeLetter}`;
       const nextCount = (counts.get(groupKey) ?? 0) + 1;

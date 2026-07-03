@@ -1,4 +1,4 @@
-export type OverlayTone = "entry" | "stop" | "takeProfit" | "position" | "order" | "takeProfitDone" | "stopDone";
+export type OverlayTone = "entry" | "stop" | "breakEven" | "takeProfit" | "position" | "order" | "takeProfitDone" | "stopDone";
 
 export type OverlayLine = {
   readonly value: number;
@@ -47,8 +47,9 @@ export type ManagedLevelLookup = {
 
 const PRICE_LINE_MERGE_TICK = 0.006;
 const OVERLAY_TONE_PRIORITY: Record<OverlayTone, number> = {
-  takeProfitDone: 7,
-  stopDone: 6,
+  takeProfitDone: 8,
+  stopDone: 7,
+  breakEven: 6,
   position: 5,
   stop: 4,
   takeProfit: 3,
@@ -137,6 +138,27 @@ export function shouldMarkTakeProfitCompleted(args: TakeProfitCompletionArgs) {
   if (args.exposureKind === "event") return true;
   if (args.exposureKind !== "position") return false;
   return isCompletedTargetStatus(args.completed);
+}
+
+export function stopLossLineState({
+  side,
+  entryPrice,
+  stopLoss,
+  t
+}: {
+  readonly side?: unknown;
+  readonly entryPrice?: unknown;
+  readonly stopLoss: unknown;
+  readonly t: (key: string) => string;
+}): { label: string; tone: OverlayTone } {
+  const entry = firstFiniteNumber(entryPrice);
+  const stop = firstFiniteNumber(stopLoss);
+  const normalizedSide = overlaySideLabel(side);
+  if (entry !== null && stop !== null) {
+    if (normalizedSide === "LONG" && stop >= entry) return { label: t("chart.breakEven"), tone: "breakEven" };
+    if (normalizedSide === "SHORT" && stop <= entry) return { label: t("chart.breakEven"), tone: "breakEven" };
+  }
+  return { label: t("chart.stopLoss"), tone: "stop" };
 }
 
 export function latestManagedStopLoss({ records, symbol, positionId, orderId }: ManagedLevelLookup) {

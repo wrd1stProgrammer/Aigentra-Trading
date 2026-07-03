@@ -61,6 +61,7 @@ import {
   priceLineTitle,
   shouldMarkTakeProfitCompleted,
   shouldRenderRealizedEventOverlays,
+  stopLossLineState,
   type OverlayLine,
   type OverlayTone
 } from "@/components/live-candle-chart-overlays";
@@ -95,6 +96,7 @@ const MAX_CHART_CANDLES = 5000;
 const OVERLAY_LINE_VISUAL = {
   entry: { lineWidth: 1, lineStyle: LineStyle.Dotted },
   stop: { lineWidth: 1, lineStyle: LineStyle.Dashed },
+  breakEven: { lineWidth: 1, lineStyle: LineStyle.Dashed },
   takeProfit: { lineWidth: 1, lineStyle: LineStyle.Dashed },
   position: { lineWidth: 1, lineStyle: LineStyle.Solid },
   order: { lineWidth: 1, lineStyle: LineStyle.Dotted },
@@ -450,7 +452,8 @@ export function LiveCandleChart({
         position.stop_loss_price
       );
       if (stopLoss !== null) {
-        lines.push({ value: stopLoss, label: t("chart.stopLoss"), tone: "stop" });
+        const stopState = stopLossLineState({ side: position.side, entryPrice, stopLoss, t });
+        lines.push({ value: stopLoss, label: stopState.label, tone: stopState.tone });
       }
       for (const target of positionTakeProfitTargets(position as Record<string, unknown>)) {
         const targetState = takeProfitState({
@@ -2071,6 +2074,7 @@ export function LiveCandleChart({
         <Legend color="bg-sky-400" label={t("chart.averageEntry")} />
         <Legend color="bg-violet-400" label={t("chart.order")} />
         <Legend color="bg-rose-400" label={t("chart.stopLoss")} />
+        <Legend color="bg-teal-300" label={t("chart.breakEven")} />
         <Legend color="bg-emerald-400" label={t("chart.takeProfit")} />
         <Legend color="bg-teal-500" label={t("chart.completedMarkers")} />
         {activeTool !== "cursor" ? (
@@ -2511,6 +2515,7 @@ function chartColors(theme: "dark" | "light") {
     position: "#38bdf8",
     order: "#a78bfa",
     stop: "#fb7185",
+    breakEven: "#2dd4bf",
     takeProfit: "#34d399",
     takeProfitDone: "#0f766e",
     stopDone: "#be123c"
