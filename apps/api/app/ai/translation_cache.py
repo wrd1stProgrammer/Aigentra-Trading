@@ -166,7 +166,7 @@ async def ensure_localized_payload_for_source(
     requested_locale = normalize_locale(locale)
     if requested_locale == CANONICAL_AI_LOCALE or source_id is None:
         return localized_payload, meta
-    if meta.get("status") == "ok":
+    if meta.get("status") == "ok" and not meta.get("staleSourceHash"):
         return localized_payload, meta
     if not getattr(settings, "ai_translation_enabled", True) or not getattr(settings, "openai_api_key", ""):
         return localized_payload, meta

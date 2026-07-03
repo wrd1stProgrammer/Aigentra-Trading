@@ -416,6 +416,52 @@ test("entry approval scenarios ignore stale embedded English structured review t
   assert.equal(positionScenario.rationale, "ADJUST_AND_APPROVE: 채널 지도자는 축소된 위험으로만 숏 진입할 수 있습니다.");
 });
 
+test("entry approval scenarios use canonical structured review when backend marks it current during stale translation", () => {
+  const trader = { id: "atr-trail-commander", currentPlan: "watch", baseRiskPercent: 0.4, description: "strategy", concept: "concept" };
+  const positions = [
+    {
+      id: 560,
+      symbol: "BTCUSDT",
+      status: "open",
+      side: "long",
+      entryPrice: 61984.8,
+      translation: {
+        status: "ok",
+        embeddedAiReview: {
+          status: "ok",
+          locale: "ko",
+          sourceHash: "current",
+          cachedSourceHash: "older",
+          staleSourceHash: true,
+          canonicalStructuredReview: true
+        }
+      },
+      payload: {
+        aiApprovalReason: "진입 조건은 61984.8에서 ATR 추세 지속 LONG입니다.",
+        aiReview: {
+          approvalReason: "진입 조건은 61984.8에서 ATR 추세 지속 LONG입니다."
+        },
+        aiStructuredReview: {
+          verdict: "Adjusted approval",
+          headline: "ATR trend-continuation LONG is worth a reduced-size entry around 61984.8.",
+          action: "Place the LONG with reduced 0.40% account risk and keep 5x leverage.",
+          keyReasons: ["1h and 4h buyers are holding above their EMA bands."],
+          risks: ["A failed push above 62050 can turn this into a late LONG."],
+          watchConditions: ["Cancel the pullback if TP1 is reached first."],
+          managerNote: "Use the structured review instead of synthetic fallback labels."
+        }
+      }
+    }
+  ];
+
+  const scenarios = league.buildScenarios({ trader, positions, orders: [], reviews: [], events: [] });
+  const positionScenario = scenarios.find((scenario) => scenario.id === "position-560");
+
+  assert.equal(positionScenario.reviewBrief.headline, "ATR trend-continuation LONG is worth a reduced-size entry around 61984.8.");
+  assert.equal(positionScenario.reviewBrief.action, "Place the LONG with reduced 0.40% account risk and keep 5x leverage.");
+  assert.equal(positionScenario.rationale, "진입 조건은 61984.8에서 ATR 추세 지속 LONG입니다.");
+});
+
 test("scenario modal does not show entry summary as management rationale", () => {
   assert.match(modalSource, /scenarioDetailRationaleText\(scenario, t\)/);
   assert.doesNotMatch(modalSource, /scenario\.rationale \?\? scenario\.summary/);
@@ -466,7 +512,7 @@ test("open position detail shows the saved entry approval rationale instead of g
   assert.notEqual(text, "저장된 AI 판단 근거 없음");
 });
 
-test("legacy entry approval rationale is reorganized into a clear entry thesis before risk notes", () => {
+test("legacy entry approval rationale is not rewritten into synthetic section labels", () => {
   const rawRationale =
     "BTC가 다시 상단 채널에서 페이드되고 있으며, 가격이 60398.1의 확인 한계에 위치하고 있고 60579.3의 탐색이 여전히 저항 구역에 있으며, 15분 RSI가 58.9 근처에 있어 통제된 채널 가장자리 시도를 지지합니다. 61342.8의 손절은 페이드 구역 위에 있으며, 59217.2와 58287.1의 목표는 1.92의 수수료 고려 손익비를 제공하지만, 최근 세 번의 SHORT 손절이 반복되어 위험을 0.35%로 줄여야 합니다.";
   const text = scenarioCopy.scenarioDetailRationaleText(
@@ -479,18 +525,14 @@ test("legacy entry approval rationale is reorganized into a clear entry thesis b
     },
     (key) =>
       ({
-        "detail.noAiRationale": "저장된 AI 판단 근거 없음",
-        "aiReview.entryDecision": "진입 판단",
-        "aiReview.strategyInterpretation": "전략 해석",
-        "aiReview.riskCondition": "리스크 조건"
+        "detail.noAiRationale": "저장된 AI 판단 근거 없음"
       })[key] ?? key
   );
 
-  assert.match(text, /^진입 판단:/);
-  assert.match(text, /전략 해석:/);
-  assert.match(text, /리스크 조건:/);
-  assert.ok(text.indexOf("진입 판단:") < text.indexOf("리스크 조건:"), "entry thesis should appear before risk controls");
-  assert.doesNotMatch(text, /^BTC가 다시 .*제공하지만, 최근/s, "legacy copy should not stay as one scattered sentence chain");
+  assert.equal(text, rawRationale);
+  assert.doesNotMatch(text, /^진입 판단:/);
+  assert.doesNotMatch(text, /전략 해석:/);
+  assert.doesNotMatch(text, /리스크 조건:/);
 });
 
 test("latest scenario feed includes AI-approved entry rationale and management reviews after a trade closes", () => {

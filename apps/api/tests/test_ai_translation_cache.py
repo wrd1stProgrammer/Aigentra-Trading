@@ -4,7 +4,12 @@ from decimal import Decimal
 
 import pytest
 
-from app.ai.translation_cache import fanout_ai_translations, localized_payload_for_source, merge_validated_translation
+from app.ai.translation_cache import (
+    ensure_localized_payload_for_source,
+    fanout_ai_translations,
+    localized_payload_for_source,
+    merge_validated_translation,
+)
 from app.ai.translation_provider import translation_style_contract_for_payload
 from app.core.config import Settings
 from app.db import AIReviewRecord, AITranslationCacheRecord, PaperPositionRecord, init_db, reset_db_engine, session_scope
@@ -373,7 +378,61 @@ def test_localized_payload_reuses_latest_source_translation_after_payload_shape_
         assert localized["reviewFacts"] == changed_payload["reviewFacts"]
 
 
-def test_stale_embedded_ai_review_translation_does_not_expose_english_structured_review(temp_db):
+def test_ensure_localized_payload_refreshes_stale_source_translation(temp_db):
+    payload = {
+        "decision": "HOLD",
+        "approvalReason": "Keep the short open while the invalidation level holds.",
+        "structuredReview": {
+            "headline": "Short is still valid.",
+            "action": "Keep watching the invalidation trigger.",
+            "riskLevel": "MEDIUM",
+        },
+    }
+    changed_payload = {
+        **payload,
+        "reviewFacts": [
+            {"code": "entryGeometryChecked", "labelKey": "reviewFact.entryGeometryChecked", "severity": "info"}
+        ],
+    }
+
+    with session_scope() as db:
+        asyncio.run(
+            fanout_ai_translations(
+                db,
+                settings=Settings(openai_api_key="test-key", ai_translation_enabled=True, ai_translation_target_locales=["ko"]),
+                source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+                source_id=809,
+                payload=payload,
+                symbol="BTCUSDT",
+                trader_id="atr-trail-commander",
+                provider=FakeTranslationProvider(),
+            )
+        )
+        refresh_provider = FakeTranslationProvider()
+
+        localized, meta = asyncio.run(
+            ensure_localized_payload_for_source(
+                db,
+                settings=Settings(openai_api_key="test-key", ai_translation_enabled=True, ai_translation_target_locales=["ko"]),
+                source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+                source_id=809,
+                payload=changed_payload,
+                locale="ko",
+                symbol="BTCUSDT",
+                trader_id="atr-trail-commander",
+                provider=refresh_provider,
+            )
+        )
+
+        assert refresh_provider.calls == ["ko"]
+        assert meta["status"] == "ok"
+        assert "staleSourceHash" not in meta
+        assert localized["approvalReason"] == "ko: translated approval reason"
+        assert localized["structuredReview"]["headline"] == "ko: translated headline"
+        assert localized["reviewFacts"] == changed_payload["reviewFacts"]
+
+
+def test_stale_embedded_ai_review_translation_preserves_current_structured_review_fallback(temp_db):
     # Given: an open position embeds a newer English AI review, but only an older Korean translation is cached.
     review_payload = {
         "decision": "ADJUST_AND_APPROVE",
@@ -441,12 +500,12 @@ def test_stale_embedded_ai_review_translation_does_not_expose_english_structured
         # When: the Korean trader detail response is serialized.
         data = serialize_record_for_ui(position, include_payload=True, locale="ko")
 
-        # Then: the translated approval reason remains, but stale English structured copy is withheld.
         payload = data["payload"]
         assert data["translation"]["embeddedAiReview"]["staleSourceHash"] is True
+        assert data["translation"]["embeddedAiReview"]["canonicalStructuredReview"] is True
         assert payload["aiApprovalReason"].startswith("ADJUST_AND_APPROVE: 채널 지도자")
         assert payload["aiReview"]["approvalReason"].startswith("ADJUST_AND_APPROVE: 채널 지도자")
-        assert "aiStructuredReview" not in payload
+        assert payload["aiStructuredReview"]["headline"] == review_payload["structuredReview"]["headline"]
         assert "structuredReview" not in payload["aiReview"]
 
 

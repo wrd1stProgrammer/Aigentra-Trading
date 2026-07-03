@@ -39,10 +39,11 @@ export function reviewBriefFromRecord(value: unknown): ReviewBrief | null {
   const nestedReview = recordValue(record?.review) ?? recordValue(payload?.review);
   const payloadAiReview = recordValue(payload?.aiReview);
   const embeddedTranslationIsCurrent = embeddedAiReviewTranslationIsCurrent(record, payload);
+  const embeddedCanonicalStructuredReviewIsCurrent = embeddedAiReviewCanonicalStructuredReviewIsCurrent(record, payload);
   return firstStructuredReview(
     record?.structuredReview,
     nestedReview?.structuredReview,
-    embeddedTranslationIsCurrent ? payload?.aiStructuredReview : null,
+    embeddedTranslationIsCurrent || embeddedCanonicalStructuredReviewIsCurrent ? payload?.aiStructuredReview : null,
     embeddedTranslationIsCurrent ? payloadAiReview?.structuredReview : null
   );
 }
@@ -135,6 +136,15 @@ function embeddedAiReviewTranslationIsCurrent(record: Record<string, unknown> | 
   const status = textValue(embeddedAiReview.status)?.toLowerCase();
   if (!status) return true;
   return status === "ok" || status === "canonical";
+}
+
+function embeddedAiReviewCanonicalStructuredReviewIsCurrent(
+  record: Record<string, unknown> | null,
+  payload: Record<string, unknown> | null
+): boolean {
+  const translation = recordValue(record?.translation) ?? recordValue(payload?.translation);
+  const embeddedAiReview = recordValue(translation?.embeddedAiReview);
+  return embeddedAiReview?.canonicalStructuredReview === true;
 }
 
 function recordValue(value: unknown): Record<string, unknown> | null {

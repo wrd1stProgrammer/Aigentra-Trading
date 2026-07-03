@@ -715,7 +715,12 @@ def localized_embedded_ai_review_payload(record, payload: dict, locale: str) -> 
     if approval_reason:
         next_payload["aiApprovalReason"] = approval_reason
     if meta.get("staleSourceHash"):
-        return without_embedded_ai_structured_review(next_payload), {"status": "ok", "embeddedAiReview": meta}
+        canonical_structured = record_payload(payload.get("aiStructuredReview")) or record_payload(ai_review.get("structuredReview"))
+        next_payload = without_embedded_ai_structured_review(next_payload)
+        if canonical_structured is not None:
+            next_payload["aiStructuredReview"] = canonical_structured
+            meta = {**meta, "canonicalStructuredReview": True}
+        return next_payload, {"status": "ok", "embeddedAiReview": meta}
     structured = record_payload(localized_review.get("structuredReview"))
     if structured is not None:
         next_payload["aiStructuredReview"] = structured
@@ -3770,7 +3775,7 @@ def record_review_translation_ready(db: Session, record, *, locale: str) -> bool
         payload=source_payload,
         locale=clean_locale,
     )
-    return meta.get("status") in {"canonical", "ok"}
+    return meta.get("status") in {"canonical", "ok"} and not meta.get("staleSourceHash")
 
 
 async def ensure_record_review_translation(
