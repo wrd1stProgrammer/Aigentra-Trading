@@ -9,6 +9,7 @@ from app.ai.translation_cache import (
     fanout_ai_translations,
     localized_payload_for_source,
     merge_validated_translation,
+    stable_source_hash,
 )
 from app.ai.translation_provider import translation_style_contract_for_payload
 from app.core.config import Settings
@@ -432,7 +433,48 @@ def test_ensure_localized_payload_refreshes_stale_source_translation(temp_db):
         assert localized["reviewFacts"] == changed_payload["reviewFacts"]
 
 
-def test_stale_embedded_ai_review_translation_preserves_current_structured_review_fallback(temp_db):
+def test_ensure_localized_payload_uses_codex_provider_without_openai_key(temp_db):
+    payload = {
+        "event": {"reason": "Heartbeat review."},
+        "review": {
+            "decision": "HOLD",
+            "rationale": "Hold while the trend anchor is intact.",
+            "structuredReview": {
+                "headline": "Hold the long while the ATR trail is intact.",
+                "action": "Do not close before the trail fails.",
+            },
+        },
+        "appliedActions": [],
+    }
+    provider = PartialTranslationProvider()
+
+    with session_scope() as db:
+        localized, meta = asyncio.run(
+            ensure_localized_payload_for_source(
+                db,
+                settings=Settings(
+                    openai_api_key="",
+                    ai_translation_provider="codex_cli",
+                    ai_translation_enabled=True,
+                    ai_translation_target_locales=["ko"],
+                ),
+                source_type=AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
+                source_id=910,
+                payload=payload,
+                locale="ko",
+                symbol="BTCUSDT",
+                trader_id="atr-trail-commander",
+                provider=provider,
+            )
+        )
+
+        assert provider.calls == ["ko"]
+        assert meta["status"] == "ok"
+        assert localized["event"]["reason"] == "ko: 이벤트 사유"
+        assert localized["review"]["rationale"] == "ko: 포지션 유지"
+
+
+def test_stale_embedded_ai_review_translation_prefers_translated_structured_review(temp_db):
     # Given: an open position embeds a newer English AI review, but only an older Korean translation is cached.
     review_payload = {
         "decision": "ADJUST_AND_APPROVE",
@@ -452,7 +494,16 @@ def test_stale_embedded_ai_review_translation_preserves_current_structured_revie
     stale_ko_payload = {
         "approvalReason": (
             "ADJUST_AND_APPROVE: 채널 지도자는 BTC가 상단 채널을 다시 테스트하는 동안 축소된 위험으로만 숏 진입할 수 있습니다."
-        )
+        ),
+        "structuredReview": {
+            "verdict": "ADJUST_AND_APPROVE",
+            "headline": "채널 지도자는 상단 채널 재테스트에서 축소된 숏 진입만 허용됩니다.",
+            "action": "위험을 줄이고 무효화 기준을 엄격히 유지하세요.",
+            "keyReasons": ["수수료 반영 손익비가 최소 기준을 넘습니다."],
+            "risks": ["최근 두 번의 숏 거래가 손절로 끝났습니다."],
+            "watchConditions": ["가격이 채널 경계 위에서 마감하면 종료하세요."],
+            "managerNote": "경계는 약하다고 보고 다루세요.",
+        },
     }
 
     with session_scope() as db:
@@ -502,11 +553,78 @@ def test_stale_embedded_ai_review_translation_preserves_current_structured_revie
 
         payload = data["payload"]
         assert data["translation"]["embeddedAiReview"]["staleSourceHash"] is True
-        assert data["translation"]["embeddedAiReview"]["canonicalStructuredReview"] is True
+        assert "canonicalStructuredReview" not in data["translation"]["embeddedAiReview"]
         assert payload["aiApprovalReason"].startswith("ADJUST_AND_APPROVE: 채널 지도자")
         assert payload["aiReview"]["approvalReason"].startswith("ADJUST_AND_APPROVE: 채널 지도자")
+        assert payload["aiStructuredReview"]["headline"] == "채널 지도자는 상단 채널 재테스트에서 축소된 숏 진입만 허용됩니다."
+        assert payload["aiReview"]["structuredReview"]["headline"] == "채널 지도자는 상단 채널 재테스트에서 축소된 숏 진입만 허용됩니다."
+
+
+def test_embedded_ai_review_translation_failure_preserves_english_structured_review(temp_db):
+    review_payload = {
+        "decision": "ADJUST_AND_APPROVE",
+        "approvalReason": "ATR Trail Boss can enter the LONG with reduced risk.",
+        "structuredReview": {
+            "verdict": "ADJUST_AND_APPROVE",
+            "headline": "ATR continuation LONG is valid with reduced size.",
+            "action": "Keep the 5x LONG and respect the invalidation stop.",
+            "keyReasons": ["1h and 4h buyers are still holding trend support."],
+            "risks": ["A late long can fail if BTC loses the breakout level."],
+            "watchConditions": ["Do not widen the stop if the breakout fails."],
+            "managerNote": "This is continuation, not a mean-reversion entry.",
+        },
+    }
+
+    with session_scope() as db:
+        review = AIReviewRecord(
+            symbol="BTCUSDT",
+            trader_id="atr-trail-commander",
+            status="ok",
+            decision="ADJUST_AND_APPROVE",
+            payload_json=json.dumps(review_payload),
+        )
+        db.add(review)
+        db.flush()
+        db.add(
+            AITranslationCacheRecord(
+                source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+                source_id=review.id,
+                source_hash=stable_source_hash(review_payload),
+                locale="ko",
+                status="fallback",
+                payload_json=json.dumps(review_payload),
+                error_message="translation provider failed",
+            )
+        )
+        position = PaperPositionRecord(
+            symbol="BTCUSDT",
+            trader_id="atr-trail-commander",
+            status="open",
+            side="long",
+            quantity=Decimal("0.166"),
+            entry_price=Decimal("61984.8"),
+            leverage=Decimal("5"),
+            notional=Decimal("10289.4768"),
+            margin=Decimal("2057.89536"),
+            payload_json=json.dumps(
+                {
+                    "aiReviewId": review.id,
+                    "aiReview": review_payload,
+                    "aiApprovalReason": review_payload["approvalReason"],
+                    "aiStructuredReview": review_payload["structuredReview"],
+                }
+            ),
+        )
+        db.add(position)
+        db.flush()
+
+        data = serialize_record_for_ui(position, include_payload=True, locale="ko")
+
+        payload = data["payload"]
+        assert data["translation"]["embeddedAiReview"]["status"] == "fallback"
+        assert payload["aiApprovalReason"] == review_payload["approvalReason"]
+        assert payload["aiReview"]["structuredReview"]["headline"] == review_payload["structuredReview"]["headline"]
         assert payload["aiStructuredReview"]["headline"] == review_payload["structuredReview"]["headline"]
-        assert "structuredReview" not in payload["aiReview"]
 
 
 def test_management_review_translation_uses_partial_overlay(temp_db):

@@ -660,7 +660,8 @@ def test_prompt_contracts_are_split_and_do_not_request_user_summary():
     assert "position management briefing for a normal user" in management
     assert "The UI merges headline, action, keyReasons, risks, and watchConditions into a few natural review lines" in management
     assert "do not write text that depends on headings such as next action, key reasons, risks, or watch conditions" in management
-    assert "Start from the current exposure: entry, current price, stop, target, unrealized PnL" in management
+    assert "Start from the current management choice and the trader thesis" in management
+    assert "Add visible metrics only when they directly explain the action" in management
     assert "Do not write checklist fragments such as structure and risk-reward are healthy" in management
     assert "Do not mention paper trading in structuredReview, rationale, counterThesis, or action reasons" in management
     assert "For HOLD reviews, never stop at keep holding or continue monitoring" in management
@@ -902,7 +903,7 @@ def test_prompts_directly_ban_latest_repeated_trend_sentinel_review_copy():
         assert "Do not mention previous wording" in contract
 
 
-def test_position_management_prompt_requires_live_position_first_desk_briefing():
+def test_position_management_prompt_uses_visible_metrics_only_when_decision_relevant():
     payload = PositionManagementPayload(
         trader=get_strategy("trend-sentinel").profile,
         symbol="BTCUSDT",
@@ -938,8 +939,11 @@ def test_position_management_prompt_requires_live_position_first_desk_briefing()
 
     prompt = position_management_review_prompt(payload)
 
-    assert "POSITION-FIRST DESK BRIEFING" in prompt
-    assert "lead with current price, entry, stop, target, PnL, R progress, and target-path progress" in prompt
+    assert "VISIBLE METRIC DISCIPLINE" in prompt
+    assert "Mention those numbers only when they change the management decision" in prompt
+    assert "early full take-profit" in prompt
+    assert "TAKE_PARTIAL_PROFIT" in prompt
+    assert "CLOSE_POSITION" in prompt
     assert "Source-language rule: this provider response is canonical English" in prompt
     assert "do not expose raw field names such as progressR or targetProgress" in prompt
     assert "Do not lead with overall trend alignment, valid structure, risk-reward ratio, or no invalidation signal" in prompt
@@ -1462,7 +1466,8 @@ def test_stale_position_management_review_is_refreshed_from_live_metrics():
     assert "62,301.4" in refreshed.structuredReview.headline
     assert "64,038.4" not in " ".join(refreshed.structuredReview.keyReasons)
     assert "STALE_STRUCTURED_REVIEW_REFRESHED" in refreshed.riskFlags
-    assert "Current price 62,301.4" in refreshed.rationale
+    assert "Price near 62,301.4" in refreshed.rationale
+    assert "entry, stop, target, and PnL" not in refreshed.structuredReview.headline
     refreshed_text = " ".join(
         [
             refreshed.structuredReview.headline or "",

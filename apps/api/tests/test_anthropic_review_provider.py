@@ -234,6 +234,48 @@ def test_anthropic_json_output_parse_error_includes_preview():
     assert "I cannot return that as JSON." in message
 
 
+def test_management_review_prompt_allows_ai_profit_actions_without_forcing_visible_numbers():
+    from app.ai.base import position_management_review_prompt
+    from app.ai.anthropic_provider import management_action_schema
+
+    prompt = position_management_review_prompt(sample_management_payload())
+    schema = management_action_schema()
+    action_description = schema["properties"]["type"].get("description", "")
+
+    assert "current price, entry, stop, target, PnL" not in prompt
+    assert "only when they change the management decision" in prompt
+    assert "TAKE_PARTIAL_PROFIT" in prompt
+    assert "CLOSE_POSITION" in prompt
+    assert "early full take-profit" in prompt
+    assert "partial take-profit" in action_description
+    assert "early full close" in action_description
+
+
+def test_management_result_normalizes_full_take_profit_aliases():
+    from app.ai.base import BaseAIProvider
+
+    provider = BaseAIProvider()
+    provider.name = "test"
+    provider.model = "test-model"
+
+    review = provider.normalize_management_result(
+        {
+            "decision": "TAKE_FULL_PROFIT",
+            "confidence": 81,
+            "riskLevel": "MEDIUM",
+            "structuredReview": {"headline": "Exit the winner.", "action": "Close all now."},
+            "actions": [{"type": "CLOSE_ALL", "reason": "Target path is exhausted."}],
+            "riskChange": "REDUCED",
+            "nextReviewInSeconds": 180,
+            "rationale": "Exit all while the move is extended.",
+            "counterThesis": "If the trend extends, we already protected the simulated gain.",
+        }
+    )
+
+    assert review.decision == "CLOSE_POSITION"
+    assert review.actions[0].type == "CLOSE_POSITION"
+
+
 @pytest.mark.asyncio
 async def test_anthropic_entry_review_still_accepts_tool_input_compatibility(monkeypatch):
     from app.ai.anthropic_provider import AnthropicProvider

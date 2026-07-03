@@ -143,6 +143,14 @@ def localized_payload_for_source(
     }
 
 
+def translation_provider_is_available(settings: Settings, provider: AITranslationProvider | None = None) -> bool:
+    if provider is not None:
+        return True
+    if getattr(settings, "ai_translation_provider", "openai") == "codex_cli":
+        return True
+    return bool(getattr(settings, "openai_api_key", ""))
+
+
 async def ensure_localized_payload_for_source(
     db: Session,
     *,
@@ -168,7 +176,7 @@ async def ensure_localized_payload_for_source(
         return localized_payload, meta
     if meta.get("status") == "ok" and not meta.get("staleSourceHash"):
         return localized_payload, meta
-    if not getattr(settings, "ai_translation_enabled", True) or not getattr(settings, "openai_api_key", ""):
+    if not getattr(settings, "ai_translation_enabled", True) or not translation_provider_is_available(settings, provider):
         return localized_payload, meta
 
     await fanout_ai_translations(

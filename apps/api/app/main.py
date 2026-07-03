@@ -681,18 +681,6 @@ def numeric_record_id(value: Any) -> int | None:
         return None
 
 
-def without_embedded_ai_structured_review(payload: dict) -> dict:
-    next_payload = {**payload}
-    next_payload.pop("aiStructuredReview", None)
-    next_payload.pop("structuredReview", None)
-    ai_review = record_payload(next_payload.get("aiReview"))
-    if ai_review is not None:
-        next_ai_review = {**ai_review}
-        next_ai_review.pop("structuredReview", None)
-        next_payload["aiReview"] = next_ai_review
-    return next_payload
-
-
 def localized_embedded_ai_review_payload(record, payload: dict, locale: str) -> tuple[dict, dict | None]:
     record_session = object_session(record)
     ai_review_id = numeric_record_id(payload.get("aiReviewId"))
@@ -709,18 +697,11 @@ def localized_embedded_ai_review_payload(record, payload: dict, locale: str) -> 
     if meta.get("status") == "canonical":
         return payload, None
     if meta.get("status") != "ok":
-        return without_embedded_ai_structured_review(payload), None
+        return payload, {"status": meta.get("status") or "fallback", "embeddedAiReview": meta}
     next_payload = {**payload, "aiReview": localized_review}
     approval_reason = localized_review.get("approvalReason")
     if approval_reason:
         next_payload["aiApprovalReason"] = approval_reason
-    if meta.get("staleSourceHash"):
-        canonical_structured = record_payload(payload.get("aiStructuredReview")) or record_payload(ai_review.get("structuredReview"))
-        next_payload = without_embedded_ai_structured_review(next_payload)
-        if canonical_structured is not None:
-            next_payload["aiStructuredReview"] = canonical_structured
-            meta = {**meta, "canonicalStructuredReview": True}
-        return next_payload, {"status": "ok", "embeddedAiReview": meta}
     structured = record_payload(localized_review.get("structuredReview"))
     if structured is not None:
         next_payload["aiStructuredReview"] = structured
@@ -1479,12 +1460,18 @@ def refresh_stale_position_management_review(
     position_state = management_position_state(side=side, price=price, entry=entry)
     structured = StructuredReview(
         verdict=review.decision.replace("_", " ").title(),
-        headline=(
-            f"{side} position reviewed at {format_management_price(price)} with the latest entry, stop, target, and PnL."
-        ),
+        headline=management_decision_headline(side=side, price=price, action_type=action_type, position_state=position_state),
         action=management_action_sentence(action_type, position_state),
         keyReasons=[
-            management_price_box_sentence(price=price, entry=entry, stop=stop, target=target, pnl=pnl, progress_r=progress_r),
+            management_visible_metric_reason(
+                action_type=action_type,
+                price=price,
+                entry=entry,
+                stop=stop,
+                target=target,
+                pnl=pnl,
+                progress_r=progress_r,
+            ),
             management_live_context_sentence(action_type, side=side, position_state=position_state),
         ],
         risks=[management_risk_sentence(side=side, stop=stop, target=target)],
@@ -1493,7 +1480,15 @@ def refresh_stale_position_management_review(
     )
     rationale = " ".join(
         [
-            management_price_box_sentence(price=price, entry=entry, stop=stop, target=target, pnl=pnl, progress_r=progress_r),
+            management_visible_metric_reason(
+                action_type=action_type,
+                price=price,
+                entry=entry,
+                stop=stop,
+                target=target,
+                pnl=pnl,
+                progress_r=progress_r,
+            ),
             management_watch_sentence(side=side, stop=stop, target=target, entry=entry),
         ]
     )
@@ -1618,6 +1613,47 @@ def management_live_context_sentence(action_type: Optional[str], *, side: str, p
     if "move stop" in action or "breakeven" in action or "trail" in action:
         return f"The {side} is {position_state}, so the next decision is about protecting profit without loosening risk."
     return f"The {side} is {position_state}, so the review focuses on whether the original thesis still deserves patience."
+
+
+def management_decision_headline(*, side: str, price: Optional[float], action_type: Optional[str], position_state: str) -> str:
+    action = str(action_type or "HOLD").replace("_", " ").lower()
+    price_text = format_management_price(price)
+    if "partial" in action:
+        return f"{side} is {position_state} near {price_text}, so the desk call is to take partial profit."
+    if "close" in action:
+        return f"{side} is {position_state} near {price_text}, so the desk call is to close the remaining position."
+    if "move stop" in action or "breakeven" in action or "trail" in action:
+        return f"{side} is {position_state} near {price_text}, so the desk call is to protect the stop."
+    return f"{side} is {position_state} near {price_text}, so the desk call is to keep managing the thesis."
+
+
+def management_visible_metric_reason(
+    *,
+    action_type: Optional[str],
+    price: Optional[float],
+    entry: Optional[float],
+    stop: Optional[float],
+    target: Optional[float],
+    pnl: Optional[float],
+    progress_r: Optional[float],
+) -> str:
+    action = str(action_type or "HOLD").replace("_", " ").lower()
+    if "partial" in action or "close" in action:
+        return (
+            f"Price near {format_management_price(price)} has moved far enough from entry {format_management_price(entry)} "
+            "that profit protection matters more than waiting for a perfect target."
+        )
+    if "move stop" in action or "breakeven" in action or "trail" in action:
+        if progress_r is not None:
+            return (
+                f"With PnL {format_management_pnl(pnl)} and progress {progress_r:.2f}R, "
+                "risk can be tightened without widening the original stop."
+            )
+        return f"The move from entry {format_management_price(entry)} justifies tighter risk control."
+    return (
+        f"Price near {format_management_price(price)} has not forced stop {format_management_price(stop)} "
+        "or reached a target path that justifies profit-taking yet."
+    )
 
 
 def management_price_box_sentence(

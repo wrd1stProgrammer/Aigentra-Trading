@@ -147,7 +147,14 @@ def management_action_schema() -> dict[str, Any]:
     return {
         "type": "object",
         "properties": {
-            "type": {"type": "string", "enum": sorted(VALID_MANAGEMENT_ACTIONS)},
+            "type": {
+                "type": "string",
+                "enum": sorted(VALID_MANAGEMENT_ACTIONS),
+                "description": (
+                    "Use TAKE_PARTIAL_PROFIT for partial take-profit, REDUCE_SIZE or REDUCE_RISK for defensive trims, "
+                    "and CLOSE_POSITION for an early full close or early full take-profit of the remaining position."
+                ),
+            },
             "price": {"type": "number"},
             "quantityFraction": {"type": "number", "description": "Fraction from 0 to 1."},
             "reason": {"type": "string"},

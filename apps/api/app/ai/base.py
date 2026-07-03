@@ -44,6 +44,24 @@ VALID_MANAGEMENT_ACTIONS = VALID_MANAGEMENT_DECISIONS | {
     "REDUCE_SIZE",
     "EXPIRE_PLAN",
 }
+MANAGEMENT_ACTION_ALIASES = {
+    "CLOSE_ALL": "CLOSE_POSITION",
+    "CLOSE_FULL": "CLOSE_POSITION",
+    "CLOSE_REMAINING": "CLOSE_POSITION",
+    "EXIT_ALL": "CLOSE_POSITION",
+    "EXIT_FULL": "CLOSE_POSITION",
+    "EXIT_POSITION": "CLOSE_POSITION",
+    "EXIT_REMAINING": "CLOSE_POSITION",
+    "TAKE_FULL_PROFIT": "CLOSE_POSITION",
+    "TAKE_PROFIT_FULL": "CLOSE_POSITION",
+    "TAKE_PROFIT_ALL": "CLOSE_POSITION",
+    "FULL_TAKE_PROFIT": "CLOSE_POSITION",
+    "PARTIAL_CLOSE": "TAKE_PARTIAL_PROFIT",
+    "PARTIAL_EXIT": "TAKE_PARTIAL_PROFIT",
+    "PARTIAL_TAKE_PROFIT": "TAKE_PARTIAL_PROFIT",
+    "TAKE_PROFIT_PARTIAL": "TAKE_PARTIAL_PROFIT",
+    "REDUCE_POSITION": "REDUCE_SIZE",
+}
 VALID_LEAGUE_BIASES = {"LONG_BIASED", "SHORT_BIASED", "NEUTRAL", "MIXED", "RISK_OFF"}
 
 
@@ -110,7 +128,7 @@ class BaseAIProvider:
         )
 
     def normalize_management_result(self, raw: Dict[str, Any]) -> PositionManagementResult:
-        decision = str(raw.get("decision", "HOLD")).upper()
+        decision = self._normalize_management_action_type(raw.get("decision", "HOLD"))
         if decision not in VALID_MANAGEMENT_DECISIONS:
             decision = "NEEDS_MORE_DATA"
         risk_level = str(raw.get("riskLevel", "MEDIUM")).upper()
@@ -123,7 +141,7 @@ class BaseAIProvider:
         normalized_actions = []
         for item in actions:
             action = item if isinstance(item, dict) else {"type": str(item)}
-            action_type = str(action.get("type", decision)).upper()
+            action_type = self._normalize_management_action_type(action.get("type", decision))
             if action_type not in VALID_MANAGEMENT_ACTIONS:
                 action_type = "HOLD"
             quantity_fraction = self._normalize_optional_float(action.get("quantityFraction"))
@@ -165,6 +183,10 @@ class BaseAIProvider:
             model=self.model,
             fallback=self.fallback,
         )
+
+    def _normalize_management_action_type(self, value: Any) -> str:
+        clean = str(value or "").strip().upper().replace("-", "_").replace(" ", "_")
+        return MANAGEMENT_ACTION_ALIASES.get(clean, clean or "HOLD")
 
     def normalize_league_sentiment_result(self, raw: Dict[str, Any]) -> LeagueSentimentOpinionResult:
         bias = str(raw.get("bias", "MIXED")).upper()
@@ -1205,7 +1227,8 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "No exchange order is placed from this review. Hard risk rules are superior to your decision. "
         "Never widen a stop or exceed leverage/account deployment caps. "
         "You may reduce risk, cancel pending orders, move a stop tighter, take partial profit, close a position, hold, "
-        "or propose controlled additional exposure. "
+        "or propose controlled additional exposure. Use TAKE_PARTIAL_PROFIT for partial take-profit when the move has paid enough but the thesis still has room. "
+        "Use CLOSE_POSITION for early full take-profit, full close, or early exit when remaining reward no longer justifies open risk. "
         "Use ADD_TO_POSITION only when adverse movement is still inside the original thesis, the added order improves average price, "
         "the existing hard stop does not move farther away, and recent reviews/events do not show repeated thesis decay. "
         "Use PYRAMID_POSITION only when the position is already working, structure confirms continuation, "
@@ -1221,10 +1244,10 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "Write structuredReview as a compact position management briefing for a normal user who wants to understand the current position and what to watch next. "
         "Keep it readable in the UI: headline must be one natural sentence of 12-22 words; action, each keyReason, each risk, each watchCondition, and managerNote should each stay under 26 words when possible. "
         "Do not cram the whole review into headline; headline is the desk call, the following fields carry evidence and triggers. "
-        "POSITION-FIRST DESK BRIEFING: for open positions, lead with current price, entry, stop, target, PnL, R progress, and target-path progress before any indicator, trend, or risk-reward claim. "
-        "Preferred source wording for the price box is: current price is X, entry is Y, stop is Z, target is W, unrealized PnL is N, R progress is R. "
-        "Use 'R progress' and 'distance to stop' in natural words; do not expose raw field names such as progressR or targetProgress in user-facing strings. "
-        "Do not lead with overall trend alignment, valid structure, risk-reward ratio, or no invalidation signal; those are supporting facts only after the live position state is clear. "
+        "VISIBLE METRIC DISCIPLINE: the UI already shows price, entry, stop, targets, and PnL. "
+        "Mention those numbers only when they change the management decision, define invalidation, justify a partial/full exit, or explain why close, partial take-profit, or stop movement is not happening. "
+        "Use 'R progress' and 'distance to stop' in natural words when they matter; do not expose raw field names such as progressR or targetProgress in user-facing strings. "
+        "Do not lead with overall trend alignment, valid structure, risk-reward ratio, or no invalidation signal; those are supporting facts only after the live management choice is clear. "
         "The exposure payload is intentionally compact. Use entryThesis only as short background for why the trade was originally allowed; do not reconstruct the whole old approval review from memory or write as if the entry approval is the current management decision. "
         "Do not say profit is locked, secured, guaranteed, confirmed, or preserved unless recentTradeEvents or entryThesis.takeProfits show an actual filled partial/closed profit. "
         "If only the stop moved to breakeven, say loss risk is reduced or removed while profit remains unrealized; do not imply realized profit. "
@@ -1240,7 +1263,7 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "Write as a trader desk note for the user, not as a research report: current state first, management choice second, evidence third, trigger last. "
         "If higher timeframe trend still matters, connect it to the current stop/target frame: say why the current price has not yet reached the stop/invalidated the thesis or why the target path still has room. "
         "The UI merges headline, action, keyReasons, risks, and watchConditions into a few natural review lines, then shows managerNote separately; do not write text that depends on headings such as next action, key reasons, risks, or watch conditions. "
-        "Start from the current exposure: entry, current price, stop, target, unrealized PnL, target progress, and distance to invalidation when those fields are available. "
+        "Start from the current management choice and the trader thesis. Add visible metrics only when they directly explain the action. "
         "verdict is a short plain label such as Hold, Protect Profit, Close, Cancel, Reduce, or Needs More Data. "
         "headline is one plain sentence that says whether the thesis is working, weakening, protected, or invalidated; it is not a category label for the timeline. "
         "For active SHORT/LONG positions, never title the review as profit-zone confirmation unless targetProgress shows meaningful progress toward the first target; "
