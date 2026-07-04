@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from app.ai.base import league_sentiment_prompt
+from app.ai.base import BaseAIProvider, league_sentiment_prompt
 from app.ai.league_sentiment_models import LeagueSentimentOpinionResult
 from app.db import (
     AIReviewRecord,
@@ -135,6 +135,11 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
                 confidence=72,
                 riskLevel="MEDIUM",
                 confidenceReason="Balanced active exposure keeps confidence capped.",
+                brief={
+                    "conclusion": "롱과 숏이 엇갈려 있어 지금은 확인 구간입니다.",
+                    "reason": "활성 롱과 대기 숏이 같이 있어 방향 신뢰도가 아직 강하지 않습니다.",
+                    "watch": "다음 1시간 종가와 대기 숏 체결 여부만 확인하세요.",
+                },
                 headline="롱과 숏이 엇갈려 있어 확인 구간입니다.",
                 summary="페이퍼 트레이딩이라는 표현 없이, 롱 포지션은 수익 중이고 숏 대기 주문도 있어 다음 1시간 종가 확인이 중요합니다.",
                 keyDrivers=["진입 중 롱 1건", "진입대기 숏 1건", "최근 익절 1건"],
@@ -166,6 +171,7 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
     assert first.json()["intervalStart"].endswith(":00:00+00:00")
     assert first.json()["nextRefreshAt"] == first.json()["intervalEnd"]
     assert first.json()["opinion"]["bias"] == "MIXED"
+    assert first.json()["opinion"]["brief"]["conclusion"] == "롱과 숏이 엇갈려 있어 지금은 확인 구간입니다."
     assert first.json()["opinion"]["sourceCounts"]["activePositions"] == 1
     assert first.json()["opinion"]["confidenceReason"] == "Balanced active exposure keeps confidence capped."
     assert first.json()["opinion"]["evidenceRefs"][0]["sourceType"] == "active_position"
@@ -192,6 +198,11 @@ def test_existing_league_sentiment_opinion_hydrates_requested_locale_translation
         "confidence": 74,
         "riskLevel": "MEDIUM",
         "confidenceReason": "Both sides are present, so confidence is moderate.",
+        "brief": {
+            "conclusion": "Mixed BTC positioning needs confirmation.",
+            "reason": "Both long and short plans remain active.",
+            "watch": "Wait for the next hourly close.",
+        },
         "headline": "Mixed BTC positioning needs confirmation.",
         "summary": "Long and short plans are both active, so the next hourly close matters.",
         "keyDrivers": ["One active LONG", "One pending SHORT"],
@@ -233,6 +244,11 @@ def test_existing_league_sentiment_opinion_hydrates_requested_locale_translation
         assert target_locale == "ko"
         return {
             **payload,
+            "brief": {
+                "conclusion": "BTC 포지션이 엇갈려 확인이 필요합니다.",
+                "reason": "롱과 숏 계획이 모두 살아 있어 방향 신뢰도가 제한됩니다.",
+                "watch": "다음 1시간 종가만 먼저 확인하세요.",
+            },
             "headline": "BTC 포지션이 엇갈려 확인이 필요합니다.",
             "summary": "롱과 숏 계획이 모두 살아 있어 다음 1시간 종가가 중요합니다.",
             "keyDrivers": ["진입 중 LONG 1건", "진입대기 SHORT 1건"],
@@ -259,6 +275,8 @@ def test_existing_league_sentiment_opinion_hydrates_requested_locale_translation
     assert data["sourceLocale"] == "en"
     assert data["translation"]["status"] == "ok"
     assert data["opinion"]["headline"] == "BTC 포지션이 엇갈려 확인이 필요합니다."
+    assert data["opinion"]["brief"]["conclusion"] == "BTC 포지션이 엇갈려 확인이 필요합니다."
+    assert data["opinion"]["brief"]["watch"] == "다음 1시간 종가만 먼저 확인하세요."
     assert data["opinion"]["summary"] == "롱과 숏 계획이 모두 살아 있어 다음 1시간 종가가 중요합니다."
     assert data["opinion"]["confidenceReason"] == "양쪽 근거가 있어 신뢰도는 중간 수준입니다."
     assert data["opinion"]["evidenceRefs"][0]["id"] == "position:1"
@@ -279,6 +297,11 @@ def test_league_sentiment_opinion_can_return_previous_hour_without_blocking(temp
         "confidence": 68,
         "riskLevel": "MEDIUM",
         "confidenceReason": "Previous opinion is only a temporary read.",
+        "brief": {
+            "conclusion": "직전 시간대 의견입니다.",
+            "reason": "새 시간대 생성 전까지 보여주는 임시 맥락입니다.",
+            "watch": "새 의견이 생성되는지만 확인하세요.",
+        },
         "headline": "직전 시간대 의견입니다.",
         "summary": "새 시간대 생성 중에도 먼저 보여줄 수 있는 최근 의견입니다.",
         "keyDrivers": ["최근 의견"],
@@ -338,6 +361,7 @@ def test_league_sentiment_opinion_can_return_previous_hour_without_blocking(temp
     assert data["staleReason"] == "previous_interval"
     assert data["opinionAgeMinutes"] == 60
     assert data["opinion"]["headline"] == "직전 시간대 의견입니다."
+    assert data["opinion"]["brief"]["watch"] == "새 의견이 생성되는지만 확인하세요."
 
 
 def test_league_sentiment_opinion_uses_safe_fallback_when_provider_fails(temp_db, monkeypatch):
@@ -362,10 +386,37 @@ def test_league_sentiment_opinion_uses_safe_fallback_when_provider_fails(temp_db
     assert data["opinion"]["fallback"] is True
     assert data["opinion"]["bias"] in {"LONG_BIASED", "SHORT_BIASED", "NEUTRAL", "MIXED", "RISK_OFF"}
     assert data["opinion"]["confidenceReason"]
+    assert data["opinion"]["brief"]["conclusion"]
+    assert data["opinion"]["brief"]["reason"]
+    assert data["opinion"]["brief"]["watch"]
     assert data["opinion"]["sourceBreakdown"]["activeExposure"]["total"] >= 1
     assert data["opinion"]["dataFreshness"]["generatedAt"]
     assert data["opinion"]["evidenceRefs"]
     assert "provider failed" not in data["opinion"]["summary"].lower()
+    assert "provider failed" not in str(data["opinion"]["brief"]).lower()
+
+
+def test_league_sentiment_normalizer_derives_compact_brief_when_missing():
+    provider = BaseAIProvider()
+
+    opinion = provider.normalize_league_sentiment_result(
+        {
+            "bias": "SHORT_BIASED",
+            "confidence": 66,
+            "riskLevel": "HIGH",
+            "headline": "숏 압력이 우세하지만 추격보다 확인이 먼저입니다. 출처: position:1.",
+            "summary": "활성 숏이 롱보다 많고 최근 손절도 있어 신뢰도는 제한됩니다. 출처: position:1.",
+            "action": "다음 1시간 동안 숏 무효화 가격 회복 여부만 확인하세요. 출처: review:2.",
+            "keyDrivers": ["활성 숏 우세. 출처: position:1."],
+            "risks": ["손절 군집이 있어 과신하면 위험합니다. 출처: trade_event:3."],
+            "watchConditions": ["숏 무효화 가격 회복 여부 확인. 출처: review:2."],
+            "sourceCounts": {"activePositions": 2},
+        }
+    )
+
+    assert opinion.brief.conclusion == "숏 압력이 우세하지만 추격보다 확인이 먼저입니다."
+    assert opinion.brief.reason == "활성 숏이 롱보다 많고 최근 손절도 있어 신뢰도는 제한됩니다."
+    assert opinion.brief.watch == "다음 1시간 동안 숏 무효화 가격 회복 여부만 확인하세요."
 
 
 def test_league_sentiment_payload_exposes_freshness_breakdown_refs_and_quiet_reviews(temp_db):
@@ -439,6 +490,11 @@ def test_serialized_league_sentiment_record_marks_overdue_previous_opinion(temp_
         "confidence": 68,
         "riskLevel": "MEDIUM",
         "confidenceReason": "Previous opinion is stale.",
+        "brief": {
+            "conclusion": "Previous opinion.",
+            "reason": "A previous read.",
+            "watch": "Wait for refresh.",
+        },
         "headline": "Previous opinion.",
         "summary": "A previous read.",
         "keyDrivers": ["Previous context"],
@@ -492,6 +548,58 @@ def test_serialized_league_sentiment_record_marks_overdue_previous_opinion(temp_
     assert serialized["opinionAgeMinutes"] == 150
 
 
+def test_serialized_league_sentiment_record_backfills_legacy_brief(temp_db):
+    interval_start = datetime(2026, 6, 18, 8, 0, tzinfo=timezone.utc)
+    legacy_payload = {
+        "bias": "SHORT_BIASED",
+        "confidence": 61,
+        "riskLevel": "HIGH",
+        "confidenceReason": "Legacy payload predates brief.",
+        "headline": "숏 압력이 우세하지만 추격보다 확인이 먼저입니다. 출처: position:1.",
+        "summary": "활성 숏이 롱보다 많아 방향은 아래쪽으로 기울었습니다. 출처: position:1.",
+        "keyDrivers": ["활성 숏 우세."],
+        "risks": ["손절 군집."],
+        "watchConditions": ["무효화 가격 회복 여부."],
+        "action": "다음 1시간 무효화 가격 회복 여부만 보세요. 출처: review:2.",
+        "longShortContext": "SHORT 압력이 강함",
+        "sourceCounts": {"activePositions": 2},
+        "sourceBreakdown": {"activeExposure": {"total": 2}},
+        "dataFreshness": {"generatedAt": interval_start.isoformat()},
+        "evidenceRefs": [],
+        "invalidatesAt": (interval_start + timedelta(hours=1)).isoformat(),
+        "provider": "mock",
+        "model": "mock-league-opinion",
+        "fallback": False,
+    }
+    with session_scope() as db:
+        record = LeagueSentimentOpinionRecord(
+            symbol="BTCUSDT",
+            trader_id="aigentra-opinion",
+            status="ok",
+            locale="ko",
+            interval_start=interval_start,
+            interval_end=interval_start + timedelta(hours=1),
+            provider="mock",
+            model="mock-league-opinion",
+            bias="SHORT_BIASED",
+            confidence=61,
+            risk_level="HIGH",
+            fallback=False,
+            created_at=interval_start,
+            payload_json=to_json(legacy_payload),
+        )
+        db.add(record)
+        db.flush()
+
+        serialized = serialize_league_sentiment_record(db, record, cache_hit=True, locale="ko")
+
+    assert serialized["opinion"]["brief"] == {
+        "conclusion": "숏 압력이 우세하지만 추격보다 확인이 먼저입니다.",
+        "reason": "활성 숏이 롱보다 많아 방향은 아래쪽으로 기울었습니다.",
+        "watch": "다음 1시간 무효화 가격 회복 여부만 보세요.",
+    }
+
+
 def test_league_sentiment_prompt_prioritizes_user_usefulness_and_specificity(temp_db):
     seed_sentiment_context()
     with session_scope() as db:
@@ -507,9 +615,16 @@ def test_league_sentiment_prompt_prioritizes_user_usefulness_and_specificity(tem
 
     prompt = league_sentiment_prompt(payload)
 
-    assert "Start with what the user should do now" in prompt
-    assert "Each keyDrivers item must connect one observed fact to why it matters" in prompt
-    assert "watchConditions must be concrete checks with a source, timeframe, or price area from the payload" in prompt
+    assert "brief" in prompt
+    assert "The default UI reads only brief" in prompt
+    assert "two or three short lines" in prompt
+    assert "brief.conclusion" in prompt
+    assert "brief.reason" in prompt
+    assert "brief.watch" in prompt
+    assert "keyDrivers: at most one hidden support item" in prompt
+    assert "watchConditions: at most one hidden support item" in prompt
     assert "confidenceReason must explain why confidence is high, capped, or low" in prompt
     assert "Use sourceRef or evidenceRefs labels" in prompt
     assert "Avoid generic sentences like 'monitor market conditions'" in prompt
+    assert "summary: two to three sentences" not in prompt
+    assert "up to four bullets" not in prompt

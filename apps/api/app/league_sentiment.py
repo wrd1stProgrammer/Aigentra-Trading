@@ -65,7 +65,7 @@ def iso_utc(value: Optional[datetime]) -> Optional[str]:
 
 
 def league_sentiment_cache_key(symbol: str, locale: str, interval_start: datetime) -> str:
-    return shared_cache_key("league_sentiment_opinion:v1", symbol.upper(), normalize_locale(locale), ensure_utc(interval_start).isoformat())
+    return shared_cache_key("league_sentiment_opinion:v2", symbol.upper(), normalize_locale(locale), ensure_utc(interval_start).isoformat())
 
 
 def league_sentiment_cache_ttl(interval_end: datetime, *, stale: bool = False) -> int:
@@ -93,6 +93,34 @@ async def cache_league_sentiment_payload(
 
 def sanitize_league_sentiment_opinion(opinion: LeagueSentimentOpinionResult) -> LeagueSentimentOpinionResult:
     return LeagueSentimentOpinionResult.model_validate(scrub_banned_opinion_terms(opinion.model_dump()))
+
+
+def ensure_compact_brief_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(payload)
+    brief = normalized.get("brief") if isinstance(normalized.get("brief"), dict) else {}
+    conclusion = compact_opinion_line(brief.get("conclusion")) or compact_opinion_line(normalized.get("headline"))
+    reason = compact_opinion_line(brief.get("reason")) or compact_opinion_line(normalized.get("summary"))
+    watch = compact_opinion_line(brief.get("watch")) or compact_opinion_line(normalized.get("action"))
+    normalized["brief"] = {
+        "conclusion": conclusion or "Market context needs review.",
+        "reason": reason or "Not enough reliable trader context is available.",
+        "watch": watch or "Wait for the next hourly context refresh.",
+    }
+    return normalized
+
+
+def compact_opinion_line(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    clean = str(value).strip()
+    if not clean:
+        return None
+    for pattern in (
+        r"\s*(?:출처|Sources?|sourceRef|Evidence)\s*:\s*[^.。]+[.。]?\s*$",
+        r"\s*\([^)]*(?:position|order|review|trade_event|closed_position):[^)]*\)\s*$",
+    ):
+        clean = re.sub(pattern, "", clean, flags=re.IGNORECASE).strip()
+    return clean or None
 
 
 def scrub_banned_opinion_terms(value: Any) -> Any:
@@ -1070,19 +1098,32 @@ def fallback_league_sentiment_opinion(payload: LeagueSentimentPayload) -> League
             if ko
             else "Confidence is capped because the provider failed and only verified counts plus freshness metadata were used."
         ),
+        brief={
+            "conclusion": (
+                "새 방향보다 활성 셋업의 무효화 조건을 먼저 볼 구간입니다."
+                if ko
+                else "Check active setup invalidation before reading a new direction."
+            ),
+            "reason": (
+                f"검증된 집계 기준 LONG {long_count}건, SHORT {short_count}건이라 방향 신뢰도가 제한됩니다."
+                if ko
+                else f"Verified counts show LONG {long_count} versus SHORT {short_count}, so direction confidence is limited."
+            ),
+            "watch": (
+                "다음 생성 전까지 체결 변화와 손절/익절 이벤트만 우선 확인하세요."
+                if ko
+                else "Before the next generation, watch fills plus TP/SL changes first."
+            ),
+        },
         headline=(
-            "지금은 새 방향보다 활성 셋업의 무효화 조건을 먼저 확인할 구간입니다."
+            "새 방향보다 활성 셋업의 무효화 조건을 먼저 볼 구간입니다."
             if ko
-            else "For now, check active setup invalidation before reading this as a new direction."
+            else "Check active setup invalidation before reading a new direction."
         ),
         summary=(
-            f"활성/대기 기준 LONG {long_count}건, SHORT {short_count}건입니다. "
-            "AI 상세 해석 대신 검증된 DB 집계만 사용했으므로 방향 판단보다 리스크 확인에 초점을 둡니다. "
-            "대기 주문은 아직 체결된 포지션이 아니므로, 실제 체결과 손절/익절 변화가 다음 판단의 핵심입니다."
+            f"검증된 집계 기준 LONG {long_count}건, SHORT {short_count}건이라 방향 신뢰도가 제한됩니다."
             if ko
-            else f"Current active/pending context has LONG {long_count} versus SHORT {short_count}. "
-            "Only verified database counts were used, so treat this as risk context rather than a strong directional call. "
-            "Pending entries are not filled exposure yet, so fills and new TP/SL changes matter most for the next read."
+            else f"Verified counts show LONG {long_count} versus SHORT {short_count}, so direction confidence is limited."
         ),
         keyDrivers=[
             (
@@ -1110,7 +1151,11 @@ def fallback_league_sentiment_opinion(payload: LeagueSentimentPayload) -> League
                 else "Before the next generation, check whether active side counts or TP/SL events change."
             )
         ],
-        action="새 포지션보다 기존 활성 셋업의 무효화 조건을 먼저 확인하세요." if ko else "Prioritize invalidation checks on active setups before chasing new direction.",
+        action=(
+            "다음 생성 전까지 체결 변화와 손절/익절 이벤트만 우선 확인하세요."
+            if ko
+            else "Before the next generation, watch fills plus TP/SL changes first."
+        ),
         longShortContext=f"LONG {long_count} / SHORT {short_count}",
         sourceCounts=dict(counts),
         sourceBreakdown=dict(payload.sourceBreakdown),
@@ -1146,6 +1191,7 @@ def serialize_league_sentiment_record(
     if isinstance(localized_opinion, dict):
         localized_opinion = dict(localized_opinion)
         localized_opinion.pop("dataQuality", None)
+        localized_opinion = ensure_compact_brief_payload(localized_opinion)
     reference_now = ensure_utc(now or utc_now())
     refresh_at = ensure_utc(next_refresh_at or record.interval_end)
     refresh_overdue_minutes = max(0, int((reference_now - refresh_at).total_seconds() // 60))

@@ -1,9 +1,10 @@
 import ast
 import json
+import re
 from typing import Any, Dict, Final, Optional
 
 from app.ai.entry_approval_dossier import build_entry_approval_dossier
-from app.ai.league_sentiment_models import LeagueSentimentOpinionResult, LeagueSentimentPayload
+from app.ai.league_sentiment_models import LeagueSentimentBrief, LeagueSentimentOpinionResult, LeagueSentimentPayload
 from app.ai.review_prompt_quality import STRUCTURED_REVIEW_QUALITY_CONTRACT
 from app.paper.holding_policy import trader_holding_policy
 from app.traders.models import (
@@ -202,17 +203,22 @@ class BaseAIProvider:
                 normalized_counts[str(key)] = max(0, int(value))
             except (TypeError, ValueError):
                 normalized_counts[str(key)] = 0
+        headline = self._compact_sentence(raw.get("headline")) or "Market context needs review."
+        summary = self._compact_sentence(raw.get("summary")) or "Not enough reliable trader context is available."
+        action = self._compact_sentence(raw.get("action")) or "Wait for the next hourly context refresh."
+        brief = self._normalize_league_sentiment_brief(raw.get("brief"), headline=headline, summary=summary, action=action)
         return LeagueSentimentOpinionResult(
             bias=bias,
             confidence=max(0, min(self._normalize_confidence(raw.get("confidence", 50)), 100)),
             riskLevel=risk_level,
             confidenceReason=self._normalize_optional_text(raw.get("confidenceReason")) or "Confidence reflects the available source mix and freshness.",
-            headline=self._normalize_optional_text(raw.get("headline")) or "Market context needs review.",
-            summary=self._normalize_optional_text(raw.get("summary")) or "Not enough reliable trader context is available.",
-            keyDrivers=self._normalize_limited_string_list(raw.get("keyDrivers"), 4),
-            risks=self._normalize_limited_string_list(raw.get("risks"), 3),
-            watchConditions=self._normalize_limited_string_list(raw.get("watchConditions"), 3),
-            action=self._normalize_optional_text(raw.get("action")) or "Wait for the next hourly context refresh.",
+            brief=brief,
+            headline=headline,
+            summary=summary,
+            keyDrivers=self._normalize_limited_string_list(raw.get("keyDrivers"), 1),
+            risks=self._normalize_limited_string_list(raw.get("risks"), 1),
+            watchConditions=self._normalize_limited_string_list(raw.get("watchConditions"), 1),
+            action=action,
             longShortContext=self._normalize_optional_text(raw.get("longShortContext")) or "No active long/short skew.",
             sourceCounts=normalized_counts,
             sourceBreakdown=self._normalize_dict(raw.get("sourceBreakdown")),
@@ -223,6 +229,20 @@ class BaseAIProvider:
             model=self.model,
             fallback=self.fallback,
         )
+
+    def _normalize_league_sentiment_brief(
+        self,
+        value: Any,
+        *,
+        headline: str,
+        summary: str,
+        action: str,
+    ) -> LeagueSentimentBrief:
+        data = value if isinstance(value, dict) else {}
+        conclusion = self._compact_sentence(data.get("conclusion")) or headline
+        reason = self._compact_sentence(data.get("reason")) or summary
+        watch = self._compact_sentence(data.get("watch")) or action
+        return LeagueSentimentBrief(conclusion=conclusion, reason=reason, watch=watch)
 
     def _normalize_dict(self, value: Any) -> dict[str, Any]:
         return value if isinstance(value, dict) else {}
@@ -310,6 +330,23 @@ class BaseAIProvider:
             return None
         text = str(value).strip()
         return text or None
+
+    def _compact_sentence(self, value: Any) -> Optional[str]:
+        text = self._normalize_optional_text(value)
+        if text is None:
+            return None
+        clean = self._strip_evidence_suffix(text)
+        return clean or text
+
+    def _strip_evidence_suffix(self, value: str) -> str:
+        patterns = (
+            r"\s*(?:출처|Sources?|sourceRef|Evidence)\s*:\s*[^.。]+[.。]?\s*$",
+            r"\s*\([^)]*(?:position|order|review|trade_event|closed_position):[^)]*\)\s*$",
+        )
+        clean = value.strip()
+        for pattern in patterns:
+            clean = re.sub(pattern, "", clean, flags=re.IGNORECASE).strip()
+        return clean
 
     def _literal_string_list(self, value: Any) -> list[str] | None:
         if not isinstance(value, str):
@@ -1309,9 +1346,9 @@ def management_prompt(payload: PositionManagementPayload) -> str:
 def league_sentiment_prompt(payload: LeagueSentimentPayload) -> str:
     locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
     language_instruction = (
-        "Write headline, summary, confidenceReason, keyDrivers, risks, watchConditions, action, and longShortContext in Korean."
+        "Write brief, headline, summary, confidenceReason, keyDrivers, risks, watchConditions, action, and longShortContext in Korean."
         if locale == "ko"
-        else "Write headline, summary, confidenceReason, keyDrivers, risks, watchConditions, action, and longShortContext in English."
+        else "Write brief, headline, summary, confidenceReason, keyDrivers, risks, watchConditions, action, and longShortContext in English."
     )
     try:
         payload_data = payload.model_dump(mode="json")
@@ -1319,8 +1356,14 @@ def league_sentiment_prompt(payload: LeagueSentimentPayload) -> str:
         payload_data = payload.model_dump()
     return (
         "You are Aigentra's hourly aggregate sentiment analyst for a futures simulation league. "
-        "Return only strict JSON with keys bias, confidence, riskLevel, confidenceReason, headline, summary, keyDrivers, risks, "
+        "Return only strict JSON with keys bias, confidence, riskLevel, confidenceReason, brief, headline, summary, keyDrivers, risks, "
         "watchConditions, action, longShortContext, sourceCounts, sourceBreakdown, dataFreshness, evidenceRefs, invalidatesAt. "
+        "The default UI reads only brief, so make brief the product-quality desk briefing. "
+        "brief must have exactly conclusion, reason, and watch. These three fields should read as two or three short lines together. "
+        "brief.conclusion: the current league read in one plain sentence. "
+        "brief.reason: the single strongest reason the read matters, not a data dump. "
+        "brief.watch: the next concrete condition to watch before the next generation. "
+        "Do not force current price, entry price, stop, target, or PnL into brief unless that specific number is the core reason. "
         "Valid bias values are LONG_BIASED, SHORT_BIASED, NEUTRAL, MIXED, RISK_OFF. "
         "Valid riskLevel values are LOW, MEDIUM, HIGH, EXTREME. Confidence must be an integer from 0 to 100. "
         "This is not financial advice and must not tell users to place real trades. It is a context summary of simulation agents only. "
@@ -1336,15 +1379,13 @@ def league_sentiment_prompt(payload: LeagueSentimentPayload) -> str:
         "confidenceReason must explain why confidence is high, capped, or low, including data freshness when it matters. "
         "If both long and short exposures are meaningful, choose MIXED unless one side has clearly stronger active notional, confidence, or fresh review quality. "
         "If recent losses cluster, failed reviews dominate, or market risk is unclear, choose RISK_OFF even if one side has more entries. "
-        "Write for a beginner: use plain language, short sentences, and explain what the current league context means. "
-        "Do not dump raw indicators without explaining their meaning. "
-        "Start with what the user should do now, then explain why the current league context supports that read. "
-        "Each keyDrivers item must connect one observed fact to why it matters for the user. "
-        "risks must say what could make the read misleading and what behavior to avoid. "
-        "watchConditions must be concrete checks with a source, timeframe, or price area from the payload. "
+        "Write for a normal user: plain language, short sentences, and professional trading-desk compression. "
+        "Do not dump raw indicators or list counts in brief unless you state the implication. "
+        "Legacy fields must mirror the compact briefing: headline should match brief.conclusion, summary should match brief.reason, and action should match brief.watch. "
+        "keyDrivers: at most one hidden support item. risks: at most one hidden support item. "
+        "watchConditions: at most one hidden support item with a source, timeframe, or price area from the payload. "
         "Avoid generic sentences like 'monitor market conditions', 'watch closely', or 'market is supportive' unless you add the exact condition. "
-        "headline: one sentence. summary: two to three sentences. keyDrivers: up to four bullets. risks: up to three bullets. "
-        "watchConditions: up to three concrete next-hour checks. action: one practical monitoring instruction for this simulation league. "
+        "headline: one sentence. summary: one sentence. action: one practical monitoring instruction for this simulation league. "
         "longShortContext: one compact sentence comparing LONG and SHORT pressure. "
         f"{language_instruction}\n\n"
         f"Payload:\n{json.dumps(payload_data, ensure_ascii=False)}"

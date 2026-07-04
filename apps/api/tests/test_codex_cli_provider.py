@@ -188,6 +188,9 @@ def test_league_sentiment_schema_requires_freshness_and_evidence_contract():
 
     schema = league_sentiment_schema()
 
+    assert "brief" in schema["required"]
+    assert schema["properties"]["brief"]["required"] == ["conclusion", "reason", "watch"]
+    assert schema["properties"]["brief"]["additionalProperties"] is False
     assert "confidenceReason" in schema["required"]
     assert "sourceBreakdown" in schema["required"]
     assert "dataFreshness" in schema["required"]
@@ -285,6 +288,11 @@ async def test_codex_cli_provider_normalizes_all_review_surfaces():
                     "confidence": 61,
                     "riskLevel": "MEDIUM",
                     "confidenceReason": "Only one active example is present.",
+                    "brief": {
+                        "conclusion": "League is mixed.",
+                        "reason": "Long and short exposure are balanced.",
+                        "watch": "Watch the next 1H close.",
+                    },
                     "headline": "League is mixed.",
                     "summary": "Long and short exposure are balanced.",
                     "keyDrivers": ["One active long."],

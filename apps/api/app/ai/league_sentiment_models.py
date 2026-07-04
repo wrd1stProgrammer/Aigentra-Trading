@@ -25,11 +25,18 @@ class LeagueSentimentPayload(BaseModel):
     previousOpinion: Optional[Dict[str, Any]] = None
 
 
+class LeagueSentimentBrief(BaseModel):
+    conclusion: str = ""
+    reason: str = ""
+    watch: str = ""
+
+
 class LeagueSentimentOpinionResult(BaseModel):
     bias: str
     confidence: int
     riskLevel: str
     confidenceReason: str = ""
+    brief: LeagueSentimentBrief = Field(default_factory=LeagueSentimentBrief)
     headline: str
     summary: str
     keyDrivers: List[str] = Field(default_factory=list)

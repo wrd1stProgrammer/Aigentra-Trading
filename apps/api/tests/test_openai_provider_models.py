@@ -182,6 +182,7 @@ async def test_openai_provider_uses_separate_models_per_review_surface(monkeypat
                                 '"confidence":70,'
                                 '"riskLevel":"MEDIUM",'
                                 '"confidenceReason":"Only one active long is present.",'
+                                '"brief":{"conclusion":"Market is mixed.","reason":"Only one active long is present.","watch":"Watch the next hourly close."},'
                                 '"headline":"Market is mixed.",'
                                 '"summary":"Signals are balanced.",'
                                 '"keyDrivers":["One active long."],'

@@ -470,11 +470,18 @@ export type LeaderboardBundle = {
 
 export type LeagueSentimentBias = "LONG_BIASED" | "SHORT_BIASED" | "NEUTRAL" | "MIXED" | "RISK_OFF";
 
+export type LeagueSentimentBrief = {
+  conclusion: string;
+  reason: string;
+  watch: string;
+};
+
 export type LeagueSentimentOpinion = {
   bias: LeagueSentimentBias | string;
   confidence: number;
   riskLevel: string;
   confidenceReason?: string | null;
+  brief: LeagueSentimentBrief;
   headline: string;
   summary: string;
   keyDrivers: string[];
