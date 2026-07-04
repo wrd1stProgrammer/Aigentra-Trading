@@ -38,8 +38,18 @@ test("monthly league UI does not overwrite selected-month returns with live trai
   );
   assert.match(
     leaderboardSource,
-    /selectedLeagueMonth \? \[fallbackReturnColumn\("monthly", t, monthlyReturnLabel\), topShortTermReturnColumn\(visibleStandings, t\)\] : topReturnColumns\(visibleStandings, t\)/,
-    "monthly tabs should display the selected-month return column with one dynamically selected 24h or 7d companion metric"
+    /const MONTHLY_RETURN_METRIC_KEYS: readonly ReturnMetricKey\[\] = \["monthly", "return7d", "return24h"\]/,
+    "monthly tabs should offer only selected-month, 7D, and 24H return metrics"
+  );
+  assert.match(
+    leaderboardSource,
+    /keys: selectedLeagueMonth \? MONTHLY_RETURN_METRIC_KEYS : RETURN_METRIC_KEYS/,
+    "monthly tabs should use a three-metric candidate set while the full league keeps the four-metric set"
+  );
+  assert.match(
+    leaderboardSource,
+    /selectReturnColumns\(\{ candidates: returnMetricCandidates, selectedKey: effectiveReturnMetricKey, count: 2 \}\)/,
+    "desktop monthly tabs should display the chosen period plus one best non-duplicate companion"
   );
   assert.match(
     leaderboardSource,

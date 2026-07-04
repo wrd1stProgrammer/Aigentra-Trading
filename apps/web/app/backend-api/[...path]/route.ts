@@ -2,12 +2,14 @@ const DEFAULT_API_BASE_URL = "http://localhost:8000";
 const EXTERNAL_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
 const BACKEND_PROXY_TIMEOUT_MS = Number(process.env.BACKEND_PROXY_TIMEOUT_MS ?? 20_000);
 const BACKEND_PROXY_FAST_TIMEOUT_MS = Number(process.env.BACKEND_PROXY_FAST_TIMEOUT_MS ?? 8_000);
+const BACKEND_PROXY_SLOW_TIMEOUT_MS = Number(process.env.BACKEND_PROXY_SLOW_TIMEOUT_MS ?? 55_000);
 
 type BackendApiContext = {
   params: Promise<{ path?: string[] }>;
 };
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function GET(request: Request, context: BackendApiContext) {
   return proxyBackendRequest(request, context);
@@ -88,6 +90,9 @@ function requestHasBody(request: Request) {
 }
 
 function backendProxyTimeoutMs(url: string) {
+  if (/\/api\/league\/sentiment\/opinion\b/.test(url)) {
+    return BACKEND_PROXY_SLOW_TIMEOUT_MS;
+  }
   if (
     /\/api\/market\/klines\b/.test(url) ||
     /\/api\/paper\/equity-snapshots\b/.test(url) ||

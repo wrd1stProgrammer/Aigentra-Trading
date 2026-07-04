@@ -156,7 +156,7 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
         title={appContext.t("access.accountLockedTitle")}
         description={appContext.t("access.accountLockedDescription")}
       >
-        <section data-testid="subscriber-command-summary" className="grid gap-3 sm:grid-cols-3">
+        <section data-testid="subscriber-command-summary" className="grid grid-cols-3 gap-2 sm:grid-cols-3">
           <AccountSummaryMetric
             label={copy.monitoredScope}
             value={`${selectedTraderCount}/${fallbackTraders.length}`}
@@ -217,7 +217,7 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
             </div>
 
             {/* Trader Cards Grid */}
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-2">
               {traderRows.map((trader) => {
                 const selected = preferences.favoriteTraderIds.includes(trader.id);
                 return (
@@ -228,7 +228,7 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
                     onClick={() =>
                       setPreferences((current) => toggleFavoriteTrader(current, trader.id))
                     }
-                    className={`focus-ring relative min-h-[148px] overflow-hidden rounded-xl border p-4 text-left transition-all duration-300 ${
+                    className={`focus-ring relative min-h-[100px] sm:min-h-[148px] overflow-hidden rounded-xl border p-3 sm:p-4 text-left transition-all duration-300 ${
                       selected
                         ? "bg-emerald-500/[0.02] border-emerald-500 dark:border-emerald-500/40 text-zinc-950 dark:text-white shadow-[0_0_12px_rgba(16,185,129,0.04)]"
                         : "bg-white dark:bg-[#070908] border-zinc-200 dark:border-white/[0.06] hover:border-zinc-300 dark:hover:border-white/20 text-zinc-800 dark:text-zinc-300 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/20"
@@ -236,35 +236,35 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
                   >
                     {/* Glowing active indicator */}
                     {selected && (
-                      <span className="absolute top-4 right-4 flex h-2 w-2">
+                      <span className="absolute top-3 right-3 flex h-1.5 w-1.5 sm:top-4 sm:right-4 sm:h-2 sm:w-2">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 sm:h-2 sm:w-2 bg-emerald-500"></span>
                       </span>
                     )}
 
-                    <div className="flex flex-col justify-between h-full space-y-4">
+                    <div className="flex flex-col justify-between h-full space-y-2 sm:space-y-4">
                       <div>
-                        <div className="flex items-center gap-2">
-                          <Star className={selected ? "text-emerald-500" : "text-zinc-400"} size={14} weight={selected ? "fill" : "regular"} />
-                          <span className="block text-sm font-bold tracking-tight">{trader.name}</span>
+                        <div className="flex items-center gap-1.5 sm:gap-2">
+                          <Star className={selected ? "text-emerald-500" : "text-zinc-400"} size={13} weight={selected ? "fill" : "regular"} />
+                          <span className="block text-xs sm:text-sm font-bold tracking-tight">{trader.name}</span>
                         </div>
-                        <span className="block text-xs text-zinc-500 dark:text-zinc-400 mt-2.5 leading-relaxed break-keep">
+                        <span className="hidden sm:block text-xs text-zinc-500 dark:text-zinc-400 mt-2.5 leading-relaxed break-keep">
                           {trader.summary}
                         </span>
                       </div>
 
                       {/* Active / Muted Switch look */}
-                      <div className="flex items-center justify-between pt-3.5 border-t border-zinc-100 dark:border-white/[0.04]">
-                        <span className={`text-[10px] font-bold uppercase tracking-wider font-mono ${
+                      <div className="flex items-center justify-between pt-2.5 border-t border-zinc-100 dark:border-white/[0.04] sm:pt-3.5">
+                        <span className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-wider font-mono ${
                           selected ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-400"
-                        }`}>
+                         }`}>
                           {selected ? copy.alertsOn : copy.alertsOff}
                         </span>
-                        <div className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${
+                        <div className={`relative w-7 h-3.5 sm:w-8 sm:h-4 rounded-full transition-colors duration-200 ${
                           selected ? "bg-emerald-500" : "bg-zinc-200 dark:bg-white/10"
                         }`}>
-                          <div className={`absolute top-0.5 left-0.5 size-3 rounded-full bg-white transition-transform duration-200 ${
-                            selected ? "translate-x-4" : "translate-x-0"
+                          <div className={`absolute top-0.5 left-0.5 size-2.5 sm:size-3 rounded-full bg-white transition-transform duration-200 ${
+                            selected ? "translate-x-3.5 sm:translate-x-4" : "translate-x-0"
                           }`} />
                         </div>
                       </div>
@@ -394,7 +394,7 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
                 <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 block">
                   {copy.eventGroupLabel}
                 </span>
-                <div className="grid gap-2 sm:grid-cols-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-2">
                   {telegramEventTypes.map((eventType) => {
                     const isChecked = preferences.telegramSettings.eventTypes.includes(eventType);
                     return (
@@ -403,25 +403,25 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
                         type="button"
                         disabled={!preferences.telegramSettings.enabled}
                         onClick={() => updateAlertType(eventType)}
-                        className={`focus-ring flex flex-col justify-between items-start text-left p-3.5 rounded-lg border transition duration-200 ${
+                        className={`focus-ring flex flex-col justify-between items-start text-left p-2.5 sm:p-3.5 rounded-lg border transition duration-200 ${
                           isChecked
                             ? "bg-zinc-50/50 dark:bg-[#111413] border-zinc-300 dark:border-emerald-500/25"
                             : "bg-white dark:bg-[#070908] border-zinc-200 dark:border-white/[0.04] opacity-70"
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          <span className={`inline-flex items-center justify-center size-4 rounded border ${
+                          <span className={`inline-flex items-center justify-center size-3.5 sm:size-4 rounded border ${
                             isChecked
                               ? "bg-emerald-500 border-emerald-500 text-white"
                               : "border-zinc-300 dark:border-white/10"
                           }`}>
-                            {isChecked && <Check size={10} weight="bold" />}
+                            {isChecked && <Check size={8} weight="bold" />}
                           </span>
-                          <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                          <span className="text-[11px] sm:text-xs font-bold text-zinc-800 dark:text-zinc-200">
                             {copy.eventLabels[eventType]}
                           </span>
                         </div>
-                        <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-2 leading-relaxed break-keep">
+                        <p className="hidden sm:block text-[10px] text-zinc-400 dark:text-zinc-500 mt-2 leading-relaxed break-keep">
                           {copy.eventDescriptions[eventType]}
                         </p>
                       </button>
@@ -473,10 +473,10 @@ function AccountSummaryMetric({
           : "border-zinc-200 bg-zinc-50 text-zinc-500 dark:border-white/[0.08] dark:bg-white/[0.03]";
 
   return (
-    <div className={`rounded-2xl border p-4 ${toneClass}`}>
-      <p className="text-[10px] font-bold uppercase tracking-wider opacity-80">{label}</p>
-      <p className="mt-2 font-mono text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{value}</p>
-      <p className="mt-1 line-clamp-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{detail}</p>
+    <div className={`rounded-xl border p-2.5 sm:p-4 ${toneClass}`}>
+      <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider opacity-80">{label}</p>
+      <p className="mt-1 sm:mt-2 font-mono text-base sm:text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">{value}</p>
+      <p className="hidden sm:block mt-1 line-clamp-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{detail}</p>
     </div>
   );
 }

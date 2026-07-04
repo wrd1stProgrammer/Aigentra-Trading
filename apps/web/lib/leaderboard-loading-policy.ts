@@ -1,16 +1,20 @@
 export type LeaderboardInitialOverlayInput = {
-  hasRenderableLeaderboard: boolean;
+  hasResolvedLeaderboardData: boolean;
   rankingPending: boolean;
+  rankingFetching?: boolean;
   rankingPlaceholder: boolean;
   rankingWarming?: boolean;
 };
 
 export function shouldShowLeaderboardInitialOverlay({
-  hasRenderableLeaderboard,
+  hasResolvedLeaderboardData,
   rankingPending,
-  rankingPlaceholder
+  rankingFetching = false,
+  rankingPlaceholder,
+  rankingWarming = false
 }: LeaderboardInitialOverlayInput) {
-  return !hasRenderableLeaderboard && rankingPending && !rankingPlaceholder;
+  const waitingForInitialBundle = rankingPending || rankingFetching || rankingPlaceholder || rankingWarming;
+  return !hasResolvedLeaderboardData && waitingForInitialBundle;
 }
 
 export type LeaderboardPreviewLimitInput = {

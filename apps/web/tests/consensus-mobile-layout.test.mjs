@@ -28,7 +28,7 @@ test("consensus uses a lightweight initial bundle and full-screen loading overla
   assert.match(consensusSource, /getActivePaperPositions\("BTCUSDT", undefined, CONSENSUS_EXPOSURE_LIMIT, \{ signal: context\.signal \}\)/, "active positions should load through the narrow exposure API with abort support");
   assert.match(consensusSource, /getPaperOrders\(CONSENSUS_EXPOSURE_LIMIT, "BTCUSDT", "open", undefined, \{ signal: context\.signal \}\)/, "active orders should load through the narrow order API with abort support");
   assert.doesNotMatch(consensusSource, /getRecentTradePlans/, "sentiment page should not fetch full pending trade-plan payloads");
-  assert.doesNotMatch(consensusSource, /hourlyOpinionQuery\.isPending && !hourlyOpinionQuery\.data/, "the full-screen overlay should not wait for hourly AI opinion generation");
+  assert.match(consensusSource, /const initialLoading = consensusBundleLoading \|\| hourlyOpinionLoading;/, "the full-screen overlay should wait until the bundle and Aigentra opinion are actually ready");
   assert.match(consensusSource, /PageLoadingOverlay/, "consensus should use the shared loading overlay");
   assert.match(overlaySource, /createPortal/, "loading overlay should portal to body instead of living under animated page transforms");
   assert.match(overlaySource, /backdrop-blur-\[3px\]/, "loading overlay should blur the page background");

@@ -507,8 +507,12 @@ export function ConsensusPageClient() {
     );
   }, [tradersWithStates]);
 
-  const hourlyOpinionLoading = hourlyOpinionQuery.isPending || !hourlyOpinionQuery.data?.opinion;
-  const initialLoading = btcQuery.isFetching && (btcQuery.isPending || btcQuery.isPlaceholderData);
+  const hasResolvedConsensusBundle = bundle.warming !== true && Boolean(bundle.summaries?.length);
+  const consensusBundleLoading =
+    !hasResolvedConsensusBundle && (btcQuery.isPending || btcQuery.isFetching || btcQuery.isPlaceholderData || bundle.warming === true);
+  const hasHourlyOpinion = Boolean(hourlyOpinionQuery.data?.opinion);
+  const hourlyOpinionLoading = !hasHourlyOpinion && (hourlyOpinionQuery.isPending || hourlyOpinionQuery.isFetching);
+  const initialLoading = consensusBundleLoading || hourlyOpinionLoading;
   const error = btcQuery.error ? t("common.liveDataUnavailable") : null;
 
   return (

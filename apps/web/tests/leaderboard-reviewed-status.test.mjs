@@ -26,6 +26,28 @@ test("leaderboard preview omits the lower current-state block", () => {
   assert.doesNotMatch(leaderboardSource, /StatusLine/, "hover preview should not keep the removed status-row helper");
 });
 
+test("leaderboard hover preview uses a 7D equity chart and six performance cells", () => {
+  assert.match(
+    leaderboardSource,
+    /const \[selectedChartPeriod, setSelectedChartPeriod\] = useState<ChartPeriod>\("7D"\)/,
+    "sidebar chart should default to the 7D range"
+  );
+  assert.match(
+    leaderboardSource,
+    /const activateTrader = useCallback\(\(traderId: string\) => \{\s*setActiveTraderId\(traderId\);\s*setSelectedChartPeriod\("7D"\);/s,
+    "hovering or focusing a leaderboard row should reset the sidebar chart to 7D"
+  );
+  assert.match(leaderboardSource, /onMouseEnter=\{\(\) => onActivate\(trader\.id\)\}/, "desktop rows should activate the sidebar on hover");
+  assert.match(leaderboardSource, /onFocus=\{\(\) => onActivate\(trader\.id\)\}/, "keyboard focus should match hover preview behavior");
+  assert.match(
+    leaderboardSource,
+    /<MiniCell label=\{t\("leaderboard\.averageLeverage"\)\} value=\{formatLeverageBadge\(trader\.averageLeverage\) \?\? "-"\} \/>/,
+    "portfolio performance should include average leverage as the sixth quick metric"
+  );
+  assert.match(i18nSource, /"leaderboard\.averageLeverage": "평균 배율"/, "Korean average leverage label should be localized");
+  assert.match(i18nSource, /"leaderboard\.averageLeverage": "Avg Leverage"/, "English average leverage label should be localized");
+});
+
 test("leaderboard uses a zero-extra-fetch live race board instead of league overview", () => {
   assert.match(leaderboardSource, /data-testid="live-race-board"/, "race board should have a stable first-load target");
   assert.match(leaderboardSource, /function LiveRaceBoard/, "race board should be a named component inside the leaderboard surface");
@@ -181,18 +203,57 @@ test("monthly league pins the visible return metric to the selected UTC month", 
   );
   assert.match(
     leaderboardSource,
-    /selectedLeagueMonth \? \[fallbackReturnColumn\("monthly", t, monthlyReturnLabel\), topShortTermReturnColumn\(visibleStandings, t\)\] : topReturnColumns\(visibleStandings, t\)/,
-    "monthly tabs should show the selected-month return column plus one dynamically selected 24h or 7d column"
+    /const MONTHLY_RETURN_METRIC_KEYS: readonly ReturnMetricKey\[\] = \["monthly", "return7d", "return24h"\]/,
+    "monthly tabs should choose visible metrics only from the selected month, 7D, and 24H"
   );
   assert.match(
     leaderboardSource,
-    /function topShortTermReturnColumn/,
-    "monthly short-term companion metric should be selected at the column level"
+    /keys: selectedLeagueMonth \? MONTHLY_RETURN_METRIC_KEYS : RETURN_METRIC_KEYS/,
+    "monthly and full league tabs should use separate return metric candidate sets"
+  );
+  assert.match(
+    leaderboardSource,
+    /selectReturnColumns\(\{ candidates: returnMetricCandidates, selectedKey: effectiveReturnMetricKey, count: 2 \}\)/,
+    "desktop should render the selected return metric plus one best non-duplicate companion"
+  );
+  assert.match(
+    leaderboardSource,
+    /setSelectedReturnMetricKey\(option\.key\)/,
+    "the period dropdown should select the visible return metric instead of filtering the sidebar chart"
   );
   assert.doesNotMatch(
     leaderboardSource,
     /bestShortTerm|returnMetricCellLabel/,
     "monthly short-term cells should not show a generic best-of label or switch labels row by row"
+  );
+});
+
+test("mobile leaderboard renders one best return column only", () => {
+  const mobileListSource = leaderboardSource.match(/function MobileRankingList[\s\S]*?function TraderPreviewPanel/)?.[0] ?? "";
+  assert.match(
+    leaderboardSource,
+    /const mobileReturnColumn = useMemo\(/,
+    "mobile should compute its own single return column"
+  );
+  assert.match(
+    leaderboardSource,
+    /returnColumn=\{mobileReturnColumn\}/,
+    "mobile list should receive one selected return column, not the desktop column pair"
+  );
+  assert.match(
+    leaderboardSource,
+    /selectReturnColumns\(\{ candidates: returnMetricCandidates, selectedKey: effectiveReturnMetricKey, count: 1 \}\)/,
+    "mobile should render exactly one selected or best return metric"
+  );
+  assert.doesNotMatch(
+    leaderboardSource,
+    /MOBILE_MONTHLY_RETURN_METRIC_KEYS|function topMobileReturnColumn/,
+    "mobile should reuse the shared return-column selector instead of a separate stale monthly candidate list"
+  );
+  assert.doesNotMatch(
+    mobileListSource,
+    /secondaryReturnColumn/,
+    "mobile rows should not force a second return metric into the narrow column"
   );
 });
 
@@ -214,10 +275,10 @@ test("leaderboard trader links do not prefetch detail bundles during the click p
   );
 });
 
-test("leaderboard initial loading policy only blocks a truly empty ranking load", () => {
+test("leaderboard initial loading policy blocks fallback-only ranking loads", () => {
   assert.equal(
     loadingPolicy.shouldShowLeaderboardInitialOverlay({
-      hasRenderableLeaderboard: false,
+      hasResolvedLeaderboardData: false,
       rankingPending: true,
       rankingPlaceholder: false
     }),
@@ -226,21 +287,22 @@ test("leaderboard initial loading policy only blocks a truly empty ranking load"
   );
   assert.equal(
     loadingPolicy.shouldShowLeaderboardInitialOverlay({
-      hasRenderableLeaderboard: true,
+      hasResolvedLeaderboardData: true,
       rankingPending: true,
+      rankingFetching: true,
       rankingPlaceholder: false
     }),
     false,
-    "renderable standings should keep the shell interactive while slower queries finish"
+    "resolved summaries should keep the shell interactive while slower queries finish"
   );
   assert.equal(
     loadingPolicy.shouldShowLeaderboardInitialOverlay({
-      hasRenderableLeaderboard: false,
+      hasResolvedLeaderboardData: false,
       rankingPending: true,
       rankingPlaceholder: true
     }),
-    false,
-    "placeholder standings should keep period transitions from blanking the page"
+    true,
+    "placeholder-only standings should keep the full-page overlay visible until the requested bundle resolves"
   );
 });
 

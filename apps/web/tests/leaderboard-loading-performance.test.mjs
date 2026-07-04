@@ -5,22 +5,24 @@ import vm from "node:vm";
 import ts from "typescript";
 
 const loadingPolicy = loadTsModule("../lib/leaderboard-loading-policy.ts", { URLSearchParams });
+const liveRacePolicy = loadTsModule("../lib/live-race-policy.ts");
 const accessGatePolicy = loadTsModule("../lib/access-gate-policy.ts");
 const sessionRefetchPolicy = loadTsModule("../lib/session-refetch-policy.ts");
 
-test("league overview shell is not blocked by slower live exposure or subscriber access queries", () => {
+test("leaderboard initial overlay waits for the resolved ranking bundle, not the fallback roster", () => {
   assert.equal(
     loadingPolicy.shouldShowLeaderboardInitialOverlay({
-      hasRenderableLeaderboard: true,
+      hasResolvedLeaderboardData: true,
       rankingPending: true,
+      rankingFetching: true,
       rankingPlaceholder: false
     }),
     false,
-    "renderable standings should suppress the full-page overlay even while slower queries continue"
+    "resolved summaries should suppress the full-page overlay even while slower queries continue"
   );
   assert.equal(
     loadingPolicy.shouldShowLeaderboardInitialOverlay({
-      hasRenderableLeaderboard: false,
+      hasResolvedLeaderboardData: false,
       rankingPending: true,
       rankingPlaceholder: false
     }),
@@ -29,27 +31,27 @@ test("league overview shell is not blocked by slower live exposure or subscriber
   );
   assert.equal(
     loadingPolicy.shouldShowLeaderboardInitialOverlay({
-      hasRenderableLeaderboard: false,
+      hasResolvedLeaderboardData: false,
       rankingPending: true,
       rankingPlaceholder: true
     }),
-    false,
-    "placeholder standings should keep the shell visible during a period transition"
+    true,
+    "placeholder-only standings should keep the full-page overlay until the requested bundle resolves"
   );
   assert.equal(
     loadingPolicy.shouldShowLeaderboardInitialOverlay({
-      hasRenderableLeaderboard: false,
+      hasResolvedLeaderboardData: false,
       rankingPending: false,
       rankingPlaceholder: false,
       rankingWarming: true
     }),
-    false,
-    "a cold-cache monthly warming bundle should not keep the full-page overlay alive after the shell has a fallback roster"
+    true,
+    "a cold-cache monthly warming bundle should keep the full-page overlay alive until real summaries arrive"
   );
   assert.match(
     readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8"),
-    /const hasRenderableLeaderboard = displayStandings\.length > 0;/,
-    "warming rows built from the trader catalog should count as renderable shell content"
+    /const hasResolvedLeaderboardData = !leaderboardWarming && Boolean\(bundle\.summaries\?\.length\);/,
+    "fallback trader rows should not count as resolved leaderboard data"
   );
 });
 
@@ -162,6 +164,39 @@ test("live race board uses a compact lane instead of a split hero layout", () =>
     disabledPrefetchCount,
     leaderboardDetailLinkCount,
     "leaderboard detail links should not prefetch and compete with the first visible data request"
+  );
+});
+
+test("live race board prioritizes favorable 24h races over negative volatility", () => {
+  const positiveWatcher = liveRacePolicy.liveRaceScore({
+    rank: 20,
+    return24h: 0.2,
+    hasLiveSide: false,
+    isPending: false,
+    isLossTone: false
+  });
+  const negativeActiveLeader = liveRacePolicy.liveRaceScore({
+    rank: 1,
+    return24h: -0.2,
+    hasLiveSide: true,
+    isPending: false,
+    isLossTone: false
+  });
+
+  assert.ok(
+    positiveWatcher > negativeActiveLeader,
+    "a small positive 24h mover should outrank a negative active leader in the race board"
+  );
+
+  const sorted = [
+    { id: "slipping", score: negativeActiveLeader, return24h: -0.2, rank: 1 },
+    { id: "surging", score: positiveWatcher, return24h: 0.2, rank: 20 }
+  ].sort(liveRacePolicy.compareLiveRaceItems);
+
+  assert.deepEqual(
+    sorted.map((item) => item.id),
+    ["surging", "slipping"],
+    "race sorting should prefer positive 24h movement before negative drawdown drama"
   );
 });
 

@@ -40,6 +40,7 @@ import { FREE_LEADERBOARD_LIMIT, useSubscriberAccess } from "@/components/use-su
 import { fallbackTraders, traderDetailKey, traderNameKey, traderShortKey } from "@/lib/traders";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { statusLabel } from "@/lib/status";
+import { compareLiveRaceItems, liveRaceScore } from "@/lib/live-race-policy";
 import {
   buildLeaguePeriodUrl,
   shouldFetchCurrentLeagueCompanion,
@@ -73,6 +74,7 @@ type TraderProgress = {
 };
 
 type ReturnMetricKey = "monthly" | "cumulative" | "return7d" | "return24h" | "return30d";
+type ChartPeriod = "ALL" | "7D" | "30D" | "90D";
 
 type ReturnColumn = {
   readonly key: ReturnMetricKey;
@@ -80,26 +82,21 @@ type ReturnColumn = {
   readonly peakValue: number;
 };
 
+type ReturnColumnBuildOptions = {
+  readonly keys: readonly ReturnMetricKey[];
+  readonly standings: readonly TraderStanding[];
+  readonly t: (key: string) => string;
+  readonly monthlyReturnLabel?: string;
+};
+
+type ReturnColumnSelectOptions = {
+  readonly candidates: readonly ReturnColumn[];
+  readonly selectedKey: ReturnMetricKey | null;
+  readonly count: 1 | 2;
+};
+
 const RETURN_METRIC_KEYS: readonly ReturnMetricKey[] = ["cumulative", "return7d", "return24h", "return30d"];
-
-const periodLabels = {
-  ko: {
-    ALL: "전체 기간",
-    "7D": "1주일",
-    "30D": "1개월",
-    "90D": "3개월"
-  },
-  en: {
-    ALL: "All Time",
-    "7D": "1 Week",
-    "30D": "1 Month",
-    "90D": "3 Months"
-  }
-} as const;
-
-function periodLabel(locale: Locale, period: keyof typeof periodLabels.en) {
-  return (locale === "ko" ? periodLabels.ko : periodLabels.en)[period];
-}
+const MONTHLY_RETURN_METRIC_KEYS: readonly ReturnMetricKey[] = ["monthly", "return7d", "return24h"];
 
 function monthReturnMetricLabel(locale: Locale, month: number, t: (key: string) => string) {
   const monthLabel =
@@ -191,7 +188,8 @@ export function LeaderboardPageClient() {
   const [activeTab, setActiveTab] = useState<"BTC">("BTC");
   const [activeTraderId, setActiveTraderId] = useState<string | null>(null);
   const [isPeriodOpen, setIsPeriodOpen] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState<"ALL" | "7D" | "30D" | "90D">("ALL");
+  const [selectedChartPeriod, setSelectedChartPeriod] = useState<ChartPeriod>("7D");
+  const [selectedReturnMetricKey, setSelectedReturnMetricKey] = useState<ReturnMetricKey | null>(null);
   const [selectedLeagueMonth, setSelectedLeagueMonth] = useState<string | undefined>(() => initialLeagueMonthFromSearchParams(searchParams));
   const [cacheReady, setCacheReady] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -378,10 +376,30 @@ export function LeaderboardPageClient() {
     [favoriteTraderIds, favoritesOnly, visibleStandingsBase]
   );
   const monthlyReturnLabel = selectedLeagueMonth ? monthReturnMetricLabel(locale, selectedLeagueMonthParts.month, t) : t("leaderboard.monthlyReturn");
-  const returnColumns = useMemo(
-    () => selectedLeagueMonth ? [fallbackReturnColumn("monthly", t, monthlyReturnLabel), topShortTermReturnColumn(visibleStandings, t)] : topReturnColumns(visibleStandings, t),
+  const returnMetricCandidates = useMemo(
+    () =>
+      buildReturnColumns({
+        keys: selectedLeagueMonth ? MONTHLY_RETURN_METRIC_KEYS : RETURN_METRIC_KEYS,
+        standings: visibleStandings,
+        t,
+        monthlyReturnLabel: selectedLeagueMonth ? monthlyReturnLabel : undefined
+      }),
     [monthlyReturnLabel, selectedLeagueMonth, t, visibleStandings]
   );
+  const selectedReturnMetric = returnMetricCandidates.find((candidate) => candidate.key === selectedReturnMetricKey) ?? null;
+  const effectiveReturnMetricKey = selectedReturnMetric?.key ?? null;
+  const returnColumns = useMemo(
+    () => selectReturnColumns({ candidates: returnMetricCandidates, selectedKey: effectiveReturnMetricKey, count: 2 }),
+    [effectiveReturnMetricKey, returnMetricCandidates]
+  );
+  const mobileReturnColumn = useMemo(
+    () =>
+      selectReturnColumns({ candidates: returnMetricCandidates, selectedKey: effectiveReturnMetricKey, count: 1 })[0] ??
+      fallbackReturnColumn(selectedLeagueMonth ? "monthly" : "cumulative", t, selectedLeagueMonth ? monthlyReturnLabel : undefined),
+    [effectiveReturnMetricKey, monthlyReturnLabel, returnMetricCandidates, selectedLeagueMonth, t]
+  );
+  const returnPeriodButtonLabel = selectedReturnMetric?.label ?? returnColumns[0]?.label ?? mobileReturnColumn.label;
+  const activeReturnMetricKey = effectiveReturnMetricKey ?? returnColumns[0]?.key ?? mobileReturnColumn.key;
   const hiddenTraderCount = Math.max(0, displayStandings.length - visibleStandingsBase.length);
   const activeTrader = visibleStandings.find((item) => item.id === activeTraderId) ?? visibleStandings[0] ?? null;
   const currentSummaryByTrader = useMemo(
@@ -461,7 +479,7 @@ export function LeaderboardPageClient() {
 
   const filteredSnapshots = useMemo(() => {
     const rawSnapshots = activeSnapshotsQuery.data ?? [];
-    if (selectedPeriod === "ALL" || rawSnapshots.length === 0) return rawSnapshots;
+    if (selectedChartPeriod === "ALL" || rawSnapshots.length === 0) return rawSnapshots;
 
     const times = rawSnapshots.map((s) => {
       const timeStr = s.candleTime ?? s.createdAt ?? s.timestamp;
@@ -469,7 +487,7 @@ export function LeaderboardPageClient() {
     }).filter(t => t > 0);
     
     const latestTime = times.length > 0 ? Math.max(...times) : Date.now();
-    const days = selectedPeriod === "7D" ? 7 : selectedPeriod === "30D" ? 30 : 90;
+    const days = selectedChartPeriod === "7D" ? 7 : selectedChartPeriod === "30D" ? 30 : 90;
     const cutoff = latestTime - days * 24 * 60 * 60 * 1000;
 
     return rawSnapshots.filter((s) => {
@@ -477,17 +495,19 @@ export function LeaderboardPageClient() {
       if (!timeStr) return false;
       return new Date(timeStr).getTime() >= cutoff;
     });
-  }, [activeSnapshotsQuery.data, selectedPeriod]);
+  }, [activeSnapshotsQuery.data, selectedChartPeriod]);
 
   const activateTrader = useCallback((traderId: string) => {
     setActiveTraderId(traderId);
+    setSelectedChartPeriod("7D");
   }, []);
 
   const leaderboardWarming = bundle.warming === true && !bundle.summaries?.length;
-  const hasRenderableLeaderboard = displayStandings.length > 0;
+  const hasResolvedLeaderboardData = !leaderboardWarming && Boolean(bundle.summaries?.length);
   const initialLoading = shouldShowLeaderboardInitialOverlay({
-    hasRenderableLeaderboard,
+    hasResolvedLeaderboardData,
     rankingPending: btcQuery.isPending,
+    rankingFetching: btcQuery.isFetching,
     rankingPlaceholder: btcQuery.isPlaceholderData,
     rankingWarming: leaderboardWarming
   });
@@ -639,7 +659,6 @@ export function LeaderboardPageClient() {
                 </button>
               </div>
 
-              {/* Right side: visual period selection dropdown */}
               <div className="flex min-w-0 items-center gap-2 md:gap-3">
                 {showBackgroundFetching ? (
                   <span className="hidden items-center gap-2 rounded-lg bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-zinc-400 sm:inline-flex">
@@ -651,32 +670,34 @@ export function LeaderboardPageClient() {
                 <div className="relative">
                   <button
                     type="button"
+                    data-testid="desktop-return-period-trigger"
                     onClick={() => setIsPeriodOpen(!isPeriodOpen)}
                     className="focus-ring inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-1.5 text-xs font-semibold hover:bg-white/[0.06] transition md:px-3"
                   >
                     <Calendar size={14} className="text-emerald-400" />
-                    <span>{periodLabel(locale, selectedPeriod)}</span>
+                    <span>{returnPeriodButtonLabel}</span>
                     <CaretDown size={14} className="text-zinc-500" />
                   </button>
                   {isPeriodOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setIsPeriodOpen(false)} />
                       <div className="absolute right-0 mt-1.5 w-36 rounded-lg border border-white/10 bg-[#0c0d0d] p-1 shadow-lg z-20">
-                        {(["ALL", "7D", "30D", "90D"] as const).map((p) => (
+                        {returnMetricCandidates.map((option) => (
                           <button
-                            key={p}
+                            key={option.key}
                             type="button"
+                            data-return-metric={option.key}
                             onClick={() => {
-                              setSelectedPeriod(p);
+                              setSelectedReturnMetricKey(option.key);
                               setIsPeriodOpen(false);
                             }}
                             className={`w-full text-left rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                              selectedPeriod === p 
+                              activeReturnMetricKey === option.key
                                 ? "bg-emerald-500/10 text-emerald-400" 
                                 : "text-zinc-400 hover:bg-white/[0.04] hover:text-white"
                             }`}
                           >
-                            {periodLabel(locale, p)}
+                            {option.label}
                           </button>
                         ))}
                       </div>
@@ -687,11 +708,11 @@ export function LeaderboardPageClient() {
             </div>
 
             {/* Mobile Layout */}
-            <div className="flex flex-col gap-2.5 w-full md:hidden px-4 py-3 border-b border-white/[0.06] bg-[#080909]">
-              {/* Row 1: Segmented league control (flex-grow) & BTC market tag */}
+            <div className="flex flex-col gap-2 w-full md:hidden px-4 py-3 border-b border-white/[0.06] bg-[#080909]">
+              {/* Row 1: Segmented league control, Favorites toggle (icon + badge), and BTC tag */}
               <div
                 data-testid="leaderboard-filter-rail"
-                className="flex items-center gap-2 w-full"
+                className="flex items-center gap-1.5 w-full"
               >
                 <div
                   data-testid="leaderboard-month-selector"
@@ -725,20 +746,46 @@ export function LeaderboardPageClient() {
                   </button>
                 </div>
 
-                <div className="inline-flex items-center justify-center rounded-xl bg-white/[0.02] border border-white/[0.08] p-1 h-[34px] px-3.5">
+                {/* Favorites button (Sleek icon only with absolute count badge) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (favoritesOnly) {
+                      setFavoritesOnly(false);
+                    } else {
+                      setFavoritesOnly(true);
+                    }
+                  }}
+                  className={`focus-ring group relative inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-xl transition duration-200 active:scale-[0.96] ${
+                    favoritesOnly
+                      ? "bg-amber-300 text-zinc-950 shadow-[0_0_0_1px_rgba(251,191,36,0.55)]"
+                      : "bg-white/[0.02] text-zinc-400 border border-white/[0.08] hover:bg-white/[0.06]"
+                  }`}
+                  aria-pressed={favoritesOnly}
+                >
+                  <Star className="transition-transform duration-200 ease-out group-hover:-rotate-6" size={14} weight={favoritesOnly ? "fill" : "bold"} />
+                  {favoriteTraderIds.size ? (
+                    <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 font-sans text-[8px] font-bold text-white ring-1 ring-black">
+                      {favoriteTraderIds.size}
+                    </span>
+                  ) : null}
+                </button>
+
+                <div className="inline-flex items-center justify-center rounded-xl bg-white/[0.02] border border-white/[0.08] p-1 h-[34px] px-3">
                   <span className="text-xs font-extrabold text-white">
                     BTC
                   </span>
                 </div>
               </div>
 
-              {/* Row 2: Year & Month dropdown selects side-by-side (only visible when Monthly League is selected) */}
-              {selectedLeagueMonth && (
-                <div className="grid grid-cols-2 gap-2 animate-fade-in w-full">
-                  <div className="relative flex items-center justify-between rounded-xl border border-white/[0.08] bg-[#0c0d0d] px-3 py-2">
+              {/* Row 2: Filters */}
+              {selectedLeagueMonth ? (
+                /* 3-column grid for Year, Month, and Period dropdowns */
+                <div className="grid grid-cols-3 gap-1.5 w-full">
+                  <div className="relative flex items-center justify-between rounded-xl border border-white/[0.08] bg-[#0c0d0d] px-2 py-1.5">
                     <select
                       aria-label={t("leaderboard.year")}
-                      className="focus-ring w-full bg-transparent text-xs font-bold text-zinc-100 outline-none appearance-none cursor-pointer pr-6"
+                      className="focus-ring w-full bg-transparent text-[11px] font-bold text-zinc-100 outline-none appearance-none cursor-pointer pr-4"
                       value={String(selectedLeagueMonthParts.year)}
                       onChange={(event) => {
                         const nextYear = Number(event.target.value);
@@ -752,13 +799,13 @@ export function LeaderboardPageClient() {
                         <option key={year} value={year}>{year}</option>
                       ))}
                     </select>
-                    <CaretDown size={13} className="absolute right-3 text-zinc-500 pointer-events-none" />
+                    <CaretDown size={11} className="absolute right-2 text-zinc-500 pointer-events-none" />
                   </div>
 
-                  <div className="relative flex items-center justify-between rounded-xl border border-white/[0.08] bg-[#0c0d0d] px-3 py-2">
+                  <div className="relative flex items-center justify-between rounded-xl border border-white/[0.08] bg-[#0c0d0d] px-2 py-1.5">
                     <select
                       aria-label={t("leaderboard.month")}
-                      className="focus-ring w-full bg-transparent text-xs font-bold text-zinc-100 outline-none appearance-none cursor-pointer pr-6"
+                      className="focus-ring w-full bg-transparent text-[11px] font-bold text-zinc-100 outline-none appearance-none cursor-pointer pr-4"
                       value={String(selectedLeagueMonthParts.month)}
                       onChange={(event) => {
                         const nextMonth = Number(event.target.value);
@@ -771,50 +818,58 @@ export function LeaderboardPageClient() {
                         </option>
                       ))}
                     </select>
-                    <CaretDown size={13} className="absolute right-3 text-zinc-500 pointer-events-none" />
+                    <CaretDown size={11} className="absolute right-2 text-zinc-500 pointer-events-none" />
+                  </div>
+
+                  <div className="relative w-full">
+                    <button
+                      type="button"
+                      data-testid="mobile-return-period-trigger"
+                      onClick={() => setIsPeriodOpen(!isPeriodOpen)}
+                      className="focus-ring inline-flex h-[30px] w-full items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/[0.02] text-[11px] font-semibold hover:bg-white/[0.06] transition px-1.5"
+                    >
+                      <Calendar size={12} className="text-emerald-400 shrink-0" />
+                      <span className="truncate">{returnPeriodButtonLabel}</span>
+                      <CaretDown size={11} className="text-zinc-500 shrink-0" />
+                    </button>
+
+                    {isPeriodOpen && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setIsPeriodOpen(false)} />
+                        <div className="absolute right-0 mt-1 w-full rounded-lg border border-white/10 bg-[#0c0d0d] p-1 shadow-lg z-20">
+                          {returnMetricCandidates.map((option) => (
+                            <button
+                              key={option.key}
+                              type="button"
+                              data-return-metric={option.key}
+                              onClick={() => {
+                                setSelectedReturnMetricKey(option.key);
+                                setIsPeriodOpen(false);
+                              }}
+                              className={`w-full text-left rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
+                                activeReturnMetricKey === option.key
+                                  ? "bg-emerald-500/10 text-emerald-400"
+                                  : "text-zinc-400 hover:bg-white/[0.04] hover:text-white"
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
-              )}
-
-              {/* Row 3: Favorites toggle button & Calendar period selector */}
-              <div className="grid grid-cols-2 gap-2 w-full">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (favoritesOnly) {
-                      setFavoritesOnly(false);
-                    } else {
-                      setFavoritesOnly(true);
-                    }
-                  }}
-                  className={`focus-ring group inline-flex h-9 items-center justify-center gap-2 rounded-xl text-xs font-bold transition-[background-color,color,box-shadow,transform] duration-200 ease-out active:scale-[0.96] ${
-                    favoritesOnly
-                      ? "bg-amber-300 text-zinc-950 shadow-[0_0_0_1px_rgba(251,191,36,0.55)]"
-                      : "bg-white/[0.02] text-zinc-400 border border-white/[0.08] hover:bg-white/[0.06] hover:text-zinc-100"
-                  }`}
-                  aria-pressed={favoritesOnly}
-                >
-                  <Star className="transition-transform duration-200 ease-out group-hover:-rotate-6 group-hover:scale-110" size={14} weight={favoritesOnly ? "fill" : "bold"} />
-                  {t("leaderboard.favorites")}
-                  {favoriteTraderIds.size ? (
-                    <span
-                      className={`rounded px-1.5 py-0.5 font-mono text-[10px] leading-none tabular-nums ${
-                        favoritesOnly ? "bg-zinc-950/15 text-zinc-950" : "bg-white/[0.07] text-zinc-300"
-                      }`}
-                    >
-                      {favoriteTraderIds.size}
-                    </span>
-                  ) : null}
-                </button>
-
+              ) : (
                 <div className="relative w-full">
                   <button
                     type="button"
+                    data-testid="mobile-return-period-trigger"
                     onClick={() => setIsPeriodOpen(!isPeriodOpen)}
                     className="focus-ring inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.02] text-xs font-semibold hover:bg-white/[0.06] transition"
                   >
                     <Calendar size={14} className="text-emerald-400" />
-                    <span>{periodLabel(locale, selectedPeriod)}</span>
+                    <span>{returnPeriodButtonLabel}</span>
                     <CaretDown size={12} className="text-zinc-400" />
                   </button>
 
@@ -822,28 +877,29 @@ export function LeaderboardPageClient() {
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setIsPeriodOpen(false)} />
                       <div className="absolute right-0 mt-1.5 w-full rounded-lg border border-white/10 bg-[#0c0d0d] p-1 shadow-lg z-20">
-                        {(["ALL", "7D", "30D", "90D"] as const).map((p) => (
+                        {returnMetricCandidates.map((option) => (
                           <button
-                            key={p}
+                            key={option.key}
                             type="button"
+                            data-return-metric={option.key}
                             onClick={() => {
-                              setSelectedPeriod(p);
+                              setSelectedReturnMetricKey(option.key);
                               setIsPeriodOpen(false);
                             }}
                             className={`w-full text-left rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                              selectedPeriod === p
+                              activeReturnMetricKey === option.key
                                 ? "bg-emerald-500/10 text-emerald-400"
                                 : "text-zinc-400 hover:bg-white/[0.04] hover:text-white"
                             }`}
                           >
-                            {periodLabel(locale, p)}
+                            {option.label}
                           </button>
                         ))}
                       </div>
                     </>
                   )}
                 </div>
-              </div>
+              )}
             </div>
 
           <RankingTable
@@ -865,7 +921,7 @@ export function LeaderboardPageClient() {
             t={t}
             locale={locale}
             favoriteTraderIds={favoriteTraderIds}
-            returnColumns={returnColumns}
+            returnColumn={mobileReturnColumn}
             onToggleFavorite={toggleFavoriteTrader}
           />
           {subscriberAccessPending && hiddenTraderCount > 0 ? (
@@ -1014,25 +1070,22 @@ function LeaderboardLockedRows({
   );
 }
 
-function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader, t, locale, favoriteTraderIds, returnColumns, onToggleFavorite }: {
+function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader, t, locale, favoriteTraderIds, returnColumn, onToggleFavorite }: {
   standings: TraderStanding[];
   exposureByTrader: Map<string, TraderExposure>;
   currentSummaryByTrader: ReadonlyMap<string, TraderStanding["summary"]>;
   t: (key: string) => string;
   locale: Locale;
   favoriteTraderIds: ReadonlySet<string>;
-  returnColumns: readonly ReturnColumn[];
+  returnColumn: ReturnColumn;
   onToggleFavorite: (traderId: string) => void;
 }) {
-  const primaryReturnColumn = returnColumns[0] ?? fallbackReturnColumn("cumulative", t);
-  const secondaryReturnColumn = returnColumns[1] ?? null;
-
   return (
-    <div className="lg:hidden">
+    <div className="lg:hidden" data-testid="mobile-ranking-list">
       <div className="grid grid-cols-[38px_minmax(0,1fr)_88px_28px] items-center gap-2 border-b border-zinc-200/40 dark:border-white/[0.06] px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-500">
         <span>{t("leaderboard.rank")}</span>
         <span>{t("leaderboard.trader")}</span>
-        <span className="text-right">{primaryReturnColumn.label}</span>
+        <span className="truncate text-right" data-testid="mobile-return-column-label">{returnColumn.label}</span>
         <span aria-hidden />
       </div>
       <div className="divide-y divide-zinc-200/40 dark:divide-white/[0.06]">
@@ -1040,8 +1093,7 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
             const progress = traderProgress(trader, exposureByTrader.get(trader.id), t, locale, currentSummaryByTrader.get(trader.id));
             const displayName = localizedTraderName(trader, t);
             const isFavorite = favoriteTraderIds.has(trader.id);
-            const returnValue = returnMetricValue(trader, primaryReturnColumn.key);
-            const secondaryReturnValue = secondaryReturnColumn ? returnMetricValue(trader, secondaryReturnColumn.key) : null;
+            const returnValue = returnMetricValue(trader, returnColumn.key);
             return (
               <Link
                 key={trader.id}
@@ -1068,12 +1120,7 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
                 </div>
                 <div className="min-w-0 text-right">
                   <p className={`font-mono text-[15px] font-bold ${returnValue >= 0 ? "value-good" : "value-bad"}`}>{formatSignedPercent(returnValue)}</p>
-                  <p className="mt-0.5 truncate text-[11px] font-semibold text-zinc-500">{primaryReturnColumn.label}</p>
-                  {secondaryReturnColumn ? (
-                    <p className={`mt-0.5 truncate font-mono text-[11px] font-semibold ${Number(secondaryReturnValue ?? 0) >= 0 ? "value-good" : "value-bad"}`}>
-                      {secondaryReturnColumn.label} {formatSignedPercent(secondaryReturnValue)}
-                    </p>
-                  ) : null}
+                  <p className="mt-0.5 truncate text-[11px] font-semibold text-zinc-500">{returnColumn.label}</p>
                   {progress.detail ? <p className="mt-0.5 truncate text-[11px] font-semibold text-zinc-400">{progress.detail}</p> : null}
                 </div>
                 <FavoriteButton
@@ -1157,6 +1204,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
             <MiniCell label={t("common.return7d")} value={formatSignedPercent(trader.return7d)} />
             <MiniCell label={t("leaderboard.biggestWin")} value={formatCurrency(trader.biggestWin, locale)} />
             <MiniCell label={t("common.winRate")} value={formatNullablePercent(trader.winRate)} />
+            <MiniCell label={t("leaderboard.averageLeverage")} value={formatLeverageBadge(trader.averageLeverage) ?? "-"} />
             {isMonthlyLeague ? (
               <MiniCell label={previewShortTermColumn.label} value={formatSignedPercent(returnMetricValue(trader, previewShortTermColumn.key))} />
             ) : (
@@ -1323,17 +1371,29 @@ function LeverageBadge({ progress }: { progress: TraderProgress }) {
   );
 }
 
-function topReturnColumns(standings: readonly TraderStanding[], t: (key: string) => string): readonly ReturnColumn[] {
-  const columns = RETURN_METRIC_KEYS.map((key) => {
+function buildReturnColumns({ keys, standings, t, monthlyReturnLabel }: ReturnColumnBuildOptions): readonly ReturnColumn[] {
+  return keys.map((key) => {
     return {
       key,
-      label: returnMetricLabel(key, t),
+      label: key === "monthly" && monthlyReturnLabel ? monthlyReturnLabel : returnMetricLabel(key, t),
       peakValue: peakReturnMetric(standings, key)
     };
   });
+}
+
+function selectReturnColumns({ candidates, selectedKey, count }: ReturnColumnSelectOptions): readonly ReturnColumn[] {
+  const selectedColumn = candidates.find((candidate) => candidate.key === selectedKey) ?? null;
+  if (!selectedColumn) return rankReturnColumns(candidates).slice(0, count);
+  if (count === 1) return [selectedColumn];
+
+  const companionColumn = rankReturnColumns(candidates.filter((candidate) => candidate.key !== selectedColumn.key))[0] ?? null;
+  return companionColumn ? [selectedColumn, companionColumn] : [selectedColumn];
+}
+
+function rankReturnColumns(columns: readonly ReturnColumn[]): readonly ReturnColumn[] {
   const positives = columns.filter((metric) => metric.peakValue > 0).sort((a, b) => b.peakValue - a.peakValue);
   const fallback = columns.filter((metric) => metric.peakValue <= 0).sort((a, b) => b.peakValue - a.peakValue);
-  return [...positives, ...fallback].slice(0, 2);
+  return [...positives, ...fallback];
 }
 
 function topShortTermReturnColumn(standings: readonly TraderStanding[], t: (key: string) => string): ReturnColumn {
@@ -1437,7 +1497,7 @@ function StatusPill({ label, tone }: { label: string; tone: "good" | "bad" | "wa
         : tone === "warn"
           ? "bg-amber-500/14 text-amber-800 dark:text-amber-200"
           : "bg-[var(--surface-muted)] text-muted-app";
-  return <span className={`inline-flex max-w-full items-center rounded-md px-2 py-1 text-xs font-semibold whitespace-nowrap ${toneClass}`}>{label}</span>;
+  return <span className={`inline-flex max-w-full items-center rounded-md px-1.5 py-0.5 text-[10px] sm:px-2 sm:py-1 sm:text-xs font-semibold whitespace-nowrap ${toneClass}`}>{label}</span>;
 }
 
 function MiniCell({ label, value }: { label: string; value: string }) {
@@ -1813,7 +1873,7 @@ function LiveRaceBoard({
         backgroundSize: "92px 92px, 92px 92px, auto"
       }}
     >
-      <div className="px-4 py-3.5 md:px-5 md:py-4">
+      <div className="px-3 py-3 md:px-5 md:py-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -1822,8 +1882,8 @@ function LiveRaceBoard({
                 {leaguePeriodLabel}
               </span>
             </div>
-            <div className="mt-1.5 flex flex-col gap-1 md:flex-row md:items-baseline md:gap-3">
-              <h2 className="text-lg font-bold tracking-tight text-white md:text-xl">{t("leaderboard.liveRace.heading")}</h2>
+            <div className="hidden md:flex mt-1.5 flex-col gap-1 md:flex-row md:items-baseline md:gap-3">
+              <h2 className="text-base font-bold tracking-tight text-white md:text-xl">{t("leaderboard.liveRace.heading")}</h2>
               <p className="max-w-[58ch] break-keep text-xs leading-5 text-zinc-500 md:text-sm">{t("leaderboard.liveRace.subtitle")}</p>
             </div>
           </div>
@@ -1837,7 +1897,7 @@ function LiveRaceBoard({
 
         <div
           data-testid="live-race-board-lane"
-          className="mt-3 grid min-w-0 auto-cols-[minmax(220px,76vw)] grid-flow-col gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:auto-cols-auto lg:grid-flow-row lg:grid-cols-[minmax(260px,0.9fr)_repeat(4,minmax(0,1fr))] lg:overflow-visible lg:pb-0"
+          className="mt-3 grid min-w-0 auto-cols-[minmax(190px,64vw)] grid-flow-col gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:auto-cols-auto lg:grid-flow-row lg:grid-cols-[minmax(260px,0.9fr)_repeat(4,minmax(0,1fr))] lg:overflow-visible lg:pb-0"
         >
           {leadingItem ? (
             <Link
@@ -1868,9 +1928,9 @@ function LiveRaceBoard({
 function RaceMetric({ label, value, tone = "neutral" }: { readonly label: string; readonly value: string; readonly tone?: "good" | "bad" | "neutral" }) {
   const toneClass = tone === "good" ? "value-good" : tone === "bad" ? "value-bad" : "text-white";
   return (
-    <div className="min-w-0 rounded-lg border border-white/[0.07] bg-white/[0.025] px-2.5 py-2">
-      <p className="truncate text-[10px] font-semibold text-zinc-500">{label}</p>
-      <p className={`mt-0.5 truncate font-mono text-sm font-bold tabular-nums ${toneClass}`}>{value}</p>
+    <div className="min-w-0 rounded-lg border border-white/[0.07] bg-white/[0.025] px-2 py-1.5 sm:px-2.5 sm:py-2">
+      <p className="truncate text-[9px] sm:text-[10px] font-semibold text-zinc-500">{label}</p>
+      <p className={`mt-0.5 truncate font-mono text-xs sm:text-sm font-bold tabular-nums ${toneClass}`}>{value}</p>
     </div>
   );
 }
@@ -1879,32 +1939,32 @@ function RaceLeaderCard({ item, t }: { readonly item: RaceBoardItem; readonly t:
   const styles = RACE_MOOD_STYLES[item.mood];
   const displayName = localizedTraderName(item.trader, t);
   return (
-    <article className="relative min-w-0 px-3 py-3">
+    <article className="relative min-w-0 px-2.5 py-2.5 sm:px-3 sm:py-3">
       <div className={`absolute inset-x-0 top-0 h-px bg-gradient-to-r ${styles.rail}`} />
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-2.5">
-          <TraderMark trader={item.trader} />
+      <div className="flex min-w-0 items-start justify-between gap-2 sm:gap-3">
+        <div className="flex min-w-0 items-start gap-2 sm:gap-2.5">
+          <TraderMark trader={item.trader} compact />
           <div className="min-w-0">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-1 sm:gap-2">
               <TraderLifecycleBadge trader={item.trader} t={t} compact />
-              <p className="min-w-0 truncate text-base font-bold tracking-tight text-white">{displayName}</p>
+              <p className="min-w-0 truncate text-sm sm:text-base font-bold tracking-tight text-white">{displayName}</p>
               <RaceMoodBadge mood={item.mood} t={t} />
             </div>
-            <p className="mt-1 truncate font-mono text-xs text-zinc-500">{traderVisuals[item.trader.id]?.alias ?? item.trader.name}</p>
+            <p className="mt-0.5 sm:mt-1 truncate font-mono text-[10px] sm:text-xs text-zinc-500">{traderVisuals[item.trader.id]?.alias ?? item.trader.name}</p>
           </div>
         </div>
         <TraderRankBadge trader={item.trader} t={t} />
       </div>
-      <div className="mt-3 flex min-w-0 items-end justify-between gap-3">
+      <div className="mt-2.5 sm:mt-3 flex min-w-0 items-end justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-1 sm:gap-1.5">
             <StatusPill label={item.progress.label} tone={item.progress.tone} />
             <SideBadge progress={item.progress} />
             <LeverageBadge progress={item.progress} />
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <p className={`font-mono text-xl font-bold tabular-nums ${styles.value}`}>{formatSignedPercent(item.return24h)}</p>
+          <p className={`font-mono text-lg sm:text-xl font-bold tabular-nums ${styles.value}`}>{formatSignedPercent(item.return24h)}</p>
         </div>
       </div>
     </article>
@@ -1916,20 +1976,20 @@ function RaceLaneItem({ item, t }: { readonly item: RaceBoardItem; readonly t: (
   const displayName = localizedTraderName(item.trader, t);
   return (
     <article className="min-w-0">
-      <div className="flex min-w-0 items-start justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className={`size-2 shrink-0 rounded-full ${styles.dot}`} />
+      <div className="flex min-w-0 items-start justify-between gap-1.5 sm:gap-2">
+        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+          <span className={`size-1.5 sm:size-2 shrink-0 rounded-full ${styles.dot}`} />
           <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-1.5">
+            <div className="flex min-w-0 items-center gap-1 sm:gap-1.5">
               <TraderLifecycleBadge trader={item.trader} t={t} compact />
-              <p className="truncate text-sm font-bold text-white">{displayName}</p>
+              <p className="truncate text-xs sm:text-sm font-bold text-white">{displayName}</p>
             </div>
-            <p className="mt-0.5 truncate text-[11px] text-zinc-500">{item.progress.detail || t("leaderboard.status.watching")}</p>
+            <p className="mt-0.5 truncate text-[10px] sm:text-[11px] text-zinc-500">{item.progress.detail || t("leaderboard.status.watching")}</p>
           </div>
         </div>
-        <p className={`shrink-0 font-mono text-sm font-bold tabular-nums ${styles.value}`}>{formatSignedPercent(item.return24h)}</p>
+        <p className={`shrink-0 font-mono text-xs sm:text-sm font-bold tabular-nums ${styles.value}`}>{formatSignedPercent(item.return24h)}</p>
       </div>
-      <div className="mt-3 flex min-w-0 flex-wrap items-center gap-1.5">
+      <div className="mt-2.5 sm:mt-3 flex min-w-0 flex-wrap items-center gap-1 sm:gap-1.5">
         <RaceMoodBadge mood={item.mood} t={t} />
         <SideBadge progress={item.progress} />
         <LeverageBadge progress={item.progress} />
@@ -1967,7 +2027,12 @@ function buildRaceBoardItems({
       const score = raceScore({ trader, progress, return24h });
       return { trader, progress, mood, return24h, score };
     })
-    .sort((left, right) => right.score - left.score || Math.abs(right.return24h) - Math.abs(left.return24h) || left.trader.rank - right.trader.rank)
+    .sort((left, right) =>
+      compareLiveRaceItems(
+        { score: left.score, return24h: left.return24h, rank: left.trader.rank },
+        { score: right.score, return24h: right.return24h, rank: right.trader.rank }
+      )
+    )
     .slice(0, 5);
 }
 
@@ -1988,7 +2053,11 @@ function raceScore({
   readonly progress: TraderProgress;
   readonly return24h: number;
 }) {
-  const exposureScore = progress.side ? 28 : progress.tone === "warn" ? 20 : progress.tone === "bad" ? 18 : 0;
-  const rankScore = Math.max(0, 10 - trader.rank);
-  return Math.abs(return24h) * 6 + exposureScore + rankScore;
+  return liveRaceScore({
+    rank: trader.rank,
+    return24h,
+    hasLiveSide: Boolean(progress.side),
+    isPending: progress.tone === "warn",
+    isLossTone: progress.tone === "bad"
+  });
 }

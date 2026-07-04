@@ -116,7 +116,7 @@ All spacing derives from a 4px base.
 ### Live Race Board
 
 - **Structure**: one compact header strip with the current period, three live metrics, and a five-card race lane derived from the existing leaderboard bundle. Avoid split hero layouts that leave unused space.
-- **Data priority**: rank, trader, 24h movement, live exposure state, and side/leverage badges. Omit broad portfolio totals and narrative snippets here because the ranking table and detail panel already own them.
+- **Data priority**: rank, trader, favorable 24h movement, live exposure state, and side/leverage badges. Negative 24h movement is a fallback signal, not the main race; it should be strongly deprioritized unless there are not enough active or positive movers. Omit broad portfolio totals and narrative snippets here because the ranking table and detail panel already own them.
 - **States**: active movers use emerald for favorable movement, rose for slipping, amber for pending exposure, and neutral for watch-only traders. Loading uses the existing page loading policy rather than an internal spinner.
 - **Mobile**: keep the board short with a horizontally swipeable race lane inside the card. Avoid page-level horizontal overflow and keep Korean copy within compact phrases.
 - **Performance**: render from already loaded standings, summaries, and exposures. No overview-review fetch, narrative snippet, infinite scroll, chart sparkline, or additional initial request.
