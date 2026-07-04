@@ -208,7 +208,7 @@ export function buildStandings(traders: TraderProfile[], summaries: TraderPaperS
         monthlyReturn,
         totalPnl,
         totalFees: numberValue(summary?.totalFees, 0, 0),
-        winRate: summary?.winRate ?? null,
+        winRate: numberValue(summary?.winRate, 0),
         maxDrawdown: numberValue(summary?.maxDrawdown, 0),
         biggestWin: numberValue(summary?.biggestWin, 0),
         biggestLoss: numberValue(summary?.biggestLoss, 0),

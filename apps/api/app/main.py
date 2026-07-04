@@ -8,7 +8,7 @@ import os
 import re
 import threading
 import time
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Dict, Mapping, Optional, Protocol
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -2616,6 +2616,104 @@ class ClosedPaperPositionLike(Protocol):
     close_reason: Optional[str]
 
 
+def position_id_value(record: Any) -> Optional[int]:
+    value = getattr(record, "id", None)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def position_event_position_id(record: Any) -> Optional[int]:
+    value = getattr(record, "position_id", None)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def trade_events_by_position_id(
+    db: Session,
+    positions: list[Any],
+    *,
+    before: Optional[datetime] = None,
+) -> dict[int, list[TradeEventRecord]]:
+    position_ids = [position_id for position in positions if (position_id := position_id_value(position)) is not None]
+    if not position_ids:
+        return {}
+    stmt = select(TradeEventRecord).where(TradeEventRecord.position_id.in_(position_ids))
+    if before is not None:
+        stmt = stmt.where(TradeEventRecord.created_at < before)
+    events = db.execute(stmt).scalars().all()
+    by_position_id: dict[int, list[TradeEventRecord]] = {}
+    for event in events:
+        position_id = position_event_position_id(event)
+        if position_id is None:
+            continue
+        by_position_id.setdefault(position_id, []).append(event)
+    return by_position_id
+
+
+def realized_event_pnl_total(events: list[Any]) -> tuple[float, bool]:
+    total = 0.0
+    has_realized_event = False
+    for event in events:
+        realized_pnl = float(getattr(event, "realized_pnl", 0) or 0)
+        total += realized_pnl
+        if abs(realized_pnl) > 0:
+            has_realized_event = True
+    return total, has_realized_event
+
+
+def position_cycle_pnl_value(
+    position: Any,
+    events_by_position_id: Mapping[int, list[Any]],
+    *,
+    include_unrealized: bool = True,
+) -> float:
+    position_id = position_id_value(position)
+    event_realized_pnl = 0.0
+    has_realized_event = False
+    if position_id is not None:
+        event_realized_pnl, has_realized_event = realized_event_pnl_total(events_by_position_id.get(position_id, []))
+    realized_pnl = event_realized_pnl if has_realized_event else float(getattr(position, "realized_pnl", 0) or 0)
+    if include_unrealized and str(getattr(position, "status", "") or "").lower() == "open":
+        realized_pnl += float(getattr(position, "unrealized_pnl", 0) or 0)
+    return realized_pnl
+
+
+def position_cycle_pnl_values(
+    positions: list[Any],
+    events_by_position_id: Mapping[int, list[Any]],
+    *,
+    include_unrealized: bool = True,
+) -> list[float]:
+    return [
+        position_cycle_pnl_value(position, events_by_position_id, include_unrealized=include_unrealized)
+        for position in positions
+    ]
+
+
+def biggest_win_from_pnls(values: list[float]) -> float:
+    winners = [value for value in values if value > PAPER_OUTCOME_PNL_TOLERANCE]
+    return round(max(winners), 4) if winners else 0.0
+
+
+def biggest_loss_from_pnls(values: list[float]) -> float:
+    losers = [value for value in values if value < -PAPER_OUTCOME_PNL_TOLERANCE]
+    return round(min(losers), 4) if losers else 0.0
+
+
+def win_loss_counts_from_pnls(values: list[float]) -> tuple[int, int]:
+    wins = sum(1 for value in values if value > PAPER_OUTCOME_PNL_TOLERANCE)
+    losses = sum(1 for value in values if value < -PAPER_OUTCOME_PNL_TOLERANCE)
+    return wins, losses
+
+
 def is_breakeven_position(position: ClosedPaperPositionLike) -> bool:
     reason = str(position.close_reason or "").strip().lower()
     pnl = float(position.realized_pnl or 0)
@@ -2630,9 +2728,9 @@ def is_losing_position(position: ClosedPaperPositionLike) -> bool:
     return not is_breakeven_position(position) and float(position.realized_pnl or 0) < -PAPER_OUTCOME_PNL_TOLERANCE
 
 
-def win_rate_from_counts(wins: int, losses: int) -> Optional[float]:
+def win_rate_from_counts(wins: int, losses: int) -> float:
     counted_positions = wins + losses
-    return round((wins / counted_positions) * 100, 2) if counted_positions else None
+    return round((wins / counted_positions) * 100, 2) if counted_positions else 0.0
 
 
 def position_win_loss_counts(db: Session, trader_id: str, symbol: Optional[str] = None) -> tuple[int, int, int]:
@@ -2643,8 +2741,9 @@ def position_win_loss_counts(db: Session, trader_id: str, symbol: Optional[str] 
     if symbol:
         stmt = stmt.where(PaperPositionRecord.symbol == symbol)
     positions = db.execute(stmt).scalars().all()
-    wins = sum(1 for position in positions if is_winning_position(position))
-    losses = sum(1 for position in positions if is_losing_position(position))
+    events_by_position_id = trade_events_by_position_id(db, positions)
+    position_pnls = position_cycle_pnl_values(positions, events_by_position_id, include_unrealized=False)
+    wins, losses = win_loss_counts_from_pnls(position_pnls)
     return len(positions), wins, losses
 
 
@@ -2655,7 +2754,9 @@ def paper_position_stats(db: Session, trader_id: str, symbol: Optional[str] = No
     positions = db.execute(stmt).scalars().all()
     closed = [position for position in positions if position.status == "closed"]
     open_positions = [position for position in positions if position.status == "open"]
-    pnl_values = [float(position.realized_pnl or 0) for position in closed]
+    events_by_position_id = trade_events_by_position_id(db, positions)
+    cycle_pnl_values = position_cycle_pnl_values(positions, events_by_position_id)
+    pnl_values = position_cycle_pnl_values(closed, events_by_position_id, include_unrealized=False)
     leverage_values = [float(position.leverage or 0) for position in positions if float(position.leverage or 0) > 0]
     long_count = sum(1 for position in positions if position.side == "long")
     short_count = sum(1 for position in positions if position.side == "short")
@@ -2667,8 +2768,8 @@ def paper_position_stats(db: Session, trader_id: str, symbol: Optional[str] = No
     open_margin = sum(float(position.margin or 0) for position in open_positions)
     return {
         "totalTrades": len(closed),
-        "biggestWin": round(max(pnl_values), 4) if pnl_values else 0.0,
-        "biggestLoss": round(min(pnl_values), 4) if pnl_values else 0.0,
+        "biggestWin": biggest_win_from_pnls(cycle_pnl_values),
+        "biggestLoss": biggest_loss_from_pnls(cycle_pnl_values),
         "averageLeverage": round(sum(leverage_values) / len(leverage_values), 2) if leverage_values else None,
         "sharpeProxy": sharpe_proxy,
         "longTrades": long_count,
@@ -2872,6 +2973,9 @@ def monthly_leaderboard_summaries(
     trader_ids = [trader.id for trader in traders]
     equity_points_by_trader = monthly_equity_points_by_trader(db, trader_ids, symbol, period_start, period_end)
     positions_by_trader = monthly_positions_by_trader(db, trader_ids, symbol, period_start, period_end)
+    cycle_positions_by_trader = monthly_cycle_positions_by_trader(db, trader_ids, symbol, period_start, period_end)
+    all_cycle_positions = [position for positions in cycle_positions_by_trader.values() for position in positions]
+    cycle_events_by_position_id = trade_events_by_position_id(db, all_cycle_positions, before=period_end)
     for trader in traders:
         start_snapshot, end_snapshot, snapshots = equity_points_by_trader.get(trader.id, (None, None, []))
         if start_snapshot is None or end_snapshot is None:
@@ -2889,12 +2993,17 @@ def monthly_leaderboard_summaries(
         total_pnl = end_equity - start_equity
         monthly_return = round((total_pnl / start_equity) * 100, 2) if start_equity > 0 else 0.0
         monthly_positions = positions_by_trader.get(trader.id, [])
-        position_pnls = [float(position.realized_pnl or 0) for position in monthly_positions]
+        cycle_positions = cycle_positions_by_trader.get(trader.id, [])
+        closed_position_pnls = position_cycle_pnl_values(
+            monthly_positions,
+            cycle_events_by_position_id,
+            include_unrealized=False,
+        )
+        position_pnls = position_cycle_pnl_values(cycle_positions, cycle_events_by_position_id)
         closed_positions = len(monthly_positions)
-        wins = sum(1 for position in monthly_positions if is_winning_position(position))
-        losses = sum(1 for position in monthly_positions if is_losing_position(position))
-        biggest_win = round(max(position_pnls), 4) if position_pnls else 0.0
-        biggest_loss = round(min(position_pnls), 4) if position_pnls else 0.0
+        wins, losses = win_loss_counts_from_pnls(closed_position_pnls)
+        biggest_win = biggest_win_from_pnls(position_pnls)
+        biggest_loss = biggest_loss_from_pnls(position_pnls)
         long_trades = sum(1 for position in monthly_positions if str(position.side).lower() == "long")
         short_trades = sum(1 for position in monthly_positions if str(position.side).lower() == "short")
         win_rate = win_rate_from_counts(wins, losses)
@@ -3070,6 +3179,32 @@ def monthly_positions_by_trader(
     return by_trader
 
 
+def monthly_cycle_positions_by_trader(
+    db: Session,
+    trader_ids: list[str],
+    symbol: str,
+    period_start: datetime,
+    period_end: datetime,
+) -> dict[str, list[PaperPositionRecord]]:
+    if not trader_ids:
+        return {}
+    positions = db.execute(
+        select(PaperPositionRecord).where(
+            PaperPositionRecord.trader_id.in_(trader_ids),
+            PaperPositionRecord.symbol == symbol,
+            PaperPositionRecord.opened_at < period_end,
+            or_(
+                PaperPositionRecord.status == "open",
+                PaperPositionRecord.closed_at >= period_start,
+            ),
+        )
+    ).scalars().all()
+    by_trader: dict[str, list[PaperPositionRecord]] = {}
+    for position in positions:
+        by_trader.setdefault(position.trader_id, []).append(position)
+    return by_trader
+
+
 def monthly_position_query(db: Session, trader_id: str, symbol: str, period_start: datetime, period_end: datetime):
     return db.execute(
         select(PaperPositionRecord).where(
@@ -3090,8 +3225,9 @@ def monthly_position_win_loss_counts(
     period_end: datetime,
 ) -> tuple[int, int, int]:
     positions = monthly_position_query(db, trader_id, symbol, period_start, period_end)
-    wins = sum(1 for position in positions if is_winning_position(position))
-    losses = sum(1 for position in positions if is_losing_position(position))
+    events_by_position_id = trade_events_by_position_id(db, positions, before=period_end)
+    position_pnls = position_cycle_pnl_values(positions, events_by_position_id, include_unrealized=False)
+    wins, losses = win_loss_counts_from_pnls(position_pnls)
     return len(positions), wins, losses
 
 
@@ -3115,10 +3251,10 @@ def monthly_biggest_position_pnl(
     *,
     biggest: bool,
 ) -> float:
-    values = [float(position.realized_pnl or 0) for position in monthly_position_query(db, trader_id, symbol, period_start, period_end)]
-    if not values:
-        return 0.0
-    return round(max(values) if biggest else min(values), 4)
+    positions = monthly_cycle_positions_by_trader(db, [trader_id], symbol, period_start, period_end).get(trader_id, [])
+    events_by_position_id = trade_events_by_position_id(db, positions, before=period_end)
+    values = position_cycle_pnl_values(positions, events_by_position_id)
+    return biggest_win_from_pnls(values) if biggest else biggest_loss_from_pnls(values)
 
 
 def build_monthly_league_bundle_payload(

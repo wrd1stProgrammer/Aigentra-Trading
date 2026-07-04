@@ -99,6 +99,30 @@ def test_position_win_loss_counts_excludes_breakeven_from_losses(temp_api_db):
     assert losses == 1
 
 
+def test_position_cycle_pnl_aggregates_partial_events_and_open_unrealized():
+    positions = [
+        SimpleNamespace(id=1, status="closed", realized_pnl=Decimal("-1.25"), unrealized_pnl=Decimal("0")),
+        SimpleNamespace(id=2, status="open", realized_pnl=Decimal("0"), unrealized_pnl=Decimal("35.5")),
+        SimpleNamespace(id=3, status="closed", realized_pnl=Decimal("-8.5"), unrealized_pnl=Decimal("0")),
+    ]
+    events_by_position_id = {
+        1: [
+            SimpleNamespace(position_id=1, realized_pnl=Decimal("42.50")),
+            SimpleNamespace(position_id=1, realized_pnl=Decimal("-1.25")),
+        ],
+        2: [
+            SimpleNamespace(position_id=2, realized_pnl=Decimal("7.25")),
+        ],
+    }
+
+    values = main.position_cycle_pnl_values(positions, events_by_position_id)
+
+    assert values == [41.25, 42.75, -8.5]
+    assert main.biggest_win_from_pnls(values) == 42.75
+    assert main.biggest_loss_from_pnls(values) == -8.5
+    assert main.win_rate_from_counts(0, 0) == 0.0
+
+
 def test_traders_list():
     response = client.get("/api/traders")
     assert response.status_code == 200
@@ -604,19 +628,28 @@ def test_monthly_leaderboard_reuses_position_rows_per_trader(monkeypatch):
     )
     positions = [
         SimpleNamespace(
+            id=101,
+            status="closed",
             realized_pnl=Decimal("12.5"),
+            unrealized_pnl=Decimal("0"),
             side="long",
             close_reason="take_profit",
             closed_at=datetime(2026, 6, 4, tzinfo=timezone.utc),
         ),
         SimpleNamespace(
+            id=102,
+            status="closed",
             realized_pnl=Decimal("-3"),
+            unrealized_pnl=Decimal("0"),
             side="short",
             close_reason="stop_loss",
             closed_at=datetime(2026, 6, 3, tzinfo=timezone.utc),
         ),
         SimpleNamespace(
+            id=103,
+            status="closed",
             realized_pnl=Decimal("0"),
+            unrealized_pnl=Decimal("0"),
             side="long",
             close_reason="breakeven",
             closed_at=datetime(2026, 6, 2, tzinfo=timezone.utc),
@@ -643,6 +676,8 @@ def test_monthly_leaderboard_reuses_position_rows_per_trader(monkeypatch):
     monkeypatch.setattr(main, "list_traders_for_league_month", lambda league_month: [trader])
     monkeypatch.setattr(main, "monthly_equity_points_by_trader", fake_monthly_equity_points_by_trader)
     monkeypatch.setattr(main, "monthly_positions_by_trader", fake_monthly_positions_by_trader)
+    monkeypatch.setattr(main, "monthly_cycle_positions_by_trader", lambda *args, **kwargs: {trader.id: positions})
+    monkeypatch.setattr(main, "trade_events_by_position_id", lambda *args, **kwargs: {})
     monkeypatch.setattr(main, "trader_snapshot_summary", fake_live_summary)
 
     summaries = main.monthly_leaderboard_summaries(
@@ -661,6 +696,79 @@ def test_monthly_leaderboard_reuses_position_rows_per_trader(monkeypatch):
     assert summaries[0]["biggestLoss"] == -3.0
     assert summaries[0]["longTrades"] == 2
     assert summaries[0]["shortTrades"] == 1
+
+
+def test_monthly_leaderboard_biggest_win_uses_position_cycle_total(monkeypatch):
+    trader = SimpleNamespace(id="donchian-breakout", name="Donchian Breakout Boss", baseRiskPercent=0.35)
+    start_snapshot = SimpleNamespace(
+        cash_balance=Decimal("10000"),
+        equity=Decimal("10000"),
+        realized_pnl=Decimal("0"),
+        unrealized_pnl=Decimal("0"),
+        total_fees=Decimal("0"),
+    )
+    end_snapshot = SimpleNamespace(
+        cash_balance=Decimal("10300"),
+        equity=Decimal("10300"),
+        realized_pnl=Decimal("120"),
+        unrealized_pnl=Decimal("180"),
+        total_fees=Decimal("6"),
+    )
+    closed_position = SimpleNamespace(
+        id=201,
+        status="closed",
+        realized_pnl=Decimal("-1.25"),
+        unrealized_pnl=Decimal("0"),
+        side="short",
+        close_reason="stop_loss",
+        closed_at=datetime(2026, 7, 2, tzinfo=timezone.utc),
+    )
+    open_position = SimpleNamespace(
+        id=202,
+        status="open",
+        realized_pnl=Decimal("0"),
+        unrealized_pnl=Decimal("185"),
+        side="long",
+        close_reason=None,
+        closed_at=None,
+    )
+    events_by_position_id = {
+        201: [
+            SimpleNamespace(position_id=201, realized_pnl=Decimal("42.50")),
+            SimpleNamespace(position_id=201, realized_pnl=Decimal("-1.25")),
+        ],
+        202: [
+            SimpleNamespace(position_id=202, realized_pnl=Decimal("7.25")),
+        ],
+    }
+
+    monkeypatch.setattr(main, "list_traders_for_league_month", lambda league_month: [trader])
+    monkeypatch.setattr(
+        main,
+        "monthly_equity_points_by_trader",
+        lambda *args, **kwargs: {trader.id: (start_snapshot, end_snapshot, [start_snapshot, end_snapshot])},
+    )
+    monkeypatch.setattr(main, "monthly_positions_by_trader", lambda *args, **kwargs: {trader.id: [closed_position]})
+    monkeypatch.setattr(
+        main,
+        "monthly_cycle_positions_by_trader",
+        lambda *args, **kwargs: {trader.id: [closed_position, open_position]},
+    )
+    monkeypatch.setattr(main, "trade_events_by_position_id", lambda *args, **kwargs: events_by_position_id)
+
+    summaries = main.monthly_leaderboard_summaries(
+        object(),
+        "BTCUSDT",
+        datetime(2026, 7, 1, tzinfo=timezone.utc),
+        datetime(2026, 8, 1, tzinfo=timezone.utc),
+    )
+
+    assert summaries[0]["closedPositions"] == 1
+    assert summaries[0]["wins"] == 1
+    assert summaries[0]["losses"] == 0
+    assert summaries[0]["winRate"] == 100.0
+    assert summaries[0]["biggestWin"] == 192.25
+    assert summaries[0]["biggestLoss"] == 0.0
 
 
 def test_monthly_league_bundle_omits_status_feeds_unless_related_requested(monkeypatch):
