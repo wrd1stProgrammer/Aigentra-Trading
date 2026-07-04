@@ -36,6 +36,28 @@ class FakeMarketClient:
         ]
 
 
+class LaggingCandleMarketClient:
+    async def get_premium_index(self, symbol):
+        return {"symbol": symbol, "markPrice": 106, "indexPrice": 106}
+
+    async def get_klines(self, symbol, interval="1m", limit=20, before=None):
+        return [
+            Candle(
+                openTime=1_783_000_000_000,
+                open=100,
+                high=104,
+                low=99,
+                close=104,
+                volume=1,
+                closeTime=1_783_000_059_999,
+                quoteVolume=104,
+                trades=1,
+                takerBuyBaseVolume=0,
+                takerBuyQuoteVolume=0,
+            )
+        ]
+
+
 @pytest.fixture()
 def temp_db(tmp_path):
     db_path = tmp_path / "realtime-paper.db"
@@ -160,3 +182,43 @@ async def test_realtime_execution_uses_latest_candle_high_for_take_profit(temp_d
         position = db.execute(select(PaperPositionRecord)).scalar_one()
         assert position.status == "closed"
         assert position.close_reason == "take_profit"
+
+
+@pytest.mark.asyncio
+async def test_realtime_execution_uses_live_mark_price_for_breakeven_when_candle_lags(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "realtime-trader", "BTCUSDT", max_leverage=10)
+        place_paper_order(
+            db,
+            trader_id="realtime-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=100,
+            quantity=1,
+            leverage=5,
+            take_profit_price=110,
+            stop_loss_price=90,
+            payload={
+                "takeProfits": [
+                    {"price": 110, "weight": 1.0, "reason": "first target"},
+                ]
+            },
+        )
+
+    await run_realtime_execution_once(
+        symbols=["BTCUSDT"],
+        price_by_symbol={"BTCUSDT": 100},
+    )
+
+    result = await run_realtime_execution_once(
+        symbols=["BTCUSDT"],
+        market_client_factory=LaggingCandleMarketClient,
+    )
+
+    trader_result = next(item for item in result["results"] if item.get("traderId") == "realtime-trader")
+    assert "stop_moved_to_breakeven" in trader_result["eventTypes"]
+    with session_scope() as db:
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        assert position.status == "open"
+        assert position.stop_loss_price > position.entry_price

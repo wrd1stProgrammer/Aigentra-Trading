@@ -38,13 +38,12 @@ export function reviewBriefFromRecord(value: unknown): ReviewBrief | null {
   const payload = recordValue(record?.payload);
   const nestedReview = recordValue(record?.review) ?? recordValue(payload?.review);
   const payloadAiReview = recordValue(payload?.aiReview);
-  const embeddedTranslationIsCurrent = embeddedAiReviewTranslationIsCurrent(record, payload);
-  const embeddedCanonicalStructuredReviewIsCurrent = embeddedAiReviewCanonicalStructuredReviewIsCurrent(record, payload);
+  const embeddedReviewIsDisplayable = embeddedAiReviewStructuredReviewIsDisplayable(record, payload);
   return firstStructuredReview(
     record?.structuredReview,
     nestedReview?.structuredReview,
-    embeddedTranslationIsCurrent || embeddedCanonicalStructuredReviewIsCurrent ? payload?.aiStructuredReview : null,
-    embeddedTranslationIsCurrent ? payloadAiReview?.structuredReview : null
+    embeddedReviewIsDisplayable ? payload?.aiStructuredReview : null,
+    embeddedReviewIsDisplayable ? payloadAiReview?.structuredReview : null
   );
 }
 
@@ -128,23 +127,13 @@ function stripBulletPrefix(value: string): string {
   return clean;
 }
 
-function embeddedAiReviewTranslationIsCurrent(record: Record<string, unknown> | null, payload: Record<string, unknown> | null): boolean {
+function embeddedAiReviewStructuredReviewIsDisplayable(record: Record<string, unknown> | null, payload: Record<string, unknown> | null): boolean {
   const translation = recordValue(record?.translation) ?? recordValue(payload?.translation);
   const embeddedAiReview = recordValue(translation?.embeddedAiReview);
   if (!embeddedAiReview) return true;
-  if (embeddedAiReview.staleSourceHash === true) return false;
   const status = textValue(embeddedAiReview.status)?.toLowerCase();
   if (!status) return true;
-  return status === "ok" || status === "canonical";
-}
-
-function embeddedAiReviewCanonicalStructuredReviewIsCurrent(
-  record: Record<string, unknown> | null,
-  payload: Record<string, unknown> | null
-): boolean {
-  const translation = recordValue(record?.translation) ?? recordValue(payload?.translation);
-  const embeddedAiReview = recordValue(translation?.embeddedAiReview);
-  return embeddedAiReview?.canonicalStructuredReview === true;
+  return status === "ok" || status === "canonical" || status === "fallback" || status === "missing" || status === "error" || status === "failed";
 }
 
 function recordValue(value: unknown): Record<string, unknown> | null {

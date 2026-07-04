@@ -50,7 +50,7 @@ import {
 import { activePositionLeverage, appendLeverageSample, formatLeverageBadge, orderLeverage, planLeverage, positionLeverage } from "@/components/leaderboard-leverage";
 import type { SubscriberPreferences } from "@/lib/subscriber-preferences";
 
-const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_108px_108px_60px_80px_36px] gap-3";
+const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_108px_108px_104px_80px_36px] gap-3";
 const LIVE_EXPOSURE_LIMIT = 100;
 
 
@@ -914,7 +914,7 @@ function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, act
           <div className="text-right whitespace-nowrap">{t("leaderboard.progressStatus")}</div>
           <div className="text-right whitespace-nowrap">{primaryReturnColumn.label}</div>
           <div className="text-right whitespace-nowrap">{secondaryReturnColumn?.label ?? t("leaderboard.trades")}</div>
-          <div className="text-right whitespace-nowrap">{t("leaderboard.mdd")}</div>
+          <div className="text-right whitespace-nowrap">{t("leaderboard.biggestWin")}</div>
           <div className="text-right whitespace-nowrap">{t("common.winRate")}</div>
           <div aria-hidden />
         </div>
@@ -950,7 +950,7 @@ function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, act
                 ) : (
                   <MetricValue value={formatNumber(trader.trades, 0, locale)} />
                 )}
-                <MetricValue value={formatDrawdown(trader.maxDrawdown)} />
+                <MetricValue value={formatCurrency(trader.biggestWin, locale)} tone={trader.biggestWin > 0 ? "good" : "neutral"} />
                 <MetricValue value={formatNullablePercent(trader.winRate)} />
                 <FavoriteButton
                   active={isFavorite}
@@ -1155,7 +1155,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
           <div className="mt-3 grid grid-cols-2 gap-2 w-full min-w-0">
             <MiniCell label={t("common.return30d")} value={formatSignedPercent(trader.returnPct)} />
             <MiniCell label={t("common.return7d")} value={formatSignedPercent(trader.return7d)} />
-            <MiniCell label={t("leaderboard.mdd")} value={formatDrawdown(trader.maxDrawdown)} />
+            <MiniCell label={t("leaderboard.biggestWin")} value={formatCurrency(trader.biggestWin, locale)} />
             <MiniCell label={t("common.winRate")} value={formatNullablePercent(trader.winRate)} />
             {isMonthlyLeague ? (
               <MiniCell label={previewShortTermColumn.label} value={formatSignedPercent(returnMetricValue(trader, previewShortTermColumn.key))} />
@@ -1705,12 +1705,6 @@ function formatSignedPercent(value: number | null | undefined, digits = 2) {
 function formatNullablePercent(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
   return `${value.toFixed(1)}%`;
-}
-
-function formatDrawdown(value: number | null | undefined) {
-  if (value === null || value === undefined || Number.isNaN(value)) return "-";
-  const drawdown = value > 0 ? -value : value;
-  return `${drawdown.toFixed(1)}%`;
 }
 
 function numberValue(...values: Array<unknown>) {

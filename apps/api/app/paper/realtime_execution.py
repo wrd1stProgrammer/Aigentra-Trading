@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Awaitable, Callable, Optional
 
+import httpx
+
 try:
     import redis.asyncio as redis
     from redis.exceptions import RedisError
@@ -16,7 +18,6 @@ except ImportError:
 
     class RedisError(Exception):
         pass
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -98,6 +99,25 @@ def execution_market_candle(symbol: str, candle: MarketCandle) -> dict[str, Any]
     }
 
 
+def execution_live_market_candle(
+    symbol: str,
+    candle: dict[str, Any],
+    price: Decimal,
+    previous_price: Optional[Decimal] = None,
+) -> dict[str, Any]:
+    open_price = previous_price if previous_price is not None and previous_price > 0 else candle["open"]
+    high = max(candle["high"], open_price, price)
+    low = min(candle["low"], open_price, price)
+    return {
+        "symbol": normalize_execution_symbol(symbol),
+        "open": open_price,
+        "high": high,
+        "low": low,
+        "close": price,
+        "timestamp": datetime.now(timezone.utc),
+    }
+
+
 def active_exposure_trader_ids(db: Session, symbol: str) -> list[str]:
     clean_symbol = normalize_execution_symbol(symbol)
     order_traders = db.execute(
@@ -136,8 +156,11 @@ async def fetch_execution_candle(
     candles = await client.get_klines(normalize_execution_symbol(symbol), "1m", 2)
     if candles:
         candle = execution_market_candle(symbol, candles[-1])
-        close_price = to_positive_execution_price(candle["close"])
-        return close_price, candle
+        try:
+            price = await fetch_execution_price(symbol, client)
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            price = to_positive_execution_price(candle["close"])
+        return price, execution_live_market_candle(symbol, candle, price, previous_price)
     price = await fetch_execution_price(symbol, client)
     return price, execution_tick_candle(symbol, price, previous_price)
 

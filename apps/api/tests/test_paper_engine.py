@@ -241,13 +241,105 @@ def test_position_management_moves_stop_to_breakeven(temp_db):
         )
 
         assert third.closed_positions == [position]
-        assert position.close_reason == "stop_loss"
+        assert position.close_reason == "breakeven"
         events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
         assert [event.event_type for event in events] == [
             "order_filled",
             "stop_moved_to_breakeven",
             "position_closed",
         ]
+
+
+def test_old_entry_breakeven_stop_upgrades_to_fee_inclusive_breakeven(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "atr-trail-commander", "BTCUSDT", max_leverage=5)
+        place_paper_order(
+            db,
+            trader_id="atr-trail-commander",
+            symbol="BTCUSDT",
+            side="long",
+            quantity=1,
+            leverage=1,
+            take_profit_price=120,
+            stop_loss_price=80,
+        )
+
+        process_candle(
+            db,
+            "atr-trail-commander",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 99, "close": 100},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        position.stop_loss_price = position.entry_price
+        db.flush()
+
+        result = process_candle(
+            db,
+            "atr-trail-commander",
+            "BTCUSDT",
+            {"open": 100, "high": 111, "low": 99, "close": 109},
+        )
+
+        db.refresh(position)
+        expected_stop = fee_inclusive_breakeven(
+            entry_price=100,
+            quantity=position.quantity,
+            entry_fee=position.entry_fee,
+            taker_fee_rate=Decimal("0.0005"),
+            side="long",
+        )
+        assert rounded(position.stop_loss_price) == rounded(expected_stop)
+        assert position.close_reason == "breakeven"
+        assert rounded(position.realized_pnl) == Decimal("0.0000")
+        assert [event.event_type for event in result.events] == ["stop_moved_to_breakeven", "position_closed"]
+        payload = from_json(result.events[0].payload_json) or {}
+        assert payload["reason"] == "fee_inclusive_breakeven_upgrade"
+        assert payload["feeInclusiveUpgrade"] is True
+
+
+def test_fee_inclusive_breakeven_upgrade_is_stable_at_database_price_precision(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "atr-trail-commander", "BTCUSDT", max_leverage=5)
+        place_paper_order(
+            db,
+            trader_id="atr-trail-commander",
+            symbol="BTCUSDT",
+            side="long",
+            quantity=1,
+            leverage=1,
+            take_profit_price=120,
+            stop_loss_price=80,
+        )
+
+        process_candle(
+            db,
+            "atr-trail-commander",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 99, "close": 100},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        expected_stop = fee_inclusive_breakeven(
+            entry_price=100,
+            quantity=position.quantity,
+            entry_fee=position.entry_fee,
+            taker_fee_rate=Decimal("0.0005"),
+            side="long",
+        ).quantize(Decimal("0.0000000001"))
+        position.stop_loss_price = expected_stop
+        db.flush()
+
+        result = process_candle(
+            db,
+            "atr-trail-commander",
+            "BTCUSDT",
+            {"open": 100.5, "high": 111, "low": 100.2, "close": 109},
+        )
+
+        db.refresh(position)
+        assert position.status == "open"
+        assert position.stop_loss_price == expected_stop
+        assert result.events == []
 
 
 def test_trend_sentinel_does_not_move_stop_to_breakeven_at_one_r(temp_db):

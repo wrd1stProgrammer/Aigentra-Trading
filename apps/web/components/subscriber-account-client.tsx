@@ -8,7 +8,6 @@ import { TelegramConnectPanel } from "@/components/telegram-connect-panel";
 import { TelegramReviewSectionSettings } from "@/components/telegram-review-section-settings";
 import { TelegramTestButton } from "@/components/telegram-test-button";
 import { useSubscriberPreferenceSync } from "@/components/use-subscriber-preference-sync";
-import { WhopBillingPanel } from "@/components/whop-billing-panel";
 import { ProtectedContentGate } from "@/components/access-gate";
 import { useSubscriberAccess } from "@/components/use-subscriber-access";
 import {
@@ -280,8 +279,6 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
 
         {/* Right Column: Telegram Webhook Configuration */}
         <div className="lg:col-span-5 space-y-6">
-          <WhopBillingPanel />
-
           <ProtectedContentGate
             mode="subscription"
             title={appContext.t("access.accountLockedTitle")}

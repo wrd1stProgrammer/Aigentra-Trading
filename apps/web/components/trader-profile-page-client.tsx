@@ -397,14 +397,17 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
 
   const loadHistoryPage = useCallback(async (nextOffset: number, reset: boolean) => {
     const requestContextKey = `${traderId}:${symbol}`;
-    if (!reset && !historyHasMore) return;
-    if (historyLoadingRef.current && historyContextKeyRef.current === requestContextKey) return;
+    const sameContext = historyContextKeyRef.current === requestContextKey;
+    if (!reset && sameContext && !historyHasMore) return;
+    if (historyLoadingRef.current && sameContext) return;
     historyAbortRef.current?.abort();
     const abortController = new AbortController();
     historyAbortRef.current = abortController;
     historyLoadingRef.current = true;
     historyContextKeyRef.current = requestContextKey;
     if (reset) {
+      setHistoryItems([]);
+      setHistoryOffset(0);
       setHistoryHasMore(true);
     }
     setLoadingMoreHistory(true);
@@ -415,10 +418,9 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       if (historyContextKeyRef.current !== requestContextKey) return;
       
       setHistoryItems(prev => reset ? mapped : [...prev, ...mapped]);
-      setHistoryOffset(nextOffset + items.length);
-      if (items.length < 10) {
-        setHistoryHasMore(false);
-      }
+      const responseNextOffset = Number.isFinite(res.nextOffset) ? res.nextOffset : nextOffset + items.length;
+      setHistoryOffset(responseNextOffset);
+      setHistoryHasMore(typeof res.hasMore === "boolean" ? res.hasMore : responseNextOffset < res.total);
     } catch (err) {
       if (abortController.signal.aborted || historyContextKeyRef.current !== requestContextKey || isAbortLike(err)) return;
       console.error("Failed to load trade history:", err);
@@ -668,6 +670,14 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       setExtraReviews([]);
       setReviewsNextOffset(DETAIL_INITIAL_REVIEWS_LIMIT);
       setReviewsHasMore(true);
+      historyAbortRef.current?.abort();
+      historyContextKeyRef.current = `${traderId}:${symbol}`;
+      historyLoadingRef.current = false;
+      lastHistoryRefreshKeyRef.current = null;
+      setHistoryItems([]);
+      setHistoryOffset(0);
+      setHistoryHasMore(true);
+      setLoadingMoreHistory(false);
       lastScenarioHydrationKeyRef.current = null;
       
       if (scenarioTimelineItems.length > 0) {

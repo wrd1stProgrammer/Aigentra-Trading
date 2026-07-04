@@ -626,7 +626,6 @@ function requestTimeoutMs(path: string) {
   if (
     path.startsWith("/api/market/klines") ||
     path.startsWith("/api/paper/equity-snapshots") ||
-    path.includes("/trade-history") ||
     path.startsWith("/api/subscribers/access")
   ) {
     return FAST_BROWSER_REQUEST_TIMEOUT_MS;
@@ -1181,6 +1180,8 @@ export type MergedTradeHistoryResponse = {
   total: number;
   offset: number;
   limit: number;
+  nextOffset: number;
+  hasMore: boolean;
   items: MergedTradeHistoryItem[];
 };
 

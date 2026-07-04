@@ -276,9 +276,12 @@ test("entry approval detail scenarios prefer structured review over legacy appro
   // When: the detail timeline scenarios are built.
   const scenarios = league.buildScenarios({ trader, positions, orders: [], reviews: [], events: [] });
 
-  // Then: the scenario still keeps the legacy rationale as fallback, but exposes structured review for the modal.
+  // Then: the scenario uses the structured review as the readable entry rationale.
   const positionScenario = scenarios.find((scenario) => scenario.id === "position-423");
-  assert.equal(positionScenario.rationale, "Trend Sentinel은 59719.3에서 HTF 연속 SHORT이 일관되게 유지되고 있습니다.");
+  assert.equal(
+    positionScenario.rationale,
+    "반등이 막히는 구간에서 숏 진입 근거가 살아 있습니다. 작은 규모로만 진입하고 손절가 회복 여부를 확인하세요. 진입가와 손절가가 명확해 손실 범위가 제한됩니다. 15분 종가가 손절가 위로 닫히는지 확인"
+  );
   assert.equal(positionScenario.reviewBrief.headline, "반등이 막히는 구간에서 숏 진입 근거가 살아 있습니다.");
   assert.equal(positionScenario.reviewBrief.action, "작은 규모로만 진입하고 손절가 회복 여부를 확인하세요.");
 });
@@ -364,8 +367,8 @@ test("merged open position detail keeps the freshest leg entry approval brief", 
   assert.equal(topLevelOnly.rationale, "Fresh top-level approval rationale.");
 });
 
-test("entry approval scenarios ignore stale embedded English structured review translations", () => {
-  // Given: a Korean detail response still contains stale English structured review fields from an older cache.
+test("entry approval scenarios use translated structured review when Korean translation is stale but usable", () => {
+  // Given: a Korean detail response contains a stale but valid translated structured review.
   const trader = { id: "channel-rider", currentPlan: "watch", baseRiskPercent: 0.45, description: "strategy", concept: "concept" };
   const positions = [
     {
@@ -390,33 +393,32 @@ test("entry approval scenarios ignore stale embedded English structured review t
           approvalReason: "ADJUST_AND_APPROVE: 채널 지도자는 축소된 위험으로만 숏 진입할 수 있습니다.",
           structuredReview: {
             verdict: "ADJUST_AND_APPROVE",
-            headline: "Channel Cartographer can enter this SHORT as BTC retests the upper-channel probe.",
-            action: "Take the SHORT only with reduced risk and strict invalidation.",
-            keyReasons: ["The fee-aware reward-to-risk clears the minimum."],
-            risks: ["The last two closed trades were SHORT stopouts."],
-            watchConditions: ["Exit if price closes above the channel boundary."],
-            managerNote: "Treat the boundary as fragile."
+            headline: "채널 지도자는 상단 채널 재테스트에서 축소된 숏 진입만 허용됩니다.",
+            action: "위험을 줄이고 무효화 기준을 엄격히 유지하세요.",
+            keyReasons: ["수수료 반영 손익비가 최소 기준을 넘습니다."],
+            risks: ["최근 두 번의 숏 거래가 손절로 끝났습니다."],
+            watchConditions: ["가격이 채널 경계 위에서 마감하면 종료하세요."],
+            managerNote: "경계는 약하다고 보고 다루세요."
           }
         },
         aiStructuredReview: {
           verdict: "ADJUST_AND_APPROVE",
-          headline: "Channel Cartographer can enter this SHORT as BTC retests the upper-channel probe.",
-          action: "Take the SHORT only with reduced risk and strict invalidation."
+          headline: "채널 지도자는 상단 채널 재테스트에서 축소된 숏 진입만 허용됩니다.",
+          action: "위험을 줄이고 무효화 기준을 엄격히 유지하세요."
         }
       }
     }
   ];
 
-  // When: the detail timeline scenarios are built from the cached response.
   const scenarios = league.buildScenarios({ trader, positions, orders: [], reviews: [], events: [] });
-
-  // Then: the modal falls back to the localized approval reason instead of showing English structured copy.
   const positionScenario = scenarios.find((scenario) => scenario.id === "position-425");
-  assert.equal(positionScenario.reviewBrief, null);
-  assert.equal(positionScenario.rationale, "ADJUST_AND_APPROVE: 채널 지도자는 축소된 위험으로만 숏 진입할 수 있습니다.");
+
+  assert.equal(positionScenario.reviewBrief.headline, "채널 지도자는 상단 채널 재테스트에서 축소된 숏 진입만 허용됩니다.");
+  assert.equal(positionScenario.reviewBrief.action, "위험을 줄이고 무효화 기준을 엄격히 유지하세요.");
+  assert.equal(positionScenario.rationale, "채널 지도자는 상단 채널 재테스트에서 축소된 숏 진입만 허용됩니다. 위험을 줄이고 무효화 기준을 엄격히 유지하세요.");
 });
 
-test("entry approval scenarios use canonical structured review when backend marks it current during stale translation", () => {
+test("entry approval scenarios fall back to English structured review when Korean translation fails", () => {
   const trader = { id: "atr-trail-commander", currentPlan: "watch", baseRiskPercent: 0.4, description: "strategy", concept: "concept" };
   const positions = [
     {
@@ -426,14 +428,12 @@ test("entry approval scenarios use canonical structured review when backend mark
       side: "long",
       entryPrice: 61984.8,
       translation: {
-        status: "ok",
+        status: "fallback",
         embeddedAiReview: {
-          status: "ok",
+          status: "fallback",
           locale: "ko",
           sourceHash: "current",
-          cachedSourceHash: "older",
-          staleSourceHash: true,
-          canonicalStructuredReview: true
+          fallbackLocale: "en"
         }
       },
       payload: {
@@ -459,7 +459,7 @@ test("entry approval scenarios use canonical structured review when backend mark
 
   assert.equal(positionScenario.reviewBrief.headline, "ATR trend-continuation LONG is worth a reduced-size entry around 61984.8.");
   assert.equal(positionScenario.reviewBrief.action, "Place the LONG with reduced 0.40% account risk and keep 5x leverage.");
-  assert.equal(positionScenario.rationale, "진입 조건은 61984.8에서 ATR 추세 지속 LONG입니다.");
+  assert.equal(positionScenario.rationale, "ATR trend-continuation LONG is worth a reduced-size entry around 61984.8. Place the LONG with reduced 0.40% account risk and keep 5x leverage. 1h and 4h buyers are holding above their EMA bands. Cancel the pullback if TP1 is reached first.");
 });
 
 test("scenario modal does not show entry summary as management rationale", () => {

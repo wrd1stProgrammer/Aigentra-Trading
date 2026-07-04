@@ -41,15 +41,15 @@ export function ScenarioModal({
   const scenarioCode = scenario.source.slice(0, 2).toUpperCase();
   const scenarioTime = scenario.createdAt ? scenario.createdAt.replace("T", " ").slice(0, 16) : "-";
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-zinc-950/60 p-3 pt-[6dvh] backdrop-blur-sm sm:p-5 sm:pt-[7dvh]">
+    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-hidden bg-zinc-950/60 p-3 pt-[6dvh] backdrop-blur-sm sm:p-5 sm:pt-[7dvh]">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         data-testid="scenario-modal"
-        className="max-h-[86dvh] w-full max-w-[920px] overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 dark:bg-[#0b0c10] dark:ring-zinc-800"
+        className="flex max-h-[86dvh] w-full max-w-[920px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 dark:bg-[#0b0c10] dark:ring-zinc-800"
       >
-        <div className="sticky top-0 z-[1] border-b border-zinc-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-zinc-800 dark:bg-[#0b0c10]/95 sm:px-5">
+        <div className="shrink-0 border-b border-zinc-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-zinc-800 dark:bg-[#0b0c10]/95 sm:px-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
               <div className="hidden size-11 shrink-0 place-items-center rounded-xl bg-zinc-950 font-mono text-sm font-black text-white shadow-sm dark:bg-zinc-100 dark:text-zinc-950 sm:grid">
@@ -84,7 +84,7 @@ export function ScenarioModal({
           </div>
         </div>
 
-        <div className="space-y-4 p-4 sm:p-5">
+        <div data-testid="scenario-modal-body" className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
           <div className="hidden md:block">
             <DetailChart
               symbol={symbol}

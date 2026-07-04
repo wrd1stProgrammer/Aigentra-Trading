@@ -9,8 +9,12 @@ const billingPanelSource = readFileSync(new URL("../components/whop-billing-pane
 const landingCheckoutButtonSource = readFileSync(new URL("../components/landing-checkout-button.tsx", import.meta.url), "utf8");
 const accountSource = readFileSync(new URL("../components/subscriber-account-client.tsx", import.meta.url), "utf8");
 
-test("account UI exposes Whop subscription status without starting checkout", () => {
-  assert.match(accountSource, /WhopBillingPanel/, "account page should render the Whop billing panel");
+test("account notification UI omits Whop subscription status", () => {
+  assert.doesNotMatch(accountSource, /WhopBillingPanel/, "account page should not render the Whop billing panel");
+  assert.doesNotMatch(accountSource, /whop-billing-panel/, "account page should not expose the Whop billing panel test target");
+});
+
+test("Whop billing panel remains status-only when mounted elsewhere", () => {
   assert.match(billingPanelSource, /\/api\/billing\/status/, "account panel should read the signed-in user's billing status");
   assert.doesNotMatch(billingPanelSource, /\/api\/billing\/checkout/, "account panel should not create checkout sessions");
   assert.doesNotMatch(billingPanelSource, /window\.location\.assign/, "account panel should not send users to hosted checkout");

@@ -29,6 +29,8 @@ PROFITABLE_HOLD_BREAKEVEN_HOURS = 60
 PROFITABLE_HOLD_BREAKEVEN_SECONDS = PROFITABLE_HOLD_BREAKEVEN_HOURS * 60 * 60
 FIRST_TAKE_PROFIT_BREAKEVEN_PROGRESS = Decimal("0.5")
 MIN_FIRST_TAKE_PROFIT_EXIT_FRACTION = Decimal("0.5")
+BREAKEVEN_NET_PNL_TOLERANCE = Decimal("0.01")
+PAPER_PRICE_QUANT = Decimal("0.0000000001")
 
 
 @dataclass(frozen=True)
@@ -391,6 +393,15 @@ def process_candle(db: Session, trader_id: str, symbol: str, candle: Union[Candl
     for position in list_open_positions(db, clean_trader_id, clean_symbol):
         if position.id not in preexisting_position_ids:
             continue
+        if _should_upgrade_fee_inclusive_breakeven_stop(db, position):
+            _move_stop_to_breakeven(
+                db,
+                position,
+                parsed_candle,
+                result,
+                reason="fee_inclusive_breakeven_upgrade",
+                payload_extra={"feeInclusiveUpgrade": True},
+            )
         exit_price, reason = _exit_signal(position, parsed_candle)
         if exit_price is None:
             exit_price, reason = _management_exit_signal(position, parsed_candle)
@@ -735,6 +746,17 @@ def _maybe_move_stop_to_breakeven(
     candle: Candle,
     result: PaperEngineResult,
 ) -> None:
+    if _should_upgrade_fee_inclusive_breakeven_stop(db, position):
+        _move_stop_to_breakeven(
+            db,
+            position,
+            candle,
+            result,
+            reason="fee_inclusive_breakeven_upgrade",
+            payload_extra={"feeInclusiveUpgrade": True},
+        )
+        return
+
     risk_distance = _risk_distance(position)
     if risk_distance is None:
         return
@@ -834,13 +856,14 @@ def _move_stop_to_breakeven(
 ) -> None:
     if position.stop_loss_price is None:
         return
-    if position.side == "long" and position.stop_loss_price >= position.entry_price:
-        return
-    if position.side == "short" and position.stop_loss_price <= position.entry_price:
-        return
 
     new_stop = _fee_inclusive_breakeven_stop(db, position)
     previous_stop = position.stop_loss_price
+    if position.side == "long" and previous_stop >= new_stop:
+        return
+    if position.side == "short" and previous_stop <= new_stop:
+        return
+
     position.stop_loss_price = new_stop
     position.updated_at = utc_now()
     event = create_trade_event(
@@ -867,28 +890,49 @@ def _move_stop_to_breakeven(
 
 def _fee_inclusive_breakeven_stop(db: Session, position: PaperPositionRecord) -> Decimal:
     if position.quantity <= 0:
-        return position.entry_price
+        return _quantize_paper_price(position.entry_price)
     settings = ensure_risk_settings(db, position.trader_id or "", position.symbol)
     taker_fee_rate = settings.taker_fee_rate
     match position.side:
         case "long":
             denominator = position.quantity * (Decimal("1") - taker_fee_rate)
             if denominator <= 0:
-                return position.entry_price
-            return ((position.entry_price * position.quantity) + position.entry_fee) / denominator
+                return _quantize_paper_price(position.entry_price)
+            return _quantize_paper_price(((position.entry_price * position.quantity) + position.entry_fee) / denominator)
         case "short":
             denominator = position.quantity * (Decimal("1") + taker_fee_rate)
             if denominator <= 0:
-                return position.entry_price
-            return ((position.entry_price * position.quantity) - position.entry_fee) / denominator
+                return _quantize_paper_price(position.entry_price)
+            return _quantize_paper_price(((position.entry_price * position.quantity) - position.entry_fee) / denominator)
         case _:
-            return position.entry_price
+            return _quantize_paper_price(position.entry_price)
+
+
+def _quantize_paper_price(value: Decimal) -> Decimal:
+    return value.quantize(PAPER_PRICE_QUANT)
+
+
+def _should_upgrade_fee_inclusive_breakeven_stop(db: Session, position: PaperPositionRecord) -> bool:
+    if position.stop_loss_price is None:
+        return False
+    fee_inclusive_stop = _fee_inclusive_breakeven_stop(db, position)
+    if position.side == "long":
+        return position.stop_loss_price >= position.entry_price and position.stop_loss_price < fee_inclusive_stop
+    if position.side == "short":
+        return position.stop_loss_price <= position.entry_price and position.stop_loss_price > fee_inclusive_stop
+    return False
 
 
 def _position_gross_pnl(position: PaperPositionRecord, price: Decimal) -> Decimal:
     if position.side == "long":
         return (price - position.entry_price) * position.quantity
     return (position.entry_price - price) * position.quantity
+
+
+def _close_reason_after_fees(reason: str, net_pnl: Decimal) -> str:
+    if reason == "stop_loss" and abs(net_pnl) <= BREAKEVEN_NET_PNL_TOLERANCE:
+        return "breakeven"
+    return reason
 
 
 def _close_position(
@@ -904,16 +948,17 @@ def _close_position(
     gross_pnl = _position_gross_pnl(position, exit_price)
     exit_fee = exit_price * position.quantity * settings.taker_fee_rate
     net_pnl = gross_pnl - position.entry_fee - exit_fee
+    close_reason = _close_reason_after_fees(reason, net_pnl)
 
     position.status = "closed"
     position.exit_price = exit_price
     position.exit_fee = exit_fee
     position.realized_pnl = net_pnl
     position.unrealized_pnl = Decimal("0")
-    position.close_reason = reason
+    position.close_reason = close_reason
     position.closed_at = candle.timestamp or utc_now()
     position.updated_at = utc_now()
-    close_review = close_review_context(position, reason, exit_price)
+    close_review = close_review_context(position, close_reason, exit_price)
 
     state.cash_balance += position.margin + gross_pnl - exit_fee
     state.realized_pnl += net_pnl
@@ -933,7 +978,7 @@ def _close_position(
         realized_pnl=net_pnl,
         equity=state.equity,
         payload={
-            "reason": reason,
+            "reason": close_reason,
             "side": position.side,
             "entryPrice": position.entry_price,
             "averageEntryPrice": position.entry_price,
@@ -949,7 +994,7 @@ def _close_position(
         },
     )
     result.events.append(event)
-    update_observation_candidate_outcome_for_position(db, position, reason, exit_price)
+    update_observation_candidate_outcome_for_position(db, position, close_reason, exit_price)
 
     # Cancel any remaining open orders for the same trade plan
     try:

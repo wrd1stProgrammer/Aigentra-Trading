@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionProvider, useSession } from "next-auth/react";
+import { usePathname } from "next/navigation";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Locale, isSupportedLocale, translate } from "@/lib/i18n";
 import { LEAGUE_QUERY_GC_TIME_MS, LEAGUE_QUERY_STALE_TIME_MS } from "@/lib/api";
@@ -134,8 +135,10 @@ function localeFromLanguageTag(languageTag: string): Locale | null {
 
 function LocalePreferenceHydrator({ onLocaleResolved }: { readonly onLocaleResolved: (locale: Locale) => void }) {
   const { data: session, status } = useSession();
+  const pathname = usePathname();
 
   useEffect(() => {
+    if (pathname.startsWith("/admin")) return;
     if (status !== "authenticated" || !session?.user?.email) return;
 
     const abortController = new AbortController();
@@ -161,7 +164,7 @@ function LocalePreferenceHydrator({ onLocaleResolved }: { readonly onLocaleResol
     return () => {
       abortController.abort();
     };
-  }, [onLocaleResolved, session?.user?.email, status]);
+  }, [onLocaleResolved, pathname, session?.user?.email, status]);
 
   return null;
 }

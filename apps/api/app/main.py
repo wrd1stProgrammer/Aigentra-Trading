@@ -8,7 +8,7 @@ import os
 import re
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Protocol
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -126,6 +126,7 @@ from app.repositories import (
     upsert_trader_agent_state,
     update_trader_run_log,
 )
+from app.admin_routes import router as admin_router
 from app.scanner_audit_routes import router as scanner_audit_router
 from app.subscribers_routes import router as subscribers_router
 from app.whop_routes import router as whop_router
@@ -428,6 +429,7 @@ app.add_middleware(
 app.include_router(subscribers_router)
 app.include_router(whop_router)
 app.include_router(scanner_audit_router)
+app.include_router(admin_router)
 
 
 def binance_client() -> MarketDataClient:
@@ -2605,6 +2607,34 @@ def latest_ai_review_cooldown_map(db: Session, trader_ids: list[str], symbol: st
     return cooldowns
 
 
+BREAKEVEN_CLOSE_REASONS = {"breakeven", "stop_at_entry"}
+PAPER_OUTCOME_PNL_TOLERANCE = 0.01
+
+
+class ClosedPaperPositionLike(Protocol):
+    realized_pnl: Decimal | int | float | None
+    close_reason: Optional[str]
+
+
+def is_breakeven_position(position: ClosedPaperPositionLike) -> bool:
+    reason = str(position.close_reason or "").strip().lower()
+    pnl = float(position.realized_pnl or 0)
+    return reason in BREAKEVEN_CLOSE_REASONS or abs(pnl) <= PAPER_OUTCOME_PNL_TOLERANCE
+
+
+def is_winning_position(position: ClosedPaperPositionLike) -> bool:
+    return not is_breakeven_position(position) and float(position.realized_pnl or 0) > PAPER_OUTCOME_PNL_TOLERANCE
+
+
+def is_losing_position(position: ClosedPaperPositionLike) -> bool:
+    return not is_breakeven_position(position) and float(position.realized_pnl or 0) < -PAPER_OUTCOME_PNL_TOLERANCE
+
+
+def win_rate_from_counts(wins: int, losses: int) -> Optional[float]:
+    counted_positions = wins + losses
+    return round((wins / counted_positions) * 100, 2) if counted_positions else None
+
+
 def position_win_loss_counts(db: Session, trader_id: str, symbol: Optional[str] = None) -> tuple[int, int, int]:
     stmt = select(PaperPositionRecord).where(
         PaperPositionRecord.trader_id == trader_id,
@@ -2613,8 +2643,8 @@ def position_win_loss_counts(db: Session, trader_id: str, symbol: Optional[str] 
     if symbol:
         stmt = stmt.where(PaperPositionRecord.symbol == symbol)
     positions = db.execute(stmt).scalars().all()
-    wins = sum(1 for position in positions if float(position.realized_pnl or 0) > 0)
-    losses = sum(1 for position in positions if float(position.realized_pnl or 0) <= 0)
+    wins = sum(1 for position in positions if is_winning_position(position))
+    losses = sum(1 for position in positions if is_losing_position(position))
     return len(positions), wins, losses
 
 
@@ -2861,13 +2891,13 @@ def monthly_leaderboard_summaries(
         monthly_positions = positions_by_trader.get(trader.id, [])
         position_pnls = [float(position.realized_pnl or 0) for position in monthly_positions]
         closed_positions = len(monthly_positions)
-        wins = sum(1 for value in position_pnls if value > 0)
-        losses = sum(1 for value in position_pnls if value < 0)
+        wins = sum(1 for position in monthly_positions if is_winning_position(position))
+        losses = sum(1 for position in monthly_positions if is_losing_position(position))
         biggest_win = round(max(position_pnls), 4) if position_pnls else 0.0
         biggest_loss = round(min(position_pnls), 4) if position_pnls else 0.0
         long_trades = sum(1 for position in monthly_positions if str(position.side).lower() == "long")
         short_trades = sum(1 for position in monthly_positions if str(position.side).lower() == "short")
-        win_rate = round((wins / closed_positions) * 100, 2) if closed_positions else None
+        win_rate = win_rate_from_counts(wins, losses)
         summaries.append(
             {
                 "traderId": trader.id,
@@ -3060,8 +3090,8 @@ def monthly_position_win_loss_counts(
     period_end: datetime,
 ) -> tuple[int, int, int]:
     positions = monthly_position_query(db, trader_id, symbol, period_start, period_end)
-    wins = sum(1 for position in positions if float(position.realized_pnl or 0) > 0)
-    losses = sum(1 for position in positions if float(position.realized_pnl or 0) < 0)
+    wins = sum(1 for position in positions if is_winning_position(position))
+    losses = sum(1 for position in positions if is_losing_position(position))
     return len(positions), wins, losses
 
 
@@ -3273,7 +3303,7 @@ def trader_summary_for_profile(db: Session, trader, symbol: str) -> dict:
     total_pnl = realized_pnl + unrealized_pnl
     cumulative_return = round((total_pnl / initial_equity) * 100, 2) if initial_equity > 0 else 0.0
     closed_positions, wins, losses = position_win_loss_counts(db, trader.id, symbol)
-    win_rate = round((wins / closed_positions) * 100, 2) if closed_positions else None
+    win_rate = win_rate_from_counts(wins, losses)
     open_orders = count_model_records(db, PaperOrderRecord, trader.id, symbol, "open")
     open_positions = count_model_records(db, PaperPositionRecord, trader.id, symbol, "open")
     latest_run = latest_model_record(db, TraderRunLogRecord, trader.id, symbol)
@@ -5820,8 +5850,8 @@ async def league_trader_management_reviews(
 async def league_trader_trade_history(
     trader_id: str,
     symbol: str = Query("BTCUSDT"),
-    limit: int = Query(10),
-    offset: int = Query(0),
+    limit: int = Query(10, ge=1, le=50),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     from datetime import timezone
@@ -6004,6 +6034,7 @@ async def league_trader_trade_history(
     
     # Paginate
     paginated = results[offset : offset + limit]
+    next_offset = offset + len(paginated)
     
     return {
         "symbol": clean_symbol,
@@ -6011,6 +6042,8 @@ async def league_trader_trade_history(
         "total": len(results),
         "offset": offset,
         "limit": limit,
+        "nextOffset": next_offset,
+        "hasMore": next_offset < len(results),
         "items": paginated
     }
 

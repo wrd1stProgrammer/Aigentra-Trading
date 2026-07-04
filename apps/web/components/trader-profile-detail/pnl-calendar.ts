@@ -68,7 +68,8 @@ export function buildMonthlyPnlCalendar({
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
   const snapshotEquityByDay = latestSnapshotRealizedEquityByDay(snapshots);
-  
+  const hasBackendDailyPnl = Boolean(dailyPnl?.length);
+
   const eventPnlByDay = new Map<string, number>();
   if (dailyPnl) {
     for (const item of dailyPnl) {
@@ -83,16 +84,19 @@ export function buildMonthlyPnlCalendar({
     }
   }
   const days: PnlCalendarDay[] = [];
-  let currentEquity = startingEquity;
+  let currentEquity = hasBackendDailyPnl
+    ? monthlyStartingEquityFromDailyPnl(snapshots, eventPnlByDay, startingEquity)
+    : startingEquity;
+  const effectiveStartingEquity = currentEquity;
 
   for (let day = 1; day <= monthEnd.getUTCDate(); day += 1) {
     const date = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth(), day));
     const dateKey = isoDateKey(date);
     const snapshotEquity = snapshotEquityByDay.get(dateKey);
-    const hasEventPnl = eventPnlByDay.has(dateKey);
+    const hasSnapshotEquity = snapshotEquity !== undefined;
     const eventPnl = eventPnlByDay.get(dateKey) ?? 0;
-    const pnl = hasEventPnl ? eventPnl : snapshotEquity === undefined ? eventPnl : snapshotEquity - currentEquity;
-    currentEquity = hasEventPnl ? currentEquity + eventPnl : snapshotEquity === undefined ? currentEquity + eventPnl : snapshotEquity;
+    const pnl = hasBackendDailyPnl ? eventPnl : hasSnapshotEquity ? snapshotEquity - currentEquity : eventPnl;
+    currentEquity = hasBackendDailyPnl ? currentEquity + eventPnl : hasSnapshotEquity ? snapshotEquity : currentEquity + eventPnl;
     days.push({
       dateKey,
       day,
@@ -103,14 +107,14 @@ export function buildMonthlyPnlCalendar({
     });
   }
 
-  const delta = currentEquity - startingEquity;
-  const returnPct = startingEquity ? (delta / startingEquity) * 100 : 0;
+  const delta = currentEquity - effectiveStartingEquity;
+  const returnPct = effectiveStartingEquity ? (delta / effectiveStartingEquity) * 100 : 0;
   return {
     monthLabel: monthLabel(monthStart, locale),
     days,
     weeks: calendarWeeks(days, monthStart),
     assetChange: {
-      start: startingEquity,
+      start: effectiveStartingEquity,
       current: currentEquity,
       delta,
       deltaText: signedNumber(delta),
@@ -157,6 +161,36 @@ function realizedPnlByDay(events: readonly EventInput[]) {
     if (pnl !== null && key) values.set(key, (values.get(key) ?? 0) + pnl);
   }
   return values;
+}
+
+function monthlyStartingEquityFromDailyPnl(
+  snapshots: readonly SnapshotInput[],
+  eventPnlByDay: ReadonlyMap<string, number>,
+  fallbackStartingEquity: number
+) {
+  const latestSnapshot = latestSnapshotRealizedEquity(snapshots);
+  if (!latestSnapshot) return fallbackStartingEquity;
+  let cumulativePnl = 0;
+  for (const [dateKey, pnl] of eventPnlByDay.entries()) {
+    if (dateKey <= latestSnapshot.dateKey) cumulativePnl += pnl;
+  }
+  return latestSnapshot.equity - cumulativePnl;
+}
+
+function latestSnapshotRealizedEquity(snapshots: readonly SnapshotInput[]) {
+  let latest: { readonly dateKey: string; readonly equity: number; readonly time: number } | null = null;
+  for (const snapshot of snapshots) {
+    const equity = firstFiniteNumber(snapshot.equity);
+    const unrealized = firstFiniteNumber(snapshot.unrealizedPnl ?? snapshot.unrealized_pnl);
+    const key = dateKeyFromInput(snapshot.createdAt ?? snapshot.timestamp);
+    const time = timeValue(snapshot);
+    if (equity === null || !key) continue;
+    const realizedEquity = equity - (unrealized ?? 0);
+    if (!latest || time >= latest.time) {
+      latest = { dateKey: key, equity: realizedEquity, time };
+    }
+  }
+  return latest;
 }
 
 function calendarWeeks(days: readonly PnlCalendarDay[], monthStart: Date) {

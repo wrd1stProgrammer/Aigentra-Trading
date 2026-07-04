@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.db import AIReviewRecord, Base, EquitySnapshotRecord, PositionManagementReviewRecord, TraderLeaderboardSnapshotRecord, init_db, reset_db_engine, session_scope
+from app.db import AIReviewRecord, Base, EquitySnapshotRecord, PaperPositionRecord, PositionManagementReviewRecord, TraderLeaderboardSnapshotRecord, init_db, reset_db_engine, session_scope
 from app.main import app
 from app.repositories import to_json, upsert_translation_cache_record
 
@@ -40,6 +40,63 @@ def test_health(monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["buildSha"] == "test-build-sha"
+
+
+def test_position_win_loss_counts_excludes_breakeven_from_losses(temp_api_db):
+    with session_scope() as db:
+        db.add_all(
+            [
+                PaperPositionRecord(
+                    trader_id="channel-rider",
+                    symbol="BTCUSDT",
+                    status="closed",
+                    side="long",
+                    quantity=Decimal("1"),
+                    entry_price=Decimal("100"),
+                    leverage=Decimal("1"),
+                    notional=Decimal("100"),
+                    margin=Decimal("100"),
+                    realized_pnl=Decimal("12.5"),
+                    close_reason="take_profit",
+                    closed_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+                ),
+                PaperPositionRecord(
+                    trader_id="channel-rider",
+                    symbol="BTCUSDT",
+                    status="closed",
+                    side="short",
+                    quantity=Decimal("1"),
+                    entry_price=Decimal("100"),
+                    leverage=Decimal("1"),
+                    notional=Decimal("100"),
+                    margin=Decimal("100"),
+                    realized_pnl=Decimal("-3"),
+                    close_reason="stop_loss",
+                    closed_at=datetime(2026, 7, 2, tzinfo=timezone.utc),
+                ),
+                PaperPositionRecord(
+                    trader_id="channel-rider",
+                    symbol="BTCUSDT",
+                    status="closed",
+                    side="long",
+                    quantity=Decimal("1"),
+                    entry_price=Decimal("100"),
+                    leverage=Decimal("1"),
+                    notional=Decimal("100"),
+                    margin=Decimal("100"),
+                    realized_pnl=Decimal("0"),
+                    close_reason="breakeven",
+                    closed_at=datetime(2026, 7, 3, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+
+    with session_scope() as db:
+        closed_positions, wins, losses = main.position_win_loss_counts(db, "channel-rider", "BTCUSDT")
+
+    assert closed_positions == 3
+    assert wins == 1
+    assert losses == 1
 
 
 def test_traders_list():
@@ -546,8 +603,24 @@ def test_monthly_leaderboard_reuses_position_rows_per_trader(monkeypatch):
         total_fees=Decimal("2"),
     )
     positions = [
-        SimpleNamespace(realized_pnl=Decimal("12.5"), side="long"),
-        SimpleNamespace(realized_pnl=Decimal("-3"), side="short"),
+        SimpleNamespace(
+            realized_pnl=Decimal("12.5"),
+            side="long",
+            close_reason="take_profit",
+            closed_at=datetime(2026, 6, 4, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            realized_pnl=Decimal("-3"),
+            side="short",
+            close_reason="stop_loss",
+            closed_at=datetime(2026, 6, 3, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            realized_pnl=Decimal("0"),
+            side="long",
+            close_reason="breakeven",
+            closed_at=datetime(2026, 6, 2, tzinfo=timezone.utc),
+        ),
     ]
     position_query_calls = 0
 
@@ -580,12 +653,13 @@ def test_monthly_leaderboard_reuses_position_rows_per_trader(monkeypatch):
     )
 
     assert position_query_calls == 1
-    assert summaries[0]["closedPositions"] == 2
+    assert summaries[0]["closedPositions"] == 3
     assert summaries[0]["wins"] == 1
     assert summaries[0]["losses"] == 1
+    assert summaries[0]["winRate"] == 50.0
     assert summaries[0]["biggestWin"] == 12.5
     assert summaries[0]["biggestLoss"] == -3.0
-    assert summaries[0]["longTrades"] == 1
+    assert summaries[0]["longTrades"] == 2
     assert summaries[0]["shortTrades"] == 1
 
 

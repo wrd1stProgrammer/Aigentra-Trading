@@ -32,7 +32,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { locale, setLocale, t } = useAppContext();
   const { data: session } = useSession();
-  const accessQuery = useSubscriberAccess();
+  const isAdminPage = pathname.startsWith("/admin");
+  const accessQuery = useSubscriberAccess({ enabled: !isAdminPage });
   const access = accessQuery.data;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);

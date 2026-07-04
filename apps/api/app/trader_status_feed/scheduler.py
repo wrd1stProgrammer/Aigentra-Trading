@@ -27,10 +27,28 @@ async def regenerate_due_status_feeds(
     generated: list[TraderStatusFeedRecord] = []
     for trader_id in sorted(set(trader_ids or [trader.id for trader in list_traders()])):
         latest = latest_status_feed_record(db, trader_id=trader_id, symbol=symbol)
-        if latest is None or latest.state_key not in SCHEDULED_REFRESH_STATUS_STATES:
-            continue
         candidate = current_status_feed_candidate(db, trader_id=trader_id, symbol=symbol)
-        if candidate is None or candidate.get("stateKey") != latest.state_key:
+        if candidate is None:
+            continue
+        if latest is None or candidate.get("stateKey") != latest.state_key:
+            generated.append(
+                await create_status_feed_for_event(
+                    db,
+                    settings=settings,
+                    trader_id=trader_id,
+                    symbol=symbol,
+                    state_key=candidate["stateKey"],
+                    event_type=candidate["eventType"],
+                    source_type=candidate["sourceType"],
+                    source_id=candidate["sourceId"],
+                    trigger_payload=candidate["trigger"],
+                    state_started_at=candidate["stateStartedAt"],
+                    generator=generator,
+                    now=generated_at,
+                )
+            )
+            continue
+        if latest.state_key not in SCHEDULED_REFRESH_STATUS_STATES:
             continue
         age_seconds = (generated_at - aware_utc(latest.created_at)).total_seconds()
         if age_seconds < interval_seconds:

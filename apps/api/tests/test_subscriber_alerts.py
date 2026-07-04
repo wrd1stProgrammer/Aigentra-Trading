@@ -256,6 +256,61 @@ def test_trade_events_enqueue_matching_telegram_alerts(temp_db, monkeypatch):
     assert "BTCUSDT" in sent_messages[0]["text"]
 
 
+def test_custom_trade_event_selection_only_sends_enabled_telegram_alerts(temp_db, monkeypatch):
+    sent_messages = []
+
+    def fake_send_telegram_message(*, bot_token, chat_id, text):
+        sent_messages.append({"bot_token": bot_token, "chat_id": chat_id, "text": text})
+        return {"ok": True, "description": None}
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setattr("app.subscribers.send_telegram_message", fake_send_telegram_message)
+
+    with session_scope() as db:
+        upsert_subscriber_preferences(
+            db,
+            user_id="custom-events",
+            email="custom-events@example.com",
+            favorite_trader_ids=["channel-rider"],
+            telegram_settings=TelegramSettingsInput(
+                enabled=True,
+                chat_id="987654321",
+                event_types=["position_entry"],
+                min_return_pct=0,
+            ),
+        )
+        create_trade_event(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            event_type="paper_order_created",
+            price=Decimal("64100.0"),
+            quantity=Decimal("0.2"),
+            payload={"side": "short", "leverage": 5},
+        )
+
+        assert db.query(TelegramAlertDeliveryRecord).count() == 0
+        assert sent_messages == []
+
+        create_trade_event(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            event_type="order_filled",
+            price=Decimal("64167.1"),
+            quantity=Decimal("0.2"),
+            payload={"side": "short", "leverage": 5},
+        )
+        delivery = db.query(TelegramAlertDeliveryRecord).one()
+
+        assert delivery.telegram_event_type == "position_entry"
+        assert delivery.status == "sent"
+
+    assert len(sent_messages) == 1
+    assert sent_messages[0]["chat_id"] == "987654321"
+    assert "진입완료" in sent_messages[0]["text"]
+
+
 @pytest.mark.parametrize(
     ("reason", "realized_pnl", "event_types", "expected_type", "expected_phrase"),
     [

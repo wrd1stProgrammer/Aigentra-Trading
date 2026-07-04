@@ -56,6 +56,15 @@ test("monthly league UI does not overwrite selected-month returns with live trai
   assert.doesNotMatch(leaderboardSource, /selectedLeagueMonth \? `\\$\\{selectedLeagueMonth\\} UTC` : t\("leaderboard\.currentLeague"\)/, "live race board should not change its period badge when monthly tabs change");
 });
 
+test("leaderboard replaces MDD with biggest win", () => {
+  assert.match(leaderboardSource, /t\("leaderboard\.biggestWin"\)/, "leaderboard should label the column as biggest win");
+  assert.match(leaderboardSource, /formatCurrency\(trader\.biggestWin, locale\)/, "leaderboard rows should render the biggest winning trade");
+  assert.doesNotMatch(leaderboardSource, /t\("leaderboard\.mdd"\)/, "leaderboard should no longer use the MDD column label");
+  assert.match(leagueSource, /biggestWin: numberValue\(summary\?\.biggestWin, 0\)/, "standings should preserve the API biggest-win payload");
+  assert.doesNotMatch(leaderboardSource, /recentForm/, "leaderboard should not render the abandoned recent-form metric");
+  assert.doesNotMatch(i18nSource, /leaderboard\.recent10/, "recent-form copy should not stay in the i18n bundle");
+});
+
 test("new and retired trader lifecycle badges are modeled for leaderboard surfaces", () => {
   assert.match(tradersSource, /"liquidation-pressure-sniper"/, "fallback trader catalog should include the liquidation trader");
   assert.match(tradersSource, /"volatility-skew-sentinel"/, "fallback trader catalog should include the skew trader");

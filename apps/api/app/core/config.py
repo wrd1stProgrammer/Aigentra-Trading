@@ -98,6 +98,7 @@ class Settings(BaseModel):
     coinalyze_base_url: str = Field(default_factory=lambda: os.getenv("COINALYZE_BASE_URL", "https://api.coinalyze.net/v1"))
     deribit_base_url: str = Field(default_factory=lambda: os.getenv("DERIBIT_BASE_URL", "https://www.deribit.com/api/v2"))
     subscriber_api_token: str = Field(default_factory=lambda: os.getenv("SUBSCRIBER_API_TOKEN", ""))
+    admin_api_token: str = Field(default_factory=lambda: os.getenv("ADMIN_API_TOKEN", ""))
     whop_mode: str = Field(default_factory=lambda: os.getenv("WHOP_MODE", "production").lower())
     whop_api_key: str = Field(default_factory=lambda: os.getenv("WHOP_API_KEY", ""))
     whop_company_id: str = Field(default_factory=lambda: os.getenv("WHOP_COMPANY_ID", ""))

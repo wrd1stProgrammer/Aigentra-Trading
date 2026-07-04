@@ -22,6 +22,11 @@ test("trader detail first load keeps visible data while paginating heavy review 
   assert.match(profileSource, /getTraderManagementReviews\(/, "detail screen should append older reviews without refetching the whole bundle");
   assert.match(profileSource, /reviews:\s*mergeManagementReviews\(bundle\?\.managementReviews \?\? \[\], extraReviews\)/, "initial and appended reviews should dedupe into one timeline");
   assert.match(profileSource, /setReviewsNextOffset\(response\.nextOffset\)/, "review pagination should follow the server-provided next offset");
+  assert.match(profileSource, /const sameContext = historyContextKeyRef\.current === requestContextKey/, "trade history pagination should scope exhausted/loading guards to the current trader context");
+  assert.match(profileSource, /setHistoryOffset\(responseNextOffset\)/, "trade history pagination should follow the server-provided next offset");
+  assert.match(profileSource, /setHistoryHasMore\(typeof res\.hasMore === "boolean" \? res\.hasMore : responseNextOffset < res\.total\)/, "trade history pagination should follow the server-provided has-more flag");
+  assert.match(profileSource, /setHistoryItems\(\[\]\)/, "trader switches should clear stale trade history before the next page loads");
+  assert.doesNotMatch(apiSource, /path\.includes\("\/trade-history"\)/, "trade history should use the trader-detail timeout budget instead of the fast 8s budget");
   assert.match(profileSource, /tradeHistoryItems=\{historyItems\}/, "visible trade history should use the loaded rows directly");
   assert.match(profileSource, /disabled=\{loadingMoreReviews\}/, "scenario pagination should avoid duplicate requests while loading");
   assert.doesNotMatch(profileSource, /setReviewsLimit|setEventsLimit/, "pagination should not mutate the primary detail bundle parameters");

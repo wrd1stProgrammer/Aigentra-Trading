@@ -39,25 +39,33 @@ test("monthly pnl calendar groups snapshots and trade events by day", () => {
   assert.equal(calendar.assetChange.deltaText, "+34.50");
 });
 
-test("monthly pnl calendar uses realized event pnl when snapshot and trade history share a UTC day", () => {
+test("monthly pnl calendar uses backend daily pnl before lifetime equity snapshots", () => {
   const pnlCalendar = loadTsModule("../components/trader-profile-detail/pnl-calendar.ts");
 
   const calendar = pnlCalendar.buildMonthlyPnlCalendar({
-    now: new Date("2026-06-05T12:00:00Z"),
+    now: new Date("2026-07-04T12:00:00Z"),
     locale: "en",
     startingEquity: 10000,
     snapshots: [
-      { equity: 10000, createdAt: "2026-06-01T23:00:00Z" },
-      { equity: 10002, createdAt: "2026-06-02T23:00:00Z" }
+      { equity: 9389.568877218, unrealizedPnl: 0, createdAt: "2026-07-03T20:30:21.384868Z" }
     ],
-    dailyPnl: [{ date: "2026-06-02", pnl: 10 }]
+    dailyPnl: [
+      { date: "2026-07-01", pnl: -249.02687781 },
+      { date: "2026-07-02", pnl: 304.88220342 },
+      { date: "2026-07-03", pnl: 126.844823448 }
+    ]
   });
 
-  const day2 = calendar.days.find((day) => day.dateKey === "2026-06-02");
+  const day1 = calendar.days.find((day) => day.dateKey === "2026-07-01");
+  const day2 = calendar.days.find((day) => day.dateKey === "2026-07-02");
+  const day3 = calendar.days.find((day) => day.dateKey === "2026-07-03");
 
-  assert.equal(day2.pnlText, "+10.00");
-  assert.equal(day2.equity, 10010);
-  assert.equal(calendar.assetChange.current, 10010);
+  assert.equal(day1.pnlText, "-249.03");
+  assert.equal(day2.pnlText, "+304.88");
+  assert.equal(day3.pnlText, "+126.84");
+  assert.equal(day3.tone, "good");
+  assert.equal(calendar.assetChange.current.toFixed(2), "9389.57");
+  assert.equal(calendar.assetChange.deltaText, "+182.70");
 });
 
 function loadTsModule(relativePath) {

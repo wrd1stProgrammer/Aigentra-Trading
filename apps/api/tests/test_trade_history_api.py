@@ -123,6 +123,45 @@ def test_trade_history_keeps_partial_take_profits_for_closed_position(temp_db):
     assert sum(item["pnl"] for item in data["items"]) == pytest.approx(375.43)
 
 
+def test_trade_history_returns_next_offset_and_has_more_for_stable_pagination(temp_db):
+    with session_scope() as db:
+        for index in range(12):
+            db.add(
+                TradeEventRecord(
+                    trader_id="vwap-reclaimer",
+                    symbol="BTCUSDT",
+                    event_type="position_closed",
+                    price=Decimal("61000") + index,
+                    quantity=Decimal("0.010"),
+                    realized_pnl=Decimal("5.00"),
+                    created_at=datetime(2026, 7, 3, 12, index, tzinfo=timezone.utc),
+                    payload_json=json.dumps(
+                        {
+                            "side": "LONG",
+                            "entryPrice": 60900 + index,
+                            "reason": "take_profit",
+                        }
+                    ),
+                )
+            )
+
+    client = TestClient(app)
+    first = client.get("/api/league/traders/vwap-reclaimer/trade-history?symbol=BTCUSDT&limit=10&offset=0")
+    second = client.get("/api/league/traders/vwap-reclaimer/trade-history?symbol=BTCUSDT&limit=10&offset=10")
+
+    assert first.status_code == 200
+    first_page = first.json()
+    assert len(first_page["items"]) == 10
+    assert first_page["nextOffset"] == 10
+    assert first_page["hasMore"] is True
+
+    assert second.status_code == 200
+    second_page = second.json()
+    assert len(second_page["items"]) == 2
+    assert second_page["nextOffset"] == 12
+    assert second_page["hasMore"] is False
+
+
 def test_trader_detail_exposes_review_counts_by_utc_day(temp_db):
     with session_scope() as db:
         db.add_all(

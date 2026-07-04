@@ -358,7 +358,7 @@ test("latest scenario timeline relies on real localized review payloads instead 
   assert.doesNotMatch(i18nSource, /"scenario\.fallback\.managementReviewPendingTranslation"/, "management review pending-translation fallback copy should not ship");
 });
 
-test("approved entry scenarios keep structured review for detail while preserving saved entry reason fallback", () => {
+test("approved entry scenarios use structured review for detail rationale", () => {
   const scenarios = league.buildScenarios({
     trader: { id: "trend-sentinel", currentPlan: "wait", baseRiskPercent: 0.5, description: "Trend" },
     positions: [
@@ -396,7 +396,8 @@ test("approved entry scenarios keep structured review for detail while preservin
   });
 
   assert.equal(scenarios[0].source, "position");
-  assert.match(scenarios[0].rationale, /진입 승인 이유/);
+  assert.match(scenarios[0].rationale, /숏 설정은 구조적으로 유효/);
+  assert.doesNotMatch(scenarios[0].rationale, /진입 승인 이유/);
   assert.equal(
     scenarios[0].reviewBrief.headline,
     "숏 설정은 구조적으로 유효하지만, 8배 레버리지는 중간 수준의 수익-위험 비율과 혼합 하위 프레임 확인에 대해 너무 공격적입니다."
@@ -412,6 +413,24 @@ test("scenario modal uses a compact reference-style ratio and neutral rationale 
   assert.doesNotMatch(modalSource, /detail\.confidence/, "position/order detail modal should not show the old confidence card");
   assert.doesNotMatch(modalSource, /lg:grid-cols-\[minmax\(0,1\.15fr\)_260px\]/, "rationale and metric data should not be split into the old side rail");
   assert.doesNotMatch(reviewBriefSummarySource, /border-l-2 border-emerald-500\/70/, "management rationale cards should not use a green side stripe");
+});
+
+test("scenario modal keeps the chart out from under the header while the body scrolls", () => {
+  assert.match(
+    modalSource,
+    /className="[^"]*max-h-\[86dvh\][^"]*flex-col[^"]*overflow-hidden/,
+    "dialog shell should clip only the rounded frame, not act as the scroll container"
+  );
+  assert.match(
+    modalSource,
+    /data-testid="scenario-modal-body"[\s\S]*className="[^"]*min-h-0[^"]*flex-1[^"]*overflow-y-auto/,
+    "modal body should be the only vertical scrollport so the chart cannot slide beneath the header"
+  );
+  assert.doesNotMatch(
+    modalSource,
+    /sticky top-0/,
+    "the modal header should not be a sticky overlay inside the same scrollport as the chart"
+  );
 });
 
 test("pullback scale-entry cancellation copy is localized instead of raw template text", () => {

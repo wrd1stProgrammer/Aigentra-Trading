@@ -37,12 +37,13 @@ export function subscriberAccessQueryKey(userId?: string | null, email?: string 
   ] as const;
 }
 
-export function useSubscriberAccess() {
+export function useSubscriberAccess(options: { enabled?: boolean } = {}) {
   const session = useSession();
   const userId = session.data?.user?.id ?? session.data?.user?.email ?? null;
   const email = session.data?.user?.email ?? null;
   const isAuthenticated = Boolean(email);
   const cachedAccess = isAuthenticated ? readCachedSubscriberAccess(userId, email) : null;
+  const enabled = options.enabled ?? true;
   return useQuery({
     queryKey: subscriberAccessQueryKey(userId, email),
     queryFn: async () => {
@@ -51,7 +52,7 @@ export function useSubscriberAccess() {
       if (!access.unavailable) writeCachedSubscriberAccess(access);
       return access;
     },
-    enabled: session.status !== "loading",
+    enabled: enabled && session.status !== "loading",
     staleTime: SUBSCRIBER_ACCESS_STALE_TIME_MS,
     gcTime: 5 * 60_000,
     retry: false,
