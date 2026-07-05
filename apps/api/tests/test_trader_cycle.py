@@ -608,6 +608,26 @@ async def test_structured_review_fields_for_entry_review():
     assert review.structuredReview.keyReasons
 
 
+def test_entry_review_prompt_requires_modal_ready_entry_rationale():
+    snapshot = sample_snapshot()
+    strategy = get_strategy("trend-sentinel")
+    candidate = strategy.evaluate(snapshot)
+
+    prompt = entry_approval_prompt(
+        TradeReviewPayload(
+            trader=strategy.profile,
+            symbol="BTCUSDT",
+            marketSnapshot=snapshot,
+            candidate=candidate,
+            locale="ko",
+        )
+    )
+
+    assert "ENTRY DETAIL UI CONTRACT" in prompt
+    assert "headline is the entry thesis" in prompt
+    assert "Do not spend the entry detail on leverage, risk percent, stop/target math, fee-aware RR, or recent-loss memory" in prompt
+
+
 @pytest.mark.asyncio
 async def test_mock_position_management_review_uses_requested_locale():
     snapshot = sample_snapshot()

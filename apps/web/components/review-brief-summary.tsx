@@ -1,7 +1,7 @@
 "use client";
 
 import { StatusBadge } from "@/components/status-badge";
-import type { ReviewBrief } from "@/lib/review-brief";
+import { entryRationaleItems, type ReviewBrief } from "@/lib/review-brief";
 import { cleanReviewDisplayItems, cleanReviewDisplayText } from "@/lib/review-display";
 
 type ReviewBriefSummaryProps = {
@@ -10,6 +10,7 @@ type ReviewBriefSummaryProps = {
   compact?: boolean;
   embedded?: boolean;
   showHeader?: boolean;
+  focus?: "full" | "entry";
   t: (key: string) => string;
 };
 
@@ -19,12 +20,14 @@ export function ReviewBriefSummary({
   compact = false,
   embedded = false,
   showHeader = true,
+  focus = "full",
   t
 }: ReviewBriefSummaryProps) {
   const headline = cleanReviewDisplayText(brief.headline ?? brief.action ?? brief.managerNote ?? "-", compact ? 96 : 140);
   const verdict = localizedBriefToken(brief.verdict, t);
   const action = cleanReviewDisplayText(localizedBriefToken(brief.action, t) ?? brief.action, compact ? 72 : 100);
-  const reviewLines = reviewLinesFromBrief(brief, headline, action, compact);
+  const reviewLines =
+    focus === "entry" ? entryReviewLinesFromBrief(brief, headline, compact) : reviewLinesFromBrief(brief, headline, action, compact);
   const managerNote = cleanReviewDisplayText(brief.managerNote ?? "", compact ? 110 : 160);
   const shellClassName = embedded
     ? `${compact ? "space-y-2" : "space-y-3"}`
@@ -48,7 +51,7 @@ export function ReviewBriefSummary({
           </p>
         ))}
       </div>
-      {managerNote ? (
+      {focus !== "entry" && managerNote ? (
         <div className="rounded-lg bg-zinc-100/65 px-3 py-2 dark:bg-zinc-900/50">
           <div className="metric-label mb-1">{t("aiReview.managerNote")}</div>
           <p className="text-xs leading-5 text-zinc-600 dark:text-zinc-300">{managerNote}</p>
@@ -56,6 +59,13 @@ export function ReviewBriefSummary({
       ) : null}
     </div>
   );
+}
+
+function entryReviewLinesFromBrief(brief: ReviewBrief, headline: string, compact: boolean) {
+  return cleanReviewDisplayItems(
+    entryRationaleItems(brief).filter((item) => item !== headline),
+    compact ? 92 : 132
+  ).slice(0, 2);
 }
 
 function reviewLinesFromBrief(brief: ReviewBrief, headline: string, action: string, compact: boolean) {

@@ -12,7 +12,8 @@ STRUCTURED_REVIEW_QUALITY_CONTRACT: Final[str] = (
     "headline says the current call, action says what the trader is doing now, keyReasons name concrete evidence, "
     "risks explain what could go wrong, watchConditions name exact market events that would change the call, "
     "and managerNote tells how to behave until the next review. "
-    "headline must not be a reusable status label or timeline title; write a fresh desk headline with the live position state and the management choice. "
+    "For management reviews, headline must not be a reusable status label or timeline title; write a fresh desk headline with the live position state and the management choice. "
+    "For entry reviews, follow the entry-detail contract instead of turning the headline into a management status. "
     "Forbidden headline patterns include 'Long profit-zone check', 'Short profit-zone check', '롱 익절권 확인', '숏 익절권 확인', "
     "'Long stop check', 'Short stop check', '롱 손절 점검', '숏 손절 점검', and close translations. "
     "Never call the current price the entry price. When both current price and entry are available, keep them separate as current price versus entry; "
@@ -34,4 +35,12 @@ STRUCTURED_REVIEW_QUALITY_CONTRACT: Final[str] = (
     "For example, do not write only '4H EMA50 64115.22 breaks'; explain whether that would show buyers reclaimed control, the short thesis failed, or the stop/exit should be reconsidered. "
     "Use Korean for Korean locale without mixing English, except for LONG/SHORT, BTCUSDT, timeframe labels like 15m, and numbers. "
     "Avoid abstract claims such as supportive market, neutral momentum, valid structure, or no invalidation unless the same sentence explains the exact price, candle, stop, target, or trader thesis that makes it true. "
+)
+
+ENTRY_DETAIL_UI_CONTRACT: Final[str] = (
+    "ENTRY DETAIL UI CONTRACT: the position detail modal shows only structuredReview.headline plus one or two entry evidence lines. "
+    "For APPROVE or ADJUST_AND_APPROVE, headline is the entry thesis: state the trader concept, the entry zone, and the specific trigger that made entering now reasonable. "
+    "keyReasons[0] must be the strongest concrete entry trigger in plain language, not a risk-control sentence. "
+    "Do not spend the entry detail on leverage, risk percent, stop/target math, fee-aware RR, or recent-loss memory; put those in action, risks, watchConditions, managerNote, or adjustments. "
+    "If the best reason is only risk geometry, defer instead of approving. "
 )

@@ -462,6 +462,30 @@ test("entry approval scenarios fall back to English structured review when Korea
   assert.equal(positionScenario.rationale, "ATR trend-continuation LONG is worth a reduced-size entry around 61984.8. Place the LONG with reduced 0.40% account risk and keep 5x leverage. 1h and 4h buyers are holding above their EMA bands. Cancel the pullback if TP1 is reached first.");
 });
 
+test("entry detail brief keeps only core entry evidence", () => {
+  // Given: the provider returns a structured review with useful entry evidence mixed with risk/control paragraphs.
+  const brief = {
+    verdict: "조정 후 승인",
+    headline: "Trend Sentinel은 4H 상승 추세가 유지되는 동안 62838.9-62844.4 조정 구역에서 BTCUSDT LONG을 취할 수 있습니다.",
+    action: "계획된 LIMIT LONG은 5배 레버리지와 0.35% 위험으로 두 가격에만 배치하고 추격하지 마세요.",
+    keyReasons: [
+      "진입 트리거는 1H 평균 구역으로의 통제된 조정 후 현재 가격 근처에서 확인된 체결입니다.",
+      "62405.3 손절선과 63410.0 목표는 수수료 차감 후 1.80의 보상률을 제공합니다."
+    ],
+    risks: ["펀딩이 혼잡하며 4H RSI가 높아 빠른 하락이 발생하면 구매자가 늦은 것으로 볼 수 있습니다."],
+    watchConditions: ["가격이 62405.3 아래로 닫히면 LONG 승인 근거는 사라집니다."],
+    managerNote: "손절 시퀀스와 혼잡한 펀딩 후에는 규모를 줄여야 합니다."
+  };
+
+  // When: the position detail modal prepares an entry-focused brief.
+  const items = reviewBrief.entryRationaleItems(brief);
+
+  // Then: only the entry trigger remains as supporting copy; risk geometry and manager notes stay out of the entry rationale block.
+  assert.deepEqual(items, [
+    "진입 트리거는 1H 평균 구역으로의 통제된 조정 후 현재 가격 근처에서 확인된 체결입니다."
+  ]);
+});
+
 test("scenario modal does not show entry summary as management rationale", () => {
   assert.match(modalSource, /scenarioDetailRationaleText\(scenario, t\)/);
   assert.doesNotMatch(modalSource, /scenario\.rationale \?\? scenario\.summary/);
@@ -473,6 +497,7 @@ test("scenario modal labels entry approvals separately from management reviews",
   assert.match(modalSource, /function scenarioRationaleLabel/);
   assert.match(modalSource, /case "position":\s*case "order":\s*return t\("aiReview\.entryRationale"\);/s);
   assert.match(modalSource, /case "review":\s*return t\("aiReview\.rationale"\);/s);
+  assert.match(modalSource, /focus="entry"/);
   assert.match(i18nSource, /"aiReview\.entryRationale": "진입 승인 근거"/);
   assert.match(i18nSource, /"aiReview\.entryRationale": "Entry Approval Rationale"/);
 });

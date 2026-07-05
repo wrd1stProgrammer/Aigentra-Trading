@@ -40,6 +40,7 @@ export function ScenarioModal({
   const side = localizedScenarioSide(scenario.side, t) || "-";
   const scenarioCode = scenario.source.slice(0, 2).toUpperCase();
   const scenarioTime = scenario.createdAt ? scenario.createdAt.replace("T", " ").slice(0, 16) : "-";
+  const isEntryRationale = scenario.source === "position" || scenario.source === "order";
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-hidden bg-zinc-950/60 p-3 pt-[6dvh] backdrop-blur-sm sm:p-5 sm:pt-[7dvh]">
       <div
@@ -107,8 +108,23 @@ export function ScenarioModal({
               </span>
             </div>
             <div className="mt-3">
-              {scenario.reviewBrief ? (
-                <ReviewBriefSummary brief={scenario.reviewBrief} title={rationaleLabel} embedded showHeader={false} t={t} />
+              {scenario.reviewBrief && isEntryRationale ? (
+                <ReviewBriefSummary
+                  brief={scenario.reviewBrief}
+                  title={rationaleLabel}
+                  embedded
+                  showHeader={false}
+                  focus="entry"
+                  t={t}
+                />
+              ) : scenario.reviewBrief ? (
+                <ReviewBriefSummary
+                  brief={scenario.reviewBrief}
+                  title={rationaleLabel}
+                  embedded
+                  showHeader={false}
+                  t={t}
+                />
               ) : (
                 <p className="text-sm leading-7 text-zinc-800 dark:text-zinc-100">{scenarioDisplayText(scenarioDetailRationaleText(scenario, t), t)}</p>
               )}

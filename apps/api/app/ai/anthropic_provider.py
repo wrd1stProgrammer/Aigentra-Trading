@@ -57,7 +57,8 @@ def structured_review_schema() -> dict[str, Any]:
                 "type": "string",
                 "description": (
                     "One plain-language sentence. For entry approval, headline must be the plain answer to why this trader entered now: "
-                    "name the trader concept or setup family, the entry zone, and the market trigger before risk controls; "
+                    "name the trader concept or setup family, the entry zone, and the market trigger before risk controls. "
+                    "Do not spend this headline on leverage, risk percent, stop/target math, fee-aware RR, or recent-loss memory; "
                     "for position management, explain whether the current position is working, weakening, protected, or invalidated."
                 ),
             },
@@ -70,7 +71,8 @@ def structured_review_schema() -> dict[str, Any]:
                 "items": {"type": "string"},
                 "description": (
                     "Up to two standalone evidence sentences. For entry approval, the first reason must name the concrete market trigger or entry thesis; "
-                    "read it through the trader-specific strategy concept, not as a generic indicator list. The second may cover current price versus entry, stop, target, PnL, recent candles, or recent reviews."
+                    "read it through the trader-specific strategy concept, not as a generic indicator list. "
+                    "The second may add context only after the trigger is clear; avoid leading with current price, stop, target, PnL, RR, leverage, or risk percentage."
                 ),
             },
             "risks": {

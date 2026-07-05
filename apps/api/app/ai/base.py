@@ -5,7 +5,7 @@ from typing import Any, Dict, Final, Optional
 
 from app.ai.entry_approval_dossier import build_entry_approval_dossier
 from app.ai.league_sentiment_models import LeagueSentimentBrief, LeagueSentimentOpinionResult, LeagueSentimentPayload
-from app.ai.review_prompt_quality import STRUCTURED_REVIEW_QUALITY_CONTRACT
+from app.ai.review_prompt_quality import ENTRY_DETAIL_UI_CONTRACT, STRUCTURED_REVIEW_QUALITY_CONTRACT
 from app.paper.holding_policy import trader_holding_policy
 from app.traders.models import (
     ManagementAction,
@@ -1196,6 +1196,7 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "Do not answer approval with only higher-timeframe trend alignment, stop/target geometry, fee-aware RR, leverage, or risk percentage. "
         "Put leverage or riskPercentOverride in action, adjustments, or managerNote, not as the reason the position was entered. "
         "If there is no concrete entry trigger beyond trend alignment and RR, defer instead of approving. "
+        f"{ENTRY_DETAIL_UI_CONTRACT}"
         "Use recentEntryReviewMemory before writing; each avoidRepeating snippet is forbidden as wording and as sentence structure. "
         "If the new decision is similar to a recent approval, distinguish it by the changed price, entry fill status, target distance, invalidation distance, or recent trade result. "
         "Each string should be readable if shown as part of one short paragraph, with no bullet prefixes and no repeated labels. "

@@ -10,6 +10,18 @@ export type ReviewBrief = {
   managerNote: string | null;
 };
 
+const ENTRY_TRIGGER_PATTERNS: readonly RegExp[] = [
+  /트리거|확인|체결|반등|되돌림|조정|회복|돌파|재테스트|거부|눌림|평균\s*구역|채널|추세|스윕|흡수|임밸런스|VWAP|EMA|RSI|funding|open interest|trigger|confirmation|retest|reclaim|breakout|pullback|sweep|absorption|imbalance|trend|channel/i
+];
+
+const ENTRY_CONTEXT_PATTERNS: readonly RegExp[] = [
+  /진입|entry/i
+];
+
+const RISK_CONTROL_PATTERNS: readonly RegExp[] = [
+  /레버리지|위험|손절|익절|목표|수수료|손익비|보상률|리스크|규모|크기|무효화|청산|LIMIT|limit|leverage|risk|stop|target|take[-\s]?profit|fee|RR|reward|invalidation|size/i
+];
+
 export function normalizeStructuredReview(value: unknown): ReviewBrief | null {
   const record = recordValue(value);
   if (!record) return null;
@@ -58,6 +70,16 @@ export function reviewBriefText(brief: ReviewBrief | null): string | null {
   return parts.length ? parts.join(" ") : null;
 }
 
+export function entryRationaleItems(brief: ReviewBrief): string[] {
+  const candidates = [...brief.keyReasons, brief.action].filter((item): item is string => Boolean(item?.trim()));
+  const entryEvidence = candidates.filter(isEntryEvidence);
+  if (entryEvidence.length) return uniqueStrings(entryEvidence).slice(0, 2);
+
+  const nonRiskCopy = candidates.filter((item) => !isRiskControlOnly(item));
+  const fallback = nonRiskCopy.length ? nonRiskCopy : candidates;
+  return uniqueStrings(fallback).slice(0, 2);
+}
+
 export function structuredReviewValue(value: StructuredReview | null | undefined): ReviewBrief | null {
   return normalizeStructuredReview(value);
 }
@@ -76,6 +98,27 @@ function hasBriefContent(brief: ReviewBrief) {
 
 function textValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isEntryEvidence(value: string): boolean {
+  return ENTRY_TRIGGER_PATTERNS.some((pattern) => pattern.test(value)) || (ENTRY_CONTEXT_PATTERNS.some((pattern) => pattern.test(value)) && !isRiskControlOnly(value));
+}
+
+function isRiskControlOnly(value: string): boolean {
+  return RISK_CONTROL_PATTERNS.some((pattern) => pattern.test(value)) && !ENTRY_TRIGGER_PATTERNS.some((pattern) => pattern.test(value));
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const value of values) {
+    const clean = value.trim();
+    const key = clean.toLowerCase();
+    if (!clean || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(clean);
+  }
+  return unique;
 }
 
 function textLine(value: unknown, limit: number): string | null {
