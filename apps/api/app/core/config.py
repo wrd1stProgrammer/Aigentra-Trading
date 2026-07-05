@@ -205,6 +205,12 @@ class Settings(BaseModel):
     realtime_paper_execution_role: str = Field(
         default_factory=lambda: os.getenv("REALTIME_PAPER_EXECUTION_ROLE", "api").strip().lower()
     )
+    realtime_paper_execution_backfill_minutes: int = Field(
+        default_factory=lambda: env_int("REALTIME_PAPER_EXECUTION_BACKFILL_MINUTES", "2880")
+    )
+    realtime_paper_execution_backfill_page_limit: int = Field(
+        default_factory=lambda: env_int("REALTIME_PAPER_EXECUTION_BACKFILL_PAGE_LIMIT", "300")
+    )
     auto_scanner_provider: str = Field(default_factory=lambda: provider_from_env("AUTO_SCANNER_PROVIDER", "mock"))
     auto_scanner_locale: str = Field(default_factory=lambda: normalize_locale(os.getenv("AUTO_SCANNER_LOCALE", "en")))
     auto_scanner_snapshot_concurrency: int = Field(default_factory=lambda: env_int("AUTO_SCANNER_SNAPSHOT_CONCURRENCY", "3"))

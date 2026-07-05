@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -8,6 +9,7 @@ from app.db import PaperOrderRecord, PaperPositionRecord, init_db, reset_db_engi
 from app.paper.engine import place_paper_order
 from app.paper.realtime_execution import (
     EXECUTION_EVENT_HUB,
+    _LAST_CANDLE_OPEN_TIME_BY_SYMBOL,
     _LAST_PRICE_BY_SYMBOL,
     run_realtime_execution_once,
 )
@@ -58,14 +60,54 @@ class LaggingCandleMarketClient:
         ]
 
 
+class MissedSecondTargetMarketClient:
+    async def get_premium_index(self, symbol):
+        return {"symbol": symbol, "markPrice": 116, "indexPrice": 116}
+
+    async def get_klines(self, symbol, interval="1m", limit=20, before=None):
+        if before is not None:
+            return []
+        base_open_time = int((datetime.now(timezone.utc) - timedelta(minutes=2)).timestamp() * 1000)
+        return [
+            Candle(
+                openTime=base_open_time,
+                open=115,
+                high=121,
+                low=114,
+                close=119,
+                volume=1,
+                closeTime=base_open_time + 59_999,
+                quoteVolume=119,
+                trades=1,
+                takerBuyBaseVolume=0,
+                takerBuyQuoteVolume=0,
+            ),
+            Candle(
+                openTime=base_open_time + 60_000,
+                open=119,
+                high=119,
+                low=115,
+                close=116,
+                volume=1,
+                closeTime=base_open_time + 119_999,
+                quoteVolume=116,
+                trades=1,
+                takerBuyBaseVolume=0,
+                takerBuyQuoteVolume=0,
+            ),
+        ]
+
+
 @pytest.fixture()
 def temp_db(tmp_path):
     db_path = tmp_path / "realtime-paper.db"
     reset_db_engine(f"sqlite:///{db_path}")
     init_db()
     _LAST_PRICE_BY_SYMBOL.clear()
+    _LAST_CANDLE_OPEN_TIME_BY_SYMBOL.clear()
     yield db_path
     _LAST_PRICE_BY_SYMBOL.clear()
+    _LAST_CANDLE_OPEN_TIME_BY_SYMBOL.clear()
     reset_db_engine("sqlite:///:memory:")
     init_db()
 
@@ -222,3 +264,50 @@ async def test_realtime_execution_uses_live_mark_price_for_breakeven_when_candle
         position = db.execute(select(PaperPositionRecord)).scalar_one()
         assert position.status == "open"
         assert position.stop_loss_price > position.entry_price
+
+
+@pytest.mark.asyncio
+async def test_realtime_execution_backfills_missed_second_take_profit(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "realtime-trader", "BTCUSDT", max_leverage=10)
+        place_paper_order(
+            db,
+            trader_id="realtime-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=100,
+            quantity=1,
+            leverage=5,
+            take_profit_price=110,
+            stop_loss_price=90,
+            payload={
+                "initialQuantity": 1,
+                "takeProfits": [
+                    {"price": 110, "weight": 0.4, "reason": "first target"},
+                    {"price": 120, "weight": 0.6, "reason": "runner target"},
+                ],
+            },
+        )
+
+    await run_realtime_execution_once(symbols=["BTCUSDT"], price_by_symbol={"BTCUSDT": 100})
+    await run_realtime_execution_once(symbols=["BTCUSDT"], price_by_symbol={"BTCUSDT": 111})
+
+    with session_scope() as db:
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        position.opened_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+        assert position.status == "open"
+        assert position.take_profit_price == 120
+
+    result = await run_realtime_execution_once(
+        symbols=["BTCUSDT"],
+        market_client_factory=MissedSecondTargetMarketClient,
+    )
+
+    assert result["counts"]["closes"] == 1
+    trader_result = next(item for item in result["results"] if item.get("traderId") == "realtime-trader")
+    assert "position_closed" in trader_result["eventTypes"]
+    with session_scope() as db:
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        assert position.status == "closed"
+        assert position.close_reason == "take_profit"

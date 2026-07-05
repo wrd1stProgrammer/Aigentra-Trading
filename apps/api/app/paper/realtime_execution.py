@@ -60,6 +60,7 @@ REALTIME_EXECUTION_STATE: dict[str, Any] = {
 _EXECUTION_LOCK = asyncio.Lock()
 PAPER_EXECUTION_LOCK = _EXECUTION_LOCK
 _LAST_PRICE_BY_SYMBOL: dict[str, Decimal] = {}
+_LAST_CANDLE_OPEN_TIME_BY_SYMBOL: dict[str, int] = {}
 _EVENT_SEQUENCE = 0
 _PROCESS_ID = uuid.uuid4().hex
 _REDIS_CLIENT: Optional[Any] = None
@@ -85,6 +86,7 @@ def execution_tick_candle(symbol: str, price: Decimal, previous_price: Optional[
         "low": low,
         "close": price,
         "timestamp": datetime.now(timezone.utc),
+        "openTimeMs": None,
     }
 
 
@@ -96,6 +98,7 @@ def execution_market_candle(symbol: str, candle: MarketCandle) -> dict[str, Any]
         "low": Decimal(str(candle.low)),
         "close": Decimal(str(candle.close)),
         "timestamp": datetime.fromtimestamp(candle.openTime / 1000, timezone.utc),
+        "openTimeMs": int(candle.openTime),
     }
 
 
@@ -115,6 +118,7 @@ def execution_live_market_candle(
         "low": low,
         "close": price,
         "timestamp": datetime.now(timezone.utc),
+        "openTimeMs": candle.get("openTimeMs"),
     }
 
 
@@ -137,6 +141,26 @@ def active_exposure_trader_ids(db: Session, symbol: str) -> list[str]:
     return sorted({trader_id for trader_id in [*order_traders, *position_traders] if trader_id})
 
 
+def oldest_active_exposure_started_at(db: Session, symbol: str) -> Optional[datetime]:
+    clean_symbol = normalize_execution_symbol(symbol)
+    order_times = db.execute(
+        select(PaperOrderRecord.submitted_at).where(
+            PaperOrderRecord.symbol == clean_symbol,
+            PaperOrderRecord.status == "open",
+        )
+    ).scalars()
+    position_times = db.execute(
+        select(PaperPositionRecord.opened_at).where(
+            PaperPositionRecord.symbol == clean_symbol,
+            PaperPositionRecord.status == "open",
+        )
+    ).scalars()
+    started_times = [started_at for started_at in [*order_times, *position_times] if started_at is not None]
+    if not started_times:
+        return None
+    return min(_aware_utc(started_at) for started_at in started_times)
+
+
 async def fetch_execution_price(symbol: str, market_client: Optional[MarketDataClient] = None) -> Decimal:
     client = market_client or MarketDataClient(timeout_seconds=3.0)
     premium = await client.get_premium_index(normalize_execution_symbol(symbol))
@@ -146,23 +170,117 @@ async def fetch_execution_price(symbol: str, market_client: Optional[MarketDataC
     return price
 
 
+def _aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _candle_open_time_ms(candle: dict[str, Any]) -> Optional[int]:
+    raw_value = candle.get("openTimeMs")
+    if raw_value is None:
+        return None
+    try:
+        return int(raw_value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _execution_backfill_since(symbol: str, oldest_active_at: Optional[datetime], now: datetime) -> Optional[datetime]:
+    settings = get_settings()
+    last_open_time_ms = _LAST_CANDLE_OPEN_TIME_BY_SYMBOL.get(symbol)
+    if last_open_time_ms is not None:
+        return datetime.fromtimestamp(last_open_time_ms / 1000, timezone.utc)
+    if oldest_active_at is None:
+        return None
+    lookback_minutes = max(1, int(settings.realtime_paper_execution_backfill_minutes or 1))
+    backfill_floor = now - timedelta(minutes=lookback_minutes)
+    return max(_aware_utc(oldest_active_at), backfill_floor)
+
+
+def _filter_execution_candles_since(candles: list[dict[str, Any]], since: Optional[datetime]) -> list[dict[str, Any]]:
+    if since is None:
+        return candles
+    since_ms = int(_aware_utc(since).timestamp() * 1000)
+    return [candle for candle in candles if (_candle_open_time_ms(candle) is None or _candle_open_time_ms(candle) >= since_ms)]
+
+
+def _mark_symbol_candles_processed(symbol: str, candles: list[dict[str, Any]]) -> None:
+    open_times = [_candle_open_time_ms(candle) for candle in candles]
+    valid_open_times = [open_time for open_time in open_times if open_time is not None]
+    if valid_open_times:
+        _LAST_CANDLE_OPEN_TIME_BY_SYMBOL[symbol] = max(valid_open_times)
+
+
+def _merge_paper_engine_result(target: PaperEngineResult, source: PaperEngineResult) -> None:
+    target.filled_orders.extend(source.filled_orders)
+    target.closed_positions.extend(source.closed_positions)
+    target.rejected_orders.extend(source.rejected_orders)
+    target.events.extend(source.events)
+    if source.snapshot is not None:
+        target.snapshot = source.snapshot
+
+
+async def fetch_execution_candles(
+    symbol: str,
+    market_client: Optional[MarketDataClient] = None,
+    *,
+    previous_price: Optional[Decimal] = None,
+    since: Optional[datetime] = None,
+) -> tuple[Decimal, list[dict[str, Any]]]:
+    client = market_client or MarketDataClient(timeout_seconds=3.0)
+    settings = get_settings()
+    page_limit = max(2, int(settings.realtime_paper_execution_backfill_page_limit or 300))
+    candles = await client.get_klines(normalize_execution_symbol(symbol), "1m", page_limit)
+    if not candles:
+        price = await fetch_execution_price(symbol, client)
+        return price, [execution_tick_candle(symbol, price, previous_price)]
+
+    all_candles = list(candles)
+    if since is not None:
+        since_ms = int(_aware_utc(since).timestamp() * 1000)
+        backfill_minutes = max(1, int(settings.realtime_paper_execution_backfill_minutes or 1))
+        max_pages = max(1, min(30, (backfill_minutes // page_limit) + 3))
+        pages_read = 1
+        while all_candles and min(int(candle.openTime) for candle in all_candles) > since_ms and pages_read < max_pages:
+            before = min(int(candle.openTime) for candle in all_candles) - 1
+            previous_page = await client.get_klines(normalize_execution_symbol(symbol), "1m", page_limit, before=before)
+            if not previous_page:
+                break
+            all_candles.extend(previous_page)
+            pages_read += 1
+
+    deduped = {int(candle.openTime): candle for candle in all_candles}
+    market_candles = [
+        execution_market_candle(symbol, candle)
+        for _, candle in sorted(deduped.items(), key=lambda item: item[0])
+    ]
+    market_candles = _filter_execution_candles_since(market_candles, since)
+
+    if not market_candles:
+        latest_candle = execution_market_candle(symbol, deduped[max(deduped)])
+        try:
+            price = await fetch_execution_price(symbol, client)
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            price = to_positive_execution_price(latest_candle["close"])
+        return price, [execution_live_market_candle(symbol, latest_candle, price, previous_price)]
+
+    try:
+        price = await fetch_execution_price(symbol, client)
+    except (httpx.HTTPError, KeyError, TypeError, ValueError):
+        price = to_positive_execution_price(market_candles[-1]["close"])
+    market_candles[-1] = execution_live_market_candle(symbol, market_candles[-1], price, previous_price)
+    return price, market_candles
+
+
 async def fetch_execution_candle(
     symbol: str,
     market_client: Optional[MarketDataClient] = None,
     *,
     previous_price: Optional[Decimal] = None,
 ) -> tuple[Decimal, dict[str, Any]]:
-    client = market_client or MarketDataClient(timeout_seconds=3.0)
-    candles = await client.get_klines(normalize_execution_symbol(symbol), "1m", 2)
-    if candles:
-        candle = execution_market_candle(symbol, candles[-1])
-        try:
-            price = await fetch_execution_price(symbol, client)
-        except (httpx.HTTPError, KeyError, TypeError, ValueError):
-            price = to_positive_execution_price(candle["close"])
-        return price, execution_live_market_candle(symbol, candle, price, previous_price)
-    price = await fetch_execution_price(symbol, client)
-    return price, execution_tick_candle(symbol, price, previous_price)
+    price, candles = await fetch_execution_candles(symbol, market_client, previous_price=previous_price)
+    return price, candles[-1]
 
 
 def to_positive_execution_price(value: Decimal) -> Decimal:
@@ -343,6 +461,7 @@ async def run_realtime_execution_once(
                 try:
                     with session_scope() as db:
                         active_traders = active_exposure_trader_ids(db, symbol)
+                        oldest_active_at = oldest_active_exposure_started_at(db, symbol)
                 except Exception as exc:
                     counts["errors"] += 1
                     results.append(
@@ -362,12 +481,14 @@ async def run_realtime_execution_once(
                     previous_price = _LAST_PRICE_BY_SYMBOL.get(symbol)
                     if price_by_symbol and symbol in price_by_symbol:
                         price = to_positive_execution_price(Decimal(str(price_by_symbol[symbol])))
-                        candle = execution_tick_candle(symbol, price, previous_price)
+                        candles = [execution_tick_candle(symbol, price, previous_price)]
                     else:
-                        price, candle = await fetch_execution_candle(
+                        since = _execution_backfill_since(symbol, oldest_active_at, started_at)
+                        price, candles = await fetch_execution_candles(
                             symbol,
                             market_client_factory(),
                             previous_price=previous_price,
+                            since=since,
                         )
                 except Exception as exc:
                     counts["errors"] += 1
@@ -381,6 +502,8 @@ async def run_realtime_execution_once(
                     continue
 
                 _LAST_PRICE_BY_SYMBOL[symbol] = price
+                _mark_symbol_candles_processed(symbol, candles)
+                latest_candle = candles[-1]
                 symbol_changed_traders: list[str] = []
 
                 for trader_id in active_traders:
@@ -394,7 +517,10 @@ async def run_realtime_execution_once(
                         with session_scope() as db:
                             before = list_active_paper_exposure(db, trader_id, symbol)
                             sync_default_paper_settings(db, trader_id, symbol, settings)
-                            result = process_candle(db, trader_id, symbol, candle)
+                            result = PaperEngineResult()
+                            for execution_candle in candles:
+                                candle_result = process_candle(db, trader_id, symbol, execution_candle)
+                                _merge_paper_engine_result(result, candle_result)
                             after = list_active_paper_exposure(db, trader_id, symbol)
                             before_counts = {
                                 "openOrders": len(before.get("openOrders") or []),
@@ -422,7 +548,7 @@ async def run_realtime_execution_once(
                                     trader_id=trader_id,
                                     symbol=symbol,
                                     price=price,
-                                    candle=candle,
+                                    candle=latest_candle,
                                     result=result,
                                 )
                                 result_payload["sequence"] = _EVENT_SEQUENCE
@@ -457,6 +583,7 @@ async def run_realtime_execution_once(
                         "symbol": symbol,
                         "status": "PROCESSED",
                         "price": float(price),
+                        "candlesProcessed": len(candles),
                         "tradersChecked": len(active_traders),
                         "changedTraders": symbol_changed_traders,
                     }

@@ -13,7 +13,7 @@ from app.db import (
     reset_db_engine,
     session_scope,
 )
-from app.paper.engine import place_paper_order, process_candle
+from app.paper.engine import place_paper_order, process_candle, reduce_position_by_management
 from app.paper.repositories import upsert_risk_settings
 from app.repositories import from_json
 
@@ -165,6 +165,98 @@ def test_pending_limit_order_does_not_close_take_profit_before_entry(temp_db):
         assert result.events == []
         assert order.status == "open"
         assert db.execute(select(PaperPositionRecord)).scalars().all() == []
+
+
+def test_historical_replay_ignores_candles_before_position_open(temp_db):
+    base_time = datetime(2026, 7, 4, 17, 33, tzinfo=timezone.utc)
+    with session_scope() as db:
+        upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)
+        place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=100,
+            quantity=1,
+            leverage=5,
+            take_profit_price=120,
+            stop_loss_price=90,
+        )
+
+        process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 99, "close": 100, "timestamp": base_time},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        result = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 119, "high": 121, "low": 118, "close": 120, "timestamp": base_time - timedelta(minutes=1)},
+        )
+
+        assert result.closed_positions == []
+        assert position.status == "open"
+
+
+def test_take_profit_counts_prior_ai_reduction_against_planned_target(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)
+        place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=100,
+            quantity=1,
+            leverage=5,
+            take_profit_price=110,
+            stop_loss_price=90,
+            payload={
+                "initialQuantity": 1,
+                "takeProfits": [
+                    {"price": 110, "weight": 0.4, "reason": "first target"},
+                    {"price": 120, "weight": 0.6, "reason": "runner target"},
+                ],
+            },
+        )
+
+        fill = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 99, "close": 100},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        state = db.execute(select(TraderStateRecord)).scalar_one()
+        reduce_position_by_management(
+            db,
+            state,
+            position,
+            108,
+            Decimal("0.4"),
+            {"open": 107, "high": 108, "low": 106, "close": 108},
+            "manual profit protection",
+            fill,
+        )
+
+        process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 108, "high": 111, "low": 107, "close": 110},
+        )
+
+        db.refresh(position)
+        assert rounded(position.quantity) == Decimal("0.5000")
+        take_profit_event = db.execute(
+            select(TradeEventRecord).where(TradeEventRecord.event_type == "take_partial_profit")
+        ).scalar_one()
+        assert rounded(take_profit_event.quantity) == Decimal("0.1000")
 
 
 def test_order_rejected_when_notional_exceeds_risk_settings(temp_db):

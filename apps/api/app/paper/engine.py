@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.db import PaperOrderRecord, PaperPositionRecord, TraderStateRecord, utc_now
+from app.db import PaperOrderRecord, PaperPositionRecord, TradeEventRecord, TraderStateRecord, utc_now
 from app.paper.holding_policy import trader_holding_policy
 from app.paper.loss_discipline import close_review_context
 from app.paper.repositories import (
@@ -328,19 +328,24 @@ def handle_take_profit_exit(
         return
 
     target = take_profits[target_idx]
-    weight = Decimal(str(target.get("weight", 0.5)))
-    weight = max(Decimal("0"), min(weight, Decimal("1")))
-    if target_idx == 0:
-        weight = max(weight, MIN_FIRST_TAKE_PROFIT_EXIT_FRACTION)
-    
+
     # Mark target as filled
     target["status"] = "filled"
     payload["takeProfits"] = take_profits
     position.payload_json = to_json(payload)
     
-    initial_qty = Decimal(str(payload.get("initialQuantity", position.quantity)))
-    close_qty = initial_qty * weight
-    close_qty = min(close_qty, position.quantity)
+    closed_qty = _closed_quantity_for_open_position(db, position)
+    raw_initial_qty = Decimal(str(payload.get("initialQuantity", position.quantity)))
+    initial_qty = max(raw_initial_qty, position.quantity + closed_qty)
+    cumulative_weight = Decimal("0")
+    for idx, take_profit in enumerate(take_profits[: target_idx + 1]):
+        target_weight = Decimal(str(take_profit.get("weight", 0.5)))
+        target_weight = max(Decimal("0"), min(target_weight, Decimal("1")))
+        if idx == 0:
+            target_weight = max(target_weight, MIN_FIRST_TAKE_PROFIT_EXIT_FRACTION)
+        cumulative_weight += target_weight
+    planned_closed_qty = initial_qty * min(cumulative_weight, Decimal("1"))
+    close_qty = min(max(planned_closed_qty - closed_qty, Decimal("0")), position.quantity)
     
     is_last = all(tp.get("status") == "filled" for tp in take_profits)
     remaining_qty = position.quantity - close_qty
@@ -350,6 +355,14 @@ def handle_take_profit_exit(
         if result:
             result.closed_positions.append(position)
     else:
+        if close_qty <= 0:
+            next_tp = next((tp for tp in take_profits if tp.get("status") != "filled"), None)
+            if next_tp:
+                position.take_profit_price = Decimal(str(next_tp["price"]))
+            else:
+                position.take_profit_price = None
+            _move_stop_to_breakeven(db, position, parsed_candle, result, reason="first_take_profit_already_reduced")
+            return
         fraction = close_qty / position.quantity
         reason = target.get("reason", f"Take Profit Target {target_idx + 1}")
         
@@ -392,6 +405,8 @@ def process_candle(db: Session, trader_id: str, symbol: str, candle: Union[Candl
 
     for position in list_open_positions(db, clean_trader_id, clean_symbol):
         if position.id not in preexisting_position_ids:
+            continue
+        if not _record_is_active_for_candle(position.opened_at, parsed_candle):
             continue
         if _should_upgrade_fee_inclusive_breakeven_stop(db, position):
             _move_stop_to_breakeven(
@@ -690,6 +705,28 @@ def _risk_distance(position: PaperPositionRecord) -> Optional[Decimal]:
         return None
     distance = abs(position.entry_price - position.stop_loss_price)
     return distance if distance > 0 else None
+
+
+def _closed_quantity_for_open_position(db: Session, position: PaperPositionRecord) -> Decimal:
+    if position.id is None:
+        return Decimal("0")
+    quantities = db.execute(
+        select(TradeEventRecord.quantity).where(
+            TradeEventRecord.position_id == position.id,
+            TradeEventRecord.event_type.in_(("position_reduced_by_ai", "take_partial_profit")),
+        )
+    ).scalars().all()
+    total = Decimal("0")
+    for quantity in quantities:
+        if quantity is not None:
+            total += quantity
+    return total
+
+
+def _record_is_active_for_candle(started_at: Optional[datetime], candle: Candle) -> bool:
+    if started_at is None or candle.timestamp is None:
+        return True
+    return _aware_utc(started_at) <= _aware_utc(candle.timestamp)
 
 
 def _next_take_profit_price(position: PaperPositionRecord) -> Optional[Decimal]:
