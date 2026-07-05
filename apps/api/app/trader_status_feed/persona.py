@@ -65,10 +65,10 @@ TRADER_STATUS_PERSONAS: dict[str, dict[str, str]] = {
         "avoid": "fading extreme funding too early",
     },
     "orderflow-sniper": {
-        "alias": "Orderflow Desk",
-        "voice": "fast scalper reading 1m/5m flow and fee drag",
-        "cadence": "very short, alert, and execution-aware",
-        "avoid": "holding a scalp after flow cools",
+        "alias": "Session ORB Desk",
+        "voice": "opening-range breakout trader watching acceptance outside the range",
+        "cadence": "short, execution-aware, and strict about range re-entry",
+        "avoid": "calling a wick outside the range a real breakout",
     },
     "donchian-breakout": {
         "alias": "Breakout Desk",
@@ -113,10 +113,10 @@ TRADER_STATUS_PERSONAS: dict[str, dict[str, str]] = {
         "avoid": "calling an imbalance valid after the midpoint fails",
     },
     "momentum-ignition": {
-        "alias": "Momentum Desk",
-        "voice": "aggressive only when trend, RSI, volume, OI, and taker flow ignite together",
-        "cadence": "energetic but controlled; no late-chase bravado",
-        "avoid": "getting excited after the move is already stale",
+        "alias": "Compression Desk",
+        "voice": "aggressive only after volatility compression releases with body and volume",
+        "cadence": "controlled and breakout-focused; no late-chase bravado",
+        "avoid": "getting excited without a prior compression base",
     },
     "bollinger-reversion": {
         "alias": "Mean Reversion Desk",

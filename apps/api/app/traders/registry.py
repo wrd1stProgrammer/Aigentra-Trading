@@ -35,6 +35,7 @@ NEW_TRADER_IDS = {
 TRADER_RETIRED_FROM_MONTH = {
     "volatility-squeezer": "2026-07",
     "imbalance-hunter": "2026-07",
+    "leverage-hunter": "2026-07",
 }
 
 

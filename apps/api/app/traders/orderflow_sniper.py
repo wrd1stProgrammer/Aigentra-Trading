@@ -4,6 +4,7 @@ from app.traders.models import EntryPlan, TakeProfitPlan, TradeCandidate, Trader
 from app.traders.strategy_base import (
     TraderStrategy,
     candidate_geometry_errors,
+    candidate_with_audit,
     candle_body_ratio,
     default_leverage_plan,
     default_order_intent,
@@ -11,44 +12,45 @@ from app.traders.strategy_base import (
     estimate_risk_reward,
     fvalue,
     latest_candle,
-    make_rejection,
+    market_regime,
     normalize_entries_for_side,
     open_interest_change,
     round_price,
     taker_buy_share,
-    taker_buy_sell_ratio,
     timeframe,
+    trend_for,
+    wick_ratios,
 )
 
 
 class OrderflowSniper(TraderStrategy):
     profile = TraderProfile(
         id="orderflow-sniper",
-        name="Orderflow Sniper",
-        description="Runs short-horizon simulated scalps from 1m and 5m order-flow bursts, with very fast exits when flow weakens.",
-        concept="This is the fast desk: it wants immediate participation from taker flow and accepts that stale micro trades should die quickly.",
-        baseRiskPercent=0.3,
-        riskLevel="HIGH",
+        name="Session ORB Hunter",
+        description="Trades BTC session/opening-range breaks with 15m follow-through, then cuts fast if the break falls back into range.",
+        concept="Opening-range breakout desk: it wants price acceptance outside a fresh range, not unavailable internal taker-flow data.",
+        baseRiskPercent=0.42,
+        riskLevel="MEDIUM_HIGH",
         longConditions=[
-            "1m and 5m candles show aligned bullish impulse",
-            "Taker buy ratio is materially above neutral",
-            "Spread/volatility proxy is not disorderly",
-            "Stop distance is small enough after fees",
+            "BTC closes above the recent session or 1H range high",
+            "15m body/volume confirm acceptance outside the range",
+            "4H trend is not bearish",
+            "Retest entry and stop still leave fee-aware upside",
         ],
         shortConditions=[
-            "1m and 5m candles show aligned bearish impulse",
-            "Taker buy ratio is materially below neutral",
-            "Spread/volatility proxy is not disorderly",
-            "Stop distance is small enough after fees",
+            "BTC closes below the recent session or 1H range low",
+            "15m body/volume confirm acceptance outside the range",
+            "4H trend is not bullish",
+            "Retest entry and stop still leave fee-aware downside",
         ],
-        entryRules=["80% on micro impulse", "20% on immediate retest"],
-        takeProfitRules=["TP1 at 0.8R", "TP2 at 1.4R or flow exhaustion"],
-        stopLossRules=["Tight microstructure stop", "Exit fast on flow flip"],
+        entryRules=["60% on confirmed range break", "40% on shallow breakout retest"],
+        takeProfitRules=["TP1 near the first expansion leg", "TP2 only while price holds outside the broken range"],
+        stopLossRules=["Stop back inside the failed range", "Exit fast on 15m range re-entry"],
         aiReviewChecklist=[
-            "Is microstructure impulse real enough after fees?",
-            "Is volatility too chaotic for a tight stop?",
-            "Should this be immediate participation or skip due to chase risk?",
-            "Can the Agent review again within minutes after fill?",
+            "Did price accept outside the session range, or is this only a wick?",
+            "Is the retest entry still on the sensible side of current price?",
+            "Does 4H structure permit a breakout attempt?",
+            "Can the position be protected quickly if the range break fails?",
         ],
         mockPerformance={
             "return7d": 0.0,
@@ -57,129 +59,189 @@ class OrderflowSniper(TraderStrategy):
             "maxDrawdown": 0.0,
             "currentEquity": 10000.0,
         },
-        currentPlan="Only taking fast paper scalps when 1m/5m flow is unusually clean.",
+        currentPlan="Watching for BTC to break and hold a fresh session range before the retest becomes stale.",
     )
 
     def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
-        price = float(snapshot["price"])
+        price = fvalue(snapshot.get("price"))
         one_min = timeframe(snapshot, "1m")
         five_min = timeframe(snapshot, "5m")
+        fifteen = timeframe(snapshot, "15m")
         one_hour = timeframe(snapshot, "1h")
-        candle_1m = latest_candle(one_min)
-        candle_5m = latest_candle(five_min)
-        taker_1m = fvalue(one_min.get("takerBuyRatio"), 0.5)
-        taker_5m = fvalue(five_min.get("takerBuyRatio"), taker_1m)
+        four_hour = timeframe(snapshot, "4h")
+        candle_15m = latest_candle(fifteen)
+        close_15m = fvalue(candle_15m.get("close"), price)
+        open_15m = fvalue(candle_15m.get("open"), price)
+        high_15m = fvalue(candle_15m.get("high"), price)
+        low_15m = fvalue(candle_15m.get("low"), price)
+        body_15m = candle_body_ratio(candle_15m)
+        upper_wick, lower_wick = wick_ratios(candle_15m)
+        volume_z = max(
+            fvalue(one_min.get("volumeZscore"), 0.0),
+            fvalue(five_min.get("volumeZscore"), 0.0),
+            fvalue(fifteen.get("volumeZscore"), 0.0),
+            fvalue(snapshot.get("marketRegime", {}).get("volumeZscore15m"), 0.0),
+        )
         external_taker_share = taker_buy_share(snapshot)
-        external_taker_ratio = taker_buy_sell_ratio(snapshot)
         oi_change_30m = open_interest_change(snapshot)
-        taker_5m = (taker_5m + external_taker_share) / 2
-        volume_z_1m = fvalue(one_min.get("volumeZscore"), 0.0)
-        volume_z_5m = fvalue(five_min.get("volumeZscore"), 0.0)
-        atr_1m = fvalue(one_min.get("atr14"), price * 0.0015)
-        atr_1h = fvalue(one_hour.get("atr14"), price * 0.008)
-        micro_vol_ok = atr_1m / price <= 0.004 and atr_1h / price <= 0.025
-        body_1m = candle_body_ratio(candle_1m)
-        body_5m = candle_body_ratio(candle_5m)
-        close_1m = fvalue(candle_1m.get("close"), price)
-        open_1m = fvalue(candle_1m.get("open"), close_1m)
-        close_5m = fvalue(candle_5m.get("close"), price)
-        open_5m = fvalue(candle_5m.get("open"), close_5m)
-
-        if not micro_vol_ok:
-            return make_rejection("Micro volatility is too disorderly for tight orderflow scalping.", 38)
-        aligned_long = (
-            close_1m > open_1m
-            and close_5m > open_5m
-            and taker_1m >= 0.58
-            and taker_5m >= 0.54
-            and external_taker_ratio >= 1.02
-        )
-        aligned_short = (
-            close_1m < open_1m
-            and close_5m < open_5m
-            and taker_1m <= 0.42
-            and taker_5m <= 0.46
-            and external_taker_ratio <= 0.98
-        )
-        if aligned_long == aligned_short:
-            return make_rejection("1m/5m taker flow does not confirm one clean direction.", 44)
-        if max(volume_z_1m, volume_z_5m) < -0.35 and max(body_1m, body_5m) < 0.45:
-            return make_rejection("Flow direction exists, but participation is too weak after fee buffer.", 46)
-
-        side = "LONG" if aligned_long else "SHORT"
-        score = 60 + int(abs(taker_1m - 0.5) * 80) + (8 if max(body_1m, body_5m) >= 0.5 else 0)
-        notes: List[str] = [
-            "1m and 5m candles align with taker-flow direction.",
-            "Micro volatility is inside the tight-stop gate.",
-            f"External taker ratio is {external_taker_ratio:.2f}; 30m OI change is {oi_change_30m:.2f}%.",
+        atr_15m = max(fvalue(fifteen.get("atr14"), price * 0.004), price * 0.0025)
+        atr_1h = max(fvalue(one_hour.get("atr14"), price * 0.008), price * 0.004)
+        one_hour_swings = one_hour.get("swings") or {}
+        four_hour_swings = four_hour.get("swings") or {}
+        channel = one_hour.get("channel") or four_hour.get("channel") or {}
+        highs = [
+            fvalue(value)
+            for value in [
+                *(one_hour_swings.get("highs") or []),
+                *(four_hour_swings.get("highs") or [])[-2:],
+                one_hour.get("high"),
+                channel.get("upper"),
+            ]
+            if fvalue(value) > 0
         ]
-        if abs(oi_change_30m) >= 0.8:
-            score += 5
-            notes.append("OI expansion supports active microstructure participation.")
-        risk_distance = max(atr_1m * 2.2, price * 0.0022)
+        lows = [
+            fvalue(value)
+            for value in [
+                *(one_hour_swings.get("lows") or []),
+                *(four_hour_swings.get("lows") or [])[-2:],
+                one_hour.get("low"),
+                channel.get("lower"),
+            ]
+            if fvalue(value) > 0
+        ]
+        session_high = max(highs) if highs else high_15m
+        session_low = min(lows) if lows else low_15m
+        buffer = max(atr_15m * 0.12, price * 0.001)
+        broke_up = close_15m > session_high and (close_15m - session_high) >= buffer * 0.2
+        broke_down = close_15m < session_low and (session_low - close_15m) >= buffer * 0.2
+        trend_1h = trend_for(snapshot, "1h")
+        trend_4h = trend_for(snapshot, "4h")
+        long_ready = broke_up and close_15m > open_15m and trend_4h != "bearish"
+        short_ready = broke_down and close_15m < open_15m and trend_4h != "bullish"
+        real_body_ok = body_15m >= 0.42
+        wick_acceptance_ok = (
+            (long_ready and upper_wick <= 0.36)
+            or (short_ready and lower_wick <= 0.36)
+            or (not long_ready and not short_ready)
+        )
+        participation_ok = real_body_ok and wick_acceptance_ok and volume_z >= -0.05
+        score = 48
+        score += 18 if long_ready or short_ready else 0
+        score += 9 if participation_ok else -5
+        score += 7 if body_15m >= 0.55 else 3 if body_15m >= 0.42 else 0
+        score += 5 if volume_z >= 0.5 else 2 if volume_z >= 0.0 else -4
+        score += 5 if (long_ready and trend_1h != "bearish") or (short_ready and trend_1h != "bullish") else 0
+        if abs(oi_change_30m) >= 0.35:
+            score += 3
+        if (long_ready and external_taker_share > 0.53) or (short_ready and external_taker_share < 0.47):
+            score += 3
+
+        gate_scores = {
+            "sessionHigh": round(session_high, 4),
+            "sessionLow": round(session_low, 4),
+            "close15m": round(close_15m, 4),
+            "open15m": round(open_15m, 4),
+            "body15m": round(body_15m, 4),
+            "realBodyOk": 1.0 if real_body_ok else 0.0,
+            "wickAcceptanceOk": 1.0 if wick_acceptance_ok else 0.0,
+            "upperWick": round(upper_wick, 4),
+            "lowerWick": round(lower_wick, 4),
+            "volumeZ": round(volume_z, 4),
+            "trend1h": trend_1h,
+            "trend4h": trend_4h,
+            "regime": market_regime(snapshot),
+            "takerBuyShare": round(external_taker_share, 4),
+            "oi30m": round(oi_change_30m, 4),
+        }
+        if long_ready == short_ready or not participation_ok or score < 60:
+            return candidate_with_audit(
+                TradeCandidate(
+                    created=False,
+                    reason="Session ORB break is not clean enough yet: range acceptance, 15m body, or trend filter is incomplete.",
+                    setupScore=score,
+                ),
+                trader_id=self.profile.id,
+                gate_scores=gate_scores,
+                reason_code="session_orb_not_ready",
+                observation_type="OBSERVE_ONLY" if score >= 52 else "NO_TRADE",
+            )
+
+        side = "LONG" if long_ready else "SHORT"
+        setup = "SESSION_ORB_BREAKOUT_LONG" if side == "LONG" else "SESSION_ORB_BREAKOUT_SHORT"
+        risk_distance = max(atr_15m * 1.15, atr_1h * 0.55, price * 0.0045)
+        notes: List[str] = [
+            "15m close accepted outside the recent session range.",
+            "Internal taker/OI data is optional; this setup can run from OHLCV and range structure alone.",
+            f"Session range {session_low:.1f}-{session_high:.1f}; 15m volume z-score {volume_z:.2f}.",
+        ]
+        if abs(oi_change_30m) >= 0.35:
+            notes.append("Open-interest expansion adds confirmation but is not required.")
         if side == "LONG":
             entries = [
-                EntryPlan(price=round_price(price), weight=0.8, reason="Micro flow impulse"),
-                EntryPlan(price=round_price(price - risk_distance * 0.25), weight=0.2, reason="Immediate retest"),
+                EntryPlan(price=round_price(price), weight=0.6, reason="Accepted session range break"),
+                EntryPlan(price=round_price(max(session_high, price - risk_distance * 0.38)), weight=0.4, reason="Breakout retest"),
             ]
-            stop = round_price(price - risk_distance)
+            stop = round_price(min(session_high - buffer, price - risk_distance))
             take_profits = [
-                TakeProfitPlan(price=round_price(price + risk_distance * 0.85), weight=0.55, reason="Fast scalp de-risk"),
-                TakeProfitPlan(price=round_price(price + risk_distance * 1.45), weight=0.45, reason="Flow continuation"),
+                TakeProfitPlan(price=round_price(price + risk_distance * 1.35), weight=0.45, reason="First range expansion target"),
+                TakeProfitPlan(price=round_price(price + risk_distance * 2.85), weight=0.55, reason="Continuation outside session range"),
             ]
-            setup = "MICRO_ORDERFLOW_IMPULSE_LONG"
         else:
             entries = [
-                EntryPlan(price=round_price(price), weight=0.8, reason="Micro flow impulse"),
-                EntryPlan(price=round_price(price + risk_distance * 0.25), weight=0.2, reason="Immediate retest"),
+                EntryPlan(price=round_price(price), weight=0.6, reason="Accepted session range break"),
+                EntryPlan(price=round_price(min(session_low, price + risk_distance * 0.38)), weight=0.4, reason="Breakdown retest"),
             ]
-            stop = round_price(price + risk_distance)
+            stop = round_price(max(session_low + buffer, price + risk_distance))
             take_profits = [
-                TakeProfitPlan(price=round_price(price - risk_distance * 0.85), weight=0.55, reason="Fast scalp de-risk"),
-                TakeProfitPlan(price=round_price(price - risk_distance * 1.45), weight=0.45, reason="Flow continuation"),
+                TakeProfitPlan(price=round_price(price - risk_distance * 1.35), weight=0.45, reason="First range expansion target"),
+                TakeProfitPlan(price=round_price(price - risk_distance * 2.85), weight=0.55, reason="Continuation outside session range"),
             ]
-            setup = "MICRO_ORDERFLOW_IMPULSE_SHORT"
-
         entries = normalize_entries_for_side(side, price, entries)
-        if max(volume_z_1m, volume_z_5m) >= 1.0 and body_1m >= 0.55 and abs(oi_change_30m) >= 0.8:
-            entries = normalize_entries_for_side(side, price, [
-                EntryPlan(price=round_price(price), weight=1.0, reason="Clean micro flow burst"),
-            ])
-            notes.append("Clean micro flow burst upgraded this to a single immediate entry.")
-        risk_reward = estimate_risk_reward(side, entries, stop, take_profits, fee_buffer_percent=0.12)
-        errors = candidate_geometry_errors(side, price, entries, stop, take_profits, min_risk_reward=0.9, fee_buffer_percent=0.12)
+        risk_reward = estimate_risk_reward(side, entries, stop, take_profits, fee_buffer_percent=0.10)
+        errors = candidate_geometry_errors(side, price, entries, stop, take_profits, min_risk_reward=1.08, fee_buffer_percent=0.10)
         if errors:
-            return make_rejection("Orderflow sniper risk gates failed: " + "; ".join(errors), score)
+            return candidate_with_audit(
+                TradeCandidate(created=False, reason="Session ORB risk gates failed: " + "; ".join(errors), setupScore=score),
+                trader_id=self.profile.id,
+                gate_scores=gate_scores,
+                reason_code="session_orb_geometry_failed",
+                observation_type="OBSERVE_ONLY" if score >= 52 else "NO_TRADE",
+            )
 
-        return TradeCandidate(
-            created=True,
-            side=side,
-            setupType=setup,
-            setupScore=min(score, 86),
-            entries=entries,
-            stopLoss=stop,
-            takeProfits=take_profits,
-            riskPercent=self.profile.baseRiskPercent,
-            orderIntent=default_order_intent("MICRO_FLOW_IMMEDIATE_THEN_RETEST", post_only=False),
-            leveragePlan=default_leverage_plan(
-                suggested=10 if len(entries) == 1 and score >= 80 else 8,
-                maximum=10,
-                reason="Fast orderflow scalps use 8-10x with very short patience and immediate de-risking on flow flips.",
+        return candidate_with_audit(
+            TradeCandidate(
+                created=True,
+                side=side,
+                setupType=setup,
+                setupScore=min(score, 90),
+                entries=entries,
+                stopLoss=stop,
+                takeProfits=take_profits,
+                riskPercent=self.profile.baseRiskPercent,
+                orderIntent=default_order_intent("SESSION_ORB_BREAK_RETEST", post_only=False),
+                leveragePlan=default_leverage_plan(
+                    suggested=6 if score < 82 else 7,
+                    maximum=8,
+                    reason="Session ORB uses 6-7x only after a 15m close accepts outside the range; no unavailable flow feed is required.",
+                ),
+                riskPlan=default_risk_plan(
+                    risk_percent=self.profile.baseRiskPercent,
+                    risk_reward=risk_reward,
+                    sizing_note="Range-break participation with fast failure exit and fee-aware retest spacing.",
+                    min_risk_reward=1.08,
+                    fee_buffer_percent=0.10,
+                ),
+                earlyExitRules=[
+                    "Exit or cut risk if a 15m close returns inside the broken session range.",
+                    "Cancel the retest slice if price reaches TP1 before the retest fills.",
+                ],
+                managementNotes=[
+                    "Protect after TP1 or after a failed range retest; the edge is acceptance outside the range.",
+                ],
+                invalidation="Invalidate on a 15m close back inside the broken session range.",
+                notes=notes,
             ),
-            riskPlan=default_risk_plan(
-                risk_percent=self.profile.baseRiskPercent,
-                risk_reward=risk_reward,
-                sizing_note="Smallest risk bucket; exit quickly on flow flip and account for taker fees.",
-                min_risk_reward=0.9,
-                fee_buffer_percent=0.12,
-            ),
-            earlyExitRules=[
-                "Exit early if 1m taker flow flips through neutral.",
-                "Take partial quickly if price reaches 0.8R and 1m volume decays.",
-            ],
-            managementNotes=[
-                "Agent review cadence should be the fastest among all traders after fill.",
-            ],
-            invalidation="Cancel if the next 1m candle fully reverses the impulse.",
-            notes=notes,
+            trader_id=self.profile.id,
+            gate_scores=gate_scores,
+            reason_code="session_orb_breakout",
         )

@@ -1,3 +1,4 @@
+import copy
 import json
 import pytest
 from decimal import Decimal
@@ -20,6 +21,7 @@ from app.main import (
     trade_plan_from_review,
 )
 from app.paper.management import position_management_events
+from app.paper.holding_policy import trader_execution_profile_payload
 from app.traders.models import (
     ManagedExposure,
     ManagementEvent,
@@ -137,6 +139,156 @@ def sample_snapshot():
     }
 
 
+def neutral_internal_derivatives(snapshot: dict) -> dict:
+    prepared = copy.deepcopy(snapshot)
+    prepared["derivatives"]["openInterestStats"].update(
+        {
+            "historyAvailable": False,
+            "changePercent5m": 0.0,
+            "changePercent30m": 0.0,
+        }
+    )
+    prepared["derivatives"]["takerBuySell"].update(
+        {
+            "buySellRatio": 1.0,
+            "buyVol": 0.0,
+            "sellVol": 0.0,
+            "buyShare": 0.5,
+        }
+    )
+    prepared["derivatives"]["crowding"].update(
+        {
+            "longCrowded": False,
+            "shortCrowded": False,
+            "crowdedSide": None,
+            "oiChangePercent30m": 0.0,
+        }
+    )
+    for interval in ("1m", "5m", "15m"):
+        frame = prepared["timeframes"].setdefault(interval, {})
+        frame.pop("takerBuyRatio", None)
+        frame["takerBuyBaseVolume"] = 0.0
+        candle = frame.get("latestCandle")
+        if isinstance(candle, dict):
+            candle["takerBuyBaseVolume"] = 0.0
+    return prepared
+
+
+def session_orb_breakout_snapshot() -> dict:
+    snapshot = neutral_internal_derivatives(sample_snapshot())
+    price = 69220.0
+    snapshot["price"] = price
+    snapshot["timeframes"]["1m"].update(
+        {"open": 69080.0, "high": 69225.0, "low": 69070.0, "close": price, "volume": 240.0, "volumeZscore": 0.45}
+    )
+    snapshot["timeframes"]["5m"].update(
+        {"open": 68740.0, "high": 69250.0, "low": 68680.0, "close": price, "volume": 1040.0, "volumeZscore": 0.65}
+    )
+    snapshot["timeframes"]["15m"].update(
+        {
+            "open": 68420.0,
+            "high": 69300.0,
+            "low": 68260.0,
+            "close": price,
+            "volume": 2800.0,
+            "rsi14": 61.0,
+            "atr14": 430.0,
+            "volumeZscore": 0.9,
+            "latestCandle": {
+                "open": 68420.0,
+                "high": 69300.0,
+                "low": 68260.0,
+                "close": price,
+                "volume": 2800.0,
+                "takerBuyBaseVolume": 0.0,
+            },
+        }
+    )
+    snapshot["timeframes"]["1h"].update(
+        {
+            "high": 69000.0,
+            "close": price,
+            "ema20": 68400.0,
+            "ema50": 67650.0,
+            "rsi14": 58.0,
+            "atr14": 720.0,
+            "volumeZscore": 0.8,
+            "trend": "bullish",
+            "swings": {"highs": [68150.0, 68600.0, 68920.0], "lows": [66300.0, 67100.0, 68020.0]},
+            "channel": {"slope": 22.0, "lower": 67800.0, "mid": 68550.0, "upper": 69120.0, "position": 0.82},
+        }
+    )
+    snapshot["timeframes"]["4h"].update(
+        {
+            "close": price,
+            "ema20": 68100.0,
+            "ema50": 66800.0,
+            "trend": "bullish",
+            "channel": {"slope": 34.0, "lower": 66000.0, "mid": 67600.0, "upper": 69200.0, "position": 0.78},
+        }
+    )
+    snapshot["marketRegime"].update({"primary": "trend", "volumeZscore15m": 0.9, "priceChange1h": 0.006})
+    return snapshot
+
+
+def compression_breakout_snapshot() -> dict:
+    snapshot = neutral_internal_derivatives(sample_snapshot())
+    price = 69120.0
+    snapshot["price"] = price
+    snapshot["timeframes"]["15m"].update(
+        {
+            "open": 68320.0,
+            "high": 69200.0,
+            "low": 68180.0,
+            "close": price,
+            "volume": 2600.0,
+            "rsi14": 63.0,
+            "atr14": 390.0,
+            "volumeZscore": 1.05,
+            "latestCandle": {
+                "open": 68320.0,
+                "high": 69200.0,
+                "low": 68180.0,
+                "close": price,
+                "volume": 2600.0,
+                "takerBuyBaseVolume": 0.0,
+            },
+        }
+    )
+    snapshot["timeframes"]["1h"].update(
+        {
+            "high": 68980.0,
+            "close": price,
+            "ema20": 68400.0,
+            "ema50": 67800.0,
+            "rsi14": 58.0,
+            "atr14": 650.0,
+            "trend": "bullish",
+            "channel": {"slope": 8.0, "lower": 67400.0, "mid": 68400.0, "upper": 69000.0, "position": 0.86},
+        }
+    )
+    snapshot["timeframes"]["4h"].update(
+        {
+            "close": price,
+            "ema20": 68000.0,
+            "ema50": 67050.0,
+            "trend": "sideways",
+            "channel": {"slope": 12.0, "lower": 66800.0, "mid": 68000.0, "upper": 69050.0, "position": 0.84},
+        }
+    )
+    snapshot["marketRegime"].update(
+        {
+            "primary": "squeeze",
+            "adx1h": 21.0,
+            "volumeZscore15m": 1.05,
+            "priceChange1h": 0.007,
+            "bollingerWidth1h": 0.82,
+            "keltnerWidth1h": 1.55,
+        }
+    )
+    return snapshot
+
+
 def prompt_payload(prompt: str) -> dict:
     return json.loads(prompt.split("Payload:", 1)[1])
 
@@ -238,6 +390,65 @@ def test_all_trader_strategies_return_candidate_shape():
             assert candidate.riskPlan.estimatedRiskReward >= candidate.riskPlan.minRiskReward
             assert candidate.riskPlan.feeBufferPercent > 0
             assert candidate.earlyExitRules
+
+
+def test_session_orb_replacement_uses_ohlcv_when_internal_flow_is_neutral():
+    snapshot = session_orb_breakout_snapshot()
+
+    candidate = get_strategy("orderflow-sniper").evaluate(snapshot)
+
+    assert candidate.created is True
+    assert candidate.side == "LONG"
+    assert candidate.setupType == "SESSION_ORB_BREAKOUT_LONG"
+    assert candidate.audit["reasonCode"] == "session_orb_breakout"
+    assert candidate.audit["gateScores"]["takerBuyShare"] == pytest.approx(0.5)
+    assert candidate.audit["gateScores"]["oi30m"] == pytest.approx(0.0)
+
+
+def test_session_orb_rejects_wick_only_range_probe_even_with_short_term_volume():
+    snapshot = session_orb_breakout_snapshot()
+    snapshot["price"] = 69220.0
+    snapshot["timeframes"]["1m"]["volumeZscore"] = 2.4
+    snapshot["timeframes"]["5m"]["volumeZscore"] = -0.1
+    snapshot["timeframes"]["15m"]["volumeZscore"] = -0.2
+    snapshot["marketRegime"]["volumeZscore15m"] = -0.2
+    snapshot["timeframes"]["15m"].update(
+        {
+            "open": 69214.0,
+            "high": 70050.0,
+            "low": 69210.0,
+            "close": 69220.0,
+            "latestCandle": {
+                "open": 69214.0,
+                "high": 70050.0,
+                "low": 69210.0,
+                "close": 69220.0,
+                "volume": 2600.0,
+                "takerBuyBaseVolume": 0.0,
+            },
+        }
+    )
+
+    candidate = get_strategy("orderflow-sniper").evaluate(snapshot)
+
+    assert candidate.created is False
+    assert candidate.audit["reasonCode"] == "session_orb_not_ready"
+    assert candidate.audit["gateScores"]["body15m"] < 0.02
+    assert candidate.audit["gateScores"]["upperWick"] > 0.95
+
+
+def test_momentum_ignition_uses_volatility_compression_without_taker_or_oi():
+    snapshot = compression_breakout_snapshot()
+
+    candidate = get_strategy("momentum-ignition").evaluate(snapshot)
+
+    assert candidate.created is True
+    assert candidate.side == "LONG"
+    assert candidate.setupType == "VOLATILITY_COMPRESSION_IGNITION_LONG"
+    assert candidate.audit["reasonCode"] == "volatility_compression_ignition"
+    assert candidate.audit["gateScores"]["compressionReady"] == pytest.approx(1.0)
+    assert candidate.audit["gateScores"]["takerBuyShare"] == pytest.approx(0.5)
+    assert candidate.audit["gateScores"]["oi30m"] == pytest.approx(0.0)
 
 
 def test_channel_rider_short_entries_are_not_below_current_price():
@@ -517,9 +728,11 @@ def test_btc_specialist_profiles_are_differentiated_with_concrete_evaluators():
 
 def test_trader_execution_profiles_are_rebalanced_across_horizons():
     profiles = [trader.holdingProfile for trader in list_traders()]
-    assert profiles.count("micro") in {3, 4}
-    assert profiles.count("tactical") + profiles.count("intraday") in {8, 9, 10}
+    assert profiles.count("micro") == 2
+    assert profiles.count("tactical") + profiles.count("intraday") in {11, 12}
     assert profiles.count("swing") + profiles.count("trend") in {6, 7, 8}
+    assert trader_execution_profile_payload("orderflow-sniper")["policyName"] == "session_orb_breakout"
+    assert trader_execution_profile_payload("momentum-ignition")["policyName"] == "compression_ignition"
 
 
 def test_ai_prompts_include_context_and_non_conservative_management_options():
@@ -1387,6 +1600,32 @@ def test_imbalance_position_heartbeat_carries_stateful_review_metrics():
     assert event.metrics["volumeZscore"] == -0.65
     assert event.metrics["fundingRate"] == pytest.approx(0.000005)
     assert event.metrics["takerBuyRatio"] == 0.47
+
+
+def test_session_orb_management_does_not_close_small_positive_hold_without_range_context():
+    snapshot = sample_snapshot()
+    snapshot["price"] = 60010.0
+    snapshot["timeframes"]["1h"]["channel"] = {}
+    snapshot["timeframes"]["15m"]["close"] = 60010.0
+    snapshot["timeframes"]["15m"]["latestCandle"]["close"] = 60010.0
+    position = PaperPositionRecord(
+        trader_id="orderflow-sniper",
+        symbol="BTCUSDT",
+        status="open",
+        side="long",
+        quantity=Decimal("0.1"),
+        entry_price=Decimal("60000.0"),
+        leverage=Decimal("6"),
+        notional=Decimal("6000.0"),
+        margin=Decimal("1000.0"),
+        unrealized_pnl=Decimal("1.0"),
+        take_profit_price=Decimal("61620.0"),
+        stop_loss_price=Decimal("59500.0"),
+    )
+
+    events = position_management_events("orderflow-sniper", position, snapshot)
+
+    assert all(event.suggestedAction != "CLOSE_POSITION" for event in events)
 
 
 def test_structured_review_normalizer_removes_list_syntax_from_action():

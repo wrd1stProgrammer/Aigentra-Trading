@@ -478,10 +478,10 @@ TRADER_REVIEW_POLICIES: Dict[str, Dict[str, Any]] = {
         "rejectWhen": "no structure trigger, crowded side is accelerating, or premium normalized",
     },
     "orderflow-sniper": {
-        "temperament": "fast scalper; action can be aggressive only when micro flow is clean and fee-aware",
-        "approveWhen": "1m/5m impulse, taker imbalance, stop distance, and fee buffer are all coherent",
-        "adjustWhen": "edge exists but chase risk or fee drag argues for smaller size",
-        "rejectWhen": "flow is neutral/flipped, volatility is chaotic, or RR is negative after fees",
+        "temperament": "opening-range breakout trader; decisive only after BTC accepts outside a fresh range",
+        "approveWhen": "15m range break, body/volume acceptance, retest geometry, and fee-aware RR are coherent",
+        "adjustWhen": "break is valid but the retest slice, leverage, or stop needs tightening",
+        "rejectWhen": "price is only wicking outside range, re-entered the range, or RR is negative after fees",
     },
     "donchian-breakout": {
         "temperament": "breakout participant; accept clean BTC range expansion but reject late chase back inside the range",
@@ -526,10 +526,10 @@ TRADER_REVIEW_POLICIES: Dict[str, Dict[str, Any]] = {
         "rejectWhen": "midpoint is sliced through, displacement is weak, or liquidity target is too near",
     },
     "momentum-ignition": {
-        "temperament": "high-conviction momentum trader; can approve higher leverage, but never average down",
-        "approveWhen": "EMA stack, RSI thrust, OI, taker flow, and continuation room align",
-        "adjustWhen": "ignition is valid but volatility requires leverage cap or immediate trail plan",
-        "rejectWhen": "this is late chase, flow is mixed, or stop distance is too tight for BTC volatility",
+        "temperament": "compression-breakout trader; aggressive only after squeeze release, never after stale chase",
+        "approveWhen": "volatility compression, 15m breakout close, body/volume expansion, and continuation room align",
+        "adjustWhen": "break is valid but leverage/risk should be capped because expansion is already stretched",
+        "rejectWhen": "there was no compression first, the breakout re-entered the box, or stop distance is too tight for BTC volatility",
     },
     "bollinger-reversion": {
         "temperament": "statistical mean-reversion trader; conservative in trends, active in contained ranges",
@@ -558,7 +558,7 @@ TRADER_POST_LOSS_DISCIPLINE: Dict[str, str] = {
     "trend-sentinel": "After a trend stop, require HTF trend repair and a new trailing-stop path; do not approve normal pullback language after structure broke.",
     "range-maker": "After a range stop, require evidence that the breakout attempt failed and the range edge rebuilt before fading it again.",
     "funding-contrarian": "After a funding fade loss, funding alone is disqualified; require price stall, structure trigger, and crowding deceleration together.",
-    "orderflow-sniper": "After a scalp stop, require a new 1m/5m impulse cluster with fee-positive RR; never retry the same flow burst.",
+    "orderflow-sniper": "After a failed session break, require a fresh range boundary and a new 15m acceptance close; never retry the same wick outside the range.",
     "donchian-breakout": "After a Donchian fakeout, require price to rebuild outside the range with participation, not just retouch the boundary.",
     "ichimoku-cloud-pilot": "After a cloud continuation stop, require cloud proxy recovery and HTF alignment; flat-cloud rebounds are deferred.",
     "vwap-reclaimer": "After a failed fair-value reclaim, require a clean recapture/rejection and fading counter-flow before any retry.",
@@ -566,7 +566,7 @@ TRADER_POST_LOSS_DISCIPLINE: Dict[str, str] = {
     "rsi-divergence-scout": "After a divergence loss, require structure confirmation in addition to momentum divergence; weak repeat divergence is deferred.",
     "session-raider": "After a session-break stop, require the next valid liquidity transition window; stale same-session retries are blocked.",
     "imbalance-hunter": "After an imbalance midpoint failure, require a fresh displacement leg and intact midpoint; sliced gaps cannot be reused.",
-    "momentum-ignition": "After ignition fails, require renewed OI/taker alignment and continuation room; do not approve average-down attempts.",
+    "momentum-ignition": "After compression ignition fails, require a fresh compression base and a new breakout close; do not approve average-down attempts.",
     "bollinger-reversion": "After a band fade stop, require trend strength to cool and mean target distance to reopen; band-walk fades are rejected.",
     "atr-trail-commander": "After an ATR trend stop, require a new trend leg with account-risk-compatible ATR; do not relabel exhaustion as continuation.",
 }
@@ -618,8 +618,8 @@ TRADER_MANAGEMENT_POLICIES: Dict[str, Dict[str, Any]] = {
         "allowedAggression": "average only after funding/premium stays extreme but price stops extending; pyramid after funding normalization begins and structure confirms reversal",
     },
     "orderflow-sniper": {
-        "bias": "micro scalps expire quickly; flow flips are close/reduce events",
-        "allowedAggression": "can add or pyramid only on immediate taker-flow confirmation with tight stop unchanged; otherwise reduce or close quickly",
+        "bias": "session breakouts must hold outside the broken range; re-entry is a close/reduce event",
+        "allowedAggression": "can add only on a clean retest hold of the broken range with stop unchanged; otherwise reduce or close quickly",
     },
     "donchian-breakout": {
         "bias": "keep winners alive outside the broken range; cancel if price accepts back inside",
@@ -650,8 +650,8 @@ TRADER_MANAGEMENT_POLICIES: Dict[str, Dict[str, Any]] = {
         "allowedAggression": "add at the imbalance midpoint or after continuation resumes; pyramid only if displacement extension remains open",
     },
     "momentum-ignition": {
-        "bias": "ride clean ignition but cut immediately when flow flips",
-        "allowedAggression": "pyramid only with sustained OI/taker confirmation and no stop widening; never average down after failed ignition",
+        "bias": "ride the squeeze release while price stays outside the compression box",
+        "allowedAggression": "pyramid only after a fresh expansion close with no stop widening; never average down after failed compression ignition",
     },
     "bollinger-reversion": {
         "bias": "take profit toward the mean and do not fight band-walk trends",

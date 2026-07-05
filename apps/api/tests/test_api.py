@@ -157,6 +157,8 @@ def test_traders_list():
     assert by_id["volatility-skew-sentinel"]["lifecycleStatus"] == "new"
     assert by_id["volatility-squeezer"]["lifecycleStatus"] == "retired"
     assert by_id["imbalance-hunter"]["retiredFromMonth"] == "2026-07"
+    assert by_id["leverage-hunter"]["lifecycleStatus"] == "retired"
+    assert by_id["leverage-hunter"]["retiredFromMonth"] == "2026-07"
 
 
 def test_ai_provider_status_defaults_to_mock():
@@ -582,8 +584,10 @@ def test_monthly_leaderboard_retired_july_traders_are_hidden_but_current_keeps_c
     monthly_summary_ids = {summary["traderId"] for summary in monthly_data["summaries"]}
     assert "volatility-squeezer" not in monthly_trader_ids
     assert "imbalance-hunter" not in monthly_trader_ids
+    assert "leverage-hunter" not in monthly_trader_ids
     assert "volatility-squeezer" not in monthly_summary_ids
     assert "imbalance-hunter" not in monthly_summary_ids
+    assert "leverage-hunter" not in monthly_summary_ids
     assert {"liquidation-pressure-sniper", "volatility-skew-sentinel"}.issubset(monthly_trader_ids)
     assert {"liquidation-pressure-sniper", "volatility-skew-sentinel"}.issubset(monthly_summary_ids)
 
@@ -592,6 +596,7 @@ def test_monthly_leaderboard_retired_july_traders_are_hidden_but_current_keeps_c
     assert {
         "volatility-squeezer",
         "imbalance-hunter",
+        "leverage-hunter",
         "liquidation-pressure-sniper",
         "volatility-skew-sentinel",
     }.issubset(current_ids)
@@ -605,8 +610,10 @@ def test_scanner_trader_catalog_skips_retired_strategies_after_july_without_remo
 
     assert "volatility-squeezer" not in scanner_ids
     assert "imbalance-hunter" not in scanner_ids
+    assert "leverage-hunter" not in scanner_ids
     assert "volatility-squeezer" in all_ids
     assert "imbalance-hunter" in all_ids
+    assert "leverage-hunter" in all_ids
     assert {"liquidation-pressure-sniper", "volatility-skew-sentinel"}.issubset(scanner_ids)
 
 

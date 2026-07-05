@@ -106,13 +106,13 @@ TRADER_MANAGEMENT_PROFILES: dict[str, dict[str, Any]] = {
         },
     },
     "orderflow-sniper": {
-        "order_stale_seconds": 120,
-        "cooldown_seconds": 90,
+        "order_stale_seconds": 600,
+        "cooldown_seconds": 240,
         "events": {
-            "pending_invalid": "micro_flow_reversed_cancel",
-            "pending_stale": "micro_entry_expired",
-            "position_fail": "orderflow_flip_exit",
-            "protect": "scalp_fast_derisk",
+            "pending_invalid": "session_range_reentry_cancel",
+            "pending_stale": "session_orb_retest_expired",
+            "position_fail": "session_orb_range_reentry",
+            "protect": "session_orb_profit_protection",
         },
     },
     "donchian-breakout": {
@@ -186,13 +186,13 @@ TRADER_MANAGEMENT_PROFILES: dict[str, dict[str, Any]] = {
         },
     },
     "momentum-ignition": {
-        "order_stale_seconds": 300,
-        "cooldown_seconds": 150,
+        "order_stale_seconds": 900,
+        "cooldown_seconds": 300,
         "events": {
-            "pending_invalid": "ignition_flow_flipped",
-            "pending_stale": "ignition_window_expired",
-            "position_fail": "momentum_flow_reversal",
-            "protect": "momentum_fast_derisk",
+            "pending_invalid": "compression_box_reentered",
+            "pending_stale": "compression_breakout_expired",
+            "position_fail": "compression_breakout_failed",
+            "protect": "compression_expansion_protection",
         },
     },
     "bollinger-reversion": {
@@ -469,11 +469,13 @@ def order_management_events(trader_id: str, order: PaperOrderRecord, snapshot: d
         elif normalized or age_seconds >= profile["order_stale_seconds"]:
             events.append(ManagementEvent(eventType=event_names["pending_stale"], phase="PENDING_ORDER", severity="MEDIUM", reason="Funding edge normalized or became stale before pending entry filled.", suggestedAction="CANCEL_PENDING_ORDER", metrics=base_metrics()))
     elif trader_id == "orderflow-sniper":
-        flow_reversed = (side == "long" and ratio < 0.5) or (side == "short" and ratio > 0.5)
-        if flow_reversed:
-            events.append(ManagementEvent(eventType=event_names["pending_invalid"], phase="PENDING_ORDER", severity="HIGH", reason="Micro taker flow reversed before the scalp order filled.", suggestedAction="CANCEL_PENDING_ORDER", metrics=base_metrics()))
-        elif age_seconds >= profile["order_stale_seconds"] or distance_percent > 0.2:
-            events.append(ManagementEvent(eventType=event_names["pending_stale"], phase="PENDING_ORDER", severity="MEDIUM", reason="Micro entry is stale; orderflow scalp edge expired.", suggestedAction="CANCEL_PENDING_ORDER", metrics=base_metrics()))
+        lower = as_float(channel.get("lower"), limit_price)
+        upper = as_float(channel.get("upper"), limit_price)
+        range_reentered = (side == "long" and close_15m < upper) or (side == "short" and close_15m > lower)
+        if range_reentered:
+            events.append(ManagementEvent(eventType=event_names["pending_invalid"], phase="PENDING_ORDER", severity="HIGH", reason="Session breakout re-entered the range before the retest order filled.", suggestedAction="CANCEL_PENDING_ORDER", metrics=base_metrics({"rangeLower": lower, "rangeUpper": upper})))
+        elif age_seconds >= profile["order_stale_seconds"] or distance_percent > 0.45:
+            events.append(ManagementEvent(eventType=event_names["pending_stale"], phase="PENDING_ORDER", severity="MEDIUM", reason="Session ORB retest is stale or too far from current price.", suggestedAction="CANCEL_PENDING_ORDER", metrics=base_metrics({"rangeLower": lower, "rangeUpper": upper})))
     return events[:2]
 
 
@@ -591,11 +593,13 @@ def position_management_events(trader_id: str, position: PaperPositionRecord, sn
         elif normalized or progress_r >= float(holding_policy.trail_review_progress_r):
             events.append(ManagementEvent(eventType=event_names["protect"], phase="OPEN_POSITION", severity="MEDIUM", reason="Funding edge normalized; secure profit or tighten risk.", suggestedAction="TAKE_PARTIAL_PROFIT", metrics=base_metrics()))
     elif trader_id == "orderflow-sniper":
-        flow_flip = (side == "long" and ratio < 0.5) or (side == "short" and ratio > 0.5)
-        if flow_flip:
-            events.append(ManagementEvent(eventType=event_names["position_fail"], phase="OPEN_POSITION", severity="HIGH", reason="Micro taker flow flipped against the scalp.", suggestedAction="CLOSE_POSITION", metrics=base_metrics()))
+        lower = as_float(channel.get("lower"), entry)
+        upper = as_float(channel.get("upper"), entry)
+        range_reentry = (side == "long" and close_15m < upper) or (side == "short" and close_15m > lower)
+        if range_reentry and progress_r <= 0.15:
+            events.append(ManagementEvent(eventType=event_names["position_fail"], phase="OPEN_POSITION", severity="HIGH", reason="Session breakout failed back into the range after entry.", suggestedAction="CLOSE_POSITION", metrics=base_metrics({"rangeLower": lower, "rangeUpper": upper})))
         elif progress_r >= float(holding_policy.breakeven_progress_r) or target_progress >= float(holding_policy.profit_protect_target_progress):
-            events.append(ManagementEvent(eventType=event_names["protect"], phase="OPEN_POSITION", severity="MEDIUM", reason="Scalp reached fast de-risk zone.", suggestedAction="TAKE_PARTIAL_PROFIT", metrics=base_metrics()))
+            events.append(ManagementEvent(eventType=event_names["protect"], phase="OPEN_POSITION", severity="MEDIUM", reason="Session breakout reached protection zone outside the range.", suggestedAction="MOVE_STOP_TO_BREAKEVEN", metrics=base_metrics({"rangeLower": lower, "rangeUpper": upper})))
     elif trader_id == "imbalance-hunter":
         failure_line = stop
         midpoint = entry

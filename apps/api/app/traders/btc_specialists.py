@@ -65,6 +65,7 @@ def _profile(
 
 def _gate_common(snapshot: Dict[str, Any]) -> dict[str, float | str]:
     price = fvalue(snapshot.get("price"))
+    regime_data = snapshot.get("marketRegime", {}) or {}
     one_hour = timeframe(snapshot, "1h")
     four_hour = timeframe(snapshot, "4h")
     fifteen = timeframe(snapshot, "15m")
@@ -93,6 +94,10 @@ def _gate_common(snapshot: Dict[str, Any]) -> dict[str, float | str]:
         "upperWick": upper_wick,
         "lowerWick": lower_wick,
         "regime": market_regime(snapshot),
+        "adx1h": fvalue(regime_data.get("adx1h"), 0.0),
+        "priceChange1h": fvalue(regime_data.get("priceChange1h"), 0.0),
+        "bollingerWidth1h": fvalue(regime_data.get("bollingerWidth1h"), 0.0),
+        "keltnerWidth1h": fvalue(regime_data.get("keltnerWidth1h"), 0.0),
         "close15m": fvalue(candle.get("close"), price),
         "open15m": fvalue(candle.get("open"), price),
         "high15m": fvalue(candle.get("high"), price),
@@ -592,33 +597,90 @@ class ImbalanceHunter(TraderStrategy):
 class MomentumIgnition(TraderStrategy):
     profile = _profile(
         trader_id="momentum-ignition",
-        name="Momentum Igniter",
-        description="Only joins BTC momentum when trend, RSI, OI, and taker pressure line up together.",
-        concept="Flow-confirmed ignition system with no averaging down and quick de-risking when flow flips.",
-        base_risk=0.60,
+        name="Compression Igniter",
+        description="Joins BTC only after volatility compresses and a 15m breakout shows real expansion instead of stale chase.",
+        concept="Volatility-compression ignition system: squeeze first, breakout second, optional derivatives only as confirmation.",
+        base_risk=0.52,
         risk_level="HIGH",
-        long_conditions=["1H EMA20 is above EMA50", "RSI thrust supports upside", "Taker buy share and OI confirm", "Price is not already at the target"],
-        short_conditions=["1H EMA20 is below EMA50", "RSI thrust supports downside", "Taker sell share and OI confirm", "Price is not already at the target"],
-        entry_rules=["Single participation entry on ignition", "No averaging down"],
-        take_profit_rules=["Take partial before momentum stalls", "Hold only if OI and flow keep confirming"],
-        stop_loss_rules=["Stop behind ignition candle", "Reduce fast if taker flow flips"],
-        checklist=["Is this ignition or late chase?", "Does OI agree with taker flow?", "Is leverage capped by volatility?", "Is there enough room after fees?"],
-        current_plan="Waiting for BTC momentum, OI, and taker pressure to ignite in one direction.",
+        long_conditions=["BTC is compressed by regime or band width", "15m closes above the compression boundary", "Volume/body show expansion", "4H trend does not block upside"],
+        short_conditions=["BTC is compressed by regime or band width", "15m closes below the compression boundary", "Volume/body show expansion", "4H trend does not block downside"],
+        entry_rules=["Single participation entry after expansion close", "No averaging down into failed compression"],
+        take_profit_rules=["Take partial into the first expansion leg", "Hold the rest only while price stays outside compression"],
+        stop_loss_rules=["Stop behind the compression breakout candle", "Reduce fast on 15m re-entry into the box"],
+        checklist=["Is this fresh expansion or late chase?", "Was volatility genuinely compressed first?", "Does volume/body confirm the break?", "Is leverage capped by post-compression volatility?"],
+        current_plan="Waiting for BTC compression to release with a clean 15m breakout and enough room after fees.",
     )
 
     def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
         g = _gate_common(snapshot)
-        long_flow = float(g["ema20_1h"]) > float(g["ema50_1h"]) and float(g["rsi1h"]) >= 53 and float(g["takerBuyShare"]) >= 0.53 and float(g["oi30m"]) >= 0
-        short_flow = float(g["ema20_1h"]) < float(g["ema50_1h"]) and float(g["rsi1h"]) <= 47 and float(g["takerBuyShare"]) <= 0.47 and float(g["oi30m"]) >= 0
-        score = 46 + (16 if long_flow or short_flow else 0) + (8 if float(g["candleBody"]) >= 0.48 else 0)
-        score += 5 if float(g["volumeZ15m"]) > -0.1 else -4
-        if long_flow and g["trend4h"] != "bearish":
-            side, setup = "LONG", "MOMENTUM_IGNITION_LONG"
-        elif short_flow and g["trend4h"] != "bullish":
-            side, setup = "SHORT", "MOMENTUM_IGNITION_SHORT"
+        one_hour = timeframe(snapshot, "1h")
+        four_hour = timeframe(snapshot, "4h")
+        channel = one_hour.get("channel") or four_hour.get("channel") or {}
+        upper_boundary = max(
+            float(g["ema20_1h"]),
+            fvalue(one_hour.get("high"), float(g["price"])),
+            fvalue(channel.get("upper"), float(g["price"])),
+        )
+        lower_boundary = min(
+            float(g["ema20_1h"]),
+            fvalue(one_hour.get("low"), float(g["price"])),
+            fvalue(channel.get("lower"), float(g["price"])),
+        )
+        bb_width = float(g["bollingerWidth1h"])
+        keltner_width = float(g["keltnerWidth1h"])
+        compression_ready = (
+            str(g["regime"]) == "squeeze"
+            or (bb_width > 0 and keltner_width > 0 and bb_width <= keltner_width * 0.95)
+        )
+        compressed_not_wild = float(g["adx1h"]) <= 28 or str(g["regime"]) == "squeeze"
+        expansion_body = float(g["candleBody"]) >= 0.46
+        expansion_volume = float(g["volumeZ15m"]) >= 0.15
+        long_break = (
+            compression_ready
+            and compressed_not_wild
+            and expansion_body
+            and expansion_volume
+            and float(g["close15m"]) > max(float(g["open15m"]), upper_boundary)
+            and g["trend4h"] != "bearish"
+        )
+        short_break = (
+            compression_ready
+            and compressed_not_wild
+            and expansion_body
+            and expansion_volume
+            and float(g["close15m"]) < min(float(g["open15m"]), lower_boundary)
+            and g["trend4h"] != "bullish"
+        )
+        score = 44
+        score += 16 if compression_ready else -8
+        score += 14 if long_break or short_break else 0
+        score += 8 if expansion_body else -3
+        score += 7 if expansion_volume else -4
+        score += 4 if compressed_not_wild else -4
+        if abs(float(g["oi30m"])) >= 0.35:
+            score += 3
+        if (long_break and float(g["takerBuyShare"]) > 0.53) or (short_break and float(g["takerBuyShare"]) < 0.47):
+            score += 3
+        enriched_g = {
+            **g,
+            "compressionReady": 1.0 if compression_ready else 0.0,
+            "compressedNotWild": 1.0 if compressed_not_wild else 0.0,
+            "upperBoundary": round(upper_boundary, 4),
+            "lowerBoundary": round(lower_boundary, 4),
+        }
+        if long_break:
+            side, setup = "LONG", "VOLATILITY_COMPRESSION_IGNITION_LONG"
+        elif short_break:
+            side, setup = "SHORT", "VOLATILITY_COMPRESSION_IGNITION_SHORT"
         else:
-            return _rejection(self.profile, "Momentum inputs are not aligned enough to justify participation.", score, g, "momentum_not_aligned")
-        risk_distance = max(float(g["atr1h"]) * 0.95, float(g["price"]) * 0.005)
+            return _rejection(
+                self.profile,
+                "Compression ignition is not ready: squeeze, breakout close, volume/body, or trend filter is incomplete.",
+                score,
+                enriched_g,
+                "compression_breakout_not_ready",
+            )
+        risk_distance = max(float(g["atr1h"]) * 0.82, float(g["price"]) * 0.0048)
         return _candidate(
             profile=self.profile,
             snapshot=snapshot,
@@ -626,14 +688,14 @@ class MomentumIgnition(TraderStrategy):
             setup_type=setup,
             score=score,
             risk_distance=risk_distance,
-            target_rs=(1.45, 2.85),
-            leverage=5,
+            target_rs=(1.55, 3.20),
+            leverage=6,
             max_leverage=8,
             entry_style="single",
-            order_execution="IGNITION_PARTICIPATION",
-            reason_code="momentum_ignition",
-            gate_scores=g,
-            sizing_note="Momentum ignition: high leverage is not automatic; size depends on AI confirming clean flow alignment.",
+            order_execution="COMPRESSION_BREAKOUT_PARTICIPATION",
+            reason_code="volatility_compression_ignition",
+            gate_scores=enriched_g,
+            sizing_note="Compression ignition: size only after squeeze release is confirmed; derivatives are optional confirmation, not a hard gate.",
         )
 
 
