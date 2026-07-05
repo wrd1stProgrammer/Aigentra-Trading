@@ -357,7 +357,10 @@ async def handle_realtime_paper_execution_result(
     event_ids = [event.id for event in result.events if event.id is not None]
     if event_ids:
         if threading.current_thread() is not threading.main_thread():
-            await create_realtime_status_feeds_for_events(event_ids, symbol, trader_id)
+            threading.Thread(
+                target=lambda: asyncio.run(create_realtime_status_feeds_for_events(event_ids, symbol, trader_id)),
+                daemon=True,
+            ).start()
             return
         try:
             asyncio.get_running_loop().create_task(create_realtime_status_feeds_for_events(event_ids, symbol, trader_id))

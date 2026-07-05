@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select
 
 from app.clients.binance_client import Candle
-from app.db import PaperOrderRecord, PaperPositionRecord, init_db, reset_db_engine, session_scope
+from app.db import PaperOrderRecord, PaperPositionRecord, RiskSettingsRecord, init_db, reset_db_engine, session_scope
 from app.paper.engine import place_paper_order
 from app.paper.realtime_execution import (
     EXECUTION_EVENT_HUB,
@@ -193,6 +193,38 @@ async def test_realtime_execution_closes_position_when_target_is_touched(temp_db
 
 
 @pytest.mark.asyncio
+async def test_realtime_execution_fills_marketable_short_limit_order(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "realtime-trader", "BTCUSDT", max_leverage=10)
+        place_paper_order(
+            db,
+            trader_id="realtime-trader",
+            symbol="BTCUSDT",
+            side="short",
+            order_type="limit",
+            limit_price=100,
+            quantity=1,
+            leverage=5,
+            take_profit_price=95,
+            stop_loss_price=105,
+        )
+
+    result = await run_realtime_execution_once(
+        symbols=["BTCUSDT"],
+        price_by_symbol={"BTCUSDT": 101},
+    )
+
+    assert result["counts"]["fills"] == 1
+    with session_scope() as db:
+        order = db.execute(select(PaperOrderRecord)).scalar_one()
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        assert order.status == "filled"
+        assert position.status == "open"
+        assert position.side == "short"
+        assert position.entry_price == 101
+
+
+@pytest.mark.asyncio
 async def test_realtime_execution_uses_latest_candle_high_for_take_profit(temp_db):
     with session_scope() as db:
         upsert_risk_settings(db, "realtime-trader", "BTCUSDT", max_leverage=10)
@@ -264,6 +296,36 @@ async def test_realtime_execution_uses_live_mark_price_for_breakeven_when_candle
         position = db.execute(select(PaperPositionRecord)).scalar_one()
         assert position.status == "open"
         assert position.stop_loss_price > position.entry_price
+
+
+@pytest.mark.asyncio
+async def test_realtime_execution_does_not_rewrite_matching_default_risk_settings(temp_db):
+    frozen_updated_at = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    with session_scope() as db:
+        risk_settings = upsert_risk_settings(db, "realtime-trader", "BTCUSDT", max_leverage=10)
+        risk_settings.updated_at = frozen_updated_at
+        place_paper_order(
+            db,
+            trader_id="realtime-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=90,
+            quantity=1,
+            leverage=5,
+            take_profit_price=110,
+            stop_loss_price=80,
+        )
+
+    result = await run_realtime_execution_once(
+        symbols=["BTCUSDT"],
+        price_by_symbol={"BTCUSDT": 100},
+    )
+
+    assert result["counts"]["fills"] == 0
+    with session_scope() as db:
+        risk_settings = db.execute(select(RiskSettingsRecord)).scalar_one()
+        assert risk_settings.updated_at.replace(tzinfo=timezone.utc) == frozen_updated_at
 
 
 @pytest.mark.asyncio
