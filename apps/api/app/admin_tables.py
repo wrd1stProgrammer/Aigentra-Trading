@@ -11,6 +11,7 @@ from app.db import (
     APICallLogRecord,
     PaperOrderRecord,
     PaperPositionRecord,
+    PasswordAccountRecord,
     ReviewUnlockRecord,
     SubscriberPreferenceRecord,
     TradeEventRecord,
@@ -19,6 +20,16 @@ from app.db import (
 
 
 ADMIN_TABLE_COLUMNS = {
+    "password_accounts": (
+        "id",
+        "created_at",
+        "updated_at",
+        "user_id",
+        "email",
+        "name",
+        "last_login_at",
+        "disabled_at",
+    ),
     "subscriber_preferences": (
         "id",
         "created_at",
@@ -105,6 +116,7 @@ ADMIN_TABLE_COLUMNS = {
 }
 
 ADMIN_TABLE_MODELS = {
+    "password_accounts": PasswordAccountRecord,
     "subscriber_preferences": SubscriberPreferenceRecord,
     "whop_checkouts": WhopCheckoutRecord,
     "review_unlocks": ReviewUnlockRecord,

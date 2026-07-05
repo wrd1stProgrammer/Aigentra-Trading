@@ -107,6 +107,7 @@ from app.paper.repositories import ensure_trader_state
 from app.paper.settings import sync_default_paper_settings
 from app.paper.sizing import final_trade_risk_percent
 from app.ops.trader_history_reset import RESET_CONFIRMATION_TEXT, reset_trader_history
+from app.password_auth_routes import router as password_auth_router
 from app.repositories import (
     create_ai_review,
     create_api_call_log,
@@ -430,6 +431,7 @@ app.add_middleware(
 )
 
 app.include_router(subscribers_router)
+app.include_router(password_auth_router)
 app.include_router(whop_router)
 app.include_router(scanner_audit_router)
 app.include_router(admin_router)

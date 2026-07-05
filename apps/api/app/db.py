@@ -491,6 +491,25 @@ class EquitySnapshotRecord(CommonMixin, Base):
     candle_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
 
+class PasswordAccountRecord(Base):
+    __tablename__ = "password_accounts"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_password_accounts_user_id"),
+        UniqueConstraint("email", name="uq_password_accounts_email"),
+        Index("ix_password_accounts_email_active", "email", "disabled_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(240), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(260), nullable=False)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    disabled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
 class SubscriberPreferenceRecord(CommonMixin, Base):
     __tablename__ = "subscriber_preferences"
     __table_args__ = (UniqueConstraint("email", name="uq_subscriber_preferences_email"),)
