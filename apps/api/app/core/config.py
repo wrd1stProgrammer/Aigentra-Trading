@@ -49,9 +49,18 @@ def codex_cli_provider_override_enabled(provider_env_name: str) -> bool:
 
 
 def provider_from_env(provider_env_name: str, default: str = "mock") -> str:
+    explicit_provider = os.getenv(provider_env_name)
+    if env_bool(f"{provider_env_name}_CODEX", "false"):
+        return "codex_cli"
+    if provider_env_name == "AI_PROVIDER" and (
+        env_bool("AI_PROVIDER_CODEX", "false") or env_bool("USE_CODEX_CLI", "false")
+    ):
+        return "codex_cli"
+    if explicit_provider:
+        return normalize_ai_provider_name(explicit_provider, default)
     if codex_cli_provider_override_enabled(provider_env_name):
         return "codex_cli"
-    return normalize_ai_provider_name(os.getenv(provider_env_name), default)
+    return normalize_ai_provider_name(explicit_provider, default)
 
 
 def env_first(*names: str) -> str:

@@ -102,11 +102,30 @@ def test_provider_status_accepts_codex_cli_aliases():
 
 def test_codex_cli_global_override_flag_preserves_existing_provider_env(monkeypatch):
     monkeypatch.setenv("AI_PROVIDER", "gemini")
-    monkeypatch.setenv("AUTO_SCANNER_PROVIDER", "gemini")
-    monkeypatch.setenv("POSITION_MANAGEMENT_PROVIDER", "gemini")
-    monkeypatch.setenv("LEAGUE_SENTIMENT_PROVIDER", "gemini")
+    monkeypatch.setenv("AUTO_SCANNER_PROVIDER", "codex_cli")
+    monkeypatch.setenv("POSITION_MANAGEMENT_PROVIDER", "codex_cli")
+    monkeypatch.setenv("LEAGUE_SENTIMENT_PROVIDER", "codex_cli")
     monkeypatch.setenv("TRADER_STATUS_FEED_PROVIDER", "openai")
     monkeypatch.setenv("AI_TRANSLATION_PROVIDER", "openai")
+    monkeypatch.setenv("AI_PROVIDER_CODEX", "true")
+
+    settings = Settings()
+
+    assert settings.ai_provider == "codex_cli"
+    assert settings.auto_scanner_provider == "codex_cli"
+    assert settings.position_management_provider == "codex_cli"
+    assert settings.league_sentiment_provider == "codex_cli"
+    assert settings.trader_status_feed_provider == "openai"
+    assert settings.ai_translation_provider == "openai"
+
+
+def test_codex_cli_global_override_flag_sets_unconfigured_provider_env(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "gemini")
+    monkeypatch.delenv("AUTO_SCANNER_PROVIDER", raising=False)
+    monkeypatch.delenv("POSITION_MANAGEMENT_PROVIDER", raising=False)
+    monkeypatch.delenv("LEAGUE_SENTIMENT_PROVIDER", raising=False)
+    monkeypatch.delenv("TRADER_STATUS_FEED_PROVIDER", raising=False)
+    monkeypatch.delenv("AI_TRANSLATION_PROVIDER", raising=False)
     monkeypatch.setenv("AI_PROVIDER_CODEX", "true")
 
     settings = Settings()
