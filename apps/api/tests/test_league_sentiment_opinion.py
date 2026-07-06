@@ -19,7 +19,7 @@ from app.db import (
     reset_db_engine,
     session_scope,
 )
-from app.league_sentiment import build_league_sentiment_payload, serialize_league_sentiment_record
+from app.league_sentiment import build_league_sentiment_payload, scrub_banned_opinion_terms, serialize_league_sentiment_record
 from app.main import app
 from app.repositories import to_json
 
@@ -119,6 +119,102 @@ def seed_sentiment_context() -> None:
         )
 
 
+def league_sentiment_translations() -> dict[str, dict[str, Any]]:
+    return {
+        "en": {
+            "confidenceReason": "Fresh exposure is split, so confidence stays capped.",
+            "brief": {
+                "conclusion": "BTC league pressure is mixed and needs confirmation.",
+                "reason": "One active LONG and one pending SHORT keep the read balanced.",
+                "watch": "Check the next 1H close and whether the pending SHORT fills.",
+            },
+            "headline": "BTC league pressure is mixed and needs confirmation.",
+            "summary": "One active LONG and one pending SHORT keep the read balanced.",
+            "keyDrivers": ["The active LONG has risk on while the pending SHORT is not confirmed exposure yet."],
+            "risks": ["Counting pending entries as filled exposure can overstate direction."],
+            "watchConditions": ["Watch the next 1H close and the pending SHORT fill status."],
+            "action": "Check the next 1H close and whether the pending SHORT fills.",
+            "longShortContext": "LONG exposure is active, but SHORT pressure is still pending.",
+        },
+        "ko": {
+            "confidenceReason": "새 노출이 엇갈려 있어 신뢰도는 제한됩니다.",
+            "brief": {
+                "conclusion": "BTC 리그 압력은 혼조라 확인이 필요합니다.",
+                "reason": "활성 LONG 1건과 진입 대기 SHORT 1건이 균형을 만듭니다.",
+                "watch": "다음 1시간 종가와 대기 SHORT 체결 여부를 확인하세요.",
+            },
+            "headline": "BTC 리그 압력은 혼조라 확인이 필요합니다.",
+            "summary": "활성 LONG 1건과 진입 대기 SHORT 1건이 균형을 만듭니다.",
+            "keyDrivers": ["활성 LONG은 리스크가 걸려 있지만 대기 SHORT는 아직 확정 노출이 아닙니다."],
+            "risks": ["진입 대기 주문을 체결 노출처럼 보면 방향성이 과장될 수 있습니다."],
+            "watchConditions": ["다음 1시간 종가와 대기 SHORT 체결 여부를 확인하세요."],
+            "action": "다음 1시간 종가와 대기 SHORT 체결 여부를 확인하세요.",
+            "longShortContext": "LONG 노출은 활성 상태이고 SHORT 압력은 아직 대기 중입니다.",
+        },
+        "ru": {
+            "confidenceReason": "Свежая экспозиция разделена, поэтому уверенность ограничена.",
+            "brief": {
+                "conclusion": "Давление лиги по BTC смешанное и требует подтверждения.",
+                "reason": "Один активный LONG и один ожидающий SHORT удерживают баланс.",
+                "watch": "Проверьте следующее закрытие 1H и исполнение ожидающего SHORT.",
+            },
+            "headline": "Давление лиги по BTC смешанное и требует подтверждения.",
+            "summary": "Один активный LONG и один ожидающий SHORT удерживают баланс.",
+            "keyDrivers": ["Активный LONG уже несет риск, а ожидающий SHORT еще не подтвержден."],
+            "risks": ["Ожидающие входы могут преувеличить направление, если считать их исполненной экспозицией."],
+            "watchConditions": ["Следите за закрытием 1H и статусом ожидающего SHORT."],
+            "action": "Проверьте следующее закрытие 1H и исполнение ожидающего SHORT.",
+            "longShortContext": "LONG экспозиция активна, а SHORT давление еще ожидает исполнения.",
+        },
+        "pt-BR": {
+            "confidenceReason": "A exposição recente está dividida, então a confiança segue limitada.",
+            "brief": {
+                "conclusion": "A pressão da liga em BTC está mista e precisa de confirmação.",
+                "reason": "Um LONG ativo e um SHORT pendente mantêm a leitura equilibrada.",
+                "watch": "Confira o próximo fechamento de 1H e se o SHORT pendente executa.",
+            },
+            "headline": "A pressão da liga em BTC está mista e precisa de confirmação.",
+            "summary": "Um LONG ativo e um SHORT pendente mantêm a leitura equilibrada.",
+            "keyDrivers": ["O LONG ativo já tem risco, enquanto o SHORT pendente ainda não é exposição confirmada."],
+            "risks": ["Ler entradas pendentes como exposição executada pode exagerar a direção."],
+            "watchConditions": ["Observe o fechamento de 1H e o status do SHORT pendente."],
+            "action": "Confira o próximo fechamento de 1H e se o SHORT pendente executa.",
+            "longShortContext": "A exposição LONG está ativa, mas a pressão SHORT ainda está pendente.",
+        },
+        "tr": {
+            "confidenceReason": "Yeni maruziyet bölünmüş olduğu için güven sınırlı kalıyor.",
+            "brief": {
+                "conclusion": "BTC lig baskısı karışık ve onay gerektiriyor.",
+                "reason": "Bir aktif LONG ve bir bekleyen SHORT okumayı dengede tutuyor.",
+                "watch": "Sonraki 1H kapanışını ve bekleyen SHORT emrinin gerçekleşip gerçekleşmediğini kontrol edin.",
+            },
+            "headline": "BTC lig baskısı karışık ve onay gerektiriyor.",
+            "summary": "Bir aktif LONG ve bir bekleyen SHORT okumayı dengede tutuyor.",
+            "keyDrivers": ["Aktif LONG risk taşıyor, bekleyen SHORT ise henüz doğrulanmış maruziyet değil."],
+            "risks": ["Bekleyen girişleri gerçekleşmiş maruziyet gibi okumak yönü abartabilir."],
+            "watchConditions": ["1H kapanışını ve bekleyen SHORT durumunu izleyin."],
+            "action": "Sonraki 1H kapanışını ve bekleyen SHORT emrinin gerçekleşip gerçekleşmediğini kontrol edin.",
+            "longShortContext": "LONG maruziyet aktif, SHORT baskısı ise hala beklemede.",
+        },
+    }
+
+
+def test_league_sentiment_scrubs_awkward_user_facing_terms():
+    payload = {
+        "ko": "페이퍼 트레이딩은 노타시온과 stop zone을 봅니다. 모델 시뮬레이션은 약합니다.",
+        "en": "paper trading notional and stop zone are what the desk says.",
+    }
+
+    scrubbed = scrub_banned_opinion_terms(payload)
+
+    assert scrubbed["ko"] == "Aigentra 리그는 노출과 무효화 구역을 봅니다. Aigentra 리그 의견은 약합니다."
+    assert scrubbed["en"] == "Aigentra league exposure and invalidation area are what the league read."
+    assert "페이퍼" not in str(scrubbed)
+    assert "시뮬레이션" not in str(scrubbed)
+    assert "notional" not in str(scrubbed).lower()
+    assert "stop zone" not in str(scrubbed).lower()
+
+
 def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, monkeypatch):
     seed_sentiment_context()
     calls: list[Any] = []
@@ -130,23 +226,21 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
 
         async def review_league_sentiment(self, payload):
             calls.append(payload)
+            translations = league_sentiment_translations()
+            english = translations["en"]
             return LeagueSentimentOpinionResult(
                 bias="MIXED",
                 confidence=72,
                 riskLevel="MEDIUM",
-                confidenceReason="Balanced active exposure keeps confidence capped.",
-                brief={
-                    "conclusion": "롱과 숏이 엇갈려 있어 지금은 확인 구간입니다.",
-                    "reason": "활성 롱과 대기 숏이 같이 있어 방향 신뢰도가 아직 강하지 않습니다.",
-                    "watch": "다음 1시간 종가와 대기 숏 체결 여부만 확인하세요.",
-                },
-                headline="롱과 숏이 엇갈려 있어 확인 구간입니다.",
-                summary="페이퍼 트레이딩이라는 표현 없이, 롱 포지션은 수익 중이고 숏 대기 주문도 있어 다음 1시간 종가 확인이 중요합니다.",
-                keyDrivers=["진입 중 롱 1건", "진입대기 숏 1건", "최근 익절 1건"],
-                risks=["양방향 신호가 충돌합니다."],
-                watchConditions=["BTC가 64100 위에서 1시간 마감하는지 확인"],
-                action="신규 추격보다 기존 계획의 무효화 조건을 우선하세요.",
-                longShortContext="LONG 1 / SHORT 1",
+                confidenceReason=english["confidenceReason"],
+                brief=english["brief"],
+                headline=english["headline"],
+                summary=english["summary"],
+                keyDrivers=english["keyDrivers"],
+                risks=english["risks"],
+                watchConditions=english["watchConditions"],
+                action=english["action"],
+                longShortContext=english["longShortContext"],
                 sourceCounts={"activePositions": 1, "pendingOrders": 1, "recentClosedPositions": 1},
                 sourceBreakdown={"activeExposure": {"total": 1}, "pendingOrders": {"total": 1}},
                 dataFreshness={"generatedAt": "2026-06-18T08:35:00+00:00"},
@@ -155,6 +249,7 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
                 provider="mock",
                 model="mock-league-opinion",
                 fallback=False,
+                translations=translations,
             )
 
     monkeypatch.setattr("app.league_sentiment.get_ai_provider", lambda settings, provider_name=None: FakeProvider())
@@ -171,11 +266,13 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
     assert first.json()["intervalStart"].endswith(":00:00+00:00")
     assert first.json()["nextRefreshAt"] == first.json()["intervalEnd"]
     assert first.json()["opinion"]["bias"] == "MIXED"
-    assert first.json()["opinion"]["brief"]["conclusion"] == "롱과 숏이 엇갈려 있어 지금은 확인 구간입니다."
+    assert first.json()["translation"]["status"] == "embedded"
+    assert first.json()["opinion"]["brief"]["conclusion"] == "BTC 리그 압력은 혼조라 확인이 필요합니다."
     assert first.json()["opinion"]["sourceCounts"]["activePositions"] == 1
-    assert first.json()["opinion"]["confidenceReason"] == "Balanced active exposure keeps confidence capped."
+    assert first.json()["opinion"]["confidenceReason"] == "새 노출이 엇갈려 있어 신뢰도는 제한됩니다."
     assert first.json()["opinion"]["evidenceRefs"][0]["sourceType"] == "active_position"
     assert first.json()["opinion"]["dataFreshness"]["generatedAt"]
+    assert "translations" not in first.json()["opinion"]
     assert "dataQuality" not in first.json()["opinion"]
     assert "페이퍼 트레이딩" not in str(first.json()["opinion"])
     assert "paper trading" not in str(first.json()["opinion"]).lower()
@@ -187,8 +284,10 @@ def test_league_sentiment_opinion_generates_one_record_per_utc_hour(temp_db, mon
       assert len(records) == 1
       assert records[0].locale == "en"
       assert records[0].interval_start.isoformat() == first.json()["intervalStart"]
+      assert '"ko"' in records[0].payload_json
       assert "페이퍼 트레이딩" not in str(records[0].payload_json)
       assert "paper trading" not in str(records[0].payload_json).lower()
+      assert db.query(AITranslationCacheRecord).count() == 0
 
 
 def test_existing_league_sentiment_opinion_hydrates_requested_locale_translation(temp_db, monkeypatch):
@@ -286,6 +385,77 @@ def test_existing_league_sentiment_opinion_hydrates_requested_locale_translation
         assert len(translations) == 1
         assert translations[0].locale == "ko"
         assert translations[0].status == "ok"
+
+
+def test_existing_league_sentiment_opinion_uses_embedded_locale_without_translation_cache(temp_db, monkeypatch):
+    interval_start = datetime(2026, 6, 18, 9, 0, tzinfo=timezone.utc)
+    translations = league_sentiment_translations()
+    english = translations["en"]
+    payload = {
+        "bias": "MIXED",
+        "confidence": 74,
+        "riskLevel": "MEDIUM",
+        "confidenceReason": english["confidenceReason"],
+        "brief": english["brief"],
+        "headline": english["headline"],
+        "summary": english["summary"],
+        "keyDrivers": english["keyDrivers"],
+        "risks": english["risks"],
+        "watchConditions": english["watchConditions"],
+        "action": english["action"],
+        "longShortContext": english["longShortContext"],
+        "sourceCounts": {"activePositions": 1, "pendingOrders": 1},
+        "sourceBreakdown": {"activeExposure": {"total": 1}, "pendingOrders": {"total": 1}},
+        "dataFreshness": {"generatedAt": interval_start.isoformat()},
+        "evidenceRefs": [{"id": "position:1", "sourceType": "active_position", "label": "range-maker LONG"}],
+        "invalidatesAt": (interval_start + timedelta(hours=1)).isoformat(),
+        "provider": "mock",
+        "model": "mock-league-opinion",
+        "fallback": False,
+        "translations": translations,
+    }
+
+    with session_scope() as db:
+        db.add(
+            LeagueSentimentOpinionRecord(
+                symbol="BTCUSDT",
+                trader_id="aigentra-opinion",
+                status="ok",
+                locale="en",
+                interval_start=interval_start,
+                interval_end=interval_start + timedelta(hours=1),
+                provider="mock",
+                model="mock-league-opinion",
+                bias="MIXED",
+                confidence=74,
+                risk_level="MEDIUM",
+                fallback=False,
+                created_at=interval_start,
+                payload_json=to_json(payload),
+            )
+        )
+
+    async def fail_translate_json_with_logging(*args, **kwargs):
+        raise AssertionError("embedded league sentiment locales should not call translation cache")
+
+    monkeypatch.setattr("app.league_sentiment.utc_now", lambda: interval_start + timedelta(minutes=12))
+    monkeypatch.setattr("app.ai.translation_cache.translate_json_with_logging", fail_translate_json_with_logging)
+    monkeypatch.setattr("app.main.settings.openai_api_key", "test-key")
+    monkeypatch.setattr("app.main.settings.ai_translation_enabled", True)
+    monkeypatch.setattr("app.main.settings.ai_translation_target_locales", ["ko"])
+
+    client = TestClient(app)
+    response = client.get("/api/league/sentiment/opinion?symbol=BTCUSDT&locale=ko")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["translation"]["status"] == "embedded"
+    assert data["opinion"]["headline"] == "BTC 리그 압력은 혼조라 확인이 필요합니다."
+    assert data["opinion"]["brief"]["watch"] == "다음 1시간 종가와 대기 SHORT 체결 여부를 확인하세요."
+    assert "translations" not in data["opinion"]
+
+    with session_scope() as db:
+        assert db.query(AITranslationCacheRecord).count() == 0
 
 
 def test_league_sentiment_opinion_can_return_previous_hour_without_blocking(temp_db, monkeypatch):
@@ -621,10 +791,17 @@ def test_league_sentiment_prompt_prioritizes_user_usefulness_and_specificity(tem
     assert "brief.conclusion" in prompt
     assert "brief.reason" in prompt
     assert "brief.watch" in prompt
+    assert "translations is required" in prompt
+    assert "en, ko, ru, pt-BR, tr" in prompt
+    assert "Top-level user-facing fields must mirror translations.en exactly" in prompt
     assert "keyDrivers: at most one hidden support item" in prompt
     assert "watchConditions: at most one hidden support item" in prompt
     assert "confidenceReason must explain why confidence is high, capped, or low" in prompt
+    assert "active exposure, pending entries, invalidation area" in prompt
     assert "Use sourceRef or evidenceRefs labels" in prompt
     assert "Avoid generic sentences like 'monitor market conditions'" in prompt
+    assert "notional" in prompt
+    assert "stop zone" in prompt
     assert "summary: two to three sentences" not in prompt
+    assert "futures simulation league" not in prompt
     assert "up to four bullets" not in prompt

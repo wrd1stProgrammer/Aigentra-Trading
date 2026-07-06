@@ -4,8 +4,14 @@ import re
 from typing import Any, Dict, Final, Optional
 
 from app.ai.entry_approval_dossier import build_entry_approval_dossier
-from app.ai.league_sentiment_models import LeagueSentimentBrief, LeagueSentimentOpinionResult, LeagueSentimentPayload
+from app.ai.league_sentiment_models import (
+    LeagueSentimentBrief,
+    LeagueSentimentLocalizedOpinion,
+    LeagueSentimentOpinionResult,
+    LeagueSentimentPayload,
+)
 from app.ai.review_prompt_quality import ENTRY_DETAIL_UI_CONTRACT, STRUCTURED_REVIEW_QUALITY_CONTRACT
+from app.locales import CANONICAL_AI_LOCALE, SUPPORTED_LOCALES
 from app.paper.holding_policy import trader_holding_policy
 from app.traders.models import (
     ManagementAction,
@@ -203,23 +209,24 @@ class BaseAIProvider:
                 normalized_counts[str(key)] = max(0, int(value))
             except (TypeError, ValueError):
                 normalized_counts[str(key)] = 0
-        headline = self._compact_sentence(raw.get("headline")) or "Market context needs review."
-        summary = self._compact_sentence(raw.get("summary")) or "Not enough reliable trader context is available."
-        action = self._compact_sentence(raw.get("action")) or "Wait for the next hourly context refresh."
-        brief = self._normalize_league_sentiment_brief(raw.get("brief"), headline=headline, summary=summary, action=action)
+        top_level_copy = dict(raw)
+        top_level_copy.pop("translations", None)
+        top_localized = self._normalize_league_sentiment_localized(top_level_copy, fallback=None)
+        translations = self._normalize_league_sentiment_translations(raw.get("translations"), top_localized)
+        source_localized = translations.get(CANONICAL_AI_LOCALE, top_localized)
         return LeagueSentimentOpinionResult(
             bias=bias,
             confidence=max(0, min(self._normalize_confidence(raw.get("confidence", 50)), 100)),
             riskLevel=risk_level,
-            confidenceReason=self._normalize_optional_text(raw.get("confidenceReason")) or "Confidence reflects the available source mix and freshness.",
-            brief=brief,
-            headline=headline,
-            summary=summary,
-            keyDrivers=self._normalize_limited_string_list(raw.get("keyDrivers"), 1),
-            risks=self._normalize_limited_string_list(raw.get("risks"), 1),
-            watchConditions=self._normalize_limited_string_list(raw.get("watchConditions"), 1),
-            action=action,
-            longShortContext=self._normalize_optional_text(raw.get("longShortContext")) or "No active long/short skew.",
+            confidenceReason=source_localized.confidenceReason,
+            brief=source_localized.brief,
+            headline=source_localized.headline,
+            summary=source_localized.summary,
+            keyDrivers=source_localized.keyDrivers,
+            risks=source_localized.risks,
+            watchConditions=source_localized.watchConditions,
+            action=source_localized.action,
+            longShortContext=source_localized.longShortContext,
             sourceCounts=normalized_counts,
             sourceBreakdown=self._normalize_dict(raw.get("sourceBreakdown")),
             dataFreshness=self._normalize_dict(raw.get("dataFreshness")),
@@ -228,6 +235,55 @@ class BaseAIProvider:
             provider=self.name,
             model=self.model,
             fallback=self.fallback,
+            translations=translations,
+        )
+
+    def _normalize_league_sentiment_translations(
+        self,
+        value: Any,
+        fallback: LeagueSentimentLocalizedOpinion,
+    ) -> dict[str, LeagueSentimentLocalizedOpinion]:
+        raw_translations = value if isinstance(value, dict) else {}
+        translations: dict[str, LeagueSentimentLocalizedOpinion] = {}
+        for locale in SUPPORTED_LOCALES:
+            localized = raw_translations.get(locale)
+            if isinstance(localized, dict):
+                translations[locale] = self._normalize_league_sentiment_localized(localized, fallback=fallback)
+        if CANONICAL_AI_LOCALE not in translations:
+            translations[CANONICAL_AI_LOCALE] = fallback
+        return translations
+
+    def _normalize_league_sentiment_localized(
+        self,
+        value: dict[str, Any],
+        fallback: LeagueSentimentLocalizedOpinion | None,
+    ) -> LeagueSentimentLocalizedOpinion:
+        headline = self._compact_sentence(value.get("headline")) or fallback_value(fallback, "headline") or "Market context needs review."
+        summary = (
+            self._compact_sentence(value.get("summary"))
+            or fallback_value(fallback, "summary")
+            or "Not enough reliable trader context is available."
+        )
+        action = self._compact_sentence(value.get("action")) or fallback_value(fallback, "action") or "Wait for the next hourly context refresh."
+        brief = self._normalize_league_sentiment_brief(value.get("brief"), headline=headline, summary=summary, action=action)
+        return LeagueSentimentLocalizedOpinion(
+            confidenceReason=(
+                self._normalize_optional_text(value.get("confidenceReason"))
+                or fallback_value(fallback, "confidenceReason")
+                or "Confidence reflects the available source mix and freshness."
+            ),
+            brief=brief,
+            headline=headline,
+            summary=summary,
+            keyDrivers=self._normalize_limited_string_list(value.get("keyDrivers"), 1) or list(fallback.keyDrivers if fallback else []),
+            risks=self._normalize_limited_string_list(value.get("risks"), 1) or list(fallback.risks if fallback else []),
+            watchConditions=self._normalize_limited_string_list(value.get("watchConditions"), 1) or list(fallback.watchConditions if fallback else []),
+            action=action,
+            longShortContext=(
+                self._normalize_optional_text(value.get("longShortContext"))
+                or fallback_value(fallback, "longShortContext")
+                or "No active long/short skew."
+            ),
         )
 
     def _normalize_league_sentiment_brief(
@@ -686,6 +742,13 @@ def compact_text(value: Any, max_length: int = 220) -> Optional[str]:
     if len(text) <= max_length:
         return text
     return f"{text[: max_length - 1].rstrip()}…"
+
+
+def fallback_value(fallback: LeagueSentimentLocalizedOpinion | None, field: str) -> str:
+    if fallback is None:
+        return ""
+    value = getattr(fallback, field, "")
+    return value if isinstance(value, str) else ""
 
 
 def structured_review_memory(review: dict[str, Any]) -> list[str]:
@@ -1345,30 +1408,30 @@ def management_prompt(payload: PositionManagementPayload) -> str:
 
 
 def league_sentiment_prompt(payload: LeagueSentimentPayload) -> str:
-    locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
-    language_instruction = (
-        "Write brief, headline, summary, confidenceReason, keyDrivers, risks, watchConditions, action, and longShortContext in Korean."
-        if locale == "ko"
-        else "Write brief, headline, summary, confidenceReason, keyDrivers, risks, watchConditions, action, and longShortContext in English."
-    )
     try:
         payload_data = payload.model_dump(mode="json")
     except TypeError:
         payload_data = payload.model_dump()
     return (
-        "You are Aigentra's hourly aggregate sentiment analyst for a futures simulation league. "
+        "You are Aigentra's hourly aggregate sentiment analyst for the Aigentra trader league. "
         "Return only strict JSON with keys bias, confidence, riskLevel, confidenceReason, brief, headline, summary, keyDrivers, risks, "
-        "watchConditions, action, longShortContext, sourceCounts, sourceBreakdown, dataFreshness, evidenceRefs, invalidatesAt. "
+        "watchConditions, action, longShortContext, sourceCounts, sourceBreakdown, dataFreshness, evidenceRefs, invalidatesAt, translations. "
+        "translations is required and must contain exactly these locale keys: en, ko, ru, pt-BR, tr. "
+        "Each locale object must contain confidenceReason, brief, headline, summary, keyDrivers, risks, watchConditions, action, and longShortContext. "
+        "Top-level user-facing fields must mirror translations.en exactly. "
         "The default UI reads only brief, so make brief the product-quality desk briefing. "
         "brief must have exactly conclusion, reason, and watch. These three fields should read as two or three short lines together. "
         "brief.conclusion: the current league read in one plain sentence. "
         "brief.reason: the single strongest reason the read matters, not a data dump. "
         "brief.watch: the next concrete condition to watch before the next generation. "
         "Do not force current price, entry price, stop, target, or PnL into brief unless that specific number is the core reason. "
+        "Use professional trading terms consistently: active exposure, pending entries, invalidation area, protective stop, retest area, take-profit, stop-loss, realized outcome. "
+        "In Korean, prefer 리그, 트레이더, 활성 노출, 진입 대기, 무효화 구역, 보호 손절, 재테스트 구역, 익절, 손절, 실현 결과. "
+        "Do not use awkward machine terms such as 시뮬레이션 리그, 모델 시뮬레이션, 노타시온, 전적으로 노출, stop zone, notional, desk says, or bot says in user-facing fields. "
         "Valid bias values are LONG_BIASED, SHORT_BIASED, NEUTRAL, MIXED, RISK_OFF. "
         "Valid riskLevel values are LOW, MEDIUM, HIGH, EXTREME. Confidence must be an integer from 0 to 100. "
-        "This is not financial advice and must not tell users to place real trades. It is a context summary of simulation agents only. "
-        "Never use the phrases 'paper trading', 'paper-trading', 'paper league', or '페이퍼 트레이딩' in user-facing fields. "
+        "This is not financial advice and must not tell users to place real trades. It is a context summary of league agents only. "
+        "Never use the phrases 'paper trading', 'paper-trading', 'paper league', 'simulation league', 'simulated league', or '페이퍼 트레이딩' in user-facing fields. "
         "Use only the supplied payload. Never invent traders, prices, PnL, order states, reviews, wins, losses, or market levels. "
         "The backend sourceCounts are authoritative; echo them exactly in sourceCounts. "
         "Also echo sourceBreakdown and dataFreshness from the payload without inventing new counts or timestamps. "
@@ -1378,7 +1441,7 @@ def league_sentiment_prompt(payload: LeagueSentimentPayload) -> str:
         "Management reviews describe what changed after entry. Ignore records that are fallback, provider-error, or explicitly failed if they appear in the payload. "
         "If active/pending data is thin or conflicting, choose NEUTRAL or MIXED and keep confidence at or below 55. "
         "confidenceReason must explain why confidence is high, capped, or low, including data freshness when it matters. "
-        "If both long and short exposures are meaningful, choose MIXED unless one side has clearly stronger active notional, confidence, or fresh review quality. "
+        "If both long and short exposures are meaningful, choose MIXED unless one side has clearly stronger active exposure size, confidence, or fresh review quality. "
         "If recent losses cluster, failed reviews dominate, or market risk is unclear, choose RISK_OFF even if one side has more entries. "
         "Write for a normal user: plain language, short sentences, and professional trading-desk compression. "
         "Do not dump raw indicators or list counts in brief unless you state the implication. "
@@ -1386,8 +1449,9 @@ def league_sentiment_prompt(payload: LeagueSentimentPayload) -> str:
         "keyDrivers: at most one hidden support item. risks: at most one hidden support item. "
         "watchConditions: at most one hidden support item with a source, timeframe, or price area from the payload. "
         "Avoid generic sentences like 'monitor market conditions', 'watch closely', or 'market is supportive' unless you add the exact condition. "
-        "headline: one sentence. summary: one sentence. action: one practical monitoring instruction for this simulation league. "
+        "headline: one sentence. summary: one sentence. action: one practical monitoring instruction for this Aigentra league. "
         "longShortContext: one compact sentence comparing LONG and SHORT pressure. "
-        f"{language_instruction}\n\n"
+        "Write each translations locale naturally for that language, not as literal word-by-word translation. Keep LONG and SHORT as side labels when useful. "
+        "If a locale translation is uncertain, keep the sentence simpler rather than adding new facts.\n\n"
         f"Payload:\n{json.dumps(payload_data, ensure_ascii=False)}"
     )

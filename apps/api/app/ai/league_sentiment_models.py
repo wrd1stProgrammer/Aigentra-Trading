@@ -31,6 +31,18 @@ class LeagueSentimentBrief(BaseModel):
     watch: str = ""
 
 
+class LeagueSentimentLocalizedOpinion(BaseModel):
+    confidenceReason: str = ""
+    brief: LeagueSentimentBrief = Field(default_factory=LeagueSentimentBrief)
+    headline: str = ""
+    summary: str = ""
+    keyDrivers: List[str] = Field(default_factory=list)
+    risks: List[str] = Field(default_factory=list)
+    watchConditions: List[str] = Field(default_factory=list)
+    action: str = ""
+    longShortContext: str = ""
+
+
 class LeagueSentimentOpinionResult(BaseModel):
     bias: str
     confidence: int
@@ -52,3 +64,4 @@ class LeagueSentimentOpinionResult(BaseModel):
     provider: str = "mock"
     model: str = "mock-league-opinion"
     fallback: bool = False
+    translations: Dict[str, LeagueSentimentLocalizedOpinion] = Field(default_factory=dict)

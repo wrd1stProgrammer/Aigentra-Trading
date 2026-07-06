@@ -39,10 +39,42 @@ RECENT_TRADE_EVENT_TYPES = {
 ACTIVE_ORDER_STATUSES = {"open", "pending", "submitted"}
 ACTIVE_POSITION_STATUSES = {"open"}
 BANNED_OPINION_TERMS = (
-    ("페이퍼 트레이딩", "시뮬레이션"),
-    ("paper-trading", "simulation"),
-    ("paper trading", "simulation"),
-    ("paper league", "simulation league"),
+    ("페이퍼 트레이딩은", "Aigentra 리그는"),
+    ("페이퍼 트레이딩", "Aigentra 리그"),
+    ("모델 시뮬레이션은", "Aigentra 리그 의견은"),
+    ("모델 시뮬레이션", "Aigentra 리그 의견"),
+    ("시뮬레이션 리그는", "Aigentra 리그는"),
+    ("시뮬레이션 리그", "Aigentra 리그"),
+    ("paper-trading", "Aigentra league"),
+    ("paper trading", "Aigentra league"),
+    ("paper league", "Aigentra league"),
+    ("simulation league", "Aigentra league"),
+    ("simulated league", "Aigentra league"),
+)
+KOREAN_CONTEXT_BANNED_OPINION_TERMS = (
+    ("노타시온", "노출"),
+    ("전적으로 노출", "활성 노출"),
+    ("notional", "노출"),
+    ("stop zone", "무효화 구역"),
+    ("desk says", "리그 판단"),
+    ("bot says", "리그 판단"),
+)
+ENGLISH_CONTEXT_BANNED_OPINION_TERMS = (
+    ("notional", "exposure"),
+    ("stop zone", "invalidation area"),
+    ("desk says", "league read"),
+    ("bot says", "league read"),
+)
+LOCALIZED_OPINION_KEYS = (
+    "confidenceReason",
+    "brief",
+    "headline",
+    "summary",
+    "keyDrivers",
+    "risks",
+    "watchConditions",
+    "action",
+    "longShortContext",
 )
 
 
@@ -109,6 +141,36 @@ def ensure_compact_brief_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def embedded_league_sentiment_locale_payload(
+    payload: dict[str, Any],
+    locale: str,
+) -> tuple[Optional[dict[str, Any]], dict[str, Any]]:
+    requested_locale = normalize_locale(locale)
+    translations = payload.get("translations") if isinstance(payload.get("translations"), dict) else {}
+    translated = translations.get(requested_locale) if isinstance(translations, dict) else None
+    if isinstance(translated, dict):
+        localized = dict(payload)
+        for key in LOCALIZED_OPINION_KEYS:
+            if key in translated:
+                localized[key] = translated[key]
+        localized.pop("translations", None)
+        return localized, {"status": "embedded", "locale": requested_locale, "sourceLocale": CANONICAL_AI_LOCALE}
+    if requested_locale == CANONICAL_AI_LOCALE:
+        localized = dict(payload)
+        localized.pop("translations", None)
+        return localized, {"status": "canonical", "locale": CANONICAL_AI_LOCALE, "sourceLocale": CANONICAL_AI_LOCALE}
+    return None, {"status": "missing", "locale": requested_locale, "fallbackLocale": CANONICAL_AI_LOCALE, "sourceLocale": CANONICAL_AI_LOCALE}
+
+
+def embedded_league_sentiment_missing_locales(payload: dict[str, Any], locales: tuple[str, ...]) -> tuple[str, ...]:
+    translations = payload.get("translations") if isinstance(payload.get("translations"), dict) else {}
+    return tuple(
+        locale
+        for locale in (normalize_locale(item) for item in locales)
+        if locale != CANONICAL_AI_LOCALE and not isinstance(translations.get(locale), dict)
+    )
+
+
 def compact_opinion_line(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -127,6 +189,9 @@ def scrub_banned_opinion_terms(value: Any) -> Any:
     if isinstance(value, str):
         result = value
         for banned, replacement in BANNED_OPINION_TERMS:
+            result = re.sub(re.escape(banned), replacement, result, flags=re.IGNORECASE)
+        contextual_terms = KOREAN_CONTEXT_BANNED_OPINION_TERMS if re.search(r"[가-힣]", result) else ENGLISH_CONTEXT_BANNED_OPINION_TERMS
+        for banned, replacement in contextual_terms:
             result = re.sub(re.escape(banned), replacement, result, flags=re.IGNORECASE)
         return result
     if isinstance(value, list):
@@ -267,16 +332,22 @@ async def get_or_create_league_sentiment_opinion(
     try:
         db.add(record)
         db.flush()
-        await fanout_ai_translations(
-            db,
-            settings=settings,
-            source_type=AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT,
-            source_id=record.id,
-            payload=opinion.model_dump(),
-            symbol=symbol,
-            trader_id="aigentra-opinion",
-            target_locales=league_sentiment_translation_locales(settings, requested_locale),
+        opinion_payload = opinion.model_dump()
+        missing_locales = embedded_league_sentiment_missing_locales(
+            opinion_payload,
+            league_sentiment_translation_locales(settings, requested_locale),
         )
+        if missing_locales:
+            await fanout_ai_translations(
+                db,
+                settings=settings,
+                source_type=AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT,
+                source_id=record.id,
+                payload=opinion_payload,
+                symbol=symbol,
+                trader_id="aigentra-opinion",
+                target_locales=missing_locales,
+            )
         from app.subscribers import notify_subscribers_for_league_sentiment_opinion
 
         notify_subscribers_for_league_sentiment_opinion(db, record)
@@ -312,6 +383,9 @@ async def ensure_league_sentiment_translation(
         return
     opinion = from_json(record.payload_json) if record.payload_json else {}
     if not isinstance(opinion, dict):
+        return
+    embedded_payload, translation_meta = embedded_league_sentiment_locale_payload(opinion, requested_locale)
+    if embedded_payload is not None and translation_meta.get("status") == "embedded":
         return
 
     _, translation_meta = localized_payload_for_source(
@@ -1067,6 +1141,92 @@ def summarize_previous_opinion(record: Optional[LeagueSentimentOpinionRecord]) -
     }
 
 
+def fallback_league_sentiment_translations(
+    *,
+    long_count: int,
+    short_count: int,
+    take_profits: int,
+    stop_losses: int,
+) -> dict[str, dict[str, Any]]:
+    return {
+        "en": {
+            "confidenceReason": "Confidence is capped because only verified counts and freshness metadata were available.",
+            "brief": {
+                "conclusion": "Check active setup invalidation before reading a new direction.",
+                "reason": f"Verified exposure shows LONG {long_count} versus SHORT {short_count}, so directional confidence is limited.",
+                "watch": "Before the next generation, watch fills plus take-profit and stop-loss changes first.",
+            },
+            "headline": "Check active setup invalidation before reading a new direction.",
+            "summary": f"Verified exposure shows LONG {long_count} versus SHORT {short_count}, so directional confidence is limited.",
+            "keyDrivers": [f"LONG {long_count} / SHORT {short_count} shows which side has more active or planned exposure."],
+            "risks": ["Treating pending entries like filled exposure can overstate direction."],
+            "watchConditions": ["Check whether active side counts or take-profit and stop-loss events change before the next generation."],
+            "action": "Before the next generation, watch fills plus take-profit and stop-loss changes first.",
+            "longShortContext": f"LONG {long_count} / SHORT {short_count}; recent take-profit {take_profits} / stop-loss {stop_losses}.",
+        },
+        "ko": {
+            "confidenceReason": "검증된 집계와 데이터 신선도만 사용할 수 있어 신뢰도를 제한했습니다.",
+            "brief": {
+                "conclusion": "새 방향보다 활성 셋업의 무효화 조건을 먼저 볼 구간입니다.",
+                "reason": f"검증된 노출 기준 LONG {long_count}건, SHORT {short_count}건이라 방향 신뢰도가 제한됩니다.",
+                "watch": "다음 생성 전까지 체결 변화와 익절/손절 이벤트를 먼저 확인하세요.",
+            },
+            "headline": "새 방향보다 활성 셋업의 무효화 조건을 먼저 볼 구간입니다.",
+            "summary": f"검증된 노출 기준 LONG {long_count}건, SHORT {short_count}건이라 방향 신뢰도가 제한됩니다.",
+            "keyDrivers": [f"LONG {long_count}건 / SHORT {short_count}건은 리그가 어느 쪽에 리스크를 준비하거나 보유 중인지 보여줍니다."],
+            "risks": ["진입 대기 주문을 체결 포지션처럼 해석하면 방향성이 과장될 수 있습니다."],
+            "watchConditions": ["다음 생성 전까지 활성 방향 수와 익절/손절 이벤트가 바뀌는지 확인하세요."],
+            "action": "다음 생성 전까지 체결 변화와 익절/손절 이벤트를 먼저 확인하세요.",
+            "longShortContext": f"LONG {long_count}건 / SHORT {short_count}건, 최근 익절 {take_profits}건 / 손절 {stop_losses}건입니다.",
+        },
+        "ru": {
+            "confidenceReason": "Уверенность ограничена, потому что доступны только проверенные счетчики и свежесть данных.",
+            "brief": {
+                "conclusion": "Сначала проверьте зоны отмены активных сетапов, а не новый импульс.",
+                "reason": f"Проверенная экспозиция: LONG {long_count} против SHORT {short_count}, поэтому направленная уверенность ограничена.",
+                "watch": "До следующей генерации следите за исполнениями, take-profit и stop-loss событиями.",
+            },
+            "headline": "Сначала проверьте зоны отмены активных сетапов, а не новый импульс.",
+            "summary": f"Проверенная экспозиция: LONG {long_count} против SHORT {short_count}, поэтому направленная уверенность ограничена.",
+            "keyDrivers": [f"LONG {long_count} / SHORT {short_count} показывает, где у лиги активный или планируемый риск."],
+            "risks": ["Ожидающие входы могут преувеличить перекос, если считать их уже исполненной экспозицией."],
+            "watchConditions": ["Проверьте, меняются ли активные стороны, take-profit или stop-loss события до следующей генерации."],
+            "action": "До следующей генерации следите за исполнениями, take-profit и stop-loss событиями.",
+            "longShortContext": f"LONG {long_count} / SHORT {short_count}; недавние take-profit {take_profits} / stop-loss {stop_losses}.",
+        },
+        "pt-BR": {
+            "confidenceReason": "A confiança fica limitada porque só havia contagens verificadas e frescor dos dados.",
+            "brief": {
+                "conclusion": "Confira primeiro as áreas de invalidação dos setups ativos antes de ler nova direção.",
+                "reason": f"A exposição verificada mostra LONG {long_count} contra SHORT {short_count}, então a convicção direcional é limitada.",
+                "watch": "Até a próxima geração, acompanhe execuções e eventos de take-profit e stop-loss.",
+            },
+            "headline": "Confira primeiro as áreas de invalidação dos setups ativos antes de ler nova direção.",
+            "summary": f"A exposição verificada mostra LONG {long_count} contra SHORT {short_count}, então a convicção direcional é limitada.",
+            "keyDrivers": [f"LONG {long_count} / SHORT {short_count} mostra onde a liga tem exposição ativa ou planejada."],
+            "risks": ["Entradas pendentes podem exagerar o viés se forem lidas como exposição já executada."],
+            "watchConditions": ["Veja se as contagens ativas ou eventos de take-profit e stop-loss mudam antes da próxima geração."],
+            "action": "Até a próxima geração, acompanhe execuções e eventos de take-profit e stop-loss.",
+            "longShortContext": f"LONG {long_count} / SHORT {short_count}; take-profit recente {take_profits} / stop-loss {stop_losses}.",
+        },
+        "tr": {
+            "confidenceReason": "Güven, yalnızca doğrulanmış sayımlar ve veri tazeliği kullanılabildiği için sınırlı tutuldu.",
+            "brief": {
+                "conclusion": "Yeni yön okumadan önce aktif kurulumların geçersizleşme alanlarını kontrol edin.",
+                "reason": f"Doğrulanmış maruziyet LONG {long_count} ve SHORT {short_count} gösteriyor, bu yüzden yön güveni sınırlı.",
+                "watch": "Bir sonraki üretime kadar gerçekleşen emirleri, take-profit ve stop-loss olaylarını izleyin.",
+            },
+            "headline": "Yeni yön okumadan önce aktif kurulumların geçersizleşme alanlarını kontrol edin.",
+            "summary": f"Doğrulanmış maruziyet LONG {long_count} ve SHORT {short_count} gösteriyor, bu yüzden yön güveni sınırlı.",
+            "keyDrivers": [f"LONG {long_count} / SHORT {short_count}, ligde aktif veya planlanan riskin hangi tarafta olduğunu gösterir."],
+            "risks": ["Bekleyen girişleri gerçekleşmiş maruziyet gibi okumak yön eğilimini abartabilir."],
+            "watchConditions": ["Sonraki üretimden önce aktif taraf sayıları veya take-profit ve stop-loss olayları değişiyor mu kontrol edin."],
+            "action": "Bir sonraki üretime kadar gerçekleşen emirleri, take-profit ve stop-loss olaylarını izleyin.",
+            "longShortContext": f"LONG {long_count} / SHORT {short_count}; son take-profit {take_profits} / stop-loss {stop_losses}.",
+        },
+    }
+
+
 def fallback_league_sentiment_opinion(payload: LeagueSentimentPayload) -> LeagueSentimentOpinionResult:
     counts = payload.sourceCounts
     long_count = int(counts.get("activeLongPositions", 0)) + int(counts.get("pendingLongOrders", 0))
@@ -1088,75 +1248,26 @@ def fallback_league_sentiment_opinion(payload: LeagueSentimentPayload) -> League
     else:
         bias = "NEUTRAL"
         risk = "LOW"
-    ko = payload.locale.lower().startswith("ko")
+    translations = fallback_league_sentiment_translations(
+        long_count=long_count,
+        short_count=short_count,
+        take_profits=take_profits,
+        stop_losses=stop_losses,
+    )
+    localized = translations.get(normalize_locale(payload.locale), translations["en"])
     return LeagueSentimentOpinionResult(
         bias=bias,
         confidence=45 if bias in {"NEUTRAL", "MIXED"} else 58,
         riskLevel=risk,
-        confidenceReason=(
-            "신뢰도는 AI 해석 실패 후 검증된 집계와 데이터 신선도만 사용해 제한했습니다."
-            if ko
-            else "Confidence is capped because the provider failed and only verified counts plus freshness metadata were used."
-        ),
-        brief={
-            "conclusion": (
-                "새 방향보다 활성 셋업의 무효화 조건을 먼저 볼 구간입니다."
-                if ko
-                else "Check active setup invalidation before reading a new direction."
-            ),
-            "reason": (
-                f"검증된 집계 기준 LONG {long_count}건, SHORT {short_count}건이라 방향 신뢰도가 제한됩니다."
-                if ko
-                else f"Verified counts show LONG {long_count} versus SHORT {short_count}, so direction confidence is limited."
-            ),
-            "watch": (
-                "다음 생성 전까지 체결 변화와 손절/익절 이벤트만 우선 확인하세요."
-                if ko
-                else "Before the next generation, watch fills plus TP/SL changes first."
-            ),
-        },
-        headline=(
-            "새 방향보다 활성 셋업의 무효화 조건을 먼저 볼 구간입니다."
-            if ko
-            else "Check active setup invalidation before reading a new direction."
-        ),
-        summary=(
-            f"검증된 집계 기준 LONG {long_count}건, SHORT {short_count}건이라 방향 신뢰도가 제한됩니다."
-            if ko
-            else f"Verified counts show LONG {long_count} versus SHORT {short_count}, so direction confidence is limited."
-        ),
-        keyDrivers=[
-            (
-                f"LONG {long_count}건 / SHORT {short_count}건은 현재 리그가 어느 방향을 더 많이 준비하거나 보유 중인지 보여줍니다."
-                if ko
-                else f"LONG {long_count} / SHORT {short_count} shows which side has more active or planned exposure."
-            ),
-            (
-                f"최근 익절 {take_profits}건 / 손절 {stop_losses}건은 방향보다 리스크 강도를 조정하는 근거입니다."
-                if ko
-                else f"Recent TP {take_profits} / SL {stop_losses} adjusts risk confidence more than direction."
-            ),
-        ],
-        risks=[
-            (
-                "집계 기반 의견이라 대기 주문을 체결 포지션처럼 해석하면 방향성이 과장될 수 있습니다."
-                if ko
-                else "Because this is count-based, treating pending orders like filled positions can overstate direction."
-            )
-        ],
-        watchConditions=[
-            (
-                "다음 생성 전까지 활성 방향 수와 손절/익절 이벤트가 바뀌는지 확인"
-                if ko
-                else "Before the next generation, check whether active side counts or TP/SL events change."
-            )
-        ],
-        action=(
-            "다음 생성 전까지 체결 변화와 손절/익절 이벤트만 우선 확인하세요."
-            if ko
-            else "Before the next generation, watch fills plus TP/SL changes first."
-        ),
-        longShortContext=f"LONG {long_count} / SHORT {short_count}",
+        confidenceReason=localized["confidenceReason"],
+        brief=localized["brief"],
+        headline=localized["headline"],
+        summary=localized["summary"],
+        keyDrivers=localized["keyDrivers"],
+        risks=localized["risks"],
+        watchConditions=localized["watchConditions"],
+        action=localized["action"],
+        longShortContext=localized["longShortContext"],
         sourceCounts=dict(counts),
         sourceBreakdown=dict(payload.sourceBreakdown),
         dataFreshness=dict(payload.dataFreshness),
@@ -1165,6 +1276,7 @@ def fallback_league_sentiment_opinion(payload: LeagueSentimentPayload) -> League
         provider="system",
         model="safe-hourly-fallback",
         fallback=True,
+        translations=translations,
     )
 
 
@@ -1181,13 +1293,15 @@ def serialize_league_sentiment_record(
     opinion = from_json(record.payload_json) if record.payload_json else {}
     if not isinstance(opinion, dict):
         opinion = {}
-    localized_opinion, translation_meta = localized_payload_for_source(
-        db,
-        source_type=AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT,
-        source_id=record.id,
-        payload=opinion,
-        locale=locale,
-    )
+    localized_opinion, translation_meta = embedded_league_sentiment_locale_payload(opinion, locale)
+    if localized_opinion is None:
+        localized_opinion, translation_meta = localized_payload_for_source(
+            db,
+            source_type=AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT,
+            source_id=record.id,
+            payload=opinion,
+            locale=locale,
+        )
     if isinstance(localized_opinion, dict):
         localized_opinion = dict(localized_opinion)
         localized_opinion.pop("dataQuality", None)

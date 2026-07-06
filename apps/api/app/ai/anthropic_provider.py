@@ -15,6 +15,7 @@ from app.ai.base import (
     position_management_review_prompt,
 )
 from app.ai.league_sentiment_models import LeagueSentimentOpinionResult, LeagueSentimentPayload
+from app.locales import SUPPORTED_LOCALES
 from app.traders.models import PositionManagementPayload, PositionManagementResult, TradeReviewPayload, TradeReviewResult
 
 
@@ -207,6 +208,50 @@ def management_review_schema() -> dict[str, Any]:
 def league_sentiment_schema() -> dict[str, Any]:
     nullable_string = {"type": ["string", "null"]}
     nullable_integer = {"type": ["integer", "null"]}
+    localized_opinion_schema = {
+        "type": "object",
+        "properties": {
+            "confidenceReason": {"type": "string"},
+            "brief": {
+                "type": "object",
+                "properties": {
+                    "conclusion": {
+                        "type": "string",
+                        "description": "One plain sentence with the current league read.",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "One plain sentence with the strongest reason this read matters.",
+                    },
+                    "watch": {
+                        "type": "string",
+                        "description": "One concrete next condition to watch before the next generation.",
+                    },
+                },
+                "required": ["conclusion", "reason", "watch"],
+                "additionalProperties": False,
+            },
+            "headline": {"type": "string"},
+            "summary": {"type": "string"},
+            "keyDrivers": {"type": "array", "items": {"type": "string"}, "maxItems": 1},
+            "risks": {"type": "array", "items": {"type": "string"}, "maxItems": 1},
+            "watchConditions": {"type": "array", "items": {"type": "string"}, "maxItems": 1},
+            "action": {"type": "string"},
+            "longShortContext": {"type": "string"},
+        },
+        "required": [
+            "confidenceReason",
+            "brief",
+            "headline",
+            "summary",
+            "keyDrivers",
+            "risks",
+            "watchConditions",
+            "action",
+            "longShortContext",
+        ],
+        "additionalProperties": False,
+    }
     source_group_schema = {
         "type": "object",
         "properties": {
@@ -330,6 +375,12 @@ def league_sentiment_schema() -> dict[str, Any]:
                 },
             },
             "invalidatesAt": nullable_string,
+            "translations": {
+                "type": "object",
+                "properties": {locale: localized_opinion_schema for locale in SUPPORTED_LOCALES},
+                "required": list(SUPPORTED_LOCALES),
+                "additionalProperties": False,
+            },
         },
         "required": [
             "bias",
@@ -349,6 +400,7 @@ def league_sentiment_schema() -> dict[str, Any]:
             "dataFreshness",
             "evidenceRefs",
             "invalidatesAt",
+            "translations",
         ],
         "additionalProperties": False,
     }
