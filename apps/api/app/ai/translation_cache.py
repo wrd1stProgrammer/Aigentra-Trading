@@ -126,17 +126,15 @@ def localized_payload_for_source(
         locale=requested_locale,
     )
     if latest_record is not None and latest_record.source_hash != source_hash:
-        cached_payload = from_json(latest_record.payload_json)
-        if isinstance(cached_payload, dict):
-            localized_payload = merge_translation_overlay(payload, scrub_translation_payload_for_source(source_type, cached_payload))
-            return localized_payload, {
-                "status": "ok",
-                "locale": requested_locale,
-                "sourceLocale": source_locale,
-                "sourceHash": source_hash,
-                "cachedSourceHash": latest_record.source_hash,
-                "staleSourceHash": True,
-            }
+        return payload, {
+            "status": "missing",
+            "locale": requested_locale,
+            "fallbackLocale": source_locale,
+            "sourceLocale": source_locale,
+            "sourceHash": source_hash,
+            "cachedSourceHash": latest_record.source_hash,
+            "staleSourceHash": True,
+        }
     if record is None:
         return payload, {"status": "missing", "locale": requested_locale, "fallbackLocale": source_locale, "sourceLocale": source_locale}
     return payload, {

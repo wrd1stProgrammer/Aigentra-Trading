@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app.db import AIReviewRecord, Base, EquitySnapshotRecord, PaperPositionRecord, PositionManagementReviewRecord, TraderLeaderboardSnapshotRecord, init_db, reset_db_engine, session_scope
+from app.db import AIReviewRecord, Base, EquitySnapshotRecord, PaperOrderRecord, PaperPositionRecord, PositionManagementReviewRecord, TraderLeaderboardSnapshotRecord, init_db, reset_db_engine, session_scope
 from app.main import app
 from app.repositories import to_json, upsert_translation_cache_record
 
@@ -40,6 +40,131 @@ def test_health(monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["buildSha"] == "test-build-sha"
+
+
+@pytest.mark.parametrize(
+    ("requested_locale", "translated_payload"),
+    [
+        (
+            "ko",
+            {
+                "approvalReason": "상위 시간대 EMA 정렬이 회복되어 추세 감시관의 롱 진입을 승인합니다.",
+                "structuredReview": {
+                    "headline": "조정 뒤 트리거 구간을 회수해 추세 지속 롱 근거가 성립했습니다.",
+                    "action": "계획된 트리거 구간 안에서만 진입하고 무효화 기준은 엄격히 유지합니다.",
+                    "keyReasons": ["4시간 추세 지지가 회복되었습니다."],
+                    "risks": ["펀딩이 이미 혼잡합니다."],
+                    "watchConditions": ["트리거 구간 위에서는 추격하지 않습니다."],
+                },
+            },
+        ),
+        (
+            "ru",
+            {
+                "approvalReason": "Trend Sentinel может открыть LONG, потому что EMA на старших таймфреймах восстановились.",
+                "structuredReview": {
+                    "headline": "LONG по продолжению тренда допустим после возврата в зону триггера.",
+                    "action": "Входить только внутри запланированной зоны триггера и строго держать уровень отмены.",
+                    "keyReasons": ["Поддержка 4h тренда восстановилась."],
+                    "risks": ["Фандинг уже перегружен."],
+                    "watchConditions": ["Не догонять цену выше зоны триггера."],
+                },
+            },
+        ),
+    ],
+)
+def test_paper_endpoints_localize_embedded_ai_review_when_locale_requested(
+    temp_api_db,
+    requested_locale,
+    translated_payload,
+):
+    review_payload = {
+        "decision": "APPROVE",
+        "approvalReason": "Trend Sentinel can take the LONG because the higher-timeframe EMA stack recovered.",
+        "structuredReview": {
+            "headline": "Trend continuation LONG is valid after the pullback reclaimed the trigger zone.",
+            "action": "Enter only inside the planned trigger zone and keep the invalidation strict.",
+            "keyReasons": ["4h trend support has recovered."],
+            "risks": ["Funding is already crowded."],
+            "watchConditions": ["Do not chase above the trigger zone."],
+        },
+    }
+    with session_scope() as db:
+        review = AIReviewRecord(
+            trader_id="trend-sentinel",
+            symbol="BTCUSDT",
+            status="ok",
+            decision="APPROVE",
+            payload_json=to_json(review_payload),
+        )
+        db.add(review)
+        db.flush()
+        upsert_translation_cache_record(
+            db,
+            source_type=main.AI_TRANSLATION_SOURCE_AI_REVIEW,
+            source_id=review.id,
+            source_hash=main.stable_source_hash(review_payload),
+            locale=requested_locale,
+            status="ok",
+            payload=translated_payload,
+        )
+        embedded_payload = {
+            "aiReviewId": review.id,
+            "aiReview": review_payload,
+            "aiApprovalReason": review_payload["approvalReason"],
+            "aiStructuredReview": review_payload["structuredReview"],
+        }
+        db.add_all(
+            [
+                PaperPositionRecord(
+                    trader_id="trend-sentinel",
+                    symbol="BTCUSDT",
+                    status="open",
+                    side="long",
+                    quantity=Decimal("0.1"),
+                    entry_price=Decimal("62844.4"),
+                    leverage=Decimal("5"),
+                    notional=Decimal("6284.44"),
+                    margin=Decimal("1256.888"),
+                    payload_json=to_json(embedded_payload),
+                ),
+                PaperOrderRecord(
+                    trader_id="trend-sentinel",
+                    symbol="BTCUSDT",
+                    status="open",
+                    side="long",
+                    order_type="limit",
+                    quantity=Decimal("0.1"),
+                    leverage=Decimal("5"),
+                    limit_price=Decimal("62844.4"),
+                    notional=Decimal("6284.44"),
+                    margin=Decimal("1256.888"),
+                    payload_json=to_json(embedded_payload),
+                ),
+            ]
+        )
+
+    positions_response = client.get(f"/api/paper/positions/active?symbol=BTCUSDT&locale={requested_locale}")
+    all_positions_response = client.get(f"/api/paper/positions?symbol=BTCUSDT&status=open&locale={requested_locale}")
+    orders_response = client.get(f"/api/paper/orders?symbol=BTCUSDT&status=open&locale={requested_locale}")
+
+    assert positions_response.status_code == 200
+    position_payload = positions_response.json()["positions"][0]["payload"]
+    assert position_payload["aiApprovalReason"] == translated_payload["approvalReason"]
+    assert position_payload["aiStructuredReview"]["headline"] == translated_payload["structuredReview"]["headline"]
+    assert positions_response.json()["positions"][0]["translation"]["embeddedAiReview"]["status"] == "ok"
+
+    assert all_positions_response.status_code == 200
+    all_position_payload = all_positions_response.json()["positions"][0]["payload"]
+    assert all_position_payload["aiApprovalReason"] == translated_payload["approvalReason"]
+    assert all_position_payload["aiReview"]["structuredReview"]["headline"] == translated_payload["structuredReview"]["headline"]
+    assert all_positions_response.json()["positions"][0]["translation"]["embeddedAiReview"]["status"] == "ok"
+
+    assert orders_response.status_code == 200
+    order_payload = orders_response.json()["orders"][0]["payload"]
+    assert order_payload["aiApprovalReason"] == translated_payload["approvalReason"]
+    assert order_payload["aiReview"]["structuredReview"]["headline"] == translated_payload["structuredReview"]["headline"]
+    assert orders_response.json()["orders"][0]["translation"]["embeddedAiReview"]["status"] == "ok"
 
 
 def test_position_win_loss_counts_excludes_breakeven_from_losses(temp_api_db):
@@ -684,6 +809,7 @@ def test_monthly_leaderboard_reuses_position_rows_per_trader(monkeypatch):
     monkeypatch.setattr(main, "monthly_equity_points_by_trader", fake_monthly_equity_points_by_trader)
     monkeypatch.setattr(main, "monthly_positions_by_trader", fake_monthly_positions_by_trader)
     monkeypatch.setattr(main, "monthly_cycle_positions_by_trader", lambda *args, **kwargs: {trader.id: positions})
+    monkeypatch.setattr(main, "all_time_biggest_wins_by_trader", lambda *args, **kwargs: {trader.id: 12.5}, raising=False)
     monkeypatch.setattr(main, "trade_events_by_position_id", lambda *args, **kwargs: {})
     monkeypatch.setattr(main, "trader_snapshot_summary", fake_live_summary)
 
@@ -705,7 +831,7 @@ def test_monthly_leaderboard_reuses_position_rows_per_trader(monkeypatch):
     assert summaries[0]["shortTrades"] == 1
 
 
-def test_monthly_leaderboard_biggest_win_uses_position_cycle_total(monkeypatch):
+def test_monthly_leaderboard_biggest_win_uses_all_time_value(monkeypatch):
     trader = SimpleNamespace(id="donchian-breakout", name="Donchian Breakout Boss", baseRiskPercent=0.35)
     start_snapshot = SimpleNamespace(
         cash_balance=Decimal("10000"),
@@ -761,6 +887,12 @@ def test_monthly_leaderboard_biggest_win_uses_position_cycle_total(monkeypatch):
         "monthly_cycle_positions_by_trader",
         lambda *args, **kwargs: {trader.id: [closed_position, open_position]},
     )
+    monkeypatch.setattr(
+        main,
+        "all_time_biggest_wins_by_trader",
+        lambda *args, **kwargs: {trader.id: 420.75},
+        raising=False,
+    )
     monkeypatch.setattr(main, "trade_events_by_position_id", lambda *args, **kwargs: events_by_position_id)
 
     summaries = main.monthly_leaderboard_summaries(
@@ -774,7 +906,7 @@ def test_monthly_leaderboard_biggest_win_uses_position_cycle_total(monkeypatch):
     assert summaries[0]["wins"] == 1
     assert summaries[0]["losses"] == 0
     assert summaries[0]["winRate"] == 100.0
-    assert summaries[0]["biggestWin"] == 192.25
+    assert summaries[0]["biggestWin"] == 420.75
     assert summaries[0]["biggestLoss"] == 0.0
 
 

@@ -471,7 +471,11 @@ def test_fallback_translation_records_are_retried(temp_db):
         assert localized["approvalReason"] == "ko: 승인 사유"
 
 
-def test_localized_payload_reuses_latest_source_translation_after_payload_shape_change(temp_db):
+@pytest.mark.parametrize("requested_locale", ["ko", "ru"])
+def test_localized_payload_does_not_reuse_latest_source_translation_after_payload_shape_change(
+    temp_db,
+    requested_locale,
+):
     payload = {
         "decision": "HOLD",
         "confidence": 72,
@@ -493,7 +497,11 @@ def test_localized_payload_reuses_latest_source_translation_after_payload_shape_
         asyncio.run(
             fanout_ai_translations(
                 db,
-                settings=Settings(openai_api_key="test-key", ai_translation_enabled=True, ai_translation_target_locales=["ko"]),
+                settings=Settings(
+                    openai_api_key="test-key",
+                    ai_translation_enabled=True,
+                    ai_translation_target_locales=[requested_locale],
+                ),
                 source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
                 source_id=808,
                 payload=payload,
@@ -508,13 +516,13 @@ def test_localized_payload_reuses_latest_source_translation_after_payload_shape_
             source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
             source_id=808,
             payload=changed_payload,
-            locale="ko",
+            locale=requested_locale,
         )
 
-        assert meta["status"] == "ok"
+        assert meta["status"] == "missing"
         assert meta["staleSourceHash"] is True
-        assert localized["approvalReason"] == "ko: translated approval reason"
-        assert localized["structuredReview"]["headline"] == "ko: translated headline"
+        assert localized["approvalReason"] == changed_payload["approvalReason"]
+        assert localized["structuredReview"]["headline"] == changed_payload["structuredReview"]["headline"]
         assert localized["reviewFacts"] == changed_payload["reviewFacts"]
 
 
@@ -613,7 +621,7 @@ def test_ensure_localized_payload_uses_codex_provider_without_openai_key(temp_db
         assert localized["review"]["rationale"] == "ko: 포지션 유지"
 
 
-def test_stale_embedded_ai_review_translation_prefers_translated_structured_review(temp_db):
+def test_stale_embedded_ai_review_translation_preserves_english_structured_review(temp_db):
     # Given: an open position embeds a newer English AI review, but only an older Korean translation is cached.
     review_payload = {
         "decision": "ADJUST_AND_APPROVE",
@@ -692,11 +700,12 @@ def test_stale_embedded_ai_review_translation_prefers_translated_structured_revi
 
         payload = data["payload"]
         assert data["translation"]["embeddedAiReview"]["staleSourceHash"] is True
+        assert data["translation"]["embeddedAiReview"]["status"] == "missing"
         assert "canonicalStructuredReview" not in data["translation"]["embeddedAiReview"]
-        assert payload["aiApprovalReason"].startswith("ADJUST_AND_APPROVE: 채널 지도자")
-        assert payload["aiReview"]["approvalReason"].startswith("ADJUST_AND_APPROVE: 채널 지도자")
-        assert payload["aiStructuredReview"]["headline"] == "채널 지도자는 상단 채널 재테스트에서 축소된 숏 진입만 허용됩니다."
-        assert payload["aiReview"]["structuredReview"]["headline"] == "채널 지도자는 상단 채널 재테스트에서 축소된 숏 진입만 허용됩니다."
+        assert payload["aiApprovalReason"] == review_payload["approvalReason"]
+        assert payload["aiReview"]["approvalReason"] == review_payload["approvalReason"]
+        assert payload["aiStructuredReview"]["headline"] == review_payload["structuredReview"]["headline"]
+        assert payload["aiReview"]["structuredReview"]["headline"] == review_payload["structuredReview"]["headline"]
 
 
 def test_embedded_ai_review_translation_failure_preserves_english_structured_review(temp_db):

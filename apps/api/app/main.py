@@ -6523,9 +6523,21 @@ def paper_orders(
     symbol: Optional[str] = Query(None),
     trader_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    locale: str = Query(CANONICAL_AI_LOCALE),
     db: Session = Depends(get_db),
 ):
-    return {"orders": list_filtered_records(db, PaperOrderRecord, limit=limit, symbol=symbol, trader_id=trader_id, status=status, include_payload=True)}
+    return {
+        "orders": list_filtered_records(
+            db,
+            PaperOrderRecord,
+            limit=limit,
+            symbol=symbol,
+            trader_id=trader_id,
+            status=status,
+            include_payload=True,
+            locale=normalize_locale(locale),
+        )
+    }
 
 
 @app.get("/api/paper/positions")
@@ -6535,9 +6547,21 @@ def paper_positions(
     symbol: Optional[str] = Query(None),
     trader_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    locale: str = Query(CANONICAL_AI_LOCALE),
     db: Session = Depends(get_db),
 ):
-    return {"positions": list_filtered_records(db, PaperPositionRecord, limit=limit, symbol=symbol, trader_id=trader_id, status=status, include_payload=True)}
+    return {
+        "positions": list_filtered_records(
+            db,
+            PaperPositionRecord,
+            limit=limit,
+            symbol=symbol,
+            trader_id=trader_id,
+            status=status,
+            include_payload=True,
+            locale=normalize_locale(locale),
+        )
+    }
 
 
 @app.get("/api/paper/positions/active")
@@ -6545,9 +6569,21 @@ def active_paper_positions(
     limit: int = Query(20, ge=1, le=100),
     symbol: Optional[str] = Query(None),
     trader_id: Optional[str] = Query(None),
+    locale: str = Query(CANONICAL_AI_LOCALE),
     db: Session = Depends(get_db),
 ):
-    return {"positions": list_filtered_records(db, PaperPositionRecord, limit=limit, symbol=symbol, trader_id=trader_id, status="open", include_payload=True)}
+    return {
+        "positions": list_filtered_records(
+            db,
+            PaperPositionRecord,
+            limit=limit,
+            symbol=symbol,
+            trader_id=trader_id,
+            status="open",
+            include_payload=True,
+            locale=normalize_locale(locale),
+        )
+    }
 
 
 @app.get("/api/paper/events")
