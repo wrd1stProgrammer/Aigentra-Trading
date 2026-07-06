@@ -221,7 +221,7 @@ class Settings(BaseModel):
         default_factory=lambda: env_int("REALTIME_PAPER_EXECUTION_BACKFILL_PAGE_LIMIT", "300")
     )
     auto_scanner_provider: str = Field(default_factory=lambda: provider_from_env("AUTO_SCANNER_PROVIDER", "mock"))
-    auto_scanner_locale: str = Field(default_factory=lambda: normalize_locale(os.getenv("AUTO_SCANNER_LOCALE", "en")))
+    auto_scanner_locale: str = Field(default_factory=lambda: normalize_locale(os.getenv("AUTO_SCANNER_LOCALE", "ko")))
     auto_scanner_snapshot_concurrency: int = Field(default_factory=lambda: env_int("AUTO_SCANNER_SNAPSHOT_CONCURRENCY", "3"))
     auto_scanner_ai_concurrency: int = Field(default_factory=lambda: env_int("AUTO_SCANNER_AI_CONCURRENCY", "2"))
     ai_rejection_cooldown_seconds: int = Field(default_factory=lambda: env_int("AI_REJECTION_COOLDOWN_SECONDS", "300"))

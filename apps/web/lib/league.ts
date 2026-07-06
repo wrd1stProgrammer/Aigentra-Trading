@@ -7,7 +7,7 @@ import type {
   TraderProfile
 } from "@/lib/api";
 import type { ReviewBrief } from "@/lib/review-brief";
-import { reviewBriefFromRecord, reviewBriefText } from "@/lib/review-brief";
+import { entryApprovalBriefFromRecord, reviewBriefFromRecord, reviewBriefText } from "@/lib/review-brief";
 import { fallbackTraders } from "@/lib/traders";
 
 export type LeagueSymbol = "BTCUSDT" | "ETHUSDT";
@@ -292,8 +292,8 @@ export function buildScenarios(args: {
 
   for (const position of args.positions) {
     const payload = (position.payload ?? {}) as Record<string, any>;
-    const reviewBrief = reviewBriefFromRecord(position);
-    const rationale = reviewBriefText(reviewBrief) ?? scenarioRationaleFromPayload(payload, position.closeReason);
+    const reviewBrief = entryApprovalBriefFromRecord(position);
+    const rationale = reviewBriefText(reviewBrief) ?? entryRationaleFromPayload(payload);
     scenarios.push({
       id: `position-${position.id}`,
       title: "Active simulated position",
@@ -317,8 +317,8 @@ export function buildScenarios(args: {
 
   for (const order of args.orders) {
     const payload = (order.payload ?? {}) as Record<string, any>;
-    const reviewBrief = reviewBriefFromRecord(order);
-    const rationale = reviewBriefText(reviewBrief) ?? scenarioRationaleFromPayload(payload);
+    const reviewBrief = entryApprovalBriefFromRecord(order);
+    const rationale = reviewBriefText(reviewBrief) ?? entryRationaleFromPayload(payload);
     scenarios.push({
       id: `order-${order.id}`,
       title: payload.entryReason ?? "Pending entry order",
@@ -498,6 +498,20 @@ export function scenarioRationaleFromPayload(payload: Record<string, any> | null
     action?.reason,
     payload?.rationale,
     payload?.aiCounterThesis,
+    ...fallbacks
+  );
+}
+
+export function entryRationaleFromPayload(payload: Record<string, any> | null | undefined, ...fallbacks: Array<unknown>): string | null {
+  const aiReview = recordValue(payload?.aiReview);
+  const action = recordValue(payload?.action);
+  return firstString(
+    payload?.aiApprovalReason,
+    aiReview?.approvalReason,
+    payload?.approvalReason,
+    payload?.entryReason,
+    action?.entryReason,
+    action?.approvalReason,
     ...fallbacks
   );
 }

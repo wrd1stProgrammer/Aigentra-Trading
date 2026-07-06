@@ -2,27 +2,30 @@ import type { PaperPosition } from "@/lib/api";
 
 export function selectMergedPositionReviewSource(positions: readonly PaperPosition[]): PaperPosition {
   return [...positions].sort((left, right) => {
-    const reviewDelta = Number(hasPositionReview(right)) - Number(hasPositionReview(left));
+    const reviewDelta = entryApprovalScore(right) - entryApprovalScore(left);
     if (reviewDelta !== 0) return reviewDelta;
     return positionTimeValue(right) - positionTimeValue(left);
   })[0] ?? positions[0];
 }
 
-function hasPositionReview(position: PaperPosition): boolean {
+function entryApprovalScore(position: PaperPosition): number {
   const payload = recordValue(position.payload);
-  const nestedReview = recordValue(position.review) ?? recordValue(payload?.review);
   const payloadAiReview = recordValue(payload?.aiReview);
-  return Boolean(
-    position.structuredReview ||
-    nestedReview?.structuredReview ||
+  if (
     payload?.aiStructuredReview ||
-    payloadAiReview?.structuredReview ||
-    textValue(position.rationale) ||
-    textValue(position.reason) ||
     textValue(payload?.aiApprovalReason) ||
     textValue(payloadAiReview?.approvalReason) ||
     textValue(payload?.approvalReason)
-  );
+  ) {
+    return 2;
+  }
+
+  const nestedReview = recordValue(position.review) ?? recordValue(payload?.review);
+  if (!position.structuredReview && !nestedReview && (textValue(position.rationale) || textValue(position.reason))) {
+    return 1;
+  }
+
+  return 0;
 }
 
 function positionTimeValue(position: PaperPosition): number {

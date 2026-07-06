@@ -33,6 +33,8 @@ PROTECTED_KEYS = {
     "sourceType",
     "sourceId",
     "sourceHash",
+    "sourceLocale",
+    "source_locale",
     "locale",
     "provider",
     "model",
@@ -101,8 +103,9 @@ def localized_payload_for_source(
     locale: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     requested_locale = normalize_locale(locale)
-    if requested_locale == CANONICAL_AI_LOCALE or source_id is None:
-        return payload, {"status": "canonical", "locale": CANONICAL_AI_LOCALE}
+    source_locale = source_locale_for_payload(payload)
+    if requested_locale == source_locale or source_id is None:
+        return payload, {"status": "canonical", "locale": source_locale, "sourceLocale": source_locale}
     source_hash = stable_source_hash(payload)
     record = get_translation_cache_record(
         db,
@@ -115,7 +118,7 @@ def localized_payload_for_source(
         cached_payload = from_json(record.payload_json)
         if isinstance(cached_payload, dict):
             localized_payload = merge_translation_overlay(payload, scrub_translation_payload_for_source(source_type, cached_payload))
-            return localized_payload, {"status": "ok", "locale": requested_locale, "sourceHash": source_hash}
+            return localized_payload, {"status": "ok", "locale": requested_locale, "sourceLocale": source_locale, "sourceHash": source_hash}
     latest_record = get_latest_successful_translation_for_source(
         db,
         source_type=source_type,
@@ -129,16 +132,18 @@ def localized_payload_for_source(
             return localized_payload, {
                 "status": "ok",
                 "locale": requested_locale,
+                "sourceLocale": source_locale,
                 "sourceHash": source_hash,
                 "cachedSourceHash": latest_record.source_hash,
                 "staleSourceHash": True,
             }
     if record is None:
-        return payload, {"status": "missing", "locale": requested_locale, "fallbackLocale": CANONICAL_AI_LOCALE}
+        return payload, {"status": "missing", "locale": requested_locale, "fallbackLocale": source_locale, "sourceLocale": source_locale}
     return payload, {
         "status": record.status or "fallback",
         "locale": requested_locale,
-        "fallbackLocale": CANONICAL_AI_LOCALE,
+        "fallbackLocale": source_locale,
+        "sourceLocale": source_locale,
         "sourceHash": source_hash,
     }
 
@@ -172,7 +177,8 @@ async def ensure_localized_payload_for_source(
         locale=locale,
     )
     requested_locale = normalize_locale(locale)
-    if requested_locale == CANONICAL_AI_LOCALE or source_id is None:
+    source_locale = source_locale_for_payload(payload)
+    if requested_locale == source_locale or source_id is None:
         return localized_payload, meta
     if meta.get("status") == "ok" and not meta.get("staleSourceHash"):
         return localized_payload, meta
@@ -215,14 +221,17 @@ async def fanout_ai_translations(
 ) -> None:
     if source_id is None:
         return
+    source_locale = source_locale_for_payload(payload)
     source_hash = stable_source_hash(payload)
     raw_locales = target_locales if target_locales is not None else getattr(settings, "ai_translation_target_locales", NON_CANONICAL_AI_LOCALES)
-    locales = tuple(
+    if target_locales is None and source_locale != CANONICAL_AI_LOCALE:
+        raw_locales = (CANONICAL_AI_LOCALE, *tuple(raw_locales))
+    locales = tuple(dict.fromkeys(
         locale
         for locale in (normalize_locale(item) for item in raw_locales)
-        if locale != CANONICAL_AI_LOCALE
-    )
-    for locale in locales or NON_CANONICAL_AI_LOCALES:
+        if locale != source_locale
+    ))
+    for locale in locales:
         existing = get_translation_cache_record(
             db,
             source_type=source_type,
@@ -403,6 +412,7 @@ def is_string_list(value: Any) -> bool:
 
 
 def translation_request_payload(source_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    source_locale = source_locale_for_payload(payload)
     if source_type != AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT:
         return payload
     compact = {
@@ -410,7 +420,21 @@ def translation_request_payload(source_type: str, payload: dict[str, Any]) -> di
         for key in ("event", "review", "appliedActions")
         if key in payload
     }
+    if compact:
+        compact["sourceLocale"] = source_locale
     return compact or payload
+
+
+def source_locale_for_payload(payload: dict[str, Any]) -> str:
+    nested_review = payload.get("review") if isinstance(payload.get("review"), dict) else None
+    nested_ai_review = payload.get("aiReview") if isinstance(payload.get("aiReview"), dict) else None
+    return normalize_locale(
+        payload.get("sourceLocale")
+        or payload.get("source_locale")
+        or (nested_review or {}).get("sourceLocale")
+        or (nested_ai_review or {}).get("sourceLocale")
+        or CANONICAL_AI_LOCALE
+    )
 
 
 def is_protected_path(path: tuple[str, ...]) -> bool:

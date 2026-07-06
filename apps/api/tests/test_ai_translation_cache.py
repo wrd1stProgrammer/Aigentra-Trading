@@ -11,11 +11,12 @@ from app.ai.translation_cache import (
     merge_validated_translation,
     stable_source_hash,
 )
+from app.ai.translation_contract import translation_request_payload
 from app.ai.translation_provider import translation_style_contract_for_payload
 from app.core.config import Settings
 from app.db import AIReviewRecord, AITranslationCacheRecord, PaperPositionRecord, init_db, reset_db_engine, session_scope
 from app.locales import AI_TRANSLATION_SOURCE_AI_REVIEW, AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT, AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT, AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED
-from app.main import serialize_record_for_ui
+from app.main import record_review_translation_ready, serialize_record_for_ui, trader_detail_translations_ready
 
 
 class FakeTranslationProvider:
@@ -161,6 +162,144 @@ def test_merge_validated_translation_allows_structured_action_lines():
     assert merged["decision"] == "HOLD"
     assert merged["structuredReview"]["headline"] == "숏은 유지합니다."
     assert merged["structuredReview"]["action"] == ["- 숏 포지션은 유지하세요.", "- 손절을 넓히지 마세요."]
+
+
+def test_localized_payload_uses_matching_source_locale_without_translation_cache(temp_db):
+    entry_payload = {
+        "sourceLocale": "ko",
+        "decision": "ADJUST_AND_APPROVE",
+        "approvalReason": "눌림 이후 추세가 회복되어 진입을 승인합니다.",
+        "structuredReview": {
+            "headline": "되돌림 확인 후 롱 진입이 유효합니다.",
+            "action": "확인된 가격에서만 작게 진입합니다.",
+        },
+        "reviewFacts": [
+            {"code": "trend_reclaim", "labelKey": "reviewFact.trendReclaim", "severity": "info"}
+        ],
+    }
+    management_payload = {
+        "event": {"eventType": "heartbeat", "reason": "정기 점검"},
+        "review": {
+            "sourceLocale": "ko",
+            "decision": "HOLD",
+            "rationale": "진입 근거가 아직 깨지지 않아 보유합니다.",
+            "reviewFacts": [
+                {"code": "still_valid", "labelKey": "reviewFact.stillValid", "severity": "info"}
+            ],
+        },
+    }
+
+    with session_scope() as db:
+        localized_entry, entry_meta = localized_payload_for_source(
+            db,
+            source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+            source_id=501,
+            payload=entry_payload,
+            locale="ko",
+        )
+        localized_management, management_meta = localized_payload_for_source(
+            db,
+            source_type=AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
+            source_id=502,
+            payload=management_payload,
+            locale="ko",
+        )
+
+        assert localized_entry == entry_payload
+        assert entry_meta["status"] == "canonical"
+        assert entry_meta["locale"] == "ko"
+        assert entry_meta["sourceLocale"] == "ko"
+        assert localized_management == management_payload
+        assert management_meta["status"] == "canonical"
+        assert management_meta["locale"] == "ko"
+        assert management_meta["sourceLocale"] == "ko"
+        assert db.query(AITranslationCacheRecord).count() == 0
+
+
+def test_translation_request_payload_preserves_source_locale():
+    request = translation_request_payload(
+        {
+            "sourceLocale": "ko",
+            "approvalReason": "한국어 원문 승인 사유",
+            "reviewFacts": [
+                {"code": "trend_reclaim", "labelKey": "reviewFact.trendReclaim", "severity": "info"}
+            ],
+        },
+        "en",
+    )
+
+    assert request["sourceLocale"] == "ko"
+    assert request["targetLocale"] == "en"
+    assert request["content"]["reviewFacts"][0]["labelKey"] == "reviewFact.trendReclaim"
+
+
+def test_review_translation_ready_uses_source_locale_instead_of_fixed_english(temp_db):
+    payload = {
+        "sourceLocale": "ko",
+        "approvalReason": "한국어 원문 승인 사유",
+        "structuredReview": {
+            "headline": "한국어 진입 근거",
+            "action": "확인된 가격에서만 진입합니다.",
+        },
+    }
+    review = AIReviewRecord(
+        id=8801,
+        symbol="BTCUSDT",
+        trader_id="trend-sentinel",
+        status="ok",
+        fallback=False,
+        payload_json=json.dumps(payload),
+    )
+
+    with session_scope() as db:
+        assert record_review_translation_ready(db, review, locale="ko") is True
+        assert record_review_translation_ready(db, review, locale="en") is False
+
+
+def test_trader_detail_translation_readiness_checks_english_against_source_locale(temp_db):
+    ai_review_payload = {
+        "sourceLocale": "ko",
+        "approvalReason": "한국어 원문 승인 사유",
+        "structuredReview": {
+            "headline": "한국어 진입 근거",
+            "action": "확인된 가격에서만 진입합니다.",
+        },
+    }
+
+    with session_scope() as db:
+        db.add(
+            PaperPositionRecord(
+                id=8802,
+                symbol="BTCUSDT",
+                trader_id="trend-sentinel",
+                status="open",
+                side="long",
+                quantity=Decimal("0.1"),
+                entry_price=Decimal("60000"),
+                leverage=Decimal("5"),
+                notional=Decimal("6000"),
+                margin=Decimal("1200"),
+                payload_json=json.dumps({"aiReviewId": 9901, "aiReview": ai_review_payload}),
+            )
+        )
+        db.commit()
+
+        assert trader_detail_translations_ready(
+            db,
+            trader_id="trend-sentinel",
+            clean_symbol="BTCUSDT",
+            locale="ko",
+            reviews_limit=10,
+            events_limit=10,
+        ) is True
+        assert trader_detail_translations_ready(
+            db,
+            trader_id="trend-sentinel",
+            clean_symbol="BTCUSDT",
+            locale="en",
+            reviews_limit=10,
+            events_limit=10,
+        ) is False
 
 
 def test_fanout_translations_are_cached_and_reused(temp_db):
@@ -661,6 +800,7 @@ def test_management_review_translation_uses_partial_overlay(temp_db):
             "event": {"reason": "Heartbeat review."},
             "review": {"decision": "HOLD", "rationale": "Hold the short."},
             "appliedActions": [],
+            "sourceLocale": "en",
         }
         assert meta["status"] == "ok"
         assert localized["event"]["reason"] == "ko: 이벤트 사유"

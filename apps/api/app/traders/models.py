@@ -127,6 +127,7 @@ class TradeReviewResult(BaseModel):
     decision: Decision
     confidence: int
     riskLevel: RiskLevel
+    sourceLocale: str = "en"
     reviewCode: str = "ENTRY_REVIEW"
     reviewFacts: List[ReviewFact] = Field(default_factory=list)
     riskFlags: List[str] = Field(default_factory=list)
@@ -193,6 +194,7 @@ class PositionManagementResult(BaseModel):
     decision: str
     confidence: int
     riskLevel: RiskLevel = "MEDIUM"
+    sourceLocale: str = "en"
     reviewCode: str = "POSITION_MANAGEMENT_REVIEW"
     reviewFacts: List[ReviewFact] = Field(default_factory=list)
     riskFlags: List[str] = Field(default_factory=list)

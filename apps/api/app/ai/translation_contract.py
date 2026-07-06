@@ -1,6 +1,6 @@
 from typing import Any, Final
 
-from app.locales import AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED, CANONICAL_AI_LOCALE
+from app.locales import AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED, CANONICAL_AI_LOCALE, normalize_locale
 
 
 TRANSLATION_SYSTEM_PROMPT = """You are Aigentra's localization engine for AI trading review JSON.
@@ -165,8 +165,9 @@ def is_ai_review_translation_payload(payload: dict[str, Any]) -> bool:
 
 
 def translation_request_payload(payload: dict[str, Any], target_locale: str) -> dict[str, Any]:
+    source_locale = normalize_locale(payload.get("sourceLocale") or payload.get("source_locale"), CANONICAL_AI_LOCALE)
     return {
-        "sourceLocale": CANONICAL_AI_LOCALE,
+        "sourceLocale": source_locale,
         "targetLocale": target_locale,
         "targetGuide": TARGET_LOCALE_GUIDES.get(target_locale, target_locale),
         "styleContract": translation_style_contract_for_payload(payload, target_locale),

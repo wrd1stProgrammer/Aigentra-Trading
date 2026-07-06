@@ -7,8 +7,8 @@ import { formatClockTime, formatFixedNumber, formatNumber } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
 import { useAppContext } from "@/components/app-provider";
 import { isOpenChartExposure } from "@/components/live-candle-chart-overlays";
-import { scenarioRationaleFromPayload, scenarioSummaryFromPayload, type LeagueSymbol, type TraderScenario } from "@/lib/league";
-import { reviewBriefFromRecord } from "@/lib/review-brief";
+import { entryRationaleFromPayload, scenarioSummaryFromPayload, type LeagueSymbol, type TraderScenario } from "@/lib/league";
+import { entryApprovalBriefFromRecord, reviewBriefText } from "@/lib/review-brief";
 import { statusLabel } from "@/lib/status";
 import { buildDisplayOpenOrders, type DisplayPaperOrder } from "@/components/trader-profile-detail/position-panel-rows";
 import type { PlanView } from "@/components/trader-profile-detail/types";
@@ -332,7 +332,8 @@ function findScenario(scenarios: readonly TraderScenario[], source: TraderScenar
 
 function scenarioFromPosition(position: PaperPosition): TraderScenario {
   const payload = recordValue(position.payload);
-  const rationale = scenarioRationaleFromPayload(payload, position.closeReason);
+  const reviewBrief = entryApprovalBriefFromRecord(position);
+  const rationale = reviewBriefText(reviewBrief) ?? entryRationaleFromPayload(payload);
   return {
     id: `position-${String(position.id ?? position.symbol)}`,
     title: "Active simulated position",
@@ -348,7 +349,7 @@ function scenarioFromPosition(position: PaperPosition): TraderScenario {
     entryWeight: firstFiniteNumber(payload?.entryWeight, payload?.weight),
     rationale,
     summary: scenarioSummaryFromPayload(payload),
-    reviewBrief: reviewBriefFromRecord(position),
+    reviewBrief,
     createdAt: firstString(position.updatedAt, position.openedAt, position.createdAt),
     source: "position"
   };
@@ -356,7 +357,8 @@ function scenarioFromPosition(position: PaperPosition): TraderScenario {
 
 function scenarioFromOrder(order: DisplayPaperOrder): TraderScenario {
   const payload = recordValue(order.payload);
-  const rationale = scenarioRationaleFromPayload(payload);
+  const reviewBrief = entryApprovalBriefFromRecord(order);
+  const rationale = reviewBriefText(reviewBrief) ?? entryRationaleFromPayload(payload);
   return {
     id: `order-${String(order.id ?? order.symbol)}`,
     title: firstString(payload?.entryReason) ?? "Pending entry order",
@@ -372,7 +374,7 @@ function scenarioFromOrder(order: DisplayPaperOrder): TraderScenario {
     entryWeight: firstFiniteNumber(payload?.entryWeight, payload?.weight, recordValue(payload?.entry)?.weight),
     rationale,
     summary: scenarioSummaryFromPayload(payload),
-    reviewBrief: reviewBriefFromRecord(order),
+    reviewBrief,
     createdAt: firstString(order.updatedAt, order.createdAt),
     source: "order"
   };

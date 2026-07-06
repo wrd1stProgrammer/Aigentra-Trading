@@ -236,11 +236,23 @@ test("position panel exposes detail callbacks for positions and orders", () => {
   assert.match(pageSource, /setSelectedScenario/, "detail action should reuse the same ScenarioModal state as the latest scenario list");
 });
 
-test("position panel fallback detail scenarios keep structured AI review copy", () => {
-  assert.match(panelSource, /import \{ reviewBriefFromRecord \} from "@\/lib\/review-brief"/);
-  assert.match(panelSource, /reviewBrief:\s*reviewBriefFromRecord\(position\)/);
-  assert.match(panelSource, /reviewBrief:\s*reviewBriefFromRecord\(order\)/);
-  assert.doesNotMatch(panelSource, /entryApprovalRationale\(payload\)\s*\?\s*null/);
+test("entry rationale fallback never uses management review copy", () => {
+  assert.equal(
+    league.entryRationaleFromPayload({
+      aiApprovalReason: "진입 승인 원문",
+      managementRationale: "포지션 유지용 중간 리뷰",
+      review: { rationale: "관리 리뷰 rationale" }
+    }),
+    "진입 승인 원문"
+  );
+  assert.equal(
+    league.entryRationaleFromPayload({
+      managementRationale: "포지션 유지용 중간 리뷰",
+      managementReason: "관리 판단",
+      review: { rationale: "관리 리뷰 rationale" }
+    }),
+    null
+  );
 });
 
 test("entry approval detail scenarios prefer structured review over legacy approval reason", () => {
@@ -286,10 +298,79 @@ test("entry approval detail scenarios prefer structured review over legacy appro
   assert.equal(positionScenario.reviewBrief.action, "작은 규모로만 진입하고 손절가 회복 여부를 확인하세요.");
 });
 
-test("merged open position detail keeps the freshest leg entry approval brief", () => {
-  assert.match(pageSource, /selectMergedPositionReviewSource\(list\)/, "merged position rows should choose a deterministic review source");
-  assert.match(pageSource, /aiApprovalReason: firstPayload\?\.aiApprovalReason \?\? reviewRationale/, "merged position payload should preserve top-level rationale as displayable approval copy");
+test("entry approval scenarios ignore later management review copy on the same exposure", () => {
+  const trader = { id: "atr-trail-commander", currentPlan: "watch", baseRiskPercent: 0.4, description: "strategy", concept: "concept" };
+  const managementHeadline = "포지션 유지 중이며 손절 접근 여부만 봅니다.";
+  const entryHeadline = "ATR 추세가 이어지는 동안 되돌림 이후 롱 진입이 유효합니다.";
+  const positions = [
+    {
+      id: 426,
+      symbol: "BTCUSDT",
+      status: "open",
+      side: "long",
+      entryPrice: 61984.8,
+      structuredReview: {
+        verdict: "유지",
+        headline: managementHeadline,
+        action: "새 진입 근거가 아니라 진행 중 포지션 관리 판단입니다.",
+        keyReasons: ["목표 접근 여부를 확인합니다."]
+      },
+      review: {
+        structuredReview: {
+          verdict: "유지",
+          headline: "중간 리뷰: 현재 롱은 아직 유지합니다.",
+          action: "손절가를 넓히지는 않습니다."
+        }
+      },
+      payload: {
+        aiApprovalReason: "ATR 흐름이 눌림 뒤 회복되며 롱 진입 조건을 충족했습니다.",
+        aiReview: {
+          sourceLocale: "ko",
+          structuredReview: {
+            verdict: "조정 후 승인",
+            headline: entryHeadline,
+            action: "확인된 되돌림 가격에서만 작게 진입합니다.",
+            keyReasons: ["15분 봉이 눌림 후 다시 상단으로 회복했습니다."],
+            risks: ["추격 매수는 피해야 합니다."],
+            watchConditions: ["되돌림 저점을 다시 깨면 진입 논리는 약해집니다."]
+          }
+        }
+      }
+    }
+  ];
 
+  const scenarios = league.buildScenarios({ trader, positions, orders: [], reviews: [], events: [] });
+  const positionScenario = scenarios.find((scenario) => scenario.id === "position-426");
+
+  assert.equal(positionScenario.reviewBrief.headline, entryHeadline);
+  assert.match(positionScenario.rationale, /ATR 추세가 이어지는 동안/);
+  assert.doesNotMatch(positionScenario.rationale, new RegExp(managementHeadline));
+});
+
+test("entry approval scenarios without saved entry copy do not fall back to management rationale", () => {
+  const trader = { id: "vwap-reclaim", currentPlan: "watch", baseRiskPercent: 0.35, description: "strategy", concept: "concept" };
+  const positions = [
+    {
+      id: 427,
+      symbol: "BTCUSDT",
+      status: "open",
+      side: "long",
+      entryPrice: 61120,
+      payload: {
+        managementRationale: "이 문장은 진행 중 포지션 관리 리뷰라 상세 진입 근거에 나오면 안 됩니다.",
+        review: { rationale: "중간 리뷰 관리 메모" }
+      }
+    }
+  ];
+
+  const scenarios = league.buildScenarios({ trader, positions, orders: [], reviews: [], events: [] });
+  const positionScenario = scenarios.find((scenario) => scenario.id === "position-427");
+
+  assert.equal(positionScenario.rationale, null);
+  assert.equal(positionScenario.reviewBrief, null);
+});
+
+test("merged open position detail keeps the freshest leg entry approval brief", () => {
   const positions = [
     {
       id: 701,
@@ -365,6 +446,49 @@ test("merged open position detail keeps the freshest leg entry approval brief", 
 
   assert.equal(topLevelOnly.id, 704);
   assert.equal(topLevelOnly.rationale, "Fresh top-level approval rationale.");
+});
+
+test("merged open positions choose entry approval over later management-only review", () => {
+  const positions = [
+    {
+      id: 711,
+      symbol: "BTCUSDT",
+      status: "open",
+      side: "long",
+      updatedAt: "2026-07-03T06:00:00.000Z",
+      payload: {
+        aiApprovalReason: "Saved Korean entry approval.",
+        aiReview: {
+          sourceLocale: "ko",
+          structuredReview: {
+            verdict: "승인",
+            headline: "진입 당시 롱 승인 근거입니다.",
+            action: "되돌림 확인 후에만 진입합니다."
+          }
+        }
+      }
+    },
+    {
+      id: 712,
+      symbol: "BTCUSDT",
+      status: "open",
+      side: "long",
+      updatedAt: "2026-07-03T07:00:00.000Z",
+      structuredReview: {
+        verdict: "유지",
+        headline: "나중에 생성된 진행 중 포지션 리뷰입니다.",
+        action: "보유 상태만 점검합니다."
+      },
+      review: {
+        rationale: "This is management review copy, not entry approval."
+      }
+    }
+  ];
+
+  const selected = positionReviewSource.selectMergedPositionReviewSource(positions);
+
+  assert.equal(selected.id, 711);
+  assert.equal(selected.payload.aiApprovalReason, "Saved Korean entry approval.");
 });
 
 test("entry approval scenarios use translated structured review when Korean translation is stale but usable", () => {

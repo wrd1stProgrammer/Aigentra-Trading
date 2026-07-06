@@ -59,6 +59,17 @@ export function reviewBriefFromRecord(value: unknown): ReviewBrief | null {
   );
 }
 
+export function entryApprovalBriefFromRecord(value: unknown): ReviewBrief | null {
+  const record = recordValue(value);
+  const payload = recordValue(record?.payload);
+  const payloadAiReview = recordValue(payload?.aiReview);
+  const embeddedReviewIsDisplayable = embeddedAiReviewStructuredReviewIsDisplayable(record, payload);
+  return firstStructuredReview(
+    embeddedReviewIsDisplayable ? payload?.aiStructuredReview : null,
+    embeddedReviewIsDisplayable ? payloadAiReview?.structuredReview : null
+  );
+}
+
 export function reviewBriefText(brief: ReviewBrief | null): string | null {
   if (!brief) return null;
   const parts = [

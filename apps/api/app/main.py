@@ -28,6 +28,7 @@ from app.ai.translation_cache import (
     localized_payload_for_source,
     merge_translation_overlay,
     scrub_translation_payload_for_source,
+    source_locale_for_payload,
     stable_source_hash,
 )
 from app.clients.binance_client import ALLOWED_INTERVALS, ALLOWED_SYMBOLS
@@ -750,6 +751,7 @@ COMPACT_REVIEW_KEYS = (
     "decision",
     "confidence",
     "riskLevel",
+    "sourceLocale",
     "reviewCode",
     "reviewFacts",
     "riskFlags",
@@ -1878,6 +1880,7 @@ async def run_management_reviews(
     clean_provider = normalize_provider(
         provider_name or settings.position_management_provider or settings.ai_provider or "mock"
     )
+    review_locale = normalize_locale(locale)
     profile = trader_management_profile(trader_id)
     cooldown_seconds = max(int(settings.position_management_cooldown_seconds or 0), 0)
     urgent_cooldown_seconds = max(int(settings.position_management_urgent_cooldown_seconds or 0), 0)
@@ -1951,11 +1954,12 @@ async def run_management_reviews(
             marketSnapshot=snapshot,
             event=event,
             exposure=exposure,
-            locale=CANONICAL_AI_LOCALE,
+            locale=review_locale,
             **management_context,
         )
         try:
             review = await run_position_management_with_logging(db, payload, clean_provider, settings=settings)
+            review.sourceLocale = review_locale
             review = refresh_stale_position_management_review(review, event=event, exposure=exposure)
             review = enforce_pending_order_cancel_event(review, event=event, exposure=exposure)
             if event.eventType == PRICE_SHOCK_EVENT_TYPE:
@@ -2000,6 +2004,7 @@ async def run_management_reviews(
                 riskFlags=["provider_failed"],
                 provider=clean_provider,
                 model=clean_provider,
+                sourceLocale=review_locale,
                 fallback=False,
             )
             record = create_position_management_review(
@@ -3967,14 +3972,16 @@ def record_review_translation_source(record) -> Optional[tuple[str, int, dict[st
 
 def record_review_translation_ready(db: Session, record, *, locale: str) -> bool:
     clean_locale = normalize_locale(locale)
-    if clean_locale == CANONICAL_AI_LOCALE:
-        return True
-    if str(getattr(record, "status", "ok")).lower() != "ok" or bool(getattr(record, "fallback", False)):
+    if isinstance(record, (AIReviewRecord, PositionManagementReviewRecord)) and (
+        str(getattr(record, "status", "ok")).lower() != "ok" or bool(getattr(record, "fallback", False))
+    ):
         return True
     source = record_review_translation_source(record)
     if source is None:
         return True
     source_type, source_id, source_payload = source
+    if clean_locale == source_locale_for_payload(source_payload):
+        return True
     _localized, meta = localized_payload_for_source(
         db,
         source_type=source_type,
@@ -3993,14 +4000,16 @@ async def ensure_record_review_translation(
     release_clean_transaction_before_call: bool = False,
 ) -> bool:
     clean_locale = normalize_locale(locale)
-    if clean_locale == CANONICAL_AI_LOCALE:
-        return True
-    if str(getattr(record, "status", "ok")).lower() != "ok" or bool(getattr(record, "fallback", False)):
+    if isinstance(record, (AIReviewRecord, PositionManagementReviewRecord)) and (
+        str(getattr(record, "status", "ok")).lower() != "ok" or bool(getattr(record, "fallback", False))
+    ):
         return True
     source = record_review_translation_source(record)
     if source is None:
         return True
     source_type, source_id, source_payload = source
+    if clean_locale == source_locale_for_payload(source_payload):
+        return True
 
     _localized, meta = await ensure_localized_payload_for_source(
         db,
@@ -4049,8 +4058,6 @@ def trader_detail_translations_ready(
     events_limit: int,
 ) -> bool:
     clean_locale = normalize_locale(locale)
-    if clean_locale == CANONICAL_AI_LOCALE:
-        return True
     return all(
         record_review_translation_ready(db, record, locale=clean_locale)
         for record in trader_detail_translation_records(
@@ -4074,8 +4081,6 @@ async def ensure_trader_detail_translations(
     release_clean_transaction_before_call: bool = False,
 ) -> bool:
     clean_locale = normalize_locale(locale)
-    if clean_locale == CANONICAL_AI_LOCALE:
-        return True
     ready = True
     for record in trader_detail_translation_records(
         db,
@@ -5299,10 +5304,11 @@ async def run_trader_cycle(
                         symbol=clean_symbol,
                         marketSnapshot=snapshot,
                         candidate=candidate,
-                        locale=CANONICAL_AI_LOCALE,
+                        locale=clean_locale,
                         **build_trade_review_context(db, strategy.profile.id, clean_symbol),
                     )
                     review = await run_review_with_logging(db, review_payload, requested_provider, settings=settings)
+                    review.sourceLocale = clean_locale
                     review_record = create_ai_review(db, record_ids["runId"], clean_symbol, strategy.profile.id, review)
                     create_observation_candidate(
                         db,
@@ -5926,9 +5932,8 @@ def league_trader_detail(
         reviews_limit=reviews_limit,
         events_limit=events_limit,
     )
-    if clean_locale != CANONICAL_AI_LOCALE and not translations_ready:
+    if not translations_ready:
         schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol, clean_locale)
-    if clean_locale != CANONICAL_AI_LOCALE:
         db.commit()
     payload = build_trader_detail_payload(
         db,
@@ -6272,6 +6277,7 @@ async def ai_review_demo(request: RunCycleRequest, provider: Optional[str] = Que
     strategy = get_strategy("channel-rider")
     clean_symbol = normalize_symbol(request.symbol)
     requested_provider = normalize_provider(provider)
+    clean_locale = normalize_locale(request.locale)
     snapshot = await build_market_snapshot(binance_client(), clean_symbol)
     candidate = strategy.evaluate(snapshot)
     if not candidate.created:
@@ -6316,7 +6322,7 @@ async def ai_review_demo(request: RunCycleRequest, provider: Optional[str] = Que
             symbol=clean_symbol,
             trader_id=strategy.profile.id,
             provider=requested_provider,
-            payload={"demo": "ai_review", "requestedProvider": requested_provider, "locale": normalize_locale(request.locale)},
+            payload={"demo": "ai_review", "requestedProvider": requested_provider, "locale": clean_locale},
         )
         candidate_record = create_candidate_trade(db, run_record.id, clean_symbol, strategy.profile.id, candidate)
         run_id = run_record.id
@@ -6329,10 +6335,11 @@ async def ai_review_demo(request: RunCycleRequest, provider: Optional[str] = Que
             symbol=clean_symbol,
             marketSnapshot=snapshot,
             candidate=candidate,
-            locale=CANONICAL_AI_LOCALE,
+            locale=clean_locale,
             **build_trade_review_context(db, strategy.profile.id, clean_symbol),
         )
         review = await run_review_with_logging(db, review_payload, requested_provider, settings=settings)
+        review.sourceLocale = clean_locale
         review_record = create_ai_review(db, run_id, clean_symbol, strategy.profile.id, review)
         await fanout_ai_translations(
             db,
