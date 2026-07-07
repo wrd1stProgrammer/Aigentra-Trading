@@ -489,9 +489,7 @@ function compactReviewTitle(headline: string | null | undefined) {
     .replace(/[.。]\s*$/, "")
     .trim();
   if (!normalized || normalized === "-") return null;
-  if (normalized.length <= 32) return normalized;
-  const sliced = normalized.slice(0, 29).replace(/[\s,，:：;；]+$/g, "");
-  return `${sliced}...`;
+  return normalized.length <= 32 ? normalized : null;
 }
 
 function isGenericReviewTitle(title: string) {

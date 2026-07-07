@@ -1,4 +1,4 @@
-const MAX_REVIEW_COPY_CHARS = 140;
+const MAX_REVIEW_COPY_CHARS = 0;
 
 const REVIEW_COPY_REPLACEMENTS: ReadonlyArray<readonly [RegExp, string]> = [
   [/위험-보상/g, "손익비"],
@@ -43,7 +43,7 @@ export function cleanReviewDisplayText(value: unknown, maxChars = MAX_REVIEW_COP
   return text;
 }
 
-export function cleanReviewDisplayItems(items: readonly unknown[], maxChars = 120) {
+export function cleanReviewDisplayItems(items: readonly unknown[], maxChars = MAX_REVIEW_COPY_CHARS) {
   const seen = new Set<string>();
   const cleaned: string[] = [];
   for (const item of items) {

@@ -23,12 +23,12 @@ export function ReviewBriefSummary({
   focus = "full",
   t
 }: ReviewBriefSummaryProps) {
-  const headline = cleanReviewDisplayText(brief.headline ?? brief.action ?? brief.managerNote ?? "-", compact ? 96 : 140);
+  const headline = cleanReviewDisplayText(brief.headline ?? brief.action ?? brief.managerNote ?? "-");
   const verdict = localizedBriefToken(brief.verdict, t);
-  const action = cleanReviewDisplayText(localizedBriefToken(brief.action, t) ?? brief.action, compact ? 72 : 100);
+  const action = cleanReviewDisplayText(localizedBriefToken(brief.action, t) ?? brief.action);
   const reviewLines =
-    focus === "entry" ? entryReviewLinesFromBrief(brief, headline, compact) : reviewLinesFromBrief(brief, headline, action, compact);
-  const managerNote = cleanReviewDisplayText(brief.managerNote ?? "", compact ? 110 : 160);
+    focus === "entry" ? entryReviewLinesFromBrief(brief, headline) : reviewLinesFromBrief(brief, headline, action, compact);
+  const managerNote = cleanReviewDisplayText(brief.managerNote ?? "");
   const shellClassName = embedded
     ? `${compact ? "space-y-2" : "space-y-3"}`
     : `rounded-xl border border-zinc-200 bg-white/70 p-3 dark:border-zinc-800 dark:bg-zinc-950/35 ${compact ? "space-y-2" : "space-y-3"}`;
@@ -61,10 +61,9 @@ export function ReviewBriefSummary({
   );
 }
 
-function entryReviewLinesFromBrief(brief: ReviewBrief, headline: string, compact: boolean) {
+function entryReviewLinesFromBrief(brief: ReviewBrief, headline: string) {
   return cleanReviewDisplayItems(
-    entryRationaleItems(brief).filter((item) => item !== headline),
-    compact ? 92 : 132
+    entryRationaleItems(brief).filter((item) => item !== headline)
   ).slice(0, 2);
 }
 
@@ -75,8 +74,7 @@ function reviewLinesFromBrief(brief: ReviewBrief, headline: string, action: stri
       ...brief.keyReasons,
       ...brief.risks,
       ...brief.watchConditions,
-    ].filter((item) => item !== headline),
-    compact ? 92 : 132
+    ].filter((item) => item !== headline)
   ).slice(0, compact ? 3 : 4);
 }
 

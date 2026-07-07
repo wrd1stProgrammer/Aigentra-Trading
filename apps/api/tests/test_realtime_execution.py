@@ -98,6 +98,14 @@ class MissedSecondTargetMarketClient:
         ]
 
 
+class KlineFailureMarketClient:
+    async def get_premium_index(self, symbol):
+        return {"symbol": symbol, "markPrice": 99, "indexPrice": 99}
+
+    async def get_klines(self, symbol, interval="1m", limit=20, before=None):
+        raise RuntimeError("temporary kline provider failure")
+
+
 @pytest.fixture()
 def temp_db(tmp_path):
     db_path = tmp_path / "realtime-paper.db"
@@ -148,6 +156,39 @@ async def test_realtime_execution_fills_order_and_streams_committed_event(temp_d
         position = db.execute(select(PaperPositionRecord)).scalar_one()
         assert order.status == "filled"
         assert position.status == "open"
+
+
+@pytest.mark.asyncio
+async def test_realtime_execution_falls_back_to_mark_tick_when_kline_fetch_fails(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "realtime-trader", "BTCUSDT", max_leverage=10)
+        place_paper_order(
+            db,
+            trader_id="realtime-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=100,
+            quantity=1,
+            leverage=5,
+            take_profit_price=105,
+            stop_loss_price=95,
+        )
+
+    result = await run_realtime_execution_once(
+        symbols=["BTCUSDT"],
+        market_client_factory=KlineFailureMarketClient,
+    )
+
+    assert result["counts"]["errors"] == 0
+    assert result["counts"]["fills"] == 1
+    with session_scope() as db:
+        order = db.execute(select(PaperOrderRecord)).scalar_one()
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        assert order.status == "filled"
+        assert order.filled_price == 99
+        assert position.status == "open"
+        assert position.entry_price == 99
 
 
 @pytest.mark.asyncio

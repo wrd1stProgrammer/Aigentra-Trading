@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from app.ai.anthropic_provider import league_sentiment_schema
 from app.ai.base import BaseAIProvider, league_sentiment_prompt
 from app.ai.league_sentiment_models import LeagueSentimentOpinionResult
 from app.db import (
@@ -915,13 +916,18 @@ def test_league_sentiment_prompt_prioritizes_user_usefulness_and_specificity(tem
     assert "brief.watch" in prompt
     assert "brief.conclusion must lead with BTC market state" in prompt
     assert "brief.reason must interpret the trader group positioning" in prompt
+    assert "brief.conclusion, brief.reason, and brief.watch may each be one or two concise sentences" in prompt
+    assert "summary may be two useful sentences" in prompt
+    assert "confidenceReason should be two concise sentences when confidence is capped, high, or disputed" in prompt
     assert "Do not recap recent trade events as the briefing" in prompt
     assert "recent take-profit/stop-loss events are supporting context, not the main story" in prompt
     assert "translations is required" in prompt
     assert "en, ko, ru, pt-BR, tr" in prompt
     assert "Top-level user-facing fields must mirror translations.en exactly" in prompt
-    assert "keyDrivers: at most one hidden support item" in prompt
-    assert "watchConditions: at most one hidden support item" in prompt
+    assert "keyDrivers: one or two support items" in prompt
+    assert "risks: one or two support items" in prompt
+    assert "watchConditions: one or two support items" in prompt
+    assert "at most one hidden support item" not in prompt
     assert "confidenceReason must explain why confidence is high, capped, or low" in prompt
     assert "active exposure, pending entries, invalidation area" in prompt
     assert "Use sourceRef or evidenceRefs labels" in prompt
@@ -952,10 +958,23 @@ def test_league_sentiment_prompt_requires_market_first_aggregate_briefing(temp_d
     assert "brief.conclusion must lead with BTC market state" in prompt
     assert "brief.reason must interpret the trader group positioning" in prompt
     assert "brief.watch must name the next market or positioning confirmation" in prompt
+    assert "two useful sentences" in prompt
     assert "Do not recap recent trade events as the briefing" in prompt
     assert "BTC is doing now" in prompt
     assert "traders are positioned" in prompt
     assert "judgment follows" in prompt
+
+
+def test_league_sentiment_schema_allows_two_support_items():
+    schema = league_sentiment_schema()
+    localized = schema["properties"]["translations"]["properties"]["ko"]
+    top_properties = schema["properties"]
+    localized_properties = localized["properties"]
+
+    for properties in (top_properties, localized_properties):
+        assert properties["keyDrivers"]["maxItems"] == 2
+        assert properties["risks"]["maxItems"] == 2
+        assert properties["watchConditions"]["maxItems"] == 2
 
 
 def test_fallback_league_sentiment_brief_uses_btc_market_state_before_trade_counts():

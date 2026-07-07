@@ -481,6 +481,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
 
   const detailQuery = useQuery({
     ...traderDetailBundleQueryOptions(traderId, symbol, locale),
+    enabled: clientHydrated,
     placeholderData: (previousData, previousQuery) => {
       const queryKey = previousQuery?.queryKey;
       if (

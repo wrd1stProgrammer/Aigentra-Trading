@@ -231,7 +231,11 @@ async def fetch_execution_candles(
     client = market_client or MarketDataClient(timeout_seconds=3.0)
     settings = get_settings()
     page_limit = max(2, int(settings.realtime_paper_execution_backfill_page_limit or 300))
-    candles = await client.get_klines(normalize_execution_symbol(symbol), "1m", page_limit)
+    try:
+        candles = await client.get_klines(normalize_execution_symbol(symbol), "1m", page_limit)
+    except (httpx.HTTPError, KeyError, RuntimeError, TypeError, ValueError):
+        price = await fetch_execution_price(symbol, client)
+        return price, [execution_tick_candle(symbol, price, previous_price)]
     if not candles:
         price = await fetch_execution_price(symbol, client)
         return price, [execution_tick_candle(symbol, price, previous_price)]

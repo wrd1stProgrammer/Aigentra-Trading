@@ -64,8 +64,8 @@ function managementReviewTimelineBody(brief: ReviewBrief | null, options: { omit
     ...brief.risks.slice(0, 1),
     ...brief.watchConditions.slice(0, 1),
     brief.managerNote
-  ], 96);
-  return cleanReviewDisplayText(parts.join(" "), 260) || null;
+  ]);
+  return cleanReviewDisplayText(parts.join(" ")) || null;
 }
 
 function hasSavedAiApproval(scenario: TraderScenario): boolean {

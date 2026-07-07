@@ -277,7 +277,7 @@ function ManagementDetail({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md bg-zinc-100 px-3 py-2 dark:bg-zinc-800/70">
       <div className="metric-label mb-1">{label}</div>
-      <div className="line-clamp-3 text-xs leading-5 text-zinc-600 dark:text-zinc-300">{value}</div>
+      <div className="text-xs leading-5 text-zinc-600 dark:text-zinc-300">{value}</div>
     </div>
   );
 }

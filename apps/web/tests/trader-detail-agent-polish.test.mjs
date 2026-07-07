@@ -649,7 +649,7 @@ test("management review titles distinguish repeated Korean profit labels", () =>
   const profitTitle = detailData.managementReviewScenarioTitle(profitProtectionReview, t);
 
   assert.equal(nearEntryTitle, "숏은 진입 부근의 작은 수익 구간입니다");
-  assert.equal(profitTitle, "숏이 첫 목표 쪽으로 충분히 진행되어 이익 보호를 검...");
+  assert.equal(profitTitle, "숏 이익 보호");
   assert.notEqual(nearEntryTitle, profitTitle);
   assert.notEqual(nearEntryTitle, "숏 익절권 확인");
 });
@@ -681,8 +681,9 @@ test("management review titles stay compact", () => {
     t
   );
 
-  assert.equal(title, "The short is a small near-ent...");
+  assert.equal(title, "Short Near-entry management");
   assert.ok(title.length <= 32);
+  assert.doesNotMatch(title, /\.\.\./);
 });
 
 function loadTsModule(relativePath, requireStubs = {}) {

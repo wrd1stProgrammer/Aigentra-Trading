@@ -49,6 +49,8 @@ def test_health(monkeypatch):
             "ko",
             {
                 "approvalReason": "상위 시간대 EMA 정렬이 회복되어 추세 감시관의 롱 진입을 승인합니다.",
+                "counterThesis": "회수 구간이 무너지면 추격 진입이 되기 전에 롱을 취소해야 합니다.",
+                "adjustments": ["회수 확인 전까지 진입 크기를 줄입니다."],
                 "structuredReview": {
                     "headline": "조정 뒤 트리거 구간을 회수해 추세 지속 롱 근거가 성립했습니다.",
                     "action": "계획된 트리거 구간 안에서만 진입하고 무효화 기준은 엄격히 유지합니다.",
@@ -62,6 +64,8 @@ def test_health(monkeypatch):
             "ru",
             {
                 "approvalReason": "Trend Sentinel может открыть LONG, потому что EMA на старших таймфреймах восстановились.",
+                "counterThesis": "Если возврат не удержится, LONG нужно отменить до того, как он станет погоней за ценой.",
+                "adjustments": ["Сократить размер до подтверждения возврата."],
                 "structuredReview": {
                     "headline": "LONG по продолжению тренда допустим после возврата в зону триггера.",
                     "action": "Входить только внутри запланированной зоны триггера и строго держать уровень отмены.",
@@ -81,6 +85,8 @@ def test_paper_endpoints_localize_embedded_ai_review_when_locale_requested(
     review_payload = {
         "decision": "APPROVE",
         "approvalReason": "Trend Sentinel can take the LONG because the higher-timeframe EMA stack recovered.",
+        "counterThesis": "If the reclaim fails, the LONG should be cancelled before it becomes a chase.",
+        "adjustments": ["Reduce size until the reclaim confirms."],
         "structuredReview": {
             "headline": "Trend continuation LONG is valid after the pullback reclaimed the trigger zone.",
             "action": "Enter only inside the planned trigger zone and keep the invalidation strict.",
@@ -112,6 +118,8 @@ def test_paper_endpoints_localize_embedded_ai_review_when_locale_requested(
             "aiReviewId": review.id,
             "aiReview": review_payload,
             "aiApprovalReason": review_payload["approvalReason"],
+            "aiCounterThesis": review_payload["counterThesis"],
+            "aiAdjustments": review_payload["adjustments"],
             "aiStructuredReview": review_payload["structuredReview"],
         }
         db.add_all(
@@ -151,18 +159,24 @@ def test_paper_endpoints_localize_embedded_ai_review_when_locale_requested(
     assert positions_response.status_code == 200
     position_payload = positions_response.json()["positions"][0]["payload"]
     assert position_payload["aiApprovalReason"] == translated_payload["approvalReason"]
+    assert position_payload["aiCounterThesis"] == translated_payload["counterThesis"]
+    assert position_payload["aiAdjustments"] == translated_payload["adjustments"]
     assert position_payload["aiStructuredReview"]["headline"] == translated_payload["structuredReview"]["headline"]
     assert positions_response.json()["positions"][0]["translation"]["embeddedAiReview"]["status"] == "ok"
 
     assert all_positions_response.status_code == 200
     all_position_payload = all_positions_response.json()["positions"][0]["payload"]
     assert all_position_payload["aiApprovalReason"] == translated_payload["approvalReason"]
+    assert all_position_payload["aiCounterThesis"] == translated_payload["counterThesis"]
+    assert all_position_payload["aiAdjustments"] == translated_payload["adjustments"]
     assert all_position_payload["aiReview"]["structuredReview"]["headline"] == translated_payload["structuredReview"]["headline"]
     assert all_positions_response.json()["positions"][0]["translation"]["embeddedAiReview"]["status"] == "ok"
 
     assert orders_response.status_code == 200
     order_payload = orders_response.json()["orders"][0]["payload"]
     assert order_payload["aiApprovalReason"] == translated_payload["approvalReason"]
+    assert order_payload["aiCounterThesis"] == translated_payload["counterThesis"]
+    assert order_payload["aiAdjustments"] == translated_payload["adjustments"]
     assert order_payload["aiReview"]["structuredReview"]["headline"] == translated_payload["structuredReview"]["headline"]
     assert orders_response.json()["orders"][0]["translation"]["embeddedAiReview"]["status"] == "ok"
 

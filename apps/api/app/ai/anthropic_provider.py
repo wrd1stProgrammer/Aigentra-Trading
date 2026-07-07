@@ -222,15 +222,15 @@ def league_sentiment_schema() -> dict[str, Any]:
                 "properties": {
                     "conclusion": {
                         "type": "string",
-                        "description": "One plain sentence that starts with BTC market state, then the league read.",
+                        "description": "One or two concise sentences that start with BTC market state, then the league read.",
                     },
                     "reason": {
                         "type": "string",
-                        "description": "One plain sentence interpreting aggregate trader positioning and why it matters.",
+                        "description": "One or two concise sentences interpreting aggregate trader positioning and why it matters.",
                     },
                     "watch": {
                         "type": "string",
-                        "description": "One concrete next market or positioning confirmation to watch before the next generation.",
+                        "description": "One or two concise sentences naming the next market or positioning confirmation before the next generation.",
                     },
                 },
                 "required": ["conclusion", "reason", "watch"],
@@ -238,9 +238,9 @@ def league_sentiment_schema() -> dict[str, Any]:
             },
             "headline": {"type": "string"},
             "summary": {"type": "string"},
-            "keyDrivers": {"type": "array", "items": {"type": "string"}, "maxItems": 1},
-            "risks": {"type": "array", "items": {"type": "string"}, "maxItems": 1},
-            "watchConditions": {"type": "array", "items": {"type": "string"}, "maxItems": 1},
+            "keyDrivers": {"type": "array", "items": {"type": "string"}, "maxItems": 2},
+            "risks": {"type": "array", "items": {"type": "string"}, "maxItems": 2},
+            "watchConditions": {"type": "array", "items": {"type": "string"}, "maxItems": 2},
             "action": {"type": "string"},
             "longShortContext": {"type": "string"},
         },
@@ -281,15 +281,15 @@ def league_sentiment_schema() -> dict[str, Any]:
                 "properties": {
                     "conclusion": {
                         "type": "string",
-                        "description": "One plain sentence that starts with BTC market state, then the league read.",
+                        "description": "One or two concise sentences that start with BTC market state, then the league read.",
                     },
                     "reason": {
                         "type": "string",
-                        "description": "One plain sentence interpreting aggregate trader positioning and why it matters.",
+                        "description": "One or two concise sentences interpreting aggregate trader positioning and why it matters.",
                     },
                     "watch": {
                         "type": "string",
-                        "description": "One concrete next market or positioning confirmation to watch before the next generation.",
+                        "description": "One or two concise sentences naming the next market or positioning confirmation before the next generation.",
                     },
                 },
                 "required": ["conclusion", "reason", "watch"],
@@ -297,9 +297,9 @@ def league_sentiment_schema() -> dict[str, Any]:
             },
             "headline": {"type": "string"},
             "summary": {"type": "string"},
-            "keyDrivers": {"type": "array", "items": {"type": "string"}, "maxItems": 1},
-            "risks": {"type": "array", "items": {"type": "string"}, "maxItems": 1},
-            "watchConditions": {"type": "array", "items": {"type": "string"}, "maxItems": 1},
+            "keyDrivers": {"type": "array", "items": {"type": "string"}, "maxItems": 2},
+            "risks": {"type": "array", "items": {"type": "string"}, "maxItems": 2},
+            "watchConditions": {"type": "array", "items": {"type": "string"}, "maxItems": 2},
             "action": {"type": "string"},
             "longShortContext": {"type": "string"},
             "sourceCounts": {"type": "object", "additionalProperties": {"type": "integer"}},

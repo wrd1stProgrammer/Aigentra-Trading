@@ -5,6 +5,7 @@ import { test } from "node:test";
 const summarySource = readFileSync(new URL("../components/review-brief-summary.tsx", import.meta.url), "utf8");
 const modalSource = readFileSync(new URL("../components/trader-profile-detail/scenario-modal.tsx", import.meta.url), "utf8");
 const panelSource = readFileSync(new URL("../components/ai-review-panel.tsx", import.meta.url), "utf8");
+const scenarioFeedSource = readFileSync(new URL("../components/trader-profile-detail/scenario-feed.ts", import.meta.url), "utf8");
 
 test("structured reviews render as a short briefing plus manager note", () => {
   assert.match(summarySource, /ReviewBriefSummary/, "shared compact structured review component should exist");
@@ -36,4 +37,32 @@ test("structured review raw decision tokens are localized before display", () =>
   assert.match(summarySource, /localizedBriefToken/, "brief verdicts should pass through a localization helper");
   assert.match(summarySource, /APPROVE: "status\.approved"/, "approve verdicts should use status localization");
   assert.match(summarySource, /MOVE_STOP_TO_BREAKEVEN: "status\.moveStopToBreakeven"/, "breakeven stop actions should use status localization");
+});
+
+test("entry rationale paragraphs are not force-truncated with ellipses", () => {
+  assert.doesNotMatch(
+    summarySource,
+    /cleanReviewDisplayText\([^)]*,\s*compact \? \d+ : \d+\)/,
+    "visible review summary text should not use small character clamps that append ellipses"
+  );
+  assert.doesNotMatch(
+    summarySource,
+    /compact \? (?:72|92|96|110) : (?:100|132|140|160)/,
+    "entry rationale lines should preserve the server review copy instead of truncating each paragraph"
+  );
+  assert.doesNotMatch(
+    panelSource,
+    /line-clamp-3/,
+    "management and entry review detail copy should wrap naturally instead of hiding text after three lines"
+  );
+  assert.doesNotMatch(
+    scenarioFeedSource,
+    /cleanReviewDisplayItems\([\s\S]*,\s*96\)/,
+    "scenario timeline review parts should not insert hard ellipses before the user opens the detail"
+  );
+  assert.doesNotMatch(
+    scenarioFeedSource,
+    /cleanReviewDisplayText\([\s\S]*,\s*260\)/,
+    "scenario timeline copy should not insert hard ellipses before the user opens the detail"
+  );
 });

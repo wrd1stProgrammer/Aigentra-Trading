@@ -302,9 +302,9 @@ class BaseAIProvider:
             brief=brief,
             headline=headline,
             summary=summary,
-            keyDrivers=self._normalize_limited_string_list(value.get("keyDrivers"), 1) or list(fallback.keyDrivers if fallback else []),
-            risks=self._normalize_limited_string_list(value.get("risks"), 1) or list(fallback.risks if fallback else []),
-            watchConditions=self._normalize_limited_string_list(value.get("watchConditions"), 1) or list(fallback.watchConditions if fallback else []),
+            keyDrivers=self._normalize_limited_string_list(value.get("keyDrivers"), 2) or list(fallback.keyDrivers if fallback else []),
+            risks=self._normalize_limited_string_list(value.get("risks"), 2) or list(fallback.risks if fallback else []),
+            watchConditions=self._normalize_limited_string_list(value.get("watchConditions"), 2) or list(fallback.watchConditions if fallback else []),
             action=action,
             longShortContext=(
                 self._normalize_optional_text(value.get("longShortContext"))
@@ -1444,6 +1444,7 @@ def league_sentiment_prompt(payload: LeagueSentimentPayload) -> str:
         "Top-level user-facing fields must mirror translations.en exactly. "
         "The default UI reads only brief, so make brief the product-quality desk briefing. "
         "brief must have exactly conclusion, reason, and watch. These three fields should read as two or three short lines together. "
+        "brief.conclusion, brief.reason, and brief.watch may each be one or two concise sentences when the second sentence adds a concrete implication. "
         "brief.conclusion must lead with BTC market state: say what BTC is doing now using market, marketRegime, and timeframes before mentioning the league. "
         "brief.reason must interpret the trader group positioning: explain how traders are positioned, whether that confirms or conflicts with BTC, and why the judgment follows. "
         "brief.watch must name the next market or positioning confirmation, such as a timeframe close, retest area hold/fail, invalidation area, or active/pending exposure change. "
@@ -1466,16 +1467,18 @@ def league_sentiment_prompt(payload: LeagueSentimentPayload) -> str:
         "Management reviews describe what changed after entry. Ignore records that are fallback, provider-error, or explicitly failed if they appear in the payload. "
         "If active/pending data is thin or conflicting, choose NEUTRAL or MIXED and keep confidence at or below 55. "
         "confidenceReason must explain why confidence is high, capped, or low, including data freshness when it matters. "
+        "confidenceReason should be two concise sentences when confidence is capped, high, or disputed: first name the strongest evidence, then name the limiting factor. "
         "If both long and short exposures are meaningful, choose MIXED unless one side has clearly stronger active exposure size, confidence, or fresh review quality. "
         "If recent losses cluster, failed reviews dominate, or market risk is unclear, choose RISK_OFF even if one side has more entries. "
         "Write for a normal user: plain language, short sentences, and professional trading-desk compression. "
         "Do not dump raw indicators or list counts in brief unless you state the implication. "
-        "Legacy fields must mirror the compact briefing: headline should match brief.conclusion, summary should match brief.reason, and action should match brief.watch. "
-        "keyDrivers: at most one hidden support item. risks: at most one hidden support item. "
-        "watchConditions: at most one hidden support item with a source, timeframe, or price area from the payload. "
+        "Legacy fields must mirror the compact briefing: headline should match brief.conclusion, summary should expand brief.reason, and action should match brief.watch. "
+        "summary may be two useful sentences when it explains both positioning and the practical implication. "
+        "keyDrivers: one or two support items with concrete source grounding. risks: one or two support items that explain what can break the read. "
+        "watchConditions: one or two support items with a source, timeframe, or price area from the payload. "
         "Avoid generic sentences like 'monitor market conditions', 'watch closely', or 'market is supportive' unless you add the exact condition. "
-        "headline: one sentence. summary: one sentence. action: one practical monitoring instruction for this Aigentra league. "
-        "longShortContext: one compact sentence comparing LONG and SHORT pressure. "
+        "headline: one sentence. summary: one or two useful sentences. action: one practical monitoring instruction for this Aigentra league. "
+        "longShortContext: one or two compact sentences comparing LONG and SHORT pressure and what that skew means. "
         "Write each translations locale naturally for that language, not as literal word-by-word translation. Keep LONG and SHORT as side labels when useful. "
         "If a locale translation is uncertain, keep the sentence simpler rather than adding new facts.\n\n"
         f"Payload:\n{json.dumps(payload_data, ensure_ascii=False)}"

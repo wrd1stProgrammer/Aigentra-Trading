@@ -710,6 +710,12 @@ def localized_embedded_ai_review_payload(record, payload: dict, locale: str) -> 
     approval_reason = localized_review.get("approvalReason")
     if approval_reason:
         next_payload["aiApprovalReason"] = approval_reason
+    counter_thesis = localized_review.get("counterThesis")
+    if counter_thesis:
+        next_payload["aiCounterThesis"] = counter_thesis
+    adjustments = localized_review.get("adjustments")
+    if isinstance(adjustments, list):
+        next_payload["aiAdjustments"] = adjustments
     structured = record_payload(localized_review.get("structuredReview"))
     if structured is not None:
         next_payload["aiStructuredReview"] = structured
