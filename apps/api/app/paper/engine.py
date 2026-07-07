@@ -395,6 +395,8 @@ def process_candle(db: Session, trader_id: str, symbol: str, candle: Union[Candl
     }
 
     for order in list_open_orders(db, clean_trader_id, clean_symbol):
+        if not _record_is_active_for_candle(order.submitted_at or order.created_at, parsed_candle):
+            continue
         fill_price = _fill_price(order, parsed_candle)
         if fill_price is None:
             continue

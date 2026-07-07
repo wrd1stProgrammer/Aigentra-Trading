@@ -171,7 +171,7 @@ def test_historical_replay_ignores_candles_before_position_open(temp_db):
     base_time = datetime(2026, 7, 4, 17, 33, tzinfo=timezone.utc)
     with session_scope() as db:
         upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)
-        place_paper_order(
+        order = place_paper_order(
             db,
             trader_id="paper-trader",
             symbol="BTCUSDT",
@@ -183,6 +183,8 @@ def test_historical_replay_ignores_candles_before_position_open(temp_db):
             take_profit_price=120,
             stop_loss_price=90,
         )
+        order.submitted_at = base_time
+        db.flush()
 
         process_candle(
             db,
@@ -200,6 +202,50 @@ def test_historical_replay_ignores_candles_before_position_open(temp_db):
 
         assert result.closed_positions == []
         assert position.status == "open"
+
+
+def test_historical_replay_ignores_candles_before_order_submission(temp_db):
+    submitted_at = datetime(2026, 7, 7, 10, 0, tzinfo=timezone.utc)
+    with session_scope() as db:
+        upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)
+        order = place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=100,
+            quantity=1,
+            leverage=5,
+            take_profit_price=120,
+            stop_loss_price=90,
+        )
+        order.submitted_at = submitted_at
+        db.flush()
+
+        before_submission = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 101, "high": 102, "low": 99, "close": 100, "timestamp": submitted_at - timedelta(minutes=1)},
+        )
+
+        db.refresh(order)
+        assert before_submission.filled_orders == []
+        assert before_submission.events == []
+        assert order.status == "open"
+        assert db.execute(select(PaperPositionRecord)).scalars().all() == []
+
+        after_submission = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 101, "high": 102, "low": 99, "close": 100, "timestamp": submitted_at},
+        )
+
+        db.refresh(order)
+        assert after_submission.filled_orders == [order]
+        assert order.status == "filled"
 
 
 def test_take_profit_counts_prior_ai_reduction_against_planned_target(temp_db):
@@ -562,7 +608,7 @@ def test_60_hour_profitable_long_moves_stop_to_breakeven(temp_db):
     base_time = datetime(2026, 6, 1, tzinfo=timezone.utc)
     with session_scope() as db:
         upsert_risk_settings(db, "trend-sentinel", "BTCUSDT", max_leverage=5)
-        place_paper_order(
+        order = place_paper_order(
             db,
             trader_id="trend-sentinel",
             symbol="BTCUSDT",
@@ -572,6 +618,8 @@ def test_60_hour_profitable_long_moves_stop_to_breakeven(temp_db):
             take_profit_price=140,
             stop_loss_price=90,
         )
+        order.submitted_at = base_time
+        db.flush()
 
         process_candle(
             db,
@@ -607,7 +655,7 @@ def test_60_hour_profitable_short_moves_stop_to_breakeven(temp_db):
     base_time = datetime(2026, 6, 1, tzinfo=timezone.utc)
     with session_scope() as db:
         upsert_risk_settings(db, "trend-sentinel", "BTCUSDT", max_leverage=5)
-        place_paper_order(
+        order = place_paper_order(
             db,
             trader_id="trend-sentinel",
             symbol="BTCUSDT",
@@ -617,6 +665,8 @@ def test_60_hour_profitable_short_moves_stop_to_breakeven(temp_db):
             take_profit_price=60,
             stop_loss_price=110,
         )
+        order.submitted_at = base_time
+        db.flush()
 
         process_candle(
             db,
@@ -651,7 +701,7 @@ def test_60_hour_breakeven_requires_profit_and_minimum_hold_time(temp_db):
     base_time = datetime(2026, 6, 1, tzinfo=timezone.utc)
     with session_scope() as db:
         upsert_risk_settings(db, "trend-sentinel", "BTCUSDT", max_leverage=5)
-        place_paper_order(
+        order = place_paper_order(
             db,
             trader_id="trend-sentinel",
             symbol="BTCUSDT",
@@ -661,6 +711,8 @@ def test_60_hour_breakeven_requires_profit_and_minimum_hold_time(temp_db):
             take_profit_price=140,
             stop_loss_price=90,
         )
+        order.submitted_at = base_time
+        db.flush()
 
         process_candle(
             db,
@@ -695,7 +747,7 @@ def test_60_hour_breakeven_does_not_apply_on_fill_candle(temp_db):
     base_time = datetime(2026, 6, 1, tzinfo=timezone.utc)
     with session_scope() as db:
         upsert_risk_settings(db, "trend-sentinel", "BTCUSDT", max_leverage=5)
-        place_paper_order(
+        order = place_paper_order(
             db,
             trader_id="trend-sentinel",
             symbol="BTCUSDT",
@@ -705,6 +757,8 @@ def test_60_hour_breakeven_does_not_apply_on_fill_candle(temp_db):
             take_profit_price=140,
             stop_loss_price=90,
         )
+        order.submitted_at = base_time
+        db.flush()
 
         result = process_candle(
             db,
