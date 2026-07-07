@@ -222,15 +222,15 @@ def league_sentiment_schema() -> dict[str, Any]:
                 "properties": {
                     "conclusion": {
                         "type": "string",
-                        "description": "One plain sentence with the current league read.",
+                        "description": "One plain sentence that starts with BTC market state, then the league read.",
                     },
                     "reason": {
                         "type": "string",
-                        "description": "One plain sentence with the strongest reason this read matters.",
+                        "description": "One plain sentence interpreting aggregate trader positioning and why it matters.",
                     },
                     "watch": {
                         "type": "string",
-                        "description": "One concrete next condition to watch before the next generation.",
+                        "description": "One concrete next market or positioning confirmation to watch before the next generation.",
                     },
                 },
                 "required": ["conclusion", "reason", "watch"],
@@ -281,15 +281,15 @@ def league_sentiment_schema() -> dict[str, Any]:
                 "properties": {
                     "conclusion": {
                         "type": "string",
-                        "description": "One plain sentence with the current league read.",
+                        "description": "One plain sentence that starts with BTC market state, then the league read.",
                     },
                     "reason": {
                         "type": "string",
-                        "description": "One plain sentence with the strongest reason this read matters.",
+                        "description": "One plain sentence interpreting aggregate trader positioning and why it matters.",
                     },
                     "watch": {
                         "type": "string",
-                        "description": "One concrete next condition to watch before the next generation.",
+                        "description": "One concrete next market or positioning confirmation to watch before the next generation.",
                     },
                 },
                 "required": ["conclusion", "reason", "watch"],

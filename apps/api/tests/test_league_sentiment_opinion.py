@@ -11,6 +11,7 @@ from app.db import (
     AIReviewRecord,
     AITranslationCacheRecord,
     LeagueSentimentOpinionRecord,
+    MarketSnapshotRecord,
     PaperOrderRecord,
     PaperPositionRecord,
     PositionManagementReviewRecord,
@@ -19,7 +20,12 @@ from app.db import (
     reset_db_engine,
     session_scope,
 )
-from app.league_sentiment import build_league_sentiment_payload, scrub_banned_opinion_terms, serialize_league_sentiment_record
+from app.league_sentiment import (
+    LEAGUE_SENTIMENT_BRIEFING_VERSION,
+    build_league_sentiment_payload,
+    scrub_banned_opinion_terms,
+    serialize_league_sentiment_record,
+)
 from app.main import app
 from app.repositories import to_json
 
@@ -116,6 +122,38 @@ def seed_sentiment_context() -> None:
                     created_at=datetime(2026, 6, 18, 8, 30, tzinfo=timezone.utc),
                 ),
             ]
+        )
+
+
+def seed_market_context() -> None:
+    with session_scope() as db:
+        db.add(
+            MarketSnapshotRecord(
+                symbol="BTCUSDT",
+                status="ok",
+                price=63377.7,
+                payload_json=to_json(
+                    {
+                        "price": 63377.7,
+                        "marketRegime": {"label": "retest compression", "bias": "upside_retest"},
+                        "timeframes": {
+                            "1h": {
+                                "close": 63377.7,
+                                "ema50": 62920.0,
+                                "rsi14": 58.4,
+                                "trend": "uptrend",
+                            },
+                            "4h": {
+                                "close": 63377.7,
+                                "ema50": 63180.0,
+                                "rsi14": 54.2,
+                                "trend": "range",
+                            },
+                        },
+                    }
+                ),
+                created_at=datetime(2026, 6, 18, 8, 34, tzinfo=timezone.utc),
+            )
         )
 
 
@@ -317,6 +355,7 @@ def test_existing_league_sentiment_opinion_hydrates_requested_locale_translation
         "provider": "mock",
         "model": "mock-league-opinion",
         "fallback": False,
+        "briefingVersion": LEAGUE_SENTIMENT_BRIEFING_VERSION,
     }
 
     with session_scope() as db:
@@ -413,6 +452,7 @@ def test_existing_league_sentiment_opinion_uses_embedded_locale_without_translat
         "model": "mock-league-opinion",
         "fallback": False,
         "translations": translations,
+        "briefingVersion": LEAGUE_SENTIMENT_BRIEFING_VERSION,
     }
 
     with session_scope() as db:
@@ -458,6 +498,85 @@ def test_existing_league_sentiment_opinion_uses_embedded_locale_without_translat
         assert db.query(AITranslationCacheRecord).count() == 0
 
 
+def test_legacy_hourly_league_sentiment_record_is_replaced_with_market_first_brief(temp_db, monkeypatch):
+    seed_sentiment_context()
+    seed_market_context()
+    current_hour = datetime(2026, 6, 18, 8, 0, tzinfo=timezone.utc)
+    legacy_payload = {
+        "bias": "MIXED",
+        "confidence": 55,
+        "riskLevel": "MEDIUM",
+        "confidenceReason": "Old record.",
+        "brief": {
+            "conclusion": "최근 거래기록만 요약하는 구버전 의견입니다.",
+            "reason": "익절/손절 이벤트를 먼저 읽습니다.",
+            "watch": "체결 변화만 확인하세요.",
+        },
+        "headline": "최근 거래기록만 요약하는 구버전 의견입니다.",
+        "summary": "익절/손절 이벤트를 먼저 읽습니다.",
+        "keyDrivers": [],
+        "risks": [],
+        "watchConditions": [],
+        "action": "체결 변화만 확인하세요.",
+        "longShortContext": "LONG 1 / SHORT 1",
+        "sourceCounts": {"activePositions": 1},
+        "sourceBreakdown": {"activeExposure": {"total": 1}},
+        "dataFreshness": {"generatedAt": current_hour.isoformat()},
+        "evidenceRefs": [],
+        "invalidatesAt": (current_hour + timedelta(hours=1)).isoformat(),
+        "provider": "mock",
+        "model": "old-league-opinion",
+        "fallback": False,
+    }
+    with session_scope() as db:
+        db.add(
+            LeagueSentimentOpinionRecord(
+                symbol="BTCUSDT",
+                trader_id="aigentra-opinion",
+                status="ok",
+                locale="en",
+                interval_start=current_hour,
+                interval_end=current_hour + timedelta(hours=1),
+                provider="mock",
+                model="old-league-opinion",
+                bias="MIXED",
+                confidence=55,
+                risk_level="MEDIUM",
+                fallback=False,
+                created_at=current_hour,
+                payload_json=to_json(legacy_payload),
+            )
+        )
+
+    class FailingProvider:
+        name = "anthropic"
+        model = "claude-haiku-4-5"
+        fallback = False
+
+        async def review_league_sentiment(self, payload):
+            raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr("app.league_sentiment.utc_now", lambda: current_hour + timedelta(minutes=35))
+    monkeypatch.setattr("app.league_sentiment.get_ai_provider", lambda settings, provider_name=None: FailingProvider())
+
+    client = TestClient(app)
+    response = client.get("/api/league/sentiment/opinion?symbol=BTCUSDT&locale=ko")
+
+    assert response.status_code == 200
+    data = response.json()
+    brief = data["opinion"]["brief"]
+    assert data["cacheHit"] is False
+    assert data["status"] == "fallback"
+    assert brief["conclusion"].startswith("BTC")
+    assert "최근 거래기록만 요약" not in str(data["opinion"])
+    with session_scope() as db:
+        records = db.query(LeagueSentimentOpinionRecord).all()
+        assert len(records) == 1
+        assert records[0].status == "fallback"
+        assert LEAGUE_SENTIMENT_BRIEFING_VERSION in records[0].payload_json
+        assert "최근 거래기록만 요약" not in records[0].payload_json
+
+
 def test_league_sentiment_opinion_can_return_previous_hour_without_blocking(temp_db, monkeypatch):
     seed_sentiment_context()
     current_hour = datetime(2026, 6, 18, 9, 0, tzinfo=timezone.utc)
@@ -487,6 +606,7 @@ def test_league_sentiment_opinion_can_return_previous_hour_without_blocking(temp
         "provider": "mock",
         "model": "mock-league-opinion",
         "fallback": False,
+        "briefingVersion": LEAGUE_SENTIMENT_BRIEFING_VERSION,
     }
     with session_scope() as db:
         db.add(
@@ -680,6 +800,7 @@ def test_serialized_league_sentiment_record_marks_overdue_previous_opinion(temp_
         "provider": "mock",
         "model": "mock-league-opinion",
         "fallback": False,
+        "briefingVersion": LEAGUE_SENTIMENT_BRIEFING_VERSION,
     }
     with session_scope() as db:
         record = LeagueSentimentOpinionRecord(
@@ -772,6 +893,7 @@ def test_serialized_league_sentiment_record_backfills_legacy_brief(temp_db):
 
 def test_league_sentiment_prompt_prioritizes_user_usefulness_and_specificity(temp_db):
     seed_sentiment_context()
+    seed_market_context()
     with session_scope() as db:
         payload = build_league_sentiment_payload(
             db,
@@ -791,6 +913,10 @@ def test_league_sentiment_prompt_prioritizes_user_usefulness_and_specificity(tem
     assert "brief.conclusion" in prompt
     assert "brief.reason" in prompt
     assert "brief.watch" in prompt
+    assert "brief.conclusion must lead with BTC market state" in prompt
+    assert "brief.reason must interpret the trader group positioning" in prompt
+    assert "Do not recap recent trade events as the briefing" in prompt
+    assert "recent take-profit/stop-loss events are supporting context, not the main story" in prompt
     assert "translations is required" in prompt
     assert "en, ko, ru, pt-BR, tr" in prompt
     assert "Top-level user-facing fields must mirror translations.en exactly" in prompt
@@ -805,3 +931,116 @@ def test_league_sentiment_prompt_prioritizes_user_usefulness_and_specificity(tem
     assert "summary: two to three sentences" not in prompt
     assert "futures simulation league" not in prompt
     assert "up to four bullets" not in prompt
+
+
+def test_league_sentiment_prompt_requires_market_first_aggregate_briefing(temp_db):
+    seed_sentiment_context()
+    seed_market_context()
+    with session_scope() as db:
+        payload = build_league_sentiment_payload(
+            db,
+            symbol="BTCUSDT",
+            locale="en",
+            interval_start=datetime(2026, 6, 18, 8, 0, tzinfo=timezone.utc),
+            interval_end=datetime(2026, 6, 18, 9, 0, tzinfo=timezone.utc),
+            now=datetime(2026, 6, 18, 8, 35, tzinfo=timezone.utc),
+            recent_hours=24,
+        )
+
+    prompt = league_sentiment_prompt(payload)
+
+    assert "brief.conclusion must lead with BTC market state" in prompt
+    assert "brief.reason must interpret the trader group positioning" in prompt
+    assert "brief.watch must name the next market or positioning confirmation" in prompt
+    assert "Do not recap recent trade events as the briefing" in prompt
+    assert "BTC is doing now" in prompt
+    assert "traders are positioned" in prompt
+    assert "judgment follows" in prompt
+
+
+def test_fallback_league_sentiment_brief_uses_btc_market_state_before_trade_counts():
+    from app.league_sentiment import fallback_league_sentiment_opinion
+    from app.ai.league_sentiment_models import LeagueSentimentPayload
+
+    payload = LeagueSentimentPayload(
+        symbol="BTCUSDT",
+        locale="ko",
+        generatedAt="2026-06-18T08:35:00+00:00",
+        intervalStart="2026-06-18T08:00:00+00:00",
+        intervalEnd="2026-06-18T09:00:00+00:00",
+        market={
+            "symbol": "BTCUSDT",
+            "price": 63377.7,
+            "dataAvailable": True,
+            "timeframes": {
+                "1h": {"trend": "uptrend", "close": 63377.7, "ema50": 62920.0, "rsi14": 58.4},
+                "4h": {"trend": "range", "close": 63377.7, "ema50": 63180.0, "rsi14": 54.2},
+            },
+        },
+        sourceCounts={
+            "activeLongPositions": 2,
+            "activeShortPositions": 1,
+            "pendingLongOrders": 1,
+            "pendingShortOrders": 0,
+            "recentTakeProfits": 0,
+            "recentStopLosses": 3,
+        },
+        activePositions=[
+            {"side": "LONG", "notional": 12000, "distanceToTakeProfitPct": 1.2, "distanceToStopLossPct": 1.8},
+            {"side": "LONG", "notional": 9000, "distanceToTakeProfitPct": 1.6, "distanceToStopLossPct": 1.5},
+            {"side": "SHORT", "notional": 5000, "distanceToTakeProfitPct": 2.0, "distanceToStopLossPct": 1.1},
+        ],
+        pendingOrders=[{"side": "LONG", "notional": 4000, "distanceToTakeProfitPct": 1.0}],
+        longShortContext={"dominantSide": "LONG", "longExposureCount": 3, "shortExposureCount": 1},
+        sourceBreakdown={"activeExposure": {"dominantSide": "LONG"}},
+        dataFreshness={"marketAgeMinutes": 1},
+        derivedSignals={"recentOutcomeBalance": {"takeProfits": 0, "stopLosses": 3, "sampleSize": 3}},
+    )
+
+    opinion = fallback_league_sentiment_opinion(payload)
+    brief_text = " ".join(
+        [
+            opinion.brief.conclusion,
+            opinion.brief.reason,
+            opinion.brief.watch,
+        ]
+    )
+
+    assert opinion.brief.conclusion.startswith("BTC")
+    assert "1H" in opinion.brief.conclusion or "4H" in opinion.brief.conclusion
+    assert "LONG" in opinion.brief.reason
+    assert "트레이더" in opinion.brief.reason or "리그" in opinion.brief.reason
+    assert "익절/손절 이벤트" not in brief_text
+    assert "최근 익절" not in brief_text
+    assert "최근 손절" not in brief_text
+
+
+def test_league_sentiment_http_surface_returns_market_first_brief(temp_db, monkeypatch):
+    seed_sentiment_context()
+    seed_market_context()
+
+    class FailingProvider:
+        name = "anthropic"
+        model = "claude-haiku-4-5"
+        fallback = False
+
+        async def review_league_sentiment(self, payload):
+            raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr("app.league_sentiment.utc_now", lambda: datetime(2026, 6, 18, 8, 35, tzinfo=timezone.utc))
+    monkeypatch.setattr("app.league_sentiment.get_ai_provider", lambda settings, provider_name=None: FailingProvider())
+
+    client = TestClient(app)
+    response = client.get("/api/league/sentiment/opinion?symbol=BTCUSDT&locale=ko")
+
+    assert response.status_code == 200
+    data = response.json()
+    brief = data["opinion"]["brief"]
+    visible_text = " ".join([brief["conclusion"], brief["reason"], brief["watch"]])
+
+    assert brief["conclusion"].startswith("BTC")
+    assert "1H" in brief["conclusion"] or "4H" in brief["conclusion"]
+    assert "LONG" in brief["reason"] or "SHORT" in brief["reason"]
+    assert "트레이더" in brief["reason"] or "리그" in brief["reason"]
+    assert "익절/손절 이벤트" not in visible_text
+    assert "최근 거래" not in visible_text
