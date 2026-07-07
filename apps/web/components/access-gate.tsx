@@ -19,6 +19,8 @@ import {
 
 type ProtectedMode = "subscription" | "coupon";
 
+const SUBSCRIPTION_PLANS_HREF = "/#pricing";
+
 type ProtectedContentGateProps = {
   readonly mode: ProtectedMode;
   readonly lockPlacement?: "content" | "viewport";
@@ -94,7 +96,7 @@ function ProtectedContentGateContent({
       ? access.isSubscribed
       : isProtectedSourceUnlocked(access, sourceKey);
   if (unlocked) {
-    return <div className={className}>{children}</div>;
+    return <div className={`w-full min-w-0 max-w-full ${className}`}>{children}</div>;
   }
 
   const isCouponMode = mode === "coupon";
@@ -128,8 +130,8 @@ function ProtectedContentGateContent({
       : "transform absolute left-1/2 top-1/2 w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2";
 
   return (
-    <div className={`relative rounded-2xl ${className}`}>
-      <div className="pointer-events-none select-none overflow-hidden rounded-2xl">
+    <div className={`relative w-full min-w-0 max-w-full overflow-hidden rounded-2xl ${className}`}>
+      <div className="pointer-events-none min-w-0 max-w-full select-none overflow-hidden rounded-2xl">
         <div className="blur-[3px]">{lockedChildren}</div>
       </div>
       <button
@@ -187,8 +189,8 @@ function SubscriberAccessPending({
   readonly children: ReactNode;
 }) {
   return (
-    <div data-testid="subscriber-access-pending" className={`relative rounded-2xl ${className}`}>
-      <div className="pointer-events-none select-none overflow-hidden rounded-2xl opacity-80">
+    <div data-testid="subscriber-access-pending" className={`relative w-full min-w-0 max-w-full overflow-hidden rounded-2xl ${className}`}>
+      <div className="pointer-events-none min-w-0 max-w-full select-none overflow-hidden rounded-2xl opacity-80">
         {children}
       </div>
       <div className="absolute inset-0 z-10 grid place-items-center rounded-2xl bg-zinc-950/[0.42] text-zinc-300">
@@ -234,7 +236,7 @@ function AccessDialog({
       : unlocking
         ? t("common.loading")
         : t("access.useCoupon");
-  const primaryHref = isGuest ? "/login?next=/leaderboard" : "/";
+  const primaryHref = isGuest ? "/login?next=/leaderboard" : SUBSCRIPTION_PLANS_HREF;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">

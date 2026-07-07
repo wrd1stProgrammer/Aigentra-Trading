@@ -49,3 +49,4 @@ test-results/
 *.db-wal
 tmp/
 temp/
+.vercel

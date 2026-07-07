@@ -28,8 +28,18 @@ test("consensus uses a lightweight initial bundle and full-screen loading overla
   assert.match(consensusSource, /getActivePaperPositions\("BTCUSDT", undefined, CONSENSUS_EXPOSURE_LIMIT, \{ signal: context\.signal \}\)/, "active positions should load through the narrow exposure API with abort support");
   assert.match(consensusSource, /getPaperOrders\(CONSENSUS_EXPOSURE_LIMIT, "BTCUSDT", "open", undefined, \{ signal: context\.signal \}\)/, "active orders should load through the narrow order API with abort support");
   assert.doesNotMatch(consensusSource, /getRecentTradePlans/, "sentiment page should not fetch full pending trade-plan payloads");
-  assert.match(consensusSource, /const initialLoading = consensusBundleLoading \|\| hourlyOpinionLoading;/, "the full-screen overlay should wait until the bundle and Aigentra opinion are actually ready");
+  assert.match(consensusSource, /const initialLoading = canLoadConsensusData && \(consensusBundleLoading \|\| hourlyOpinionLoading\);/, "the full-screen overlay should wait until subscriber-only data is actually requested and ready");
   assert.match(consensusSource, /PageLoadingOverlay/, "consensus should use the shared loading overlay");
   assert.match(overlaySource, /createPortal/, "loading overlay should portal to body instead of living under animated page transforms");
   assert.match(overlaySource, /backdrop-blur-\[3px\]/, "loading overlay should blur the page background");
+});
+
+test("locked consensus uses a mock preview instead of fetching subscriber-only data", () => {
+  const enabledGuardCount = consensusSource.match(/enabled: canLoadConsensusData/g)?.length ?? 0;
+  assert.match(consensusSource, /const accessQuery = useSubscriberAccess\(\);/, "consensus should resolve subscription access before protected data queries");
+  assert.match(consensusSource, /const canLoadConsensusData = Boolean\(accessQuery\.data\?\.isSubscribed\);/, "consensus should only load protected data for active subscribers");
+  assert.equal(enabledGuardCount, 4, "bundle, opinion, active positions, and open orders should all be gated");
+  assert.match(consensusSource, /deferLockedChildren/, "locked consensus should not render real children behind the blur");
+  assert.match(consensusSource, /lockedPreview=\{<ConsensusLockedPreview t=\{t\} \/>\}/, "locked consensus should use a static mock preview");
+  assert.match(consensusSource, /data-testid="consensus-locked-preview"/, "mock preview should be testable");
 });

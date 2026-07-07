@@ -11,7 +11,7 @@ export type ReviewBrief = {
 };
 
 const ENTRY_TRIGGER_PATTERNS: readonly RegExp[] = [
-  /트리거|확인|체결|반등|되돌림|조정|회복|돌파|재테스트|거부|눌림|평균\s*구역|채널|추세|스윕|흡수|임밸런스|VWAP|EMA|RSI|funding|open interest|trigger|confirmation|retest|reclaim|breakout|pullback|sweep|absorption|imbalance|trend|channel/i
+  /트리거|확인|체결|반등|되돌림|조정|회복|돌파|재테스트|거부|눌림|평균\s*구역|채널|추세|스윕|흡수|임밸런스|\b(?:VWAP|EMA|RSI)\b|funding|open interest|trigger|confirmation|retest|reclaim|breakout|pullback|sweep|absorption|imbalance|trend|channel/i
 ];
 
 const ENTRY_CONTEXT_PATTERNS: readonly RegExp[] = [
@@ -20,6 +20,16 @@ const ENTRY_CONTEXT_PATTERNS: readonly RegExp[] = [
 
 const RISK_CONTROL_PATTERNS: readonly RegExp[] = [
   /레버리지|위험|손절|익절|목표|수수료|손익비|보상률|리스크|규모|크기|무효화|청산|LIMIT|limit|leverage|risk|stop|target|take[-\s]?profit|fee|RR|reward|invalidation|size/i
+];
+
+const ENTRY_DECISION_PREFIX_PATTERNS: readonly RegExp[] = [
+  /^\s*(?:APPROVE|ADJUST_AND_APPROVE|DEFER|REJECT|NEEDS_MORE_DATA)\s*[:：\-–]\s*/i,
+  /^\s*(?:approved entry|adjusted approval|approval|defer|reject|needs more data)\s*[:：\-–]\s*/i,
+  /^\s*(?:승인|조정\s*후\s*승인|보류|거절|추가\s*확인)\s*[:：\-–]\s*/i
+];
+
+const ENTRY_MANAGEMENT_ONLY_PATTERNS: readonly RegExp[] = [
+  /현재\s*포지션|포지션\s*유지|다음\s*리뷰|계속\s*관찰|관리\s*판단|미실현\s*손익|current position|already open position|keep holding|holding\b.*\bopen position|maintain the position|hold the position|continue monitoring|next review|pnl management/i
 ];
 
 export function normalizeStructuredReview(value: unknown): ReviewBrief | null {
@@ -64,10 +74,14 @@ export function entryApprovalBriefFromRecord(value: unknown): ReviewBrief | null
   const payload = recordValue(record?.payload);
   const payloadAiReview = recordValue(payload?.aiReview);
   const embeddedReviewIsDisplayable = embeddedAiReviewStructuredReviewIsDisplayable(record, payload);
-  return firstStructuredReview(
+  return cleanEntryApprovalBrief(firstStructuredReview(
     embeddedReviewIsDisplayable ? payload?.aiStructuredReview : null,
     embeddedReviewIsDisplayable ? payloadAiReview?.structuredReview : null
-  );
+  ));
+}
+
+export function cleanEntryApprovalRationale(value: unknown): string | null {
+  return cleanEntryApprovalCopy(textValue(value));
 }
 
 export function reviewBriefText(brief: ReviewBrief | null): string | null {
@@ -117,6 +131,36 @@ function isEntryEvidence(value: string): boolean {
 
 function isRiskControlOnly(value: string): boolean {
   return RISK_CONTROL_PATTERNS.some((pattern) => pattern.test(value)) && !ENTRY_TRIGGER_PATTERNS.some((pattern) => pattern.test(value));
+}
+
+function cleanEntryApprovalBrief(brief: ReviewBrief | null): ReviewBrief | null {
+  if (!brief) return null;
+  const clean: ReviewBrief = {
+    ...brief,
+    headline: cleanEntryApprovalCopy(brief.headline),
+    action: cleanEntryApprovalCopy(brief.action),
+    keyReasons: brief.keyReasons.map(cleanEntryApprovalCopy).filter((item): item is string => Boolean(item)),
+    risks: brief.risks.map(cleanEntryApprovalCopy).filter((item): item is string => Boolean(item)),
+    watchConditions: brief.watchConditions.map(cleanEntryApprovalCopy).filter((item): item is string => Boolean(item)),
+    managerNote: cleanEntryApprovalCopy(brief.managerNote)
+  };
+  return hasBriefContent(clean) ? clean : null;
+}
+
+function cleanEntryApprovalCopy(value: string | null): string | null {
+  if (!value) return null;
+  let clean = stripBulletPrefix(value);
+  for (const pattern of ENTRY_DECISION_PREFIX_PATTERNS) {
+    clean = clean.replace(pattern, "");
+  }
+  clean = clean.trim();
+  if (!clean) return null;
+  if (isManagementOnlyEntryCopy(clean)) return null;
+  return clean;
+}
+
+function isManagementOnlyEntryCopy(value: string): boolean {
+  return ENTRY_MANAGEMENT_ONLY_PATTERNS.some((pattern) => pattern.test(value)) && !isEntryEvidence(value);
 }
 
 function uniqueStrings(values: readonly string[]): string[] {

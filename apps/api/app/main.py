@@ -2984,6 +2984,7 @@ def monthly_leaderboard_summaries(
     equity_points_by_trader = monthly_equity_points_by_trader(db, trader_ids, symbol, period_start, period_end)
     positions_by_trader = monthly_positions_by_trader(db, trader_ids, symbol, period_start, period_end)
     cycle_positions_by_trader = monthly_cycle_positions_by_trader(db, trader_ids, symbol, period_start, period_end)
+    all_time_biggest_wins = all_time_biggest_wins_by_trader(db, trader_ids, symbol)
     all_cycle_positions = [position for positions in cycle_positions_by_trader.values() for position in positions]
     cycle_events_by_position_id = trade_events_by_position_id(db, all_cycle_positions, before=period_end)
     for trader in traders:
@@ -3012,7 +3013,7 @@ def monthly_leaderboard_summaries(
         position_pnls = position_cycle_pnl_values(cycle_positions, cycle_events_by_position_id)
         closed_positions = len(monthly_positions)
         wins, losses = win_loss_counts_from_pnls(closed_position_pnls)
-        biggest_win = biggest_win_from_pnls(position_pnls)
+        biggest_win = all_time_biggest_wins.get(trader.id, 0.0)
         biggest_loss = biggest_loss_from_pnls(position_pnls)
         long_trades = sum(1 for position in monthly_positions if str(position.side).lower() == "long")
         short_trades = sum(1 for position in monthly_positions if str(position.side).lower() == "short")
@@ -3213,6 +3214,36 @@ def monthly_cycle_positions_by_trader(
     for position in positions:
         by_trader.setdefault(position.trader_id, []).append(position)
     return by_trader
+
+
+def all_time_biggest_wins_by_trader(db: Session, trader_ids: list[str], symbol: str) -> dict[str, float]:
+    if not trader_ids:
+        return {}
+    rows = db.execute(
+        select(TraderLeaderboardSnapshotRecord.trader_id, TraderLeaderboardSnapshotRecord.biggest_win).where(
+            TraderLeaderboardSnapshotRecord.trader_id.in_(trader_ids),
+            TraderLeaderboardSnapshotRecord.symbol == symbol,
+        )
+    ).all()
+    biggest_wins = {str(trader_id): round(float(biggest_win or 0), 4) for trader_id, biggest_win in rows}
+    missing_trader_ids = [trader_id for trader_id in trader_ids if trader_id not in biggest_wins]
+    if not missing_trader_ids:
+        return biggest_wins
+
+    positions = db.execute(
+        select(PaperPositionRecord).where(
+            PaperPositionRecord.trader_id.in_(missing_trader_ids),
+            PaperPositionRecord.symbol == symbol,
+        )
+    ).scalars().all()
+    positions_by_trader: dict[str, list[PaperPositionRecord]] = {}
+    for position in positions:
+        positions_by_trader.setdefault(position.trader_id, []).append(position)
+    events_by_position_id = trade_events_by_position_id(db, positions)
+    for trader_id in missing_trader_ids:
+        values = position_cycle_pnl_values(positions_by_trader.get(trader_id, []), events_by_position_id)
+        biggest_wins[trader_id] = biggest_win_from_pnls(values)
+    return biggest_wins
 
 
 def monthly_position_query(db: Session, trader_id: str, symbol: str, period_start: datetime, period_end: datetime):

@@ -27,6 +27,8 @@ test("home page follows the BullGPT-style section contract requested by the user
   assert.match(homeSource, /data-testid="landing-get-started"/, "landing needs the white get-started section from the reference");
   assert.match(homeSource, /data-testid="landing-second-video"/, "get-started section should reserve the second video area");
   assert.match(homeSource, /data-testid="landing-pricing"/, "landing needs the dark pricing band from the reference");
+  assert.match(homeSource, /id="pricing"/, "landing pricing should be addressable from subscription CTAs");
+  assert.match(homeSource, /scroll-mt-20/, "pricing anchor should land below the viewport chrome instead of hiding the section title");
   assert.match(homeSource, /data-testid="landing-faq"/, "landing should include the split FAQ area from the reference");
   assert.match(homeSource, /data-testid="landing-about"/, "landing should include the black about band before footer");
   assert.match(homeSource, /data-testid="landing-footer"/, "landing should end with a simple footer");

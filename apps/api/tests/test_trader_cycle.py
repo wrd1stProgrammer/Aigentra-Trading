@@ -13,6 +13,7 @@ from app.ai.base import (
     trader_review_policy,
 )
 from app.db import PaperPositionRecord
+from app.locales import SUPPORTED_LOCALES
 from app.market.snapshot import classify_market_regime, derivative_context
 from app.main import (
     enforce_pending_order_cancel_event,
@@ -625,7 +626,72 @@ def test_entry_review_prompt_requires_modal_ready_entry_rationale():
 
     assert "ENTRY DETAIL UI CONTRACT" in prompt
     assert "headline is the entry thesis" in prompt
+    assert "Do not start headline with decision labels such as APPROVE, ADJUST_AND_APPROVE, DEFER, REJECT, or NEEDS_MORE_DATA" in prompt
+    assert "Do not write management-review wording in entry detail fields" in prompt
     assert "Do not spend the entry detail on leverage, risk percent, stop/target math, fee-aware RR, or recent-loss memory" in prompt
+    assert "For Korean locale, every user-facing structuredReview and approvalReason string must be Korean" in prompt
+    assert "Use LONG/SHORT, BTCUSDT, timeframe labels, and strategy names as allowed technical tokens only" in prompt
+
+
+def test_entry_review_prompt_uses_supported_locale_languages():
+    snapshot = sample_snapshot()
+    strategy = get_strategy("trend-sentinel")
+    candidate = strategy.evaluate(snapshot)
+    expected_languages = {
+        "en": "English",
+        "ko": "Korean",
+        "ru": "Russian",
+        "pt-BR": "Brazilian Portuguese",
+        "tr": "Turkish",
+    }
+
+    for locale in SUPPORTED_LOCALES:
+        prompt = entry_approval_prompt(
+            TradeReviewPayload(
+                trader=strategy.profile,
+                symbol="BTCUSDT",
+                marketSnapshot=snapshot,
+                candidate=candidate,
+                locale=locale,
+            )
+        )
+
+        assert f"Write every user-facing structuredReview, approvalReason, counterThesis, adjustments, and earlyExitRecommendations string in {expected_languages[locale]} for locale {locale}" in prompt
+        assert f'"locale": "{locale}"' in prompt
+
+
+def test_position_management_prompt_uses_supported_locale_languages_without_canonical_conflict():
+    snapshot = sample_snapshot()
+    strategy = get_strategy("channel-rider")
+    payload = PositionManagementPayload(
+        trader=strategy.profile,
+        symbol="BTCUSDT",
+        marketSnapshot=snapshot,
+        event=ManagementEvent(
+            eventType="heartbeat",
+            phase="OPEN_POSITION",
+            severity="LOW",
+            reason="Routine review.",
+        ),
+        exposure=ManagedExposure(
+            kind="position",
+            id=1,
+            status="open",
+            side="long",
+            entryPrice=68000,
+            stopLoss=67200,
+            takeProfit=69000,
+            quantity=0.1,
+            leverage=5,
+        ),
+        locale="ru",
+    )
+
+    prompt = position_management_review_prompt(payload)
+
+    assert "Write every user-facing structuredReview, rationale, counterThesis, and action reason string in Russian for locale ru" in prompt
+    assert "canonical English unless locale explicitly says Korean" not in prompt
+    assert '"locale": "ru"' in prompt
 
 
 @pytest.mark.asyncio
@@ -1177,7 +1243,7 @@ def test_position_management_prompt_uses_visible_metrics_only_when_decision_rele
     assert "early full take-profit" in prompt
     assert "TAKE_PARTIAL_PROFIT" in prompt
     assert "CLOSE_POSITION" in prompt
-    assert "Source-language rule: this provider response is canonical English" in prompt
+    assert "Write directly in the requested locale instead of relying on a later translation pass" in prompt
     assert "do not expose raw field names such as progressR or targetProgress" in prompt
     assert "Do not lead with overall trend alignment, valid structure, risk-reward ratio, or no invalidation signal" in prompt
     assert "If progressR is between -0.25 and 0.25" in prompt

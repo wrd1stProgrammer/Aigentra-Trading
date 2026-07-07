@@ -7,7 +7,7 @@ import type {
   TraderProfile
 } from "@/lib/api";
 import type { ReviewBrief } from "@/lib/review-brief";
-import { entryApprovalBriefFromRecord, reviewBriefFromRecord, reviewBriefText } from "@/lib/review-brief";
+import { cleanEntryApprovalRationale, entryApprovalBriefFromRecord, reviewBriefFromRecord, reviewBriefText } from "@/lib/review-brief";
 import { fallbackTraders } from "@/lib/traders";
 
 export type LeagueSymbol = "BTCUSDT" | "ETHUSDT";
@@ -505,7 +505,7 @@ export function scenarioRationaleFromPayload(payload: Record<string, any> | null
 export function entryRationaleFromPayload(payload: Record<string, any> | null | undefined, ...fallbacks: Array<unknown>): string | null {
   const aiReview = recordValue(payload?.aiReview);
   const action = recordValue(payload?.action);
-  return firstString(
+  return firstCleanEntryRationale(
     payload?.aiApprovalReason,
     aiReview?.approvalReason,
     payload?.approvalReason,
@@ -526,6 +526,14 @@ export function scenarioSummaryFromPayload(payload: Record<string, any> | null |
 function firstString(...values: Array<unknown>): string | null {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) return value;
+  }
+  return null;
+}
+
+function firstCleanEntryRationale(...values: Array<unknown>): string | null {
+  for (const value of values) {
+    const clean = cleanEntryApprovalRationale(value);
+    if (clean) return clean;
   }
   return null;
 }

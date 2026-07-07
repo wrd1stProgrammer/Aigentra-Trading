@@ -59,6 +59,8 @@ def structured_review_schema() -> dict[str, Any]:
                 "description": (
                     "One plain-language sentence. For entry approval, headline must be the plain answer to why this trader entered now: "
                     "name the trader concept or setup family, the entry zone, and the market trigger before risk controls. "
+                    "Do not start with decision labels such as APPROVE, ADJUST_AND_APPROVE, DEFER, REJECT, NEEDS_MORE_DATA, or translated equivalents. "
+                    "Do not write management-review wording such as hold, maintain, continue monitoring, current position, next review, 포지션 유지, 현재 포지션, or 다음 리뷰 in entry approval fields. "
                     "Do not spend this headline on leverage, risk percent, stop/target math, fee-aware RR, or recent-loss memory; "
                     "for position management, explain whether the current position is working, weakening, protected, or invalidated."
                 ),
@@ -73,6 +75,7 @@ def structured_review_schema() -> dict[str, Any]:
                 "description": (
                     "Up to two standalone evidence sentences. For entry approval, the first reason must name the concrete market trigger or entry thesis; "
                     "read it through the trader-specific strategy concept, not as a generic indicator list. "
+                    "For entry approval, answer why the position was opened, not how to manage an already-open position. "
                     "The second may add context only after the trigger is clear; avoid leading with current price, stop, target, PnL, RR, leverage, or risk percentage."
                 ),
             },
@@ -119,6 +122,8 @@ def trade_review_schema() -> dict[str, Any]:
                 "type": "string",
                 "description": (
                     "Legacy entry approval rationale. Write 1-2 compact sentences mirroring structuredReview, with entry decision, trader-specific interpretation, then risk boundary. "
+                    "Do not start with APPROVE, ADJUST_AND_APPROVE, DEFER, REJECT, NEEDS_MORE_DATA, or translated decision labels. "
+                    "Do not write management-review wording in entry approval rationale; this field explains why the position was opened. "
                     "Do not write a scattered chain that mixes price, RSI, stop, targets, fee-aware RR, and recent-loss memory before naming the entry thesis. "
                     "Do not answer only with higher-timeframe trend, stop/target geometry, RR, leverage, or risk percentage. "
                     "Do not cite setupScore as the main reason or describe approval as paper-trading learning."

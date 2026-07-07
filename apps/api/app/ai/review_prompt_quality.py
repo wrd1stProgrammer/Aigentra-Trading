@@ -40,7 +40,11 @@ STRUCTURED_REVIEW_QUALITY_CONTRACT: Final[str] = (
 ENTRY_DETAIL_UI_CONTRACT: Final[str] = (
     "ENTRY DETAIL UI CONTRACT: the position detail modal shows only structuredReview.headline plus one or two entry evidence lines. "
     "For APPROVE or ADJUST_AND_APPROVE, headline is the entry thesis: state the trader concept, the entry zone, and the specific trigger that made entering now reasonable. "
+    "Do not start headline with decision labels such as APPROVE, ADJUST_AND_APPROVE, DEFER, REJECT, or NEEDS_MORE_DATA, and do not use translated decision-label prefixes such as 승인, 조정 후 승인, 보류, 거절, or 추가 확인. "
+    "Do not write management-review wording in entry detail fields: current position, hold, maintain, continue monitoring, next review, PnL management, 포지션 유지, 현재 포지션, 다음 리뷰, 계속 관찰, 관리 판단. "
     "keyReasons[0] must be the strongest concrete entry trigger in plain language, not a risk-control sentence. "
+    "The entry detail must answer why this position was opened, not how to manage an already-open position. "
+    "Use the order: entry trigger, trader-specific interpretation, then the single most important risk boundary. "
     "Do not spend the entry detail on leverage, risk percent, stop/target math, fee-aware RR, or recent-loss memory; put those in action, risks, watchConditions, managerNote, or adjustments. "
     "If the best reason is only risk geometry, defer instead of approving. "
 )

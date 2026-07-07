@@ -33,7 +33,7 @@ import {
   type ISeriesApi,
   type Time
 } from "lightweight-charts";
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type WheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode, type TouchEvent, type WheelEvent } from "react";
 import { getCachedKlines, getKlines, updateKlineCache, type KlineCandle, type ManagementReview, type PaperOrder, type PaperPosition, type PaperTradeEvent, type RunCycleResult } from "@/lib/api";
 import { useAppContext } from "@/components/app-provider";
 import { intlLocale } from "@/lib/format";
@@ -82,6 +82,21 @@ type PositionedExecutionMarker = ExecutionMarker & {
   y: number;
   dotY: number;
 };
+type PriceAxisTouchGesture = {
+  readonly pointerId: number;
+  readonly startY: number;
+  readonly center: number;
+  readonly span: number;
+};
+type ChartSurfaceTouchPanGesture = {
+  readonly pointerId: number;
+  readonly startX: number;
+  readonly startY: number;
+  readonly from: number;
+  readonly to: number;
+  readonly height: number;
+  readonly locked: boolean;
+};
 
 function isAbortLike(error: unknown) {
   if (error instanceof DOMException && error.name === "AbortError") return true;
@@ -93,6 +108,11 @@ const TIMEFRAMES: ChartInterval[] = ["1m", "5m", "15m", "30m", "1h", "4h", "1d",
 const DEFAULT_INTERVAL: ChartInterval = "5m";
 const HISTORY_PAGE_LIMIT = 500;
 const MAX_CHART_CANDLES = 5000;
+const MARKER_TOUCH_DRAG_THRESHOLD_PX = 7;
+const CHART_SURFACE_TOUCH_PAN_THRESHOLD_PX = 8;
+const PRICE_AXIS_TOUCH_SCALE_SENSITIVITY_PX = 220;
+const PRICE_AXIS_TOUCH_MAX_MULTIPLIER = 12;
+const PRICE_AXIS_TOUCH_MIN_RANGE_RATIO = 0.0005;
 const OVERLAY_LINE_VISUAL = {
   entry: { lineWidth: 1, lineStyle: LineStyle.Dotted },
   stop: { lineWidth: 1, lineStyle: LineStyle.Dashed },
@@ -274,6 +294,8 @@ export function LiveCandleChart({
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
+  const chartSurfaceTouchPanRef = useRef<ChartSurfaceTouchPanGesture | null>(null);
+  const priceAxisTouchRef = useRef<PriceAxisTouchGesture | null>(null);
   const hasVisibleCandlesRef = useRef(false);
   const lastSocketUpdateAtRef = useRef(0);
   const lastCandleTimeRef = useRef<number | null>(null);
@@ -596,7 +618,7 @@ export function LiveCandleChart({
         horzTouchDrag: true,
         mouseWheel: true,
         pressedMouseMove: true,
-        vertTouchDrag: false
+        vertTouchDrag: true
       }
     });
 
@@ -1696,8 +1718,121 @@ export function LiveCandleChart({
   function resetView() {
     const chart = chartRef.current;
     if (!chart) return;
+    chart.priceScale("right").setAutoScale(true);
     chart.timeScale().resetTimeScale();
     chart.timeScale().scrollToRealTime();
+  }
+
+  function handleChartSurfacePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "mouse" || !event.isPrimary) return;
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    const visibleRange = chart.priceScale("right").getVisibleRange();
+    const containerHeight = event.currentTarget.getBoundingClientRect().height;
+    if (!visibleRange || containerHeight <= 0) return;
+
+    const span = visibleRange.to - visibleRange.from;
+    if (!Number.isFinite(span) || span <= 0) return;
+
+    chartSurfaceTouchPanRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      from: visibleRange.from,
+      to: visibleRange.to,
+      height: containerHeight,
+      locked: false
+    };
+  }
+
+  function handleChartSurfacePointerMove(event: PointerEvent<HTMLDivElement>) {
+    const gesture = chartSurfaceTouchPanRef.current;
+    const chart = chartRef.current;
+    if (!gesture || !chart || gesture.pointerId !== event.pointerId) return;
+
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+    const absX = Math.abs(deltaX);
+    const absY = Math.abs(deltaY);
+    let lockedGesture = gesture;
+
+    if (!gesture.locked) {
+      if (absX > CHART_SURFACE_TOUCH_PAN_THRESHOLD_PX && absX > absY) {
+        chartSurfaceTouchPanRef.current = null;
+        return;
+      }
+      if (absY < CHART_SURFACE_TOUCH_PAN_THRESHOLD_PX || absY <= absX * 1.15) return;
+
+      lockedGesture = { ...gesture, locked: true };
+      chartSurfaceTouchPanRef.current = lockedGesture;
+      chart.priceScale("right").setAutoScale(false);
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+
+    event.preventDefault();
+    const priceShift = deltaY * ((lockedGesture.to - lockedGesture.from) / lockedGesture.height);
+    chart.priceScale("right").setVisibleRange({
+      from: lockedGesture.from + priceShift,
+      to: lockedGesture.to + priceShift
+    });
+  }
+
+  function finishChartSurfaceTouchPan(event: PointerEvent<HTMLDivElement>) {
+    const gesture = chartSurfaceTouchPanRef.current;
+    if (gesture?.pointerId !== event.pointerId) return;
+    chartSurfaceTouchPanRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function handlePriceAxisPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "mouse" || !event.isPrimary) return;
+    const chart = chartRef.current;
+    if (!chart) return;
+
+    const priceScale = chart.priceScale("right");
+    const visibleRange = priceScale.getVisibleRange();
+    if (!visibleRange) return;
+
+    const span = visibleRange.to - visibleRange.from;
+    if (!Number.isFinite(span) || span <= 0) return;
+
+    event.preventDefault();
+    priceScale.setAutoScale(false);
+    priceAxisTouchRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      center: (visibleRange.from + visibleRange.to) / 2,
+      span
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handlePriceAxisPointerMove(event: PointerEvent<HTMLDivElement>) {
+    const gesture = priceAxisTouchRef.current;
+    const chart = chartRef.current;
+    if (!gesture || !chart || gesture.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    const factor = Math.exp((event.clientY - gesture.startY) / PRICE_AXIS_TOUCH_SCALE_SENSITIVITY_PX);
+    const minSpan = Math.max(Math.abs(gesture.center) * PRICE_AXIS_TOUCH_MIN_RANGE_RATIO, 1);
+    const maxSpan = Math.max(gesture.span * PRICE_AXIS_TOUCH_MAX_MULTIPLIER, minSpan * 2);
+    const nextSpan = Math.min(Math.max(gesture.span * factor, minSpan), maxSpan);
+    chart.priceScale("right").setVisibleRange({
+      from: gesture.center - nextSpan / 2,
+      to: gesture.center + nextSpan / 2
+    });
+  }
+
+  function finishPriceAxisTouch(event: PointerEvent<HTMLDivElement>) {
+    const gesture = priceAxisTouchRef.current;
+    if (gesture?.pointerId !== event.pointerId) return;
+    priceAxisTouchRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   }
 
   function setDrawingToolsVisible(nextVisible: boolean) {
@@ -2008,7 +2143,28 @@ export function LiveCandleChart({
         <div className="flex-1 flex flex-col gap-2 min-w-0">
           {/* Candlestick Main Frame */}
           <div className="relative w-full overflow-visible">
-            <div ref={containerRef} className="w-full rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950/70" style={{ height: chartHeight }} />
+            <div
+              ref={containerRef}
+              data-testid="live-candle-chart-surface"
+              className="w-full touch-none rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950/70"
+              style={{ height: chartHeight, overscrollBehaviorX: "contain" }}
+              onPointerDown={handleChartSurfacePointerDown}
+              onPointerMove={handleChartSurfacePointerMove}
+              onPointerUp={finishChartSurfaceTouchPan}
+              onPointerCancel={finishChartSurfaceTouchPan}
+              onLostPointerCapture={finishChartSurfaceTouchPan}
+            />
+            <div
+              aria-hidden="true"
+              data-testid="chart-price-axis-touch-scale"
+              className="pointer-events-none absolute inset-y-0 right-0 z-40 w-16 touch-none select-none [@media(pointer:coarse)]:pointer-events-auto"
+              style={{ height: chartHeight }}
+              onPointerDown={handlePriceAxisPointerDown}
+              onPointerMove={handlePriceAxisPointerMove}
+              onPointerUp={finishPriceAxisTouch}
+              onPointerCancel={finishPriceAxisTouch}
+              onLostPointerCapture={finishPriceAxisTouch}
+            />
             {showInitialChartSpinner ? (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-50/70 backdrop-blur-[2px] dark:bg-zinc-950/55" role="status" aria-live="polite">
                 <div className="flex flex-col items-center gap-2 rounded-2xl border border-zinc-200 bg-white/90 px-5 py-4 text-center text-zinc-700 shadow-lg shadow-zinc-950/10 dark:border-zinc-800 dark:bg-[#080b0a]/90 dark:text-zinc-200">
@@ -2068,24 +2224,6 @@ export function LiveCandleChart({
         </div>
       </div>
 
-      {/* Legend & hints */}
-      <div className="mt-3 flex max-h-16 flex-wrap gap-x-4 gap-y-1.5 overflow-y-auto pr-1 text-xs text-zinc-500 dark:text-zinc-400 sm:max-h-none sm:overflow-visible">
-        <Legend color="bg-amber-400" label={t("chart.entry")} />
-        <Legend color="bg-sky-400" label={t("chart.averageEntry")} />
-        <Legend color="bg-violet-400" label={t("chart.order")} />
-        <Legend color="bg-rose-400" label={t("chart.stopLoss")} />
-        <Legend color="bg-teal-300" label={t("chart.breakEven")} />
-        <Legend color="bg-emerald-400" label={t("chart.takeProfit")} />
-        <Legend color="bg-teal-500" label={t("chart.completedMarkers")} />
-        {activeTool !== "cursor" ? (
-          <span className="text-emerald-500 font-semibold animate-pulse">
-            {t("chart.activeTool")}: {activeToolLabel(activeTool, t)}
-          </span>
-        ) : (
-          <span>{t("chart.interactionHint")}</span>
-        )}
-        {!overlayLines.length ? <span>{t("chart.waitingForPlan")}</span> : null}
-      </div>
       {error ? <p className="mt-3 text-xs leading-5 text-rose-600 dark:text-rose-300">{error}</p> : null}
     </section>
   );
@@ -2128,6 +2266,34 @@ function ExecutionChartMarker({
   const handlePointerUp = () => {
     pointerStartRef.current = null;
   };
+  const restoreTouchHitTarget = (target: HTMLButtonElement) => {
+    window.setTimeout(() => {
+      target.style.pointerEvents = "";
+    }, 0);
+  };
+  const handleMarkerTouchStart = (event: TouchEvent<HTMLButtonElement>) => {
+    const touch = event.touches[0];
+    if (touch) pointerStartRef.current = { x: touch.clientX, y: touch.clientY };
+    onActivate(marker.id);
+  };
+  const handleMarkerTouchMove = (event: TouchEvent<HTMLButtonElement>) => {
+    const touch = event.touches[0];
+    const start = pointerStartRef.current;
+    if (!touch || !start) return;
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+    if (Math.hypot(deltaX, deltaY) < MARKER_TOUCH_DRAG_THRESHOLD_PX) return;
+
+    suppressClickBriefly();
+    event.currentTarget.style.pointerEvents = "none";
+    document.elementFromPoint(touch.clientX, touch.clientY);
+  };
+  const handleMarkerTouchEnd = (event: TouchEvent<HTMLButtonElement>) => {
+    const touch = event.changedTouches[0];
+    if (touch) document.elementFromPoint(touch.clientX, touch.clientY);
+    restoreTouchHitTarget(event.currentTarget);
+    handlePointerUp();
+  };
   const handleWheel = (_event: WheelEvent<HTMLButtonElement>) => {
     suppressClickBriefly();
   };
@@ -2143,7 +2309,7 @@ function ExecutionChartMarker({
     <div
       data-testid="execution-chart-marker"
       data-marker-id={marker.id}
-      className={`absolute ${active ? "z-50" : selected ? "z-40" : "z-30"} ${interactive ? "pointer-events-auto" : "pointer-events-none"}`}
+      className={`absolute ${active ? "z-50" : selected ? "z-40" : "z-30"} ${interactive ? "pointer-events-auto [@media(pointer:coarse)]:pointer-events-none" : "pointer-events-none"}`}
       style={{ left: marker.x, top: marker.y, transform: "translate(-50%, -50%)" }}
     >
       <span
@@ -2153,14 +2319,17 @@ function ExecutionChartMarker({
       />
       <button
         type="button"
-        className={`focus-ring relative z-10 rounded-md border px-2 py-1 font-mono text-[10px] font-black leading-none shadow-lg shadow-zinc-950/20 transition ${
+        className={`focus-ring relative z-10 touch-pan-y select-none rounded-md border px-2 py-1 font-mono text-[10px] font-black leading-none shadow-lg shadow-zinc-950/20 transition ${
           markerButtonClass(marker, selected)
         }`}
         onMouseEnter={() => onActivate(marker.id)}
         onMouseLeave={() => onActivate(null)}
         onFocus={() => onActivate(marker.id)}
         onBlur={() => onActivate(null)}
-        onTouchStart={() => onActivate(marker.id)}
+        onTouchStart={handleMarkerTouchStart}
+        onTouchMove={handleMarkerTouchMove}
+        onTouchEnd={handleMarkerTouchEnd}
+        onTouchCancel={handleMarkerTouchEnd}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -2219,22 +2388,6 @@ function TooltipMetric({
   );
 }
 
-function activeToolLabel(tool: "cursor" | "trend" | "horizontal" | "brush" | "ruler", t: (key: string) => string) {
-  switch (tool) {
-    case "trend":
-      return t("chart.trendTool");
-    case "horizontal":
-      return t("chart.horizontalTool");
-    case "brush":
-      return t("chart.brushTool");
-    case "ruler":
-      return t("chart.rulerTool");
-    case "cursor":
-    default:
-      return t("chart.cursorTool");
-  }
-}
-
 function IndicatorToggle({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return (
     <button
@@ -2286,15 +2439,6 @@ function ChartButton({ label, onClick, children }: { label: string; onClick: () 
     <button className="ghost-button px-2 py-1.5 shrink-0" onClick={onClick} title={label} type="button" aria-label={label}>
       {children}
     </button>
-  );
-}
-
-function Legend({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="inline-flex max-w-full min-w-0 items-center gap-2">
-      <span className={`h-2 w-5 shrink-0 rounded-full ${color}`} />
-      <span className="truncate">{label}</span>
-    </span>
   );
 }
 

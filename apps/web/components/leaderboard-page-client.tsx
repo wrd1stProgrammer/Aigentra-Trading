@@ -36,11 +36,12 @@ import { buildStandings, traderVisuals, type TraderStanding } from "@/lib/league
 import { EquityAreaChart } from "@/components/leaderboard-sidebar-equity-chart";
 import { PageLoadingOverlay } from "@/components/page-loading-overlay";
 import { ProtectedContentGateWithAccess } from "@/components/access-gate";
-import { FREE_LEADERBOARD_LIMIT, useSubscriberAccess } from "@/components/use-subscriber-access";
+import { useSubscriberAccess } from "@/components/use-subscriber-access";
 import { fallbackTraders, traderDetailKey, traderNameKey, traderShortKey } from "@/lib/traders";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { statusLabel } from "@/lib/status";
 import { compareLiveRaceItems, liveRaceScore } from "@/lib/live-race-policy";
+import { buildFreeLeaderboardPreview, currentFreeLeaderboardPreviewSeed } from "@/lib/free-leaderboard-preview";
 import {
   buildLeaguePeriodUrl,
   shouldFetchCurrentLeagueCompanion,
@@ -173,6 +174,10 @@ function buildLeagueMonthOptions(now = new Date()): LeagueMonthOption[] {
 
 function leaderboardBundlePeriodKey(bundle?: LeaderboardBundle) {
   return bundle?.period?.type === "monthly" ? bundle.period.month : "current";
+}
+
+function accessPreviewDescription(template: string, count: number, locale: Locale) {
+  return template.replace("{count}", formatNumber(count, 0, locale));
 }
 
 export function LeaderboardPageClient() {
@@ -360,6 +365,7 @@ export function LeaderboardPageClient() {
   const subscriberAccessPending = !accessReady;
   const subscriberAccessUnavailable = session.status === "authenticated" && accessQuery.isError && !access;
   const isSubscribed = access?.isSubscribed === true;
+  const freePreviewSeed = useMemo(() => currentFreeLeaderboardPreviewSeed(), []);
   const shouldLimitForFreeAccess = accessReady && Boolean(access) && !isSubscribed;
   const shouldUsePreviewLimit = shouldUseLeaderboardPreviewLimit({
     subscriberAccessPending,
@@ -367,9 +373,10 @@ export function LeaderboardPageClient() {
     freeAccessLimited: shouldLimitForFreeAccess
   });
   const shouldShowLockedRows = shouldLimitForFreeAccess || subscriberAccessUnavailable;
+  const rankMasked = shouldUsePreviewLimit;
   const visibleStandingsBase = useMemo(
-    () => (shouldUsePreviewLimit ? displayStandings.slice(0, FREE_LEADERBOARD_LIMIT) : displayStandings),
-    [displayStandings, shouldUsePreviewLimit]
+    () => (shouldUsePreviewLimit ? buildFreeLeaderboardPreview(displayStandings, freePreviewSeed) : displayStandings),
+    [displayStandings, freePreviewSeed, shouldUsePreviewLimit]
   );
   const visibleStandings = useMemo(
     () => favoritesOnly ? visibleStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : visibleStandingsBase,
@@ -453,8 +460,8 @@ export function LeaderboardPageClient() {
   );
   const liveRaceStandingsBase = useMemo(() => {
     const liveStandings = selectedLeagueMonth && currentLeagueStandings ? currentLeagueStandings : standings;
-    return shouldUsePreviewLimit ? liveStandings.slice(0, FREE_LEADERBOARD_LIMIT) : liveStandings;
-  }, [currentLeagueStandings, selectedLeagueMonth, shouldUsePreviewLimit, standings]);
+    return shouldUsePreviewLimit ? buildFreeLeaderboardPreview(liveStandings, freePreviewSeed) : liveStandings;
+  }, [currentLeagueStandings, freePreviewSeed, selectedLeagueMonth, shouldUsePreviewLimit, standings]);
   const liveRaceStandings = useMemo(
     () => (favoritesOnly ? liveRaceStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : liveRaceStandingsBase),
     [favoriteTraderIds, favoritesOnly, liveRaceStandingsBase]
@@ -515,26 +522,33 @@ export function LeaderboardPageClient() {
   const showBackgroundFetching = !initialLoading && isFetching;
 
   return (
-    <div className="grid gap-3 pb-[calc(5rem+env(safe-area-inset-bottom))] md:gap-4 md:pb-8">
+    <div className="grid min-w-0 max-w-full gap-3 overflow-x-clip pb-[calc(5rem+env(safe-area-inset-bottom))] md:gap-4 md:pb-8">
       <PageLoadingOverlay
         active={initialLoading}
         label={t("common.loadingLeagueData")}
         detail={t("common.loadingLiveDataDetail")}
       />
 
-      <LiveRaceBoard
-        standings={liveRaceStandings}
-        exposureByTrader={exposureByTrader}
-        currentSummaryByTrader={currentSummaryByTrader}
-        openPositions={liveRaceOpenPositions}
-        openOrders={liveRaceOpenOrders}
-        activeTraderCount={liveRaceActiveTraderCount}
-        leaguePeriodLabel={liveRacePeriodLabel}
-        locale={locale}
-        t={t}
-      />
+      <ProtectedContentGateWithAccess
+        accessQuery={accessQuery}
+        mode="subscription"
+        deferLockedChildren
+        lockedPreview={<LiveRaceBoardLockedPreview leaguePeriodLabel={liveRacePeriodLabel} t={t} />}
+      >
+        <LiveRaceBoard
+          standings={liveRaceStandings}
+          exposureByTrader={exposureByTrader}
+          currentSummaryByTrader={currentSummaryByTrader}
+          openPositions={liveRaceOpenPositions}
+          openOrders={liveRaceOpenOrders}
+          activeTraderCount={liveRaceActiveTraderCount}
+          leaguePeriodLabel={liveRacePeriodLabel}
+          locale={locale}
+          t={t}
+        />
+      </ProtectedContentGateWithAccess>
 
-      <section className="grid w-full items-start gap-3 md:gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
+      <section className="grid w-full min-w-0 max-w-full items-start gap-3 overflow-x-clip md:gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
         <div className="data-card rounded-[22px] border-zinc-200/80 dark:border-white/[0.08] w-full min-w-0 overflow-hidden shadow-sm transition hover:border-emerald-500/20 duration-300">
             {/* Desktop Layout */}
             <div className="hidden md:flex md:flex-row md:items-center md:justify-between w-full px-4 py-3 md:px-6 md:py-4 border-b border-white/[0.06] bg-[#080909]">
@@ -909,6 +923,7 @@ export function LeaderboardPageClient() {
             activeTraderId={activeTrader?.id ?? null}
             t={t}
             locale={locale}
+            rankMasked={rankMasked}
             favoriteTraderIds={favoriteTraderIds}
             returnColumns={returnColumns}
             onToggleFavorite={toggleFavoriteTrader}
@@ -920,6 +935,7 @@ export function LeaderboardPageClient() {
             currentSummaryByTrader={currentSummaryByTrader}
             t={t}
             locale={locale}
+            rankMasked={rankMasked}
             favoriteTraderIds={favoriteTraderIds}
             returnColumn={mobileReturnColumn}
             onToggleFavorite={toggleFavoriteTrader}
@@ -927,7 +943,7 @@ export function LeaderboardPageClient() {
           {subscriberAccessPending && hiddenTraderCount > 0 ? (
             <LeaderboardAccessPendingRows count={hiddenTraderCount} t={t} />
           ) : shouldShowLockedRows && hiddenTraderCount > 0 ? (
-            <LeaderboardLockedRows count={hiddenTraderCount} t={t} accessQuery={accessQuery} />
+            <LeaderboardLockedRows count={hiddenTraderCount} t={t} locale={locale} accessQuery={accessQuery} />
           ) : null}
         </div>
 
@@ -940,19 +956,21 @@ export function LeaderboardPageClient() {
           exposure={activeTrader ? exposureByTrader.get(activeTrader.id) : undefined}
           currentSummary={activeTrader ? currentSummaryByTrader.get(activeTrader.id) : undefined}
           isMonthlyLeague={Boolean(selectedLeagueMonth)}
+          rankMasked={rankMasked}
         />
       </section>
     </div>
   );
 }
 
-function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, activeTraderId, t, locale, favoriteTraderIds, returnColumns, onToggleFavorite, onActivate }: {
+function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, activeTraderId, t, locale, rankMasked, favoriteTraderIds, returnColumns, onToggleFavorite, onActivate }: {
   standings: TraderStanding[];
   exposureByTrader: Map<string, TraderExposure>;
   currentSummaryByTrader: ReadonlyMap<string, TraderStanding["summary"]>;
   activeTraderId: string | null;
   t: (key: string) => string;
   locale: Locale;
+  rankMasked: boolean;
   favoriteTraderIds: ReadonlySet<string>;
   returnColumns: readonly ReturnColumn[];
   onToggleFavorite: (traderId: string) => void;
@@ -965,7 +983,7 @@ function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, act
     <div className="hidden overflow-x-auto lg:block w-full">
       <div className="min-w-[920px]">
         <div className={`grid ${RANKING_GRID_CLASS} border-b px-5 py-3.5 text-xs font-bold uppercase tracking-wider text-zinc-400 md:px-6`} style={{ borderColor: "var(--border)" }}>
-          <div className="whitespace-nowrap">{t("leaderboard.rank")}</div>
+          <div className="whitespace-nowrap">{rankMasked ? t("leaderboard.publicPick") : t("leaderboard.rank")}</div>
           <div className="whitespace-nowrap">{t("leaderboard.trader")}</div>
           <div className="text-right whitespace-nowrap">{t("leaderboard.progressStatus")}</div>
           <div className="text-right whitespace-nowrap">{primaryReturnColumn.label}</div>
@@ -997,7 +1015,7 @@ function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, act
                     : "hover:bg-white/[0.02] border-l-transparent hover:border-l-emerald-500/50"
                 }`}
               >
-                <TraderRankBadge trader={trader} t={t} />
+                <TraderRankBadge trader={trader} t={t} masked={rankMasked} />
                 <TraderIdentity trader={trader} progress={progress} t={t} />
                 <ProgressCell progress={progress} />
                 <MetricValue value={formatSignedPercent(primaryReturnValue)} tone={primaryReturnValue >= 0 ? "good" : "bad"} />
@@ -1043,25 +1061,28 @@ function LeaderboardAccessPendingRows({ count, t }: { readonly count: number; re
 function LeaderboardLockedRows({
   count,
   t,
+  locale,
   accessQuery
 }: {
   readonly count: number;
   readonly t: (key: string) => string;
+  readonly locale: Locale;
   readonly accessQuery: ReturnType<typeof useSubscriberAccess>;
 }) {
+  const description = accessPreviewDescription(t("access.leaderboardPreviewBody"), count, locale);
   return (
     <div className="border-t border-white/10 bg-zinc-950/30 px-4 pb-6 pt-5 md:px-6">
       <ProtectedContentGateWithAccess
         accessQuery={accessQuery}
         mode="subscription"
         title={t("access.leaderboardPreviewTitle")}
-        description={t("access.leaderboardPreviewBody")}
+        description={description}
         className="min-h-[156px]"
       >
         <div className="flex min-h-[156px] items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <div className="min-w-0">
             <p className="text-sm font-bold text-white">{t("access.hiddenTraders")}</p>
-            <p className="mt-1 text-xs leading-5 text-zinc-400 text-pretty">{t("access.leaderboardPreviewBody")}</p>
+            <p className="mt-1 text-xs leading-5 text-zinc-400 text-pretty">{description}</p>
           </div>
           <span className="font-mono text-xl font-bold text-zinc-200">+{count}</span>
         </div>
@@ -1070,20 +1091,21 @@ function LeaderboardLockedRows({
   );
 }
 
-function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader, t, locale, favoriteTraderIds, returnColumn, onToggleFavorite }: {
+function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader, t, locale, rankMasked, favoriteTraderIds, returnColumn, onToggleFavorite }: {
   standings: TraderStanding[];
   exposureByTrader: Map<string, TraderExposure>;
   currentSummaryByTrader: ReadonlyMap<string, TraderStanding["summary"]>;
   t: (key: string) => string;
   locale: Locale;
+  rankMasked: boolean;
   favoriteTraderIds: ReadonlySet<string>;
   returnColumn: ReturnColumn;
   onToggleFavorite: (traderId: string) => void;
 }) {
   return (
-    <div className="lg:hidden" data-testid="mobile-ranking-list">
+    <div className="w-full min-w-0 max-w-full lg:hidden" data-testid="mobile-ranking-list">
       <div className="grid grid-cols-[38px_minmax(0,1fr)_88px_28px] items-center gap-2 border-b border-zinc-200/40 dark:border-white/[0.06] px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-500">
-        <span>{t("leaderboard.rank")}</span>
+        <span>{rankMasked ? t("leaderboard.publicPick") : t("leaderboard.rank")}</span>
         <span>{t("leaderboard.trader")}</span>
         <span className="truncate text-right" data-testid="mobile-return-column-label">{returnColumn.label}</span>
         <span aria-hidden />
@@ -1101,7 +1123,7 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
                 prefetch={false}
                 className="focus-ring grid grid-cols-[38px_minmax(0,1fr)_88px_28px] items-center gap-2 px-3 py-3.5 transition hover:bg-white/[0.02]"
               >
-                <TraderRankBadge trader={trader} t={t} compact />
+                <TraderRankBadge trader={trader} t={t} compact masked={rankMasked} />
                 <div className="flex min-w-0 items-center gap-2.5">
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-1.5">
@@ -1141,7 +1163,7 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
   );
 }
 
-function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, currentSummary, isMonthlyLeague }: {
+function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, currentSummary, isMonthlyLeague, rankMasked }: {
   trader: TraderStanding | null;
   t: (key: string) => string;
   locale: Locale;
@@ -1150,6 +1172,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
   exposure?: TraderExposure;
   currentSummary?: TraderStanding["summary"];
   isMonthlyLeague: boolean;
+  rankMasked: boolean;
 }) {
   if (!trader) {
     return (
@@ -1179,7 +1202,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
               </div>
               <p className="text-zinc-400 mt-2 text-xs leading-relaxed font-sans break-keep">{t(traderDetailKey(trader.id))}</p>
             </div>
-            <TraderRankBadge trader={trader} t={t} />
+            <TraderRankBadge trader={trader} t={t} masked={rankMasked} />
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <StatusPill label={state} tone={progress.tone} />
@@ -1250,6 +1273,18 @@ function RankBadge({ rank, compact = false }: { rank: number; compact?: boolean 
   );
 }
 
+function MaskedRankBadge({ compact = false, t }: { compact?: boolean; t: (key: string) => string }) {
+  return (
+    <span
+      className={`${compact ? "size-8 text-sm" : "size-10 text-base"} grid place-items-center rounded-full border border-dashed border-white/15 bg-white/[0.035] font-mono font-bold text-zinc-300`}
+      title={t("leaderboard.freePreviewRankHidden")}
+    >
+      ?
+      <span className="sr-only">{t("leaderboard.freePreviewRankHidden")}</span>
+    </span>
+  );
+}
+
 function isRetiredTraderLifecycle(trader: Pick<TraderStanding, "lifecycleStatus" | "retiredFromMonth">) {
   const status = String(trader.lifecycleStatus ?? "").toLowerCase();
   return status === "retired" || Boolean(trader.retiredFromMonth);
@@ -1258,12 +1293,15 @@ function isRetiredTraderLifecycle(trader: Pick<TraderStanding, "lifecycleStatus"
 function TraderRankBadge({
   trader,
   t,
-  compact = false
+  compact = false,
+  masked = false
 }: {
   trader: Pick<TraderStanding, "rank" | "lifecycleStatus" | "retiredFromMonth">;
   t: (key: string) => string;
   compact?: boolean;
+  masked?: boolean;
 }) {
+  if (masked) return <MaskedRankBadge compact={compact} t={t} />;
   if (!isRetiredTraderLifecycle(trader)) return <RankBadge rank={trader.rank} compact={compact} />;
   return (
     <span
@@ -1827,6 +1865,77 @@ const RACE_MOOD_STYLES: Record<RaceMood, { readonly dot: string; readonly badge:
   }
 };
 
+function LiveRaceBoardLockedPreview({
+  leaguePeriodLabel,
+  t
+}: {
+  readonly leaguePeriodLabel: string;
+  readonly t: (key: string) => string;
+}) {
+  const placeholders = [0, 1, 2, 3, 4] as const;
+  return (
+    <section
+      data-testid="live-race-board-locked-preview"
+      className="relative w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-white/10 bg-[#070908] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)]"
+      style={{
+        backgroundImage: "linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px)",
+        backgroundSize: "92px 92px, 92px 92px, auto"
+      }}
+    >
+      <div className="px-3 py-3 md:px-5 md:py-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-emerald-300">{t("leaderboard.liveRace.title")}</p>
+              <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 font-mono text-[10px] font-semibold text-zinc-400">
+                {leaguePeriodLabel}
+              </span>
+            </div>
+            <div className="hidden md:flex mt-1.5 flex-col gap-1 md:flex-row md:items-baseline md:gap-3">
+              <h2 className="text-base font-bold tracking-tight text-white md:text-xl">{t("leaderboard.liveRace.heading")}</h2>
+              <p className="h-4 w-[min(34rem,70vw)] rounded-full bg-white/[0.08]" />
+            </div>
+          </div>
+
+          <div className="grid w-full min-w-0 grid-cols-3 gap-1.5 lg:min-w-[420px] lg:max-w-[420px]">
+            <RaceMetric label={t("leaderboard.activeTraders")} value="--" />
+            <RaceMetric label={t("leaderboard.liveRace.exposure")} value="-- / --" />
+            <RaceMetric label={t("leaderboard.liveRace.heat")} value="--" />
+          </div>
+        </div>
+
+        <div className="mt-3 grid w-full min-w-0 max-w-full auto-cols-[minmax(160px,56vw)] grid-flow-col gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:auto-cols-auto lg:grid-flow-row lg:grid-cols-[minmax(260px,0.9fr)_repeat(4,minmax(0,1fr))] lg:overflow-visible lg:pb-0">
+          {placeholders.map((item) => (
+            <div
+              key={item}
+              className={`min-w-0 rounded-xl border ${item === 0 ? "border-emerald-300/18 bg-black/45" : "border-white/[0.08] bg-white/[0.025]"} px-2.5 py-2 sm:px-3 sm:py-3`}
+            >
+              <div className="hidden items-start justify-between gap-3 sm:flex">
+                <div className="flex min-w-0 flex-1 items-start gap-2">
+                  <span className="size-8 shrink-0 rounded-full bg-white/[0.08]" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <span className="block h-3 w-3/4 rounded-full bg-white/[0.1]" />
+                    <span className="block h-2.5 w-1/2 rounded-full bg-white/[0.07]" />
+                  </div>
+                </div>
+                <span className="h-6 w-8 rounded-full bg-white/[0.08]" />
+              </div>
+              <div className="flex items-center justify-between gap-2 sm:hidden">
+                <span className="h-6 w-20 rounded-md bg-white/[0.07]" />
+                <span className="h-5 w-14 rounded-full bg-emerald-300/10" />
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-3 sm:mt-4">
+                <span className="h-5 w-16 rounded-md bg-white/[0.07] sm:h-6 sm:w-20" />
+                <span className="h-5 w-14 rounded-full bg-emerald-300/10 sm:w-16" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function LiveRaceBoard({
   standings,
   exposureByTrader,
@@ -1867,7 +1976,7 @@ function LiveRaceBoard({
   return (
     <section
       data-testid="live-race-board"
-      className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#070908] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)]"
+      className="relative w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-white/10 bg-[#070908] text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.03)]"
       style={{
         backgroundImage: "linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px)",
         backgroundSize: "92px 92px, 92px 92px, auto"
@@ -1888,7 +1997,7 @@ function LiveRaceBoard({
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-1.5 sm:min-w-[420px]">
+          <div className="grid w-full min-w-0 grid-cols-3 gap-1.5 lg:min-w-[420px] lg:max-w-[420px]">
             <RaceMetric label={t("leaderboard.activeTraders")} value={formatNumber(activeTraderCount, 0, locale)} />
             <RaceMetric label={t("leaderboard.liveRace.exposure")} value={`${formatNumber(openPositions, 0, locale)} / ${formatNumber(openOrders, 0, locale)}`} />
             <RaceMetric label={t("leaderboard.liveRace.heat")} value={heatLabel} tone={heatValue >= 0 ? "good" : "bad"} />
@@ -1897,7 +2006,7 @@ function LiveRaceBoard({
 
         <div
           data-testid="live-race-board-lane"
-          className="mt-3 grid min-w-0 auto-cols-[minmax(190px,64vw)] grid-flow-col gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:auto-cols-auto lg:grid-flow-row lg:grid-cols-[minmax(260px,0.9fr)_repeat(4,minmax(0,1fr))] lg:overflow-visible lg:pb-0"
+          className="mt-3 grid w-full min-w-0 max-w-full auto-cols-[minmax(160px,56vw)] grid-flow-col gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:auto-cols-auto lg:grid-flow-row lg:grid-cols-[minmax(260px,0.9fr)_repeat(4,minmax(0,1fr))] lg:overflow-visible lg:pb-0"
         >
           {leadingItem ? (
             <Link
@@ -1914,7 +2023,7 @@ function LiveRaceBoard({
               key={item.trader.id}
               href={`/leaderboard/${item.trader.id}`}
               prefetch={false}
-              className="focus-ring group min-w-0 rounded-xl border border-white/[0.08] bg-white/[0.025] px-3 py-2.5 transition-[border-color,background-color,transform] duration-200 ease-out hover:-translate-y-0.5 hover:border-white/15 hover:bg-white/[0.045] active:scale-[0.99]"
+              className="focus-ring group min-w-0 rounded-xl border border-white/[0.08] bg-white/[0.025] px-2.5 py-2 transition-[border-color,background-color,transform] duration-200 ease-out hover:-translate-y-0.5 hover:border-white/15 hover:bg-white/[0.045] active:scale-[0.99] sm:px-3 sm:py-2.5"
             >
               <RaceLaneItem item={item} t={t} />
             </Link>
@@ -1939,9 +2048,24 @@ function RaceLeaderCard({ item, t }: { readonly item: RaceBoardItem; readonly t:
   const styles = RACE_MOOD_STYLES[item.mood];
   const displayName = localizedTraderName(item.trader, t);
   return (
-    <article className="relative min-w-0 px-2.5 py-2.5 sm:px-3 sm:py-3">
+    <article className="relative min-w-0 px-2.5 py-2 sm:px-3 sm:py-3">
       <div className={`absolute inset-x-0 top-0 h-px bg-gradient-to-r ${styles.rail}`} />
-      <div className="flex min-w-0 items-start justify-between gap-2 sm:gap-3">
+      <div className="sm:hidden">
+        <div className="flex min-w-0 items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-1">
+              <RaceMoodBadge mood={item.mood} t={t} />
+              <StatusPill label={item.progress.label} tone={item.progress.tone} />
+            </div>
+            <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
+              <SideBadge progress={item.progress} />
+              <LeverageBadge progress={item.progress} />
+            </div>
+          </div>
+          <p className={`shrink-0 font-mono text-lg font-bold tabular-nums ${styles.value}`}>{formatSignedPercent(item.return24h)}</p>
+        </div>
+      </div>
+      <div className="hidden min-w-0 items-start justify-between gap-2 sm:flex sm:gap-3">
         <div className="flex min-w-0 items-start gap-2 sm:gap-2.5">
           <TraderMark trader={item.trader} compact />
           <div className="min-w-0">
@@ -1955,7 +2079,7 @@ function RaceLeaderCard({ item, t }: { readonly item: RaceBoardItem; readonly t:
         </div>
         <TraderRankBadge trader={item.trader} t={t} />
       </div>
-      <div className="mt-2.5 sm:mt-3 flex min-w-0 items-end justify-between gap-2">
+      <div className="mt-2.5 hidden min-w-0 items-end justify-between gap-2 sm:mt-3 sm:flex">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-1 sm:gap-1.5">
             <StatusPill label={item.progress.label} tone={item.progress.tone} />
@@ -1984,12 +2108,12 @@ function RaceLaneItem({ item, t }: { readonly item: RaceBoardItem; readonly t: (
               <TraderLifecycleBadge trader={item.trader} t={t} compact />
               <p className="truncate text-xs sm:text-sm font-bold text-white">{displayName}</p>
             </div>
-            <p className="mt-0.5 truncate text-[10px] sm:text-[11px] text-zinc-500">{item.progress.detail || t("leaderboard.status.watching")}</p>
+            <p className="mt-0.5 hidden truncate text-[11px] text-zinc-500 sm:block">{item.progress.detail || t("leaderboard.status.watching")}</p>
           </div>
         </div>
         <p className={`shrink-0 font-mono text-xs sm:text-sm font-bold tabular-nums ${styles.value}`}>{formatSignedPercent(item.return24h)}</p>
       </div>
-      <div className="mt-2.5 sm:mt-3 flex min-w-0 flex-wrap items-center gap-1 sm:gap-1.5">
+      <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1 sm:mt-3 sm:gap-1.5">
         <RaceMoodBadge mood={item.mood} t={t} />
         <SideBadge progress={item.progress} />
         <LeverageBadge progress={item.progress} />
@@ -2000,7 +2124,7 @@ function RaceLaneItem({ item, t }: { readonly item: RaceBoardItem; readonly t: (
 
 function RaceMoodBadge({ mood, t }: { readonly mood: RaceMood; readonly t: (key: string) => string }) {
   return (
-    <span className={`inline-flex shrink-0 items-center rounded-md px-2 py-1 font-mono text-[10px] font-bold leading-none ring-1 ${RACE_MOOD_STYLES[mood].badge}`}>
+    <span className={`inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 font-mono text-[9px] font-bold leading-none ring-1 sm:px-2 sm:py-1 sm:text-[10px] ${RACE_MOOD_STYLES[mood].badge}`}>
       {t(`leaderboard.liveRace.mood.${mood}`)}
     </span>
   );

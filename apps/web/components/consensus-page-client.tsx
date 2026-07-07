@@ -8,7 +8,8 @@ import { useAppContext } from "@/components/app-provider";
 import { ConsensusAveragePrices } from "@/components/consensus-average-prices";
 import { ConsensusHourlyOpinion } from "@/components/consensus-hourly-opinion";
 import { PageLoadingOverlay } from "@/components/page-loading-overlay";
-import { ProtectedContentGate } from "@/components/access-gate";
+import { ProtectedContentGateWithAccess } from "@/components/access-gate";
+import { useSubscriberAccess } from "@/components/use-subscriber-access";
 import { 
   getActivePaperPositions,
   getCachedLeaderboardBundle, 
@@ -271,6 +272,8 @@ export function ConsensusPageClient() {
   const queryClient = useQueryClient();
   const [cacheReady, setCacheReady] = useState(false);
   const opinionRefreshRef = useRef<string | null>(null);
+  const accessQuery = useSubscriberAccess();
+  const canLoadConsensusData = Boolean(accessQuery.data?.isSubscribed);
 
   const fallbackBundle = useMemo<LeaderboardBundle>(() => ({
     symbol: "BTCUSDT",
@@ -290,6 +293,7 @@ export function ConsensusPageClient() {
   // Fetch leaderboard bundle
   const btcQuery = useQuery({
     ...leaderboardBundleQueryOptions("BTCUSDT", locale, CONSENSUS_BUNDLE_OPTIONS),
+    enabled: canLoadConsensusData,
     placeholderData: (previousData) => {
       if (previousData?.symbol === "BTCUSDT") return previousData;
       return cacheReady ? getCachedLeaderboardBundle("BTCUSDT", locale, CONSENSUS_BUNDLE_OPTIONS) ?? fallbackBundle : fallbackBundle;
@@ -303,6 +307,7 @@ export function ConsensusPageClient() {
   const hourlyOpinionQuery = useQuery({
     queryKey: hourlyOpinionQueryKey,
     queryFn: (context) => getLeagueSentimentOpinion("BTCUSDT", locale, { preferCached: true, signal: context.signal }),
+    enabled: canLoadConsensusData,
     placeholderData: (previousData) => previousData,
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -310,6 +315,7 @@ export function ConsensusPageClient() {
   });
 
   useEffect(() => {
+    if (!canLoadConsensusData) return;
     const opinion = hourlyOpinionQuery.data;
     if (!opinion?.stale) return;
     const refreshKey = `${locale}:${opinion.nextRefreshAt}`;
@@ -329,12 +335,13 @@ export function ConsensusPageClient() {
     return () => {
       active = false;
     };
-  }, [hourlyOpinionQuery.data, hourlyOpinionQueryKey, locale, queryClient]);
+  }, [canLoadConsensusData, hourlyOpinionQuery.data, hourlyOpinionQueryKey, locale, queryClient]);
 
-  const bundle = btcQuery.data ?? fallbackBundle;
+  const bundle = canLoadConsensusData ? btcQuery.data ?? fallbackBundle : fallbackBundle;
   const activePositionsQuery = useQuery({
     queryKey: ["paper", "positions", "active", "BTCUSDT", "consensus"],
     queryFn: async (context) => unwrapPaperPositions(await getActivePaperPositions("BTCUSDT", undefined, CONSENSUS_EXPOSURE_LIMIT, { signal: context.signal })),
+    enabled: canLoadConsensusData,
     placeholderData: (previousData) => previousData ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -343,13 +350,14 @@ export function ConsensusPageClient() {
   const activeOrdersQuery = useQuery({
     queryKey: ["paper", "orders", "open", "BTCUSDT", "consensus"],
     queryFn: async (context) => unwrapPaperOrders(await getPaperOrders(CONSENSUS_EXPOSURE_LIMIT, "BTCUSDT", "open", undefined, { signal: context.signal })),
+    enabled: canLoadConsensusData,
     placeholderData: (previousData) => previousData ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false
   });
-  const activePositions = activePositionsQuery.data ?? bundle.positions ?? [];
-  const activeOrders = activeOrdersQuery.data ?? bundle.orders ?? [];
+  const activePositions = canLoadConsensusData ? activePositionsQuery.data ?? bundle.positions ?? [] : [];
+  const activeOrders = canLoadConsensusData ? activeOrdersQuery.data ?? bundle.orders ?? [] : [];
 
   const traders = bundle.traders?.length ? bundle.traders : (fallbackTraders as unknown as TraderProfile[]);
   const standings = useMemo(() => buildStandings(traders, bundle.summaries ?? []), [bundle.summaries, traders]);
@@ -509,10 +517,10 @@ export function ConsensusPageClient() {
 
   const hasResolvedConsensusBundle = bundle.warming !== true && Boolean(bundle.summaries?.length);
   const consensusBundleLoading =
-    !hasResolvedConsensusBundle && (btcQuery.isPending || btcQuery.isFetching || btcQuery.isPlaceholderData || bundle.warming === true);
+    canLoadConsensusData && !hasResolvedConsensusBundle && (btcQuery.isPending || btcQuery.isFetching || btcQuery.isPlaceholderData || bundle.warming === true);
   const hasHourlyOpinion = Boolean(hourlyOpinionQuery.data?.opinion);
-  const hourlyOpinionLoading = !hasHourlyOpinion && (hourlyOpinionQuery.isPending || hourlyOpinionQuery.isFetching);
-  const initialLoading = consensusBundleLoading || hourlyOpinionLoading;
+  const hourlyOpinionLoading = canLoadConsensusData && !hasHourlyOpinion && (hourlyOpinionQuery.isPending || hourlyOpinionQuery.isFetching);
+  const initialLoading = canLoadConsensusData && (consensusBundleLoading || hourlyOpinionLoading);
   const error = btcQuery.error ? t("common.liveDataUnavailable") : null;
 
   return (
@@ -535,12 +543,15 @@ export function ConsensusPageClient() {
         </div>
       </div>
 
-      <ProtectedContentGate
+      <ProtectedContentGateWithAccess
+        accessQuery={accessQuery}
         mode="subscription"
         lockPlacement="viewport"
         title={t("access.consensusLockedTitle")}
         description={t("access.consensusLockedDescription")}
         className="min-w-0 max-w-full space-y-4 md:space-y-6"
+        deferLockedChildren
+        lockedPreview={<ConsensusLockedPreview t={t} />}
       >
       <div data-testid="consensus-hourly-opinion" className="min-w-0 max-w-full">
         <ConsensusHourlyOpinion
@@ -733,13 +744,76 @@ export function ConsensusPageClient() {
           })}
         </div>
       </section>
-      </ProtectedContentGate>
+      </ProtectedContentGateWithAccess>
 
       {error ? (
         <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-200">
           {error}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function ConsensusLockedPreview({ t }: { readonly t: (key: string) => string }) {
+  return (
+    <div data-testid="consensus-locked-preview" className="min-w-0 max-w-full space-y-4 md:space-y-6">
+      <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.025] md:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.08em] text-zinc-500 dark:text-zinc-500">
+              AIGENTRA
+            </p>
+            <h2 className="mt-2 text-xl font-bold text-zinc-950 dark:text-white md:text-2xl">
+              BTCUSDT {t("consensus.title")}
+            </h2>
+          </div>
+          <div className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 font-mono text-sm font-bold text-emerald-300">
+            64%
+          </div>
+        </div>
+        <div className="mt-5 space-y-3">
+          <div className="h-3 w-4/5 rounded-full bg-zinc-200 dark:bg-white/15" />
+          <div className="h-3 w-2/3 rounded-full bg-zinc-200 dark:bg-white/10" />
+          <div className="h-3 w-3/5 rounded-full bg-zinc-200 dark:bg-white/10" />
+        </div>
+      </section>
+
+      <div className="grid min-w-0 gap-3 md:grid-cols-2 md:gap-6">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.025] sm:p-6">
+          <h2 className="mb-5 text-sm font-bold uppercase tracking-wider text-zinc-800 dark:text-zinc-300">
+            {t("consensus.ratioOverview")}
+          </h2>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs font-semibold text-zinc-500">
+              <span>LONG</span>
+              <span className="font-mono text-emerald-300">62%</span>
+            </div>
+            <div className="flex h-2.5 overflow-hidden rounded-full bg-zinc-100 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-white/5">
+              <div className="h-full w-[62%] bg-emerald-500" />
+              <div className="h-full flex-1 bg-rose-500" />
+            </div>
+            <div className="flex items-center justify-between text-xs font-semibold text-zinc-500">
+              <span>SHORT</span>
+              <span className="font-mono text-rose-300">38%</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.025] sm:p-6">
+          <h2 className="mb-5 text-sm font-bold uppercase tracking-wider text-zinc-800 dark:text-zinc-300">
+            {t("consensus.avgPrices")}
+          </h2>
+          <div className="grid grid-cols-3 gap-2">
+            {["60,420", "62,180", "59,880"].map((value) => (
+              <div key={value} className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-center dark:border-white/[0.06] dark:bg-white/[0.02]">
+                <div className="mx-auto mb-2 h-2 w-10 rounded-full bg-zinc-300 dark:bg-white/15" />
+                <p className="font-mono text-sm font-extrabold text-zinc-900 dark:text-zinc-100">{value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

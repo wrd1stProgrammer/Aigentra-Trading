@@ -255,6 +255,28 @@ test("entry rationale fallback never uses management review copy", () => {
   );
 });
 
+test("entry rationale fallback strips legacy decision prefixes and rejects management-only approval copy", () => {
+  assert.equal(
+    league.entryRationaleFromPayload({
+      aiApprovalReason: "ADJUST_AND_APPROVE: Trend Sentinel은 4H 추세 회복 후 LONG 진입을 열었습니다."
+    }),
+    "Trend Sentinel은 4H 추세 회복 후 LONG 진입을 열었습니다."
+  );
+  assert.equal(
+    league.entryRationaleFromPayload({
+      aiApprovalReason: "ADJUST_AND_APPROVE: Maintain the position while structure remains valid.",
+      aiReview: { approvalReason: "조정 후 승인: 1H 평균 구역 회복이 진입 트리거입니다." }
+    }),
+    "1H 평균 구역 회복이 진입 트리거입니다."
+  );
+  assert.equal(
+    league.entryRationaleFromPayload({
+      aiApprovalReason: "조정 후 승인: 현재 포지션은 유지하고 다음 리뷰까지 계속 관찰하세요."
+    }),
+    null
+  );
+});
+
 test("entry approval detail scenarios prefer structured review over legacy approval reason", () => {
   // Given: a live position has both the legacy approvalReason and the newer structured review.
   const trader = { id: "trend-sentinel", currentPlan: "watch", baseRiskPercent: 0.35, description: "strategy", concept: "concept" };
@@ -584,6 +606,44 @@ test("entry approval scenarios fall back to English structured review when Korea
   assert.equal(positionScenario.reviewBrief.headline, "ATR trend-continuation LONG is worth a reduced-size entry around 61984.8.");
   assert.equal(positionScenario.reviewBrief.action, "Place the LONG with reduced 0.40% account risk and keep 5x leverage.");
   assert.equal(positionScenario.rationale, "ATR trend-continuation LONG is worth a reduced-size entry around 61984.8. Place the LONG with reduced 0.40% account risk and keep 5x leverage. 1h and 4h buyers are holding above their EMA bands. Cancel the pullback if TP1 is reached first.");
+});
+
+test("entry approval scenarios strip legacy decision prefixes from detail copy", () => {
+  const trader = { id: "trend-sentinel", currentPlan: "watch", baseRiskPercent: 0.35, description: "strategy", concept: "concept" };
+  const positions = [
+    {
+      id: 621,
+      symbol: "BTCUSDT",
+      status: "open",
+      side: "long",
+      entryPrice: 63371,
+      payload: {
+        aiStructuredReview: {
+          verdict: "ADJUST_AND_APPROVE",
+          headline: "ADJUST_AND_APPROVE: Trend Sentinel은 4H 추세 회복 후 BTCUSDT LONG을 열었습니다.",
+          action: "조정 후 승인: 1H 평균 구역 회복이 진입 트리거입니다.",
+          keyReasons: [
+            "진입 트리거는 가격이 평균 구역을 회복하며 매수세가 다시 붙은 점입니다.",
+            "현재 포지션은 유지하고 다음 리뷰까지 계속 관찰하세요."
+          ],
+          risks: ["손절선 이탈 시 롱 근거가 사라집니다."],
+          watchConditions: ["평균 구역 아래로 마감하면 진입 논리가 약해집니다."],
+          managerNote: "현재 포지션은 유지하고 다음 리뷰까지 계속 관찰하세요."
+        }
+      }
+    }
+  ];
+
+  const scenarios = league.buildScenarios({ trader, positions, orders: [], reviews: [], events: [] });
+  const positionScenario = scenarios.find((scenario) => scenario.id === "position-621");
+
+  assert.equal(positionScenario.reviewBrief.headline, "Trend Sentinel은 4H 추세 회복 후 BTCUSDT LONG을 열었습니다.");
+  assert.equal(positionScenario.reviewBrief.action, "1H 평균 구역 회복이 진입 트리거입니다.");
+  assert.equal(positionScenario.reviewBrief.keyReasons.includes("현재 포지션은 유지하고 다음 리뷰까지 계속 관찰하세요."), false);
+  assert.equal(positionScenario.reviewBrief.managerNote, null);
+  assert.equal(positionScenario.rationale.includes("ADJUST_AND_APPROVE"), false);
+  assert.equal(positionScenario.rationale.includes("조정 후 승인:"), false);
+  assert.equal(positionScenario.rationale.includes("다음 리뷰"), false);
 });
 
 test("entry detail brief keeps only core entry evidence", () => {

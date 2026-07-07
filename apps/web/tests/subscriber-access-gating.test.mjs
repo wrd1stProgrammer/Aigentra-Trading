@@ -31,6 +31,8 @@ const accessGateSource = readFileSync(new URL("../components/access-gate.tsx", i
 const subscriberAccessSource = readFileSync(new URL("../components/use-subscriber-access.ts", import.meta.url), "utf8");
 const subscriberAccessApiSource = readFileSync(new URL("../lib/subscriber-access-api.ts", import.meta.url), "utf8");
 const subscriberAccessRouteSource = readFileSync(new URL("../app/api/subscriber/access/route.ts", import.meta.url), "utf8");
+const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
+const freePreviewSource = readFileSync(new URL("../lib/free-leaderboard-preview.ts", import.meta.url), "utf8");
 
 test("account drawer exposes remaining AI review coupons for free users", () => {
   assert.match(appShellSource, /access\.drawerCouponLabel/, "drawer should label free review coupons");
@@ -38,12 +40,28 @@ test("account drawer exposes remaining AI review coupons for free users", () => 
   assert.match(appShellSource, /couponsRemaining \?\? 0\}\/\{access\?\.couponLimit \?\? 3/, "drawer should render remaining/limit");
 });
 
-test("free leaderboard only renders the public top five and locks the rest", () => {
-  assert.match(leaderboardSource, /FREE_LEADERBOARD_LIMIT/, "leaderboard should use the shared free preview limit");
-  assert.match(leaderboardSource, /displayStandings\.slice\(0, FREE_LEADERBOARD_LIMIT\)/, "free standings should be sliced to top five");
+test("free leaderboard renders today's three public traders and locks the rest", () => {
+  assert.match(freePreviewSource, /FREE_LEADERBOARD_LIMIT/, "preview policy should use the shared free preview limit");
+  assert.match(leaderboardSource, /buildFreeLeaderboardPreview\(displayStandings, freePreviewSeed\)/, "free standings should use the curated preview picker");
+  assert.doesNotMatch(leaderboardSource, /displayStandings\.slice\(0, FREE_LEADERBOARD_LIMIT\)/, "free standings should not be a raw top-N slice");
   assert.match(leaderboardSource, /visibleStandings/, "all visible leaderboard metrics should be derived from gated standings");
   assert.match(leaderboardSource, /LeaderboardLockedRows/, "hidden rows should advertise locked traders");
   assert.match(leaderboardSource, /access\.leaderboardPreviewTitle/, "locked rows should use localized preview copy");
+  assert.match(leaderboardSource, /accessPreviewDescription\(t\("access\.leaderboardPreviewBody"\), count, locale\)/, "locked rows should insert the hidden trader count");
+  assert.match(leaderboardSource, /const rankMasked = shouldUsePreviewLimit/, "free preview rows should mask their real rank");
+  assert.match(leaderboardSource, /function MaskedRankBadge/, "free preview rows should render a rank-obscuring badge");
+  assert.match(leaderboardSource, /<TraderRankBadge trader=\{trader\} t=\{t\} compact masked=\{rankMasked\}/, "mobile free preview rows should hide live rank numbers");
+  assert.match(leaderboardSource, /<TraderRankBadge trader=\{trader\} t=\{t\} masked=\{rankMasked\}/, "desktop free preview rows should hide live rank numbers");
+  assert.match(i18nSource, /오늘의 무료 공개 3명/, "Korean copy should describe the daily free public sample");
+  assert.match(i18nSource, /\{count\}명/, "Korean copy should include the hidden trader count");
+  assert.match(i18nSource, /오늘의 무료 공개 트레이더는 실제 순위를 숨깁니다\./, "Korean copy should explain hidden preview ranks");
+});
+
+test("live race board is redacted behind the subscriber gate", () => {
+  assert.match(leaderboardSource, /LiveRaceBoardLockedPreview/, "leaderboard should render a redacted live race preview for locked users");
+  assert.match(leaderboardSource, /lockedPreview=\{<LiveRaceBoardLockedPreview/, "live race lock should not render real standings while locked");
+  assert.match(leaderboardSource, /deferLockedChildren/, "live race lock should defer real children until access is unlocked");
+  assert.match(leaderboardSource, /data-testid="live-race-board-locked-preview"/, "redacted live race preview should be testable");
 });
 
 test("subscriber access query state is scoped to the signed-in account", () => {
@@ -168,6 +186,16 @@ test("subscriber gates use neutral pending state instead of guest blur while acc
     /subscriber-access-pending/,
     "protected gates should render a neutral access-pending state while authenticated access is unresolved"
   );
+  assert.match(
+    accessGateSource,
+    /relative w-full min-w-0 max-w-full overflow-hidden rounded-2xl/,
+    "protected gates should not let blurred locked previews widen mobile route layouts"
+  );
+  assert.match(
+    accessGateSource,
+    /return <div className=\{`w-full min-w-0 max-w-full \$\{className\}`\}>\{children\}<\/div>;/,
+    "unlocked subscriber gates should keep the same bounded width wrapper as locked previews"
+  );
   assert.doesNotMatch(
     accessGateSource,
     /const resolvedAccess = access \?\? \{/,
@@ -196,6 +224,11 @@ test("subscriber-only screens are blurred behind the subscription gate", () => {
   assert.match(consensusSource, /ProtectedContentGate/, "AI sentiment should be protected");
   assert.match(consensusSource, /access\.consensusLockedTitle/, "sentiment lock copy should be localized");
   assert.match(consensusSource, /lockPlacement="viewport"/, "AI sentiment lock affordance should stay fixed in the viewport center");
+});
+
+test("subscription gate CTA jumps directly to the landing pricing plans", () => {
+  assert.match(accessGateSource, /SUBSCRIPTION_PLANS_HREF = "\/#pricing"/, "subscription CTA should target the landing pricing anchor");
+  assert.match(accessGateSource, /primaryHref = isGuest \? "\/login\?next=\/leaderboard" : SUBSCRIPTION_PLANS_HREF/, "signed-in locked users should not be sent to the top of the home page");
 });
 
 test("AI review timeline uses coupon unlocks instead of leaking modal content", () => {

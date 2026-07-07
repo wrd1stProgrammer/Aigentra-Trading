@@ -81,7 +81,7 @@ All spacing derives from a 4px base.
 
 - Max app content width: 1760px.
 - Dashboard pages use responsive one-column mobile layouts, then split to data/sidebar grids at large breakpoints.
-- Mobile gutters start at 16px. Dense terminal sections may use internal horizontal scroll only when the data cannot be meaningfully summarized.
+- Mobile gutters start at 8px for app chrome pages so dense trading panels get more usable width. Dense terminal sections may use internal horizontal scroll only when the data cannot be meaningfully summarized.
 
 ### Rules
 
@@ -118,7 +118,7 @@ All spacing derives from a 4px base.
 - **Structure**: one compact header strip with the current period, three live metrics, and a five-card race lane derived from the existing leaderboard bundle. Avoid split hero layouts that leave unused space.
 - **Data priority**: rank, trader, favorable 24h movement, live exposure state, and side/leverage badges. Negative 24h movement is a fallback signal, not the main race; it should be strongly deprioritized unless there are not enough active or positive movers. Omit broad portfolio totals and narrative snippets here because the ranking table and detail panel already own them.
 - **States**: active movers use emerald for favorable movement, rose for slipping, amber for pending exposure, and neutral for watch-only traders. Loading uses the existing page loading policy rather than an internal spinner.
-- **Mobile**: keep the board short with a horizontally swipeable race lane inside the card. Avoid page-level horizontal overflow and keep Korean copy within compact phrases.
+- **Mobile**: keep the board short with a horizontally swipeable race lane inside the card. The lead card uses status, side/leverage, mood, and return only; hide trader name, profile mark, and rank there to avoid a tall hero card. Avoid page-level horizontal overflow and keep Korean copy within compact phrases.
 - **Performance**: render from already loaded standings, summaries, and exposures. No overview-review fetch, narrative snippet, infinite scroll, chart sparkline, or additional initial request.
 
 ## 6. Motion & Interaction

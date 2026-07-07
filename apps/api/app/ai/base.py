@@ -11,7 +11,7 @@ from app.ai.league_sentiment_models import (
     LeagueSentimentPayload,
 )
 from app.ai.review_prompt_quality import ENTRY_DETAIL_UI_CONTRACT, STRUCTURED_REVIEW_QUALITY_CONTRACT
-from app.locales import CANONICAL_AI_LOCALE, SUPPORTED_LOCALES
+from app.locales import CANONICAL_AI_LOCALE, SUPPORTED_LOCALES, normalize_locale
 from app.paper.holding_policy import trader_holding_policy
 from app.traders.models import (
     ManagementAction,
@@ -70,6 +70,33 @@ MANAGEMENT_ACTION_ALIASES = {
     "REDUCE_POSITION": "REDUCE_SIZE",
 }
 VALID_LEAGUE_BIASES = {"LONG_BIASED", "SHORT_BIASED", "NEUTRAL", "MIXED", "RISK_OFF"}
+LOCALE_LANGUAGE_NAMES: Final[dict[str, str]] = {
+    "en": "English",
+    "ko": "Korean",
+    "ru": "Russian",
+    "pt-BR": "Brazilian Portuguese",
+    "tr": "Turkish",
+}
+TECHNICAL_TOKEN_LOCALE_GUARDRAIL: Final[str] = (
+    "Use LONG/SHORT, BTCUSDT, timeframe labels, and strategy names as allowed technical tokens only. "
+    "Translate the surrounding sentence naturally and never fall back to mixed-language prose when the requested locale is supported. "
+)
+
+
+def user_facing_locale_instruction(locale_value: Optional[str], fields: str) -> tuple[str, str]:
+    locale = normalize_locale(locale_value, CANONICAL_AI_LOCALE)
+    language_name = LOCALE_LANGUAGE_NAMES.get(locale, LOCALE_LANGUAGE_NAMES[CANONICAL_AI_LOCALE])
+    instruction = (
+        f"Write every user-facing {fields} string in {language_name} for locale {locale}. "
+        f"{TECHNICAL_TOKEN_LOCALE_GUARDRAIL}"
+        "Keep reviewFacts as language-neutral codes and labelKey values. "
+    )
+    if locale == "ko":
+        instruction += (
+            "For Korean locale, every user-facing structuredReview and approvalReason string must be Korean. "
+            f"{TECHNICAL_TOKEN_LOCALE_GUARDRAIL}"
+        )
+    return locale, instruction
 
 
 class BaseAIProvider:
@@ -1183,11 +1210,9 @@ def extract_json_object(text: str) -> Dict[str, Any]:
 
 
 def entry_approval_prompt(payload: TradeReviewPayload) -> str:
-    locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
-    language_instruction = (
-        "Write structuredReview, approvalReason, counterThesis, every adjustments item, and every earlyExitRecommendations item in Korean. Keep reviewFacts as language-neutral codes and labelKey values."
-        if locale == "ko"
-        else "Write structuredReview, approvalReason, counterThesis, every adjustments item, and every earlyExitRecommendations item in English. Keep reviewFacts as language-neutral codes and labelKey values."
+    locale, language_instruction = user_facing_locale_instruction(
+        payload.locale,
+        "structuredReview, approvalReason, counterThesis, adjustments, and earlyExitRecommendations",
     )
     data = {
         "symbol": payload.symbol,
@@ -1282,14 +1307,12 @@ def review_prompt(payload: TradeReviewPayload) -> str:
 
 
 def position_management_review_prompt(payload: PositionManagementPayload) -> str:
-    locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
+    locale, language_instruction = user_facing_locale_instruction(
+        payload.locale,
+        "structuredReview, rationale, counterThesis, and action reason",
+    )
     event_type = str(payload.event.eventType or "")
     is_price_shock = event_type == "common_price_shock"
-    language_instruction = (
-        "Write structuredReview, rationale, counterThesis, and every action reason in Korean. Keep reviewFacts as language-neutral codes and labelKey values."
-        if locale == "ko"
-        else "Write structuredReview, rationale, counterThesis, and every action reason in English. Keep reviewFacts as language-neutral codes and labelKey values."
-    )
     shock_instruction = (
         "FAST-MARKET EVENT MODE: the scanner detected an absolute BTC price move at or above the configured threshold. "
         "Treat this as a short-lived event review, not a normal heartbeat. Decide whether the pending order/position thesis is still valid, "
@@ -1319,8 +1342,8 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
     return (
         "You are the POSITION MANAGEMENT reviewer for an active simulated order or position. Return only strict JSON with keys "
         "decision, confidence, riskLevel, reviewCode, reviewFacts, riskFlags, structuredReview, actions, riskChange, nextReviewInSeconds, rationale, counterThesis. "
-        "Source-language rule: this provider response is canonical English unless locale explicitly says Korean; the app translation pipeline localizes it later. "
-        "For English source, use plain short sentences that translate naturally. Avoid phrasing like 'X versus Y' when 'current price is X, entry is Y' is clearer. "
+        "Write directly in the requested locale instead of relying on a later translation pass. "
+        "Use plain short sentences that translate naturally if cached translation is ever needed. Avoid phrasing like 'X versus Y' when 'current price is X, entry is Y' is clearer. "
         "Valid decisions are HOLD, CANCEL_PENDING_ORDER, ADJUST_PENDING_ORDER, MOVE_STOP, MOVE_STOP_TO_BREAKEVEN, "
         "TRAIL_STOP, TAKE_PARTIAL_PROFIT, CLOSE_POSITION, REDUCE_RISK, ADD_TO_POSITION, PYRAMID_POSITION, "
         "LET_PROFIT_RUN, NEEDS_MORE_DATA. "

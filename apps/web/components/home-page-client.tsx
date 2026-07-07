@@ -396,7 +396,7 @@ export function HomePageClient() {
         </div>
       </section>
 
-      <section data-testid="landing-pricing" className="relative overflow-hidden bg-[#070908] py-16 text-white md:py-24">
+      <section id="pricing" data-testid="landing-pricing" className="relative scroll-mt-20 overflow-hidden bg-[#070908] py-16 text-white md:scroll-mt-24 md:py-24">
         <div className="relative mx-auto max-w-[1240px] px-4 sm:px-10 lg:px-16">
           {/* Vertical grid lines */}
           <div className="absolute inset-y-0 left-0 hidden w-px bg-white/10 lg:block" />

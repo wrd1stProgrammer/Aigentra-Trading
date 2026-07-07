@@ -167,6 +167,90 @@ def test_paper_endpoints_localize_embedded_ai_review_when_locale_requested(
     assert orders_response.json()["orders"][0]["translation"]["embeddedAiReview"]["status"] == "ok"
 
 
+def test_active_position_detail_keeps_entry_approval_separate_from_management_review(temp_api_db):
+    entry_review_payload = {
+        "decision": "ADJUST_AND_APPROVE",
+        "approvalReason": "ENTRY APPROVAL MARKER: breakout trigger made this position worth opening.",
+        "structuredReview": {
+            "headline": "ENTRY APPROVAL MARKER: breakout trigger explains why the LONG was opened.",
+            "action": "Enter only while the breakout trigger remains active.",
+            "keyReasons": ["ENTRY APPROVAL MARKER: buyers reclaimed the trigger zone."],
+            "risks": ["The entry is invalid if the reclaimed zone fails."],
+            "watchConditions": ["Watch whether the breakout trigger holds."],
+            "managerNote": "Entry approval is not a management update.",
+        },
+    }
+    management_payload = {
+        "event": {"eventType": "heartbeat", "phase": "OPEN_POSITION", "reason": "MANAGEMENT REVIEW MARKER event"},
+        "review": {
+            "decision": "HOLD",
+            "rationale": "MANAGEMENT REVIEW MARKER: keep holding the already open position.",
+            "structuredReview": {
+                "headline": "MANAGEMENT REVIEW MARKER: current position is being monitored.",
+                "action": "MANAGEMENT REVIEW MARKER: hold and wait for the next review.",
+                "keyReasons": ["MANAGEMENT REVIEW MARKER: unrealized PnL is positive."],
+                "risks": ["MANAGEMENT REVIEW MARKER: stop can be approached."],
+                "watchConditions": ["MANAGEMENT REVIEW MARKER: next candle close."],
+                "managerNote": "MANAGEMENT REVIEW MARKER: management-only note.",
+            },
+        },
+    }
+    with session_scope() as db:
+        review = AIReviewRecord(
+            trader_id="entry-detail-test",
+            symbol="BTCUSDT",
+            status="ok",
+            decision="ADJUST_AND_APPROVE",
+            payload_json=to_json(entry_review_payload),
+        )
+        db.add(review)
+        db.flush()
+        position = PaperPositionRecord(
+            trader_id="entry-detail-test",
+            symbol="BTCUSDT",
+            status="open",
+            side="long",
+            quantity=Decimal("0.1"),
+            entry_price=Decimal("64000"),
+            leverage=Decimal("5"),
+            notional=Decimal("6400"),
+            margin=Decimal("1280"),
+            payload_json=to_json(
+                {
+                    "aiReviewId": review.id,
+                    "aiReview": entry_review_payload,
+                    "aiApprovalReason": entry_review_payload["approvalReason"],
+                    "aiStructuredReview": entry_review_payload["structuredReview"],
+                }
+            ),
+        )
+        db.add(position)
+        db.flush()
+        db.add(
+            PositionManagementReviewRecord(
+                trader_id="entry-detail-test",
+                symbol="BTCUSDT",
+                status="ok",
+                position_id=position.id,
+                phase="OPEN_POSITION",
+                decision="HOLD",
+                action_type="HOLD",
+                payload_json=to_json(management_payload),
+                created_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            )
+        )
+
+    response = client.get("/api/paper/positions/active?symbol=BTCUSDT&trader_id=entry-detail-test&locale=en")
+
+    assert response.status_code == 200
+    returned_position = response.json()["positions"][0]
+    serialized = str(returned_position)
+    payload = returned_position["payload"]
+    assert payload["aiApprovalReason"].startswith("ENTRY APPROVAL MARKER")
+    assert payload["aiStructuredReview"]["headline"].startswith("ENTRY APPROVAL MARKER")
+    assert "MANAGEMENT REVIEW MARKER" not in serialized
+
+
 def test_position_win_loss_counts_excludes_breakeven_from_losses(temp_api_db):
     with session_scope() as db:
         db.add_all(

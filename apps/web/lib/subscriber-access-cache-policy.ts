@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const FREE_LEADERBOARD_LIMIT = 5;
+export const FREE_LEADERBOARD_LIMIT = 3;
 export const SUBSCRIBER_ACCESS_BROWSER_CACHE_MS = 5 * 60_000;
 
 export const subscriberAccessSchema = z.object({

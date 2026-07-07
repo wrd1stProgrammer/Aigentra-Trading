@@ -27,17 +27,19 @@ const navigationPolicy = loadAppShellNavigationPolicy();
 test("app shell gives leaderboard and detail pages reference-style horizontal gutters", () => {
   assert.match(source, /APP_SHELL_CONTAINER_CLASS/, "shell should centralize the content width token");
   assert.match(source, /max-w-\[1760px\]/, "content should keep a wide but bounded desktop measure");
-  assert.match(source, /px-4 sm:px-6 lg:px-10 2xl:px-14/, "content should keep mobile gutters compact and expand on desktop");
+  assert.match(source, /px-2 sm:px-6 lg:px-10 2xl:px-14/, "content should keep mobile gutters tight and expand on desktop");
 });
 
 test("app shell lets the root landing page own its reference-style header", () => {
   assert.ok(source.includes('const isLandingPage = pathname === "/"'), "root landing should be detected explicitly");
   assert.ok(source.includes("const showAppChrome ="), "global chrome visibility should be explicit");
   assert.ok(source.includes("!isLandingPage &&"), "global app header should not render above the landing hero");
-  assert.ok(source.includes('isLandingPage ? "py-0" : `${APP_SHELL_CONTAINER_CLASS} py-4 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:py-7 md:pb-7`'), "root landing should not be wrapped in dashboard gutters");
+  assert.ok(source.includes('isLandingPage ? "py-0" : `${APP_SHELL_CONTAINER_CLASS} min-w-0 overflow-x-clip py-4 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:py-7 md:pb-7`'), "root landing should not be wrapped in dashboard gutters");
 });
 
 test("app shell mobile nav uses a bottom tab bar without forcing body overflow", () => {
+  assert.match(source, /min-h-\[100dvh\] overflow-x-clip/, "closed drawers and wide route panels should not expand the mobile layout viewport");
+  assert.match(source, /APP_SHELL_CONTAINER_CLASS\} min-w-0 overflow-x-clip/, "dashboard routes should clip accidental page-level horizontal overflow");
   assert.match(source, /aria-label=\{navLabel\(locale, link\.key, t\)\}/, "icon-only mobile links still need accessible labels");
   assert.match(source, /hidden min-w-0 items-center gap-1 overflow-x-auto/, "desktop nav should stay scroll-safe at intermediate widths");
   assert.match(source, /fixed inset-x-3 bottom-\[max\(0\.75rem,env\(safe-area-inset-bottom\)\)\]/, "mobile nav should live in a thumb-reachable bottom bar");

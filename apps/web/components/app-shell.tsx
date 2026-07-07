@@ -26,7 +26,7 @@ const links = [
   { href: "/login", key: "nav.login", icon: SignIn }
 ];
 
-const APP_SHELL_CONTAINER_CLASS = "mx-auto w-full max-w-[1760px] px-4 sm:px-6 lg:px-10 2xl:px-14";
+const APP_SHELL_CONTAINER_CLASS = "mx-auto w-full max-w-[1760px] px-2 sm:px-6 lg:px-10 2xl:px-14";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -77,7 +77,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const currentLink = shellLinks.find((link) => isShellLinkActive(link.href, visiblePath));
 
   return (
-    <div className="min-h-[100dvh] transition-colors">
+    <div className="min-h-[100dvh] overflow-x-clip transition-colors">
       {showAppChrome ? (
           <header
             className={`sticky top-0 z-20 border-b border-white/10 bg-[#070908]/90 backdrop-blur-xl text-white relative overflow-hidden ${isTraderDetailPage ? "hidden md:block" : ""}`}
@@ -185,7 +185,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
       ) : null}
-      <main className={isLoginPage ? "py-0 px-0 w-full max-w-none" : (isLandingPage ? "py-0" : `${APP_SHELL_CONTAINER_CLASS} py-4 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:py-7 md:pb-7`)}>
+      <main className={isLoginPage ? "py-0 px-0 w-full max-w-none" : (isLandingPage ? "py-0" : `${APP_SHELL_CONTAINER_CLASS} min-w-0 overflow-x-clip py-4 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:py-7 md:pb-7`)}>
         {isTraderDetailPage ? (
           <div className="-mb-[calc(5.75rem+env(safe-area-inset-bottom)-1rem)] md:mb-0">
             {children}

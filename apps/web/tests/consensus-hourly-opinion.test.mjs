@@ -44,7 +44,7 @@ test("AI sentiment page renders a cached hourly Aigentra opinion before dense se
   assert.match(opinionCardSource, /data-testid="consensus-opinion-loading"/, "opinion card should show an explicit loading state while generated data is unavailable");
   assert.match(consensusSource, /hourlyOpinionLoading/, "sentiment page should calculate a dedicated opinion loading state");
   assert.match(consensusSource, /const hasHourlyOpinion = Boolean\(hourlyOpinionQuery\.data\?\.opinion\);/, "the page should distinguish a usable cached opinion from an empty fetch");
-  assert.match(consensusSource, /const initialLoading = consensusBundleLoading \|\| hourlyOpinionLoading;/, "the centered overlay should stay up until the first opinion is usable");
+  assert.match(consensusSource, /const initialLoading = canLoadConsensusData && \(consensusBundleLoading \|\| hourlyOpinionLoading\);/, "the centered overlay should stay up until protected data is requested and the first opinion is usable");
   assert.doesNotMatch(consensusSource, /hourlyOpinionLoading\s*=\s*[^;]*\.stale/, "stale cached opinions should stay visible while a fresh opinion is generated in the background");
   assert.doesNotMatch(opinionCardSource, /opinionDataQuality|dataQuality/, "opinion card should not render the removed data-quality panel");
 });
