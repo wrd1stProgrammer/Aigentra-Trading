@@ -142,6 +142,7 @@ class ChannelRider(TraderStrategy):
             (side == "LONG" and fifteen.get("close", price) > fifteen.get("open", price))
             or (side == "SHORT" and fifteen.get("close", price) < fifteen.get("open", price))
         )
+        edge_without_reaction = not confirming_candle and (position <= 0.32 or position >= 0.68)
         if side == crowded and funding_percentile >= 88 and oi_change_30m >= 1.2:
             return make_rejection("Channel entry direction is crowded by funding/OI, raising trap risk.", score)
         if confirming_candle and channel_quality >= 2 and abs(oi_change_30m) < 2.0:
@@ -150,6 +151,13 @@ class ChannelRider(TraderStrategy):
             ]
             notes.append("15m confirmation upgraded this to a single-entry channel reaction plan.")
         else:
+            if edge_without_reaction:
+                score -= 8
+                entries = [
+                    EntryPlan(price=entries[0].price, weight=0.35, reason=entries[0].reason),
+                    EntryPlan(price=entries[1].price, weight=0.65, reason="Larger size waits for 15m reaction confirmation"),
+                ]
+                notes.append("Channel edge is valid, but the 15m candle has not reacted yet; sizing stays probe-first.")
             notes.append(f"Market regime is {regime}; 30m OI change is {oi_change_30m:.2f}%.")
 
         entries = normalize_entries_for_side(side, price, entries)
@@ -159,8 +167,11 @@ class ChannelRider(TraderStrategy):
             return make_rejection("Channel rider risk gates failed: " + "; ".join(errors), score)
         if trend == "sideways":
             notes.append("4H is sideways, so this is treated as a tactical edge trade with reduced risk.")
-        risk_percent = self.profile.baseRiskPercent if trend != "sideways" else round(self.profile.baseRiskPercent * 0.75, 2)
-        suggested_leverage = 6 if channel_quality >= 2 else 5
+        risk_multiplier = 1.0 if trend != "sideways" else 0.75
+        if edge_without_reaction:
+            risk_multiplier = min(risk_multiplier, 0.75)
+        risk_percent = round(self.profile.baseRiskPercent * risk_multiplier, 2)
+        suggested_leverage = 6 if channel_quality >= 2 and confirming_candle else 5
 
         return TradeCandidate(
             created=True,

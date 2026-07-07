@@ -92,15 +92,22 @@ class RangeMaker(TraderStrategy):
 
         side = "LONG" if position <= 0.22 else "SHORT"
         score = 62 + (10 if trend == "sideways" else 0) + (8 if adx_4h <= 18 else 0)
+        breakout_pressure = volume_z >= 1.0 or position <= 0.08 or position >= 0.92
+        if breakout_pressure:
+            score -= 10
         notes: List[str] = [
             "Range structure is flat enough for mean reversion.",
             f"Regime is {regime}; funding percentile {funding_percentile:.0f}; 30m OI change {oi_change_30m:.2f}%.",
         ]
+        if breakout_pressure:
+            notes.append("Price is close enough to breakout acceptance that the edge fade starts smaller.")
         risk_distance = max(atr_1h * 0.65, width * 0.08, price * 0.0035)
+        edge_weight = 0.52 if breakout_pressure else 0.7
+        confirm_weight = round(1.0 - edge_weight, 2)
         if side == "LONG":
             entries = [
-                EntryPlan(price=round_price(max(lower + risk_distance * 0.15, price * 0.997)), weight=0.7, reason="Lower range edge fade"),
-                EntryPlan(price=round_price(price), weight=0.3, reason="15m reclaim confirmation"),
+                EntryPlan(price=round_price(max(lower + risk_distance * 0.15, price * 0.997)), weight=edge_weight, reason="Lower range edge fade"),
+                EntryPlan(price=round_price(price), weight=confirm_weight, reason="15m reclaim confirmation"),
             ]
             stop = round_price(lower - risk_distance)
             take_profits = [
@@ -110,8 +117,8 @@ class RangeMaker(TraderStrategy):
             setup = "LOW_RANGE_REVERSION_LONG"
         else:
             entries = [
-                EntryPlan(price=round_price(min(upper - risk_distance * 0.15, price * 1.003)), weight=0.7, reason="Upper range edge fade"),
-                EntryPlan(price=round_price(price), weight=0.3, reason="15m failure confirmation"),
+                EntryPlan(price=round_price(min(upper - risk_distance * 0.15, price * 1.003)), weight=edge_weight, reason="Upper range edge fade"),
+                EntryPlan(price=round_price(price), weight=confirm_weight, reason="15m failure confirmation"),
             ]
             stop = round_price(upper + risk_distance)
             take_profits = [
@@ -125,6 +132,7 @@ class RangeMaker(TraderStrategy):
         errors = candidate_geometry_errors(side, price, entries, stop, take_profits, min_risk_reward=1.15, fee_buffer_percent=0.08)
         if errors:
             return make_rejection("Range maker risk gates failed: " + "; ".join(errors), score)
+        risk_percent = 0.3 if breakout_pressure else self.profile.baseRiskPercent
 
         return TradeCandidate(
             created=True,
@@ -134,7 +142,7 @@ class RangeMaker(TraderStrategy):
             entries=entries,
             stopLoss=stop,
             takeProfits=take_profits,
-            riskPercent=self.profile.baseRiskPercent,
+            riskPercent=risk_percent,
             orderIntent=default_order_intent("RANGE_EDGE_LIMIT"),
             leveragePlan=default_leverage_plan(
                 suggested=6 if score >= 76 else 5,
@@ -142,7 +150,7 @@ class RangeMaker(TraderStrategy):
                 reason="Range trades use 5-6x with quick midpoint de-risking because breakouts can invalidate the edge fast.",
             ),
             riskPlan=default_risk_plan(
-                risk_percent=self.profile.baseRiskPercent,
+                risk_percent=risk_percent,
                 risk_reward=risk_reward,
                 sizing_note="Fast de-risk at range mid; never average into an accepted breakout.",
                 min_risk_reward=1.15,

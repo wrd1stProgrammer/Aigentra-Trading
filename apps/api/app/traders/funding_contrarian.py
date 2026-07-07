@@ -104,17 +104,27 @@ class FundingContrarian(TraderStrategy):
         score = 60 + min(16, int(abs(funding) / 0.00001)) + (6 if abs(price_change_1h) < 0.0015 else 0)
         if funding_percentile >= 80:
             score += 8
+        squeeze_pressure = (
+            (side == "SHORT" and price_change_1h > 0.0015 and taker_ratio > 1.15)
+            or (side == "LONG" and price_change_1h < -0.0015 and taker_ratio < 0.85)
+        ) and oi_change_30m >= 1.0
+        if squeeze_pressure:
+            score -= 4
         notes: List[str] = [
             "Funding or mark/index premium is stretched enough for a contrarian watch.",
             "15m structure shows stall before entry.",
             f"30m OI change is {oi_change_30m:.2f}% and taker buy/sell ratio is {taker_ratio:.2f}.",
         ]
+        if squeeze_pressure:
+            notes.append("Crowded-side pressure is still active, so this remains a smaller probe-and-retest fade.")
         risk_distance = max(atr_1h * 0.75, price * 0.005)
+        trigger_weight = 0.45 if squeeze_pressure else 0.65
+        retest_weight = round(1.0 - trigger_weight, 2)
         if side == "SHORT":
             trigger_level = max(price, min(resistance, price + risk_distance * 0.25))
             entries = [
-                EntryPlan(price=round_price(price), weight=0.65, reason="Bearish structure trigger after positive funding"),
-                EntryPlan(price=round_price(trigger_level), weight=0.35, reason="Retest while funding remains stretched"),
+                EntryPlan(price=round_price(price), weight=trigger_weight, reason="Bearish structure trigger after positive funding"),
+                EntryPlan(price=round_price(trigger_level), weight=retest_weight, reason="Retest while funding remains stretched"),
             ]
             stop = round_price(max(resistance, price + risk_distance))
             take_profits = [
@@ -125,8 +135,8 @@ class FundingContrarian(TraderStrategy):
         else:
             trigger_level = min(price, max(support, price - risk_distance * 0.25))
             entries = [
-                EntryPlan(price=round_price(price), weight=0.65, reason="Bullish structure trigger after negative funding"),
-                EntryPlan(price=round_price(trigger_level), weight=0.35, reason="Retest while funding remains stretched"),
+                EntryPlan(price=round_price(price), weight=trigger_weight, reason="Bullish structure trigger after negative funding"),
+                EntryPlan(price=round_price(trigger_level), weight=retest_weight, reason="Retest while funding remains stretched"),
             ]
             stop = round_price(min(support, price - risk_distance))
             take_profits = [
@@ -140,6 +150,7 @@ class FundingContrarian(TraderStrategy):
         errors = candidate_geometry_errors(side, price, entries, stop, take_profits, min_risk_reward=1.25, fee_buffer_percent=0.1)
         if errors:
             return make_rejection("Funding contrarian risk gates failed: " + "; ".join(errors), score)
+        risk_percent = 0.3 if squeeze_pressure else self.profile.baseRiskPercent
 
         return TradeCandidate(
             created=True,
@@ -149,7 +160,7 @@ class FundingContrarian(TraderStrategy):
             entries=entries,
             stopLoss=stop,
             takeProfits=take_profits,
-            riskPercent=self.profile.baseRiskPercent,
+            riskPercent=risk_percent,
             orderIntent=default_order_intent("FUNDING_STALL_TRIGGER", post_only=False),
             leveragePlan=default_leverage_plan(
                 suggested=6 if score < 82 else 8,
@@ -157,7 +168,7 @@ class FundingContrarian(TraderStrategy):
                 reason="Funding contrarian trades use 6-8x only after stall confirmation because crowding can persist longer than expected.",
             ),
             riskPlan=default_risk_plan(
-                risk_percent=self.profile.baseRiskPercent,
+                risk_percent=risk_percent,
                 risk_reward=risk_reward,
                 sizing_note="Small contrarian risk; exit early if funding normalizes without price follow-through.",
                 min_risk_reward=1.25,

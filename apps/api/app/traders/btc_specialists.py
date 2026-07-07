@@ -159,6 +159,7 @@ def _candidate(
     gate_scores: dict[str, Any],
     sizing_note: str,
     min_rr: float = 1.15,
+    risk_percent: float | None = None,
 ) -> TradeCandidate:
     regime = str(gate_scores.get("regime") or "").lower()
     minimum_score = 60 if regime in {"range", "squeeze"} else 58
@@ -193,6 +194,7 @@ def _candidate(
             reason_code="geometry_gate_failed",
             observation_type="OBSERVE_ONLY" if score >= 50 else "NO_TRADE",
         )
+    applied_risk_percent = profile.baseRiskPercent if risk_percent is None else risk_percent
     return candidate_with_audit(
         TradeCandidate(
             created=True,
@@ -202,7 +204,7 @@ def _candidate(
             entries=entries,
             stopLoss=stop,
             takeProfits=take_profits,
-            riskPercent=profile.baseRiskPercent,
+            riskPercent=applied_risk_percent,
             orderIntent=default_order_intent(order_execution, post_only=entry_style != "single"),
             leveragePlan=default_leverage_plan(
                 suggested=leverage,
@@ -210,7 +212,7 @@ def _candidate(
                 reason=f"{profile.name} uses {leverage}x only after its BTC-specific first-stage filters and second-stage AI review agree.",
             ),
             riskPlan=default_risk_plan(
-                risk_percent=profile.baseRiskPercent,
+                risk_percent=applied_risk_percent,
                 risk_reward=risk_reward,
                 sizing_note=sizing_note,
                 min_risk_reward=min_rr,
@@ -528,6 +530,14 @@ class SessionRaider(TraderStrategy):
             side, setup = "SHORT", "SESSION_RANGE_BREAK_SHORT"
         else:
             return _rejection(self.profile, "Session window or impulse confirmation is not ready.", score, g, "session_break_not_ready")
+        derivative_confirmed = (
+            abs(float(g["oi30m"])) >= 0.35
+            or (side == "LONG" and float(g["takerBuyShare"]) >= 0.54)
+            or (side == "SHORT" and float(g["takerBuyShare"]) <= 0.46)
+        )
+        if not derivative_confirmed:
+            score -= 4
+        enriched_g = {**g, "derivativeConfirmed": 1.0 if derivative_confirmed else 0.0}
         risk_distance = max(float(g["atr1h"]) * 0.80, float(g["price"]) * 0.0045)
         return _candidate(
             profile=self.profile,
@@ -542,8 +552,9 @@ class SessionRaider(TraderStrategy):
             entry_style="single",
             order_execution="SESSION_BREAKOUT_FAST",
             reason_code="session_range_break",
-            gate_scores=g,
+            gate_scores=enriched_g,
             sizing_note="Session strategy: keep risk capped because repeated attempts and stale fills decay quickly.",
+            risk_percent=0.46 if derivative_confirmed else 0.38,
         )
 
 
@@ -771,6 +782,9 @@ class AtrTrailCommander(TraderStrategy):
         volatility_ok = 0.004 <= atr_percent <= 0.035
         score = 50 + (14 if long_trend or short_trend else 0) + (7 if volatility_ok else -8)
         score += 5 if float(g["fundingPercentile"]) < 92 else -5
+        extended_move = abs(float(g["priceChange1h"])) >= 0.006 or float(g["adx1h"]) >= 28
+        if extended_move:
+            score -= 5
         if long_trend and volatility_ok:
             side, setup = "LONG", "ATR_TREND_TRAIL_LONG"
         elif short_trend and volatility_ok:
@@ -778,6 +792,7 @@ class AtrTrailCommander(TraderStrategy):
         else:
             return _rejection(self.profile, "Trend or ATR condition is not durable enough for a trailing setup.", score, g, "atr_trend_not_ready")
         risk_distance = max(float(g["atr1h"]) * 1.80, float(g["atr4h"]) * 0.45, float(g["price"]) * 0.009)
+        enriched_g = {**g, "extendedMove": 1.0 if extended_move else 0.0}
         return _candidate(
             profile=self.profile,
             snapshot=snapshot,
@@ -788,9 +803,10 @@ class AtrTrailCommander(TraderStrategy):
             target_rs=(2.25, 4.70),
             leverage=5,
             max_leverage=7,
-            entry_style="deep_retest",
+            entry_style="wide_staged" if extended_move else "deep_retest",
             order_execution="ATR_TREND_PULLBACK",
             reason_code="atr_trend_trail",
-            gate_scores=g,
+            gate_scores=enriched_g,
             sizing_note="Trend follower: risk can widen only for high-confidence, wider-horizon setups with clean ATR geometry.",
+            risk_percent=0.4 if extended_move else self.profile.baseRiskPercent,
         )

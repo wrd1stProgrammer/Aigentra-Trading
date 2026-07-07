@@ -493,6 +493,8 @@ def test_trade_plan_clamps_provider_leverage_override_to_service_minimum():
 
 def test_trade_plan_allows_larger_risk_for_high_confidence_high_rr_setup():
     snapshot = sample_snapshot()
+    snapshot["timeframes"]["15m"]["open"] = 67900.0
+    snapshot["timeframes"]["15m"]["close"] = snapshot["price"]
     strategy = get_strategy("channel-rider")
     candidate = strategy.evaluate(snapshot)
     assert candidate.created is True

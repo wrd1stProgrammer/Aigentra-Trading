@@ -102,6 +102,11 @@ class PullbackArchitect(TraderStrategy):
             scale_count = 4
         elif rsi_value < 34 or rsi_value > 66 or abs(oi_change_30m) >= 1.8:
             scale_count = 2
+        late_pullback = scale_count == 2
+        if late_pullback:
+            score -= 6
+            notes.append("Pullback confirmation is late or OI is expanding, so the first fill is treated as a probe.")
+
         if side == "LONG":
             entries = [
                 EntryPlan(price=round_price(price * 0.998), weight=0.4, reason="First pullback scale"),
@@ -117,8 +122,8 @@ class PullbackArchitect(TraderStrategy):
                 ]
             elif scale_count == 2:
                 entries = [
-                    EntryPlan(price=round_price(price * 0.997), weight=0.6, reason="Reduced first scale"),
-                    EntryPlan(price=round_price(price * 0.990), weight=0.4, reason="Reduced structure scale"),
+                    EntryPlan(price=round_price(price * 0.997), weight=0.32, reason="Probe scale after late pullback confirmation"),
+                    EntryPlan(price=round_price(price * 0.990), weight=0.68, reason="Structure scale only if pullback stays orderly"),
                 ]
             stop = round_price(price * 0.975)
             tps = [
@@ -141,8 +146,8 @@ class PullbackArchitect(TraderStrategy):
                 ]
             elif scale_count == 2:
                 entries = [
-                    EntryPlan(price=round_price(price * 1.003), weight=0.6, reason="Reduced first scale"),
-                    EntryPlan(price=round_price(price * 1.010), weight=0.4, reason="Reduced structure scale"),
+                    EntryPlan(price=round_price(price * 1.003), weight=0.32, reason="Probe scale after late rebound confirmation"),
+                    EntryPlan(price=round_price(price * 1.010), weight=0.68, reason="Structure scale only if rebound stays orderly"),
                 ]
             stop = round_price(price * 1.025)
             tps = [
@@ -157,6 +162,7 @@ class PullbackArchitect(TraderStrategy):
         if errors:
             return make_rejection("Pullback architect risk gates failed: " + "; ".join(errors), score)
         notes.append(f"Dynamic scale plan selected {scale_count} entries based on RSI, funding, OI, and regime state.")
+        risk_percent = 0.5 if late_pullback else self.profile.baseRiskPercent
 
         return TradeCandidate(
             created=True,
@@ -166,7 +172,7 @@ class PullbackArchitect(TraderStrategy):
             entries=entries,
             stopLoss=stop,
             takeProfits=tps,
-            riskPercent=self.profile.baseRiskPercent,
+            riskPercent=risk_percent,
             orderIntent=default_order_intent("SCALED_LIMIT_PULLBACK"),
             leveragePlan=default_leverage_plan(
                 suggested=6 if score >= 80 and scale_count <= 3 else 5,
@@ -174,7 +180,7 @@ class PullbackArchitect(TraderStrategy):
                 reason="Staged pullback entries use 5-7x because sizing is split and invalidation is structure-based.",
             ),
             riskPlan=default_risk_plan(
-                risk_percent=self.profile.baseRiskPercent,
+                risk_percent=risk_percent,
                 risk_reward=risk_reward,
                 sizing_note="Allocate risk across all scale entries; cancel unfilled scales if EMA50 fails.",
             ),
