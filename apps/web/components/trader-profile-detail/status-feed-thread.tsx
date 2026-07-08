@@ -91,12 +91,16 @@ export function StatusFeedThread({
         {items.length ? (
           <div className="space-y-4">
             {items.map((feed, index) => {
+              const isLocked = !isSubscribed && index > 0;
+              if (isLocked) {
+                return <LockedStatusFeedPreview key={`${feed.id ?? feedCreatedAt(feed) ?? index}-locked`} t={t} />;
+              }
+
               const state = feedState(feed);
               const time = feedCreatedAt(feed);
-              const isLocked = !isSubscribed && index > 0;
               return (
-                <article key={`${feed.id ?? feed.createdAt ?? feed.message}`} data-testid="desk-note-thread-item" className="relative pl-0">
-                  <div className={`rounded-[1.25rem] border border-zinc-200 bg-zinc-50/80 px-4 py-3.5 shadow-sm shadow-zinc-950/[0.03] transition duration-200 ease-out hover:-translate-y-0.5 hover:border-zinc-300 dark:border-white/10 dark:bg-white/[0.035] dark:shadow-black/20 dark:hover:border-zinc-700 ${isLocked ? "filter blur-[5px] select-none pointer-events-none opacity-40" : ""}`}>
+                <article key={`${feed.id ?? time ?? index}`} data-testid="desk-note-thread-item" className="relative pl-0">
+                  <div className="rounded-[1.25rem] border border-zinc-200 bg-zinc-50/80 px-4 py-3.5 shadow-sm shadow-zinc-950/[0.03] transition duration-200 ease-out hover:-translate-y-0.5 hover:border-zinc-300 dark:border-white/10 dark:bg-white/[0.035] dark:shadow-black/20 dark:hover:border-zinc-700">
                     <div className="flex min-w-0 items-start justify-between gap-3">
                       <p className={`min-w-0 text-pretty text-sm font-semibold leading-5 ${stateTone(state)}`}>{feedHeadline(feed) || t("detail.statusFeed")}</p>
                       {time ? <span className="shrink-0 whitespace-nowrap font-mono text-[11px] tabular-nums text-zinc-500">{formatRelativeDateTime(time, locale, t)}</span> : null}
@@ -114,5 +118,25 @@ export function StatusFeedThread({
         )}
       </div>
     </aside>
+  );
+}
+
+function LockedStatusFeedPreview({ t }: { readonly t: Translator }) {
+  return (
+    <article data-testid="desk-note-thread-locked-preview" className="relative pl-0">
+      <div className="rounded-[1.25rem] border border-zinc-200 bg-zinc-50/80 px-4 py-3.5 shadow-sm shadow-zinc-950/[0.03] dark:border-white/10 dark:bg-white/[0.035] dark:shadow-black/20">
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <p className="min-w-0 text-pretty text-sm font-semibold leading-5 text-zinc-900 dark:text-zinc-200">{t("access.reviewInlineLocked")}</p>
+          <span className="shrink-0 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-700 dark:text-emerald-200">
+            {t("access.lockedLabel")}
+          </span>
+        </div>
+        <p className="mt-2 text-pretty text-sm leading-6 text-zinc-600 dark:text-zinc-300">{t("access.reviewLockedDescription")}</p>
+        <div aria-hidden="true" className="mt-3 space-y-2">
+          <div className="h-2.5 w-4/5 rounded-full bg-zinc-200/80 dark:bg-white/10" />
+          <div className="h-2.5 w-2/3 rounded-full bg-zinc-200/70 dark:bg-white/[0.075]" />
+        </div>
+      </div>
+    </article>
   );
 }

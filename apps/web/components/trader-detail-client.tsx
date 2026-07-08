@@ -18,7 +18,7 @@ export function TraderDetailClient({ traderId }: { traderId: string }) {
   const { locale, t } = useAppContext();
   const queryClient = useQueryClient();
   const fallback = useMemo(
-    () => fallbackTraders.find((trader) => trader.id === traderId) as unknown as TraderProfile | undefined,
+    () => fallbackTraders.find((trader) => trader.id === traderId),
     [traderId]
   );
   const [trader, setTrader] = useState<TraderProfile | undefined>(fallback);
@@ -120,7 +120,7 @@ function DetailMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function InfoPanel({ title, items }: { title: string; items: string[] }) {
+function InfoPanel({ title, items }: { title: string; items: readonly string[] }) {
   return (
     <div className="panel p-5">
       <h2 className="mb-4 text-lg font-semibold">{title}</h2>

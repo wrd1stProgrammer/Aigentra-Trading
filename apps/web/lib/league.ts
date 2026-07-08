@@ -173,9 +173,9 @@ export type TraderStanding = TraderProfile & {
   rankingReturn: number;
 };
 
-export function buildStandings(traders: TraderProfile[], summaries: TraderPaperSummary[]): TraderStanding[] {
+export function buildStandings(traders: readonly TraderProfile[], summaries: readonly TraderPaperSummary[]): TraderStanding[] {
   const summaryMap = new Map(summaries.map((item) => [item.traderId, item]));
-  const base = traders.length ? traders : (fallbackTraders as unknown as TraderProfile[]);
+  const base: readonly TraderProfile[] = traders.length ? traders : fallbackTraders;
   return base
     .map((trader) => {
       const summary = summaryMap.get(trader.id);

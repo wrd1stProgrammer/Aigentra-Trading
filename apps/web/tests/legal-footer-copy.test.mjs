@@ -30,6 +30,12 @@ test("risk disclosure matches the crypto futures simulation product scope", () =
   assert.doesNotMatch(riskSource, /⚠️/, "risk warnings should use icon components instead of emoji glyphs");
 });
 
+test("risk disclosure warning callouts keep icon, title, and body separated", () => {
+  assert.match(riskSource, /sm:grid-cols-\[32px_minmax\(0,1fr\)\]/, "warning callouts should reserve a distinct icon column on wider screens");
+  assert.match(riskSource, /<div className="min-w-0">/, "warning title and body should sit in a separate text column");
+  assert.match(riskSource, /<p className="mt-2 text-xs font-semibold leading-relaxed">/, "warning body should have vertical spacing below the title");
+});
+
 test("privacy policy names the account, payment, alert, and analytics processors users actually touch", () => {
   for (const required of ["Google", "Telegram", "Whop", "Meta", "Google Analytics"]) {
     assert.match(privacySource, new RegExp(required), `privacy policy should mention ${required}`);

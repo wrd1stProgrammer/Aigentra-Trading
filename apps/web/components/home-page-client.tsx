@@ -182,10 +182,10 @@ export function HomePageClient() {
               <span>{copy.heroEyebrow}</span>
               <span>]</span>
             </div>
-            <h1 className="max-w-4xl text-balance text-3xl font-bold leading-[1.15] tracking-tight text-white sm:text-5xl lg:text-[3.75rem] lg:leading-[1.1] break-keep animate-fade-in-up">
+            <h1 className="max-w-4xl text-balance text-3xl font-bold leading-[1.15] tracking-tight text-white sm:text-5xl lg:text-[3.75rem] lg:leading-[1.1] animate-fade-in-up">
               {copy.heroTitle}
             </h1>
-            <p className="mt-6 max-w-[62ch] text-pretty text-base sm:text-lg leading-relaxed text-zinc-400 break-keep animate-fade-in-up animation-delay-100">
+            <p className="mt-6 max-w-[62ch] text-pretty text-base sm:text-lg leading-relaxed text-zinc-400 animate-fade-in-up animation-delay-100">
               {copy.heroSubtitle}
             </p>
             <div className="mt-8 flex flex-col items-center gap-4 animate-fade-in-up animation-delay-300">
@@ -238,8 +238,8 @@ export function HomePageClient() {
 
           <div className="mx-auto max-w-3xl text-center">
             <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">[ AI AGENT MONITORING ]</p>
-            <h2 className="mt-5 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl break-keep">{copy.agentSystemTitle}</h2>
-            <p className="mt-5 text-base sm:text-lg leading-relaxed text-zinc-400 break-keep">{copy.agentSystemSubtitle}</p>
+            <h2 className="mt-5 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl">{copy.agentSystemTitle}</h2>
+            <p className="mt-5 text-pretty text-base leading-relaxed text-zinc-400 sm:text-lg">{copy.agentSystemSubtitle}</p>
           </div>
 
           <div className="mt-14 grid grid-cols-1 md:grid-cols-12 gap-4 lg:gap-5">
@@ -308,8 +308,8 @@ export function HomePageClient() {
           <ScrollReveal>
             <div className="mx-auto max-w-3xl text-center">
               <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-600">[ 3 SIMPLE STEPS ]</p>
-              <h2 className="mt-5 text-balance text-3xl font-bold tracking-tight text-zinc-950 sm:text-4xl md:text-5xl break-keep">{copy.getStartedTitle}</h2>
-              <p className="mx-auto mt-5 max-w-[64ch] text-base sm:text-lg leading-relaxed text-zinc-600 break-keep">{copy.getStartedSubtitle}</p>
+              <h2 className="mt-5 text-balance text-3xl font-bold tracking-tight text-zinc-950 sm:text-4xl md:text-5xl">{copy.getStartedTitle}</h2>
+              <p className="mx-auto mt-5 max-w-[64ch] text-pretty text-base leading-relaxed text-zinc-600 sm:text-lg">{copy.getStartedSubtitle}</p>
               <Link href="/leaderboard" className="focus-ring mt-8 inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-8 py-4 text-sm font-bold text-white shadow-neon-emerald hover:bg-emerald-400 transition duration-300">
                 {copy.getStartedCta}
                 <ArrowRight size={16} weight="bold" />
@@ -357,8 +357,8 @@ export function HomePageClient() {
                   <span className="grid size-12 place-items-center rounded-xl bg-sky-500 text-white shadow-[0_0_20px_rgba(14,165,233,0.35)]">
                     <TelegramLogo size={26} weight="fill" />
                   </span>
-                  <h2 className="mt-6 text-3xl font-bold tracking-tight text-white md:text-4xl lg:text-[2.6rem] lg:leading-[1.1] break-keep">{copy.alertsTitle}</h2>
-                  <p className="mt-4 max-w-[54ch] text-base leading-7 text-zinc-300 break-keep">{copy.alertsSubtitle}</p>
+                  <h2 className="mt-6 text-3xl font-bold tracking-tight text-white md:text-4xl lg:text-[2.6rem] lg:leading-[1.1]">{copy.alertsTitle}</h2>
+                  <p className="mt-4 max-w-[54ch] text-pretty text-base leading-7 text-zinc-300">{copy.alertsSubtitle}</p>
                   <div className="mt-6 grid gap-2 sm:grid-cols-2">
                     {copy.alertCards.slice(0, 2).map((card) => (
                       <span key={card.title} className="rounded-xl border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm font-semibold leading-5 text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] break-keep">
@@ -410,8 +410,8 @@ export function HomePageClient() {
           <ScrollReveal>
             <div className="mx-auto max-w-3xl text-center">
               <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">[ PRICING ]</p>
-              <h2 className="mt-5 text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl break-keep">{copy.pricingTitle}</h2>
-              <p className="mx-auto mt-5 max-w-[64ch] text-base sm:text-lg leading-relaxed text-zinc-400 break-keep">{copy.pricingSubtitle}</p>
+              <h2 className="mt-5 text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl">{copy.pricingTitle}</h2>
+              <p className="mx-auto mt-5 max-w-[64ch] text-pretty text-base leading-relaxed text-zinc-400 sm:text-lg">{copy.pricingSubtitle}</p>
             </div>
           </ScrollReveal>
 
@@ -440,10 +440,10 @@ export function HomePageClient() {
           <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] items-start">
             <div>
               <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-600">[ FAQ ]</p>
-              <h2 className="mt-5 text-4xl sm:text-5xl font-bold tracking-tight text-zinc-950 break-keep">
+              <h2 className="mt-5 text-4xl font-bold tracking-tight text-zinc-950 sm:text-5xl">
                 {copy.faqTitle}
               </h2>
-              <p className="mt-4 text-sm leading-6 text-zinc-600 break-keep max-w-[34ch]">
+              <p className="mt-4 max-w-[34ch] text-pretty text-sm leading-6 text-zinc-600">
                 {copy.faqSubtitle}
               </p>
               <Link
@@ -515,7 +515,7 @@ export function HomePageClient() {
               <span className="inline-block text-emerald-400 font-mono text-[11px] sm:text-xs uppercase tracking-[0.15em] mb-4 select-none">
                 [ JOIN YOUR AI TRADING SOFTWARE ]
               </span>
-              <h2 className="mt-6 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl lg:text-[2.6rem] lg:leading-[1.15] break-keep">
+              <h2 className="mt-6 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl lg:text-[2.6rem] lg:leading-[1.15]">
                 {copy.aboutTitle}
               </h2>
               
@@ -526,7 +526,7 @@ export function HomePageClient() {
                     isAboutExpanded ? "max-h-[1200px]" : "max-h-[110px]"
                   }`}
                 >
-                  <div className="space-y-6 text-sm sm:text-base leading-7 text-zinc-400 break-keep text-center">
+                  <div className="space-y-6 text-center text-sm leading-7 text-zinc-400 sm:text-base">
                     {copy.aboutBody.map((paragraph, index) => (
                       <p key={index}>{formatAboutText(paragraph)}</p>
                     ))}
@@ -538,12 +538,14 @@ export function HomePageClient() {
                   )}
                 </div>
 
-                <button
-                  onClick={() => setIsAboutExpanded(!isAboutExpanded)}
-                  className="mt-6 text-xs font-mono uppercase tracking-wider text-zinc-500 hover:text-white transition duration-200 flex items-center gap-1.5 mx-auto select-none"
-                >
-                  {isAboutExpanded ? "View less ∧" : "View more ∨"}
-                </button>
+                {!isAboutExpanded ? (
+                  <button
+                    onClick={() => setIsAboutExpanded(true)}
+                    className="mx-auto mt-6 flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider text-zinc-500 transition duration-200 hover:text-white select-none"
+                  >
+                    View more ∨
+                  </button>
+                ) : null}
               </div>
 
               <Link

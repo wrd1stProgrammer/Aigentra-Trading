@@ -77,12 +77,16 @@ export default function RiskDisclosurePage() {
         <div className="prose dark:prose-invert max-w-none text-zinc-600 dark:text-zinc-400 text-sm space-y-6 md:space-y-8 font-normal">
           {activeLang === "ko" ? (
             <>
-              <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-5 text-xs leading-relaxed text-rose-600 dark:text-rose-400 font-semibold">
-                <p className="mb-1 inline-flex items-center gap-2 font-bold">
-                  <WarningCircle size={15} weight="bold" />
-                  <span>투자 위험 주의 알림</span>
-                </p>
-                금융시장에서의 거래 및 투자는 원금의 상당 부분 또는 전액 손실이라는 중대한 위험을 내포하고 있습니다. 본인이 완전히 감당할 수 있는 한도를 초과하는 자금으로 투자하지 마십시오.
+              <div className="grid gap-3 rounded-xl border border-rose-500/20 bg-rose-500/5 p-5 text-rose-600 dark:text-rose-400 sm:grid-cols-[32px_minmax(0,1fr)] sm:p-6">
+                <span className="grid size-8 place-items-center rounded-lg border border-rose-500/20 bg-rose-500/10">
+                  <WarningCircle size={17} weight="bold" />
+                </span>
+                <div className="min-w-0">
+                  <p className="font-bold leading-5">투자 위험 주의 알림</p>
+                  <p className="mt-2 text-xs font-semibold leading-relaxed">
+                    금융시장에서의 거래 및 투자는 원금의 상당 부분 또는 전액 손실이라는 중대한 위험을 내포하고 있습니다. 본인이 완전히 감당할 수 있는 한도를 초과하는 자금으로 투자하지 마십시오.
+                  </p>
+                </div>
               </div>
 
               <section className="space-y-3">
@@ -210,12 +214,16 @@ export default function RiskDisclosurePage() {
             </>
           ) : (
             <>
-              <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-5 text-xs leading-relaxed text-rose-600 dark:text-rose-400 font-semibold">
-                <p className="mb-1 inline-flex items-center gap-2 font-bold">
-                  <WarningCircle size={15} weight="bold" />
-                  <span>Financial Risk Warning</span>
-                </p>
-                TRADING AND INVESTING IN FINANCIAL MARKETS INVOLVES SUBSTANTIAL RISK OF LOSS. DO NOT INVEST MORE THAN YOU CAN AFFORD TO LOSE.
+              <div className="grid gap-3 rounded-xl border border-rose-500/20 bg-rose-500/5 p-5 text-rose-600 dark:text-rose-400 sm:grid-cols-[32px_minmax(0,1fr)] sm:p-6">
+                <span className="grid size-8 place-items-center rounded-lg border border-rose-500/20 bg-rose-500/10">
+                  <WarningCircle size={17} weight="bold" />
+                </span>
+                <div className="min-w-0">
+                  <p className="font-bold leading-5">Financial Risk Warning</p>
+                  <p className="mt-2 text-xs font-semibold leading-relaxed">
+                    TRADING AND INVESTING IN FINANCIAL MARKETS INVOLVES SUBSTANTIAL RISK OF LOSS. DO NOT INVEST MORE THAN YOU CAN AFFORD TO LOSE.
+                  </p>
+                </div>
               </div>
 
               <section className="space-y-3">

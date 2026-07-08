@@ -56,7 +56,10 @@ function t(key) {
     "detail.statusFeed": "트레이더 피드",
     "detail.statusFeedThread": "최근 쓰레드",
     "leaderboard.latestStatusFeed": "최근 피드",
-    "leaderboard.noStatusFeed": "아직 피드가 없습니다"
+    "leaderboard.noStatusFeed": "아직 피드가 없습니다",
+    "access.reviewInlineLocked": "AI 리뷰 잠김",
+    "access.lockedLabel": "구독 전용",
+    "access.reviewLockedDescription": "무료 계정은 쿠폰을 사용해 블러 처리된 AI 리뷰를 열람할 수 있습니다."
   };
   return labels[key] ?? key;
 }
@@ -118,6 +121,30 @@ test("status feed render ignores legacy watch checklist content", () => {
     assert.doesNotMatch(html, /거래량 확인/, "legacy watch checklist details should stay hidden");
     assert.doesNotMatch(html, /15분 동안/, "legacy watch timing copy should stay hidden");
   }
+});
+
+test("locked status feed previews do not render subscriber-only note text", () => {
+  const lockedFeed = {
+    id: 2,
+    createdAt: "2026-06-19T01:00:00.000Z",
+    headline: "비공개 진입 리뷰",
+    message: "이 문장은 잠긴 카드의 DOM에 남으면 안 됩니다.",
+    stateKey: "entry_review"
+  };
+  const threadHtml = renderToStaticMarkup(
+    React.createElement(statusFeedModule.StatusFeedThread, {
+      feeds: [legacyWatchFeed, lockedFeed],
+      locale: "ko",
+      t,
+      isSubscribed: false
+    })
+  );
+
+  assert.match(threadHtml, /숏 포지션 종료/, "first free note should remain visible");
+  assert.match(threadHtml, /desk-note-thread-locked-preview/, "locked rows should render a static preview");
+  assert.match(threadHtml, /AI 리뷰 잠김/, "locked preview should use localized lock copy");
+  assert.doesNotMatch(threadHtml, /비공개 진입 리뷰/, "locked headline must not be rendered");
+  assert.doesNotMatch(threadHtml, /DOM에 남으면 안 됩니다/, "locked message must not be rendered");
 });
 
 test("scenario timeline uses real trading review and plan data", () => {

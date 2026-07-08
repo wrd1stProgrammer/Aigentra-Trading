@@ -234,11 +234,15 @@ test("subscription gate CTA jumps directly to the landing pricing plans", () => 
 test("AI review timeline uses coupon unlocks instead of leaking modal content", () => {
   assert.match(traderDetailSource, /protectedScenarioSourceKey/, "scenario rows should have stable unlock keys");
   assert.match(traderDetailSource, /mode="coupon"/, "scenario reviews should use coupon mode");
+  assert.match(traderDetailSource, /deferLockedChildren/, "locked scenario rows should not render real review children");
+  assert.match(traderDetailSource, /scenario-timeline-locked-preview/, "locked scenario rows should render a static preview");
   assert.match(traderDetailSource, /scenarioUnlocked \? \(\) => setSelectedScenario/, "locked rows should not open the review modal before unlock");
 });
 
-test("locked content uses a click-through blur with a charge confirmation dialog", () => {
-  assert.match(accessGateSource, /blur-\[3px\]/, "locked content should remain visible enough to create curiosity");
+test("locked content supports static previews with a charge confirmation dialog", () => {
+  assert.match(accessGateSource, /deferLockedChildren/, "protected gates should support deferred real content");
+  assert.match(accessGateSource, /lockedPreview/, "protected gates should accept a sanitized preview");
+  assert.match(accessGateSource, /shouldRenderProtectedGateChildren/, "protected gates should choose children by access phase");
   assert.match(accessGateSource, /access\.reviewInlineLocked/, "coupon rows should use a compact inline locked label instead of a large repeated card");
   assert.match(accessGateSource, /lockPlacement === "viewport"/, "long locked content should support a viewport-centered affordance");
   assert.match(accessGateSource, /fixed left-1\/2 top-1\/2/, "viewport locks should be fixed in the visual center");

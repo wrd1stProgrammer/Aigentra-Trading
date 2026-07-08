@@ -55,12 +55,12 @@ export type TraderProfile = {
   concept?: string;
   baseRiskPercent: number;
   riskLevel: string;
-  longConditions?: string[];
-  shortConditions?: string[];
-  entryRules?: string[];
-  takeProfitRules?: string[];
-  stopLossRules?: string[];
-  aiReviewChecklist?: string[];
+  longConditions?: readonly string[];
+  shortConditions?: readonly string[];
+  entryRules?: readonly string[];
+  takeProfitRules?: readonly string[];
+  stopLossRules?: readonly string[];
+  aiReviewChecklist?: readonly string[];
   mockPerformance: {
     return7d: number;
     return30d: number;

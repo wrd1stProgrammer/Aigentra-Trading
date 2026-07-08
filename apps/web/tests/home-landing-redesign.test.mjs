@@ -34,6 +34,13 @@ test("home page follows the BullGPT-style section contract requested by the user
   assert.match(homeSource, /data-testid="landing-footer"/, "landing should end with a simple footer");
 });
 
+test("landing representative copy avoids forced Korean line breaks and removes view-less copy", () => {
+  assert.match(homeSource, /<h1 className="max-w-4xl text-balance/, "hero headline should keep balanced wrapping");
+  assert.doesNotMatch(homeSource, /<h1 className="[^"]*break-keep/, "hero headline should not force phrase-level breaks");
+  assert.doesNotMatch(homeSource, /View less/, "expanded about section should not show a View less control");
+  assert.match(homeSource, /setIsAboutExpanded\(true\)/, "about section should still expose a one-way View more expansion");
+});
+
 test("marketing copy includes subscription and reference-aligned content for all supported landing locales", () => {
   assert.match(marketingSource, /pricingPlans/, "copy should define pricing plans for the BullGPT-style pricing band");
   assert.match(marketingSource, /testimonials/, "copy should define testimonials for the white social-proof section");

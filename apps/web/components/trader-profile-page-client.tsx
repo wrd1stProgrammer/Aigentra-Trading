@@ -51,7 +51,7 @@ import { StatusFeedThread } from "@/components/trader-profile-detail/status-feed
 import { buildExecutionMarkers, defaultExecutionMarkerSelection } from "@/components/trader-profile-detail/execution-markers";
 import { ExecutionMarkerRail } from "@/components/trader-profile-detail/execution-marker-rail";
 import { PageLoadingOverlay } from "@/components/page-loading-overlay";
-import type { TradeHistoryItem } from "@/components/trader-profile-detail/types";
+import type { TradeHistoryItem, Translator } from "@/components/trader-profile-detail/types";
 import { traderVisuals } from "@/lib/league";
 import { selectMergedPositionReviewSource } from "@/lib/position-review-source";
 import { CaretLeft, CaretRight, Clock } from "@phosphor-icons/react";
@@ -62,9 +62,11 @@ import {
   protectedScenarioSourceKey,
   useSubscriberAccess
 } from "@/components/use-subscriber-access";
+import type { Locale } from "@/lib/i18n";
 
 const DETAIL_INITIAL_REVIEWS_LIMIT = 20;
 const DETAIL_REVIEWS_PAGE_SIZE = 20;
+type PositionTakeProfitTarget = NonNullable<PaperPosition["takeProfits"]>[number] & Record<string, unknown>;
 
 function isAbortLike(error: unknown) {
   if (error instanceof DOMException && error.name === "AbortError") return true;
@@ -88,6 +90,29 @@ function getSunday(date: Date): Date {
   return d;
 }
 
+function LockedScenarioTimelinePreview({ t }: { readonly t: Translator }) {
+  return (
+    <div data-testid="scenario-timeline-locked-preview" className="grid grid-cols-1 gap-3 border-b border-zinc-100 pb-5 last:border-0 last:pb-0 dark:border-zinc-900 sm:grid-cols-[28px_minmax(0,1fr)] sm:gap-5 sm:border-0 sm:pb-0">
+      <div className="relative z-[1] mt-1 hidden size-5 place-items-center rounded-full bg-white dark:bg-zinc-950 sm:grid sm:size-7">
+        <span className="size-3 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+      </div>
+      <div className="min-w-0 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3.5 shadow-sm shadow-zinc-950/[0.03] dark:border-white/10 dark:bg-white/[0.035] dark:shadow-black/20">
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <p className="text-sm font-semibold text-zinc-950 dark:text-zinc-100">{t("access.reviewInlineLocked")}</p>
+          <span className="shrink-0 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-700 dark:text-emerald-200">
+            {t("access.lockedLabel")}
+          </span>
+        </div>
+        <p className="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300">{t("access.reviewLockedDescription")}</p>
+        <div aria-hidden="true" className="mt-3 space-y-2">
+          <div className="h-2.5 w-3/4 rounded-full bg-zinc-200/80 dark:bg-white/10" />
+          <div className="h-2.5 w-1/2 rounded-full bg-zinc-200/70 dark:bg-white/[0.075]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function mergePositions(positions: PaperPosition[]): PaperPosition[] {
   const firstFiniteNumber = (...values: readonly unknown[]) => {
     for (const value of values) {
@@ -105,19 +130,32 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
     }
     return null;
   };
-  const recordValue = (value: unknown) => typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
-  const takeProfitTargets = (pos: PaperPosition) => {
+  const recordValue = (value: unknown): Record<string, unknown> | null => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+    return Object.fromEntries(Object.entries(value));
+  };
+  const normalizeTakeProfitTarget = (value: unknown): PositionTakeProfitTarget | null => {
+    const target = recordValue(value);
+    if (!target) return null;
+    return {
+      ...target,
+      price: firstFiniteNumber(target.price, target.targetPrice),
+      weight: firstFiniteNumber(target.weight),
+      reason: firstText(target.reason)
+    };
+  };
+  const takeProfitTargets = (pos: PaperPosition): PositionTakeProfitTarget[] => {
     const payload = recordValue(pos.payload);
     const value = Array.isArray(pos.takeProfits)
       ? pos.takeProfits
       : Array.isArray(pos.take_profits)
         ? pos.take_profits
         : Array.isArray(payload?.takeProfits)
-          ? payload.takeProfits
-          : Array.isArray(payload?.take_profits)
-            ? payload.take_profits
-            : [];
-    return value as Record<string, unknown>[];
+        ? payload.takeProfits
+        : Array.isArray(payload?.take_profits)
+          ? payload.take_profits
+          : [];
+    return value.map(normalizeTakeProfitTarget).filter((target): target is PositionTakeProfitTarget => target !== null);
   };
   const completedTargetStatuses = new Set(["COMPLETED", "DONE", "FILLED", "HIT", "TRIGGERED", "TAKE_PROFIT", "TP_FILLED"]);
   const firstOpenTakeProfitPrice = (targets: readonly Record<string, unknown>[]) => {
@@ -159,7 +197,7 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
     let maxLeverage = 0;
     let takeProfitPrice: number | null = null;
     let stopLossPrice: number | null = null;
-    let mergedTakeProfits: Record<string, unknown>[] = [];
+    let mergedTakeProfits: PositionTakeProfitTarget[] = [];
     const positionLegs = list.map((pos) => ({
       symbol: pos.symbol,
       side: pos.side,
@@ -246,7 +284,7 @@ function mergePositions(positions: PaperPosition[]): PaperPosition[] {
       leverage: maxLeverage > 0 ? maxLeverage : first.leverage,
       takeProfitPrice: takeProfitPrice ?? first.takeProfitPrice,
       take_profit_price: takeProfitPrice ?? first.take_profit_price,
-      takeProfits: mergedTakeProfits.length ? mergedTakeProfits as any : first.takeProfits,
+      takeProfits: mergedTakeProfits.length ? mergedTakeProfits : first.takeProfits,
       stopLossPrice: stopLossPrice ?? first.stopLossPrice,
       stop_loss_price: stopLossPrice ?? first.stop_loss_price,
       payload: mergedPayload,
@@ -299,8 +337,8 @@ function managementReviewKey(review: ManagementReview, index: number) {
 
 function mapMergedItemToHistoryItem(
   item: MergedTradeHistoryItem,
-  locale: any,
-  t: any
+  locale: Locale,
+  t: Translator
 ): TradeHistoryItem {
   const pnlTone = item.pnl > 0.01 ? "good" : item.pnl < -0.01 ? "bad" : "neutral";
   const resultTone = pnlTone;
@@ -340,7 +378,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const queryClient = useQueryClient();
   const { data: access } = useSubscriberAccess();
   const fallback = useMemo(
-    () => fallbackTraders.find((item) => item.id === traderId) as unknown as TraderProfile | undefined,
+    () => fallbackTraders.find((item) => item.id === traderId),
     [traderId]
   );
   const symbol: LeagueSymbol = "BTCUSDT";
@@ -591,7 +629,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, [locale, queryClient, symbol]);
 
   const standing = useMemo(() => {
-    const standings = buildStandings(trader ? [trader] : (fallbackTraders as unknown as TraderProfile[]), summaries);
+    const standings = buildStandings(trader ? [trader] : fallbackTraders, summaries);
     return standings.find((item) => item.id === traderId) ?? standings[0];
   }, [summaries, trader, traderId]);
 
@@ -1033,6 +1071,8 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                       traderId={traderId}
                       symbol={symbol}
                       onUnlocked={() => setSelectedScenario(item.scenario ?? null)}
+                      deferLockedChildren
+                      lockedPreview={<LockedScenarioTimelinePreview t={t} />}
                     >
                       <TimelineRow
                         item={item}
@@ -1260,6 +1300,8 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                         traderId={traderId}
                         symbol={symbol}
                         onUnlocked={() => setSelectedScenario(item.scenario ?? null)}
+                        deferLockedChildren
+                        lockedPreview={<LockedScenarioTimelinePreview t={t} />}
                       >
                         <TimelineRow
                           item={item}
