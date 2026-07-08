@@ -114,6 +114,7 @@ class ReviewFact(BaseModel):
 
 
 class StructuredReview(BaseModel):
+    title: Optional[str] = None
     verdict: Optional[str] = None
     headline: Optional[str] = None
     action: Optional[str] = None

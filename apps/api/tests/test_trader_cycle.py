@@ -1546,6 +1546,58 @@ def test_imbalance_management_prompt_builds_delta_memory_from_recent_reviews():
     assert delta["strategyTriggers"]["failureLine"] == 62853.7
 
 
+def test_management_review_prompt_requires_separate_user_title():
+    prompt = position_management_review_prompt(
+        PositionManagementPayload(
+            trader=get_strategy("donchian-breakout").profile,
+            symbol="BTCUSDT",
+            marketSnapshot=sample_snapshot(),
+            event=ManagementEvent(
+                eventType="donchian_breakout_position_heartbeat",
+                phase="OPEN_POSITION",
+                severity="MEDIUM",
+                reason="Breakout position is working but first target is not fully reached.",
+                suggestedAction="HOLD",
+                metrics={
+                    "price": 70120.0,
+                    "entryPrice": 68420.0,
+                    "stopLoss": 68100.0,
+                    "takeProfit": 71300.0,
+                    "progressR": 1.4,
+                    "targetProgress": 0.59,
+                },
+            ),
+            exposure=ManagedExposure(
+                kind="position",
+                id=540,
+                status="open",
+                side="LONG",
+                entryPrice=68420.0,
+                stopLoss=68100.0,
+                takeProfit=71300.0,
+                unrealizedPnl=212.4,
+            ),
+            recentManagementReviews=[
+                {
+                    "decision": "HOLD",
+                    "structuredReview": {
+                        "title": "돌파는 아직 숨이 남았습니다",
+                        "headline": "Donchian breakout is still working, but target progress is not enough for a full exit.",
+                        "action": "Hold and avoid adding until the next range expansion.",
+                    },
+                }
+            ],
+            locale="ko",
+        )
+    )
+    contract = prompt.split("Payload:", 1)[0]
+
+    assert "title, verdict, headline, action" in contract
+    assert "title is the timeline card title" in contract
+    assert "one-line AI comment" in contract
+    assert "Do not reuse a recent structuredReview.title" in contract
+
+
 def test_management_prompt_builds_generic_delta_memory_for_non_imbalance_traders():
     snapshot = sample_snapshot()
     snapshot["price"] = 68420.0

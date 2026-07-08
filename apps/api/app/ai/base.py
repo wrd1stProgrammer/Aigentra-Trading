@@ -385,6 +385,7 @@ class BaseAIProvider:
         if not isinstance(value, dict):
             return None
         structured = {
+            "title": self._normalize_optional_text(value.get("title")),
             "verdict": self._normalize_optional_text(value.get("verdict")),
             "headline": self._normalize_optional_text(value.get("headline")),
             "action": self._normalize_action_text(value.get("action")),
@@ -395,7 +396,7 @@ class BaseAIProvider:
         }
         has_content = any(
             structured[key]
-            for key in ("verdict", "headline", "action", "keyReasons", "risks", "watchConditions", "managerNote")
+            for key in ("title", "verdict", "headline", "action", "keyReasons", "risks", "watchConditions", "managerNote")
         )
         return structured if has_content else None
 
@@ -781,7 +782,7 @@ def fallback_value(fallback: LeagueSentimentLocalizedOpinion | None, field: str)
 def structured_review_memory(review: dict[str, Any]) -> list[str]:
     structured = review.get("structuredReview") if isinstance(review.get("structuredReview"), dict) else {}
     snippets: list[str] = []
-    for key in ("headline", "action", "managerNote"):
+    for key in ("title", "headline", "action", "managerNote"):
         snippet = compact_text(structured.get(key), 180)
         if snippet:
             snippets.append(snippet)
@@ -1364,10 +1365,14 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "through normal pullbacks; scalp/orderflow traders can protect faster. "
         "holdingPolicy.early_failure_adverse_r is a review-warning signal only, not a standalone close rule; prefer the original hard stop unless "
         "current market evidence clearly invalidates the thesis or your action explicitly closes/reduces with a concrete reason. "
-        "structuredReview is the primary user-facing explanation. It must be an object with verdict, headline, action, keyReasons, risks, watchConditions, managerNote. "
+        "structuredReview is the primary user-facing explanation. It must be an object with title, verdict, headline, action, keyReasons, risks, watchConditions, managerNote. "
         "Write structuredReview as a compact position management briefing for a normal user who wants to understand the current position and what to watch next. "
-        "Keep it readable in the UI: headline must be one natural sentence of 12-22 words; action, each keyReason, each risk, each watchCondition, and managerNote should each stay under 26 words when possible. "
-        "Do not cram the whole review into headline; headline is the desk call, the following fields carry evidence and triggers. "
+        "title is the timeline card title: write it as a one-line AI comment, 4-9 words in English or a similarly compact phrase in the requested locale. "
+        "Make title vivid and specific to this review, not a category label; avoid generic titles like Hold Position, Profit Protection, Stop Check, Market Watch, 포지션 유지, 이익 보호, 손절 점검, 시장 확인. "
+        "Do not reuse a recent structuredReview.title, headline, or first clause; if the action repeats, choose a fresh title angle from current progress, stop distance, target distance, or the trader anchor. "
+        "headline is the first body sentence: one natural sentence of 12-22 words that explains the management call and why it matters now. "
+        "Keep it readable in the UI: action, each keyReason, each risk, each watchCondition, and managerNote should each stay under 26 words when possible. "
+        "Do not cram the whole review into title or headline; title is the short comment, headline is the body lead, the following fields carry evidence and triggers. "
         "VISIBLE METRIC DISCIPLINE: the UI already shows price, entry, stop, targets, and PnL. "
         "Mention those numbers only when they change the management decision, define invalidation, justify a partial/full exit, or explain why close, partial take-profit, or stop movement is not happening. "
         "Use 'R progress' and 'distance to stop' in natural words when they matter; do not expose raw field names such as progressR or targetProgress in user-facing strings. "
@@ -1389,7 +1394,8 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "The UI merges headline, action, keyReasons, risks, and watchConditions into a few natural review lines, then shows managerNote separately; do not write text that depends on headings such as next action, key reasons, risks, or watch conditions. "
         "Start from the current management choice and the trader thesis. Add visible metrics only when they directly explain the action. "
         "verdict is a short plain label such as Hold, Protect Profit, Close, Cancel, Reduce, or Needs More Data. "
-        "headline is one plain sentence that says whether the thesis is working, weakening, protected, or invalidated; it is not a category label for the timeline. "
+        "title, verdict, headline, action must not duplicate each other. "
+        "headline is one plain sentence that says whether the thesis is working, weakening, protected, or invalidated; it is body copy, not the timeline card title. "
         "For active SHORT/LONG positions, never title the review as profit-zone confirmation unless targetProgress shows meaningful progress toward the first target; "
         "if progressR is small, headline the review as near-entry, early profit, pressure, tactical hold, or risk-check with the actual management choice. "
         "A repeated HOLD still needs a different headline angle from the previous review: use current PnL/progress, distance to stop, distance to target, or a trader-specific anchor instead of the same status phrase. "

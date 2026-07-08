@@ -108,6 +108,7 @@ export type ReviewFact = {
 };
 
 export type StructuredReview = {
+  title?: string | null;
   verdict?: string | null;
   headline?: string | null;
   action?: string | null;

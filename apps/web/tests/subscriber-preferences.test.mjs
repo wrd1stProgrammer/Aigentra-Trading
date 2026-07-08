@@ -140,6 +140,19 @@ test("app locale hydrates from signed-in subscriber preferences", () => {
   assert.match(preferencesSource, /readonly locale: Locale/, "subscriber preferences should carry the saved account locale");
 });
 
+test("manual locale selection persists to the account and wins over browser detection", () => {
+  const accountRouteSource = readFileSync(new URL("../app/api/subscriber/preferences/route.ts", import.meta.url), "utf8");
+
+  assert.match(appProviderSource, /writeStoredLocale\(detectedLocale, "auto"\)/, "browser locale detection should be marked as automatic");
+  assert.match(appProviderSource, /writeStoredLocale\(nextLocale, "manual"\)/, "user-selected locales should be marked as manual");
+  assert.match(appProviderSource, /LOCALE_PENDING_STORAGE_KEY/, "manual locale choices should survive until account sync succeeds");
+  assert.match(appProviderSource, /saveAccountLocalePreference\(nextLocale\)/, "manual locale changes should persist through the account API");
+  assert.match(appProviderSource, /onLocaleResolved\(pendingManualLocale, "manual"\)/, "pending manual choices should not be overwritten by stale account data");
+  assert.match(accountRouteSource, /mergeSubscriberPreferencePatch/, "preference route should support partial account preference updates");
+  assert.match(accountRouteSource, /favoriteTraderIds: "favoriteTraderIds" in input/, "locale-only updates should preserve favorite traders");
+  assert.match(accountRouteSource, /telegramSettings: "telegramSettings" in input/, "locale-only updates should preserve Telegram settings");
+});
+
 test("subscriber preference hydration falls back quickly when the account API stalls", async () => {
   let requestedUrl = "";
   let requestedTimeoutMs = 0;
@@ -209,6 +222,9 @@ function loadSubscriberPreferenceApiModule({
   const module = { exports: {} };
   const requireMock = (specifier) => {
     if (specifier === "@/lib/subscriber-preferences") return preferences;
+    if (specifier === "@/lib/api-base-url") {
+      return { resolveExternalApiBaseUrl: () => "https://subscriber-api.example.test" };
+    }
     if (specifier === "zod") return requireFromTest("zod");
     throw new Error(`Unexpected subscriber preference API import: ${specifier}`);
   };

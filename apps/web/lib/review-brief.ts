@@ -1,6 +1,7 @@
 import type { StructuredReview } from "@/lib/api";
 
 export type ReviewBrief = {
+  title: string | null;
   verdict: string | null;
   headline: string | null;
   action: string | null;
@@ -36,6 +37,7 @@ export function normalizeStructuredReview(value: unknown): ReviewBrief | null {
   const record = recordValue(value);
   if (!record) return null;
   const brief: ReviewBrief = {
+    title: textValue(record.title),
     verdict: textValue(record.verdict),
     headline: textValue(record.headline),
     action: textLine(record.action, 3),
@@ -112,6 +114,7 @@ export function structuredReviewValue(value: StructuredReview | null | undefined
 function hasBriefContent(brief: ReviewBrief) {
   return Boolean(
     brief.verdict ||
+      brief.title ||
       brief.headline ||
       brief.action ||
       brief.keyReasons.length ||
@@ -137,6 +140,7 @@ function cleanEntryApprovalBrief(brief: ReviewBrief | null): ReviewBrief | null 
   if (!brief) return null;
   const clean: ReviewBrief = {
     ...brief,
+    title: cleanEntryApprovalCopy(brief.title),
     headline: cleanEntryApprovalCopy(brief.headline),
     action: cleanEntryApprovalCopy(brief.action),
     keyReasons: brief.keyReasons.map(cleanEntryApprovalCopy).filter((item): item is string => Boolean(item)),

@@ -49,52 +49,66 @@ def review_fact_schema() -> dict[str, Any]:
     }
 
 
-def structured_review_schema() -> dict[str, Any]:
+def structured_review_schema(*, require_title: bool = False) -> dict[str, Any]:
+    required = ["verdict", "headline", "action", "keyReasons", "risks", "watchConditions", "managerNote"]
+    properties: dict[str, Any] = {
+        "verdict": {"type": "string", "description": "Short decision label in the requested language."},
+        "headline": {
+            "type": "string",
+            "description": (
+                "One plain-language sentence. For entry approval, headline must be the plain answer to why this trader entered now: "
+                "name the trader concept or setup family, the entry zone, and the market trigger before risk controls. "
+                "Do not start with decision labels such as APPROVE, ADJUST_AND_APPROVE, DEFER, REJECT, NEEDS_MORE_DATA, or translated equivalents. "
+                "Do not write management-review wording such as hold, maintain, continue monitoring, current position, next review, 포지션 유지, 현재 포지션, or 다음 리뷰 in entry approval fields. "
+                "Do not spend this headline on leverage, risk percent, stop/target math, fee-aware RR, or recent-loss memory; "
+                "for position management, explain whether the current position is working, weakening, protected, or invalidated."
+            ),
+        },
+        "action": {
+            "type": "string",
+            "description": "One standalone review sentence that can be merged into a short briefing. Never return a list, list-like text, bullet prefix, or section label.",
+        },
+        "keyReasons": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "Up to two standalone evidence sentences. For entry approval, the first reason must name the concrete market trigger or entry thesis; "
+                "read it through the trader-specific strategy concept, not as a generic indicator list. "
+                "For entry approval, answer why the position was opened, not how to manage an already-open position. "
+                "The second may add context only after the trigger is clear; avoid leading with current price, stop, target, PnL, RR, leverage, or risk percentage."
+            ),
+        },
+        "risks": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Up to one standalone caution sentence.",
+        },
+        "watchConditions": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Up to two standalone trigger sentences that would change the decision.",
+        },
+        "managerNote": {
+            "type": "string",
+            "description": "One concise desk note shown separately from the short review briefing.",
+        },
+    }
+    if require_title:
+        required.insert(0, "title")
+        properties = {
+            "title": {
+                "type": "string",
+                "description": (
+                    "Compact timeline card title. For position management, write a one-line AI comment, not a generic category label. "
+                    "Keep it specific to the current review and avoid repeating recent titles."
+                ),
+            },
+            **properties,
+        }
     return {
         "type": "object",
-        "properties": {
-            "verdict": {"type": "string", "description": "Short decision label in the requested language."},
-            "headline": {
-                "type": "string",
-                "description": (
-                    "One plain-language sentence. For entry approval, headline must be the plain answer to why this trader entered now: "
-                    "name the trader concept or setup family, the entry zone, and the market trigger before risk controls. "
-                    "Do not start with decision labels such as APPROVE, ADJUST_AND_APPROVE, DEFER, REJECT, NEEDS_MORE_DATA, or translated equivalents. "
-                    "Do not write management-review wording such as hold, maintain, continue monitoring, current position, next review, 포지션 유지, 현재 포지션, or 다음 리뷰 in entry approval fields. "
-                    "Do not spend this headline on leverage, risk percent, stop/target math, fee-aware RR, or recent-loss memory; "
-                    "for position management, explain whether the current position is working, weakening, protected, or invalidated."
-                ),
-            },
-            "action": {
-                "type": "string",
-                "description": "One standalone review sentence that can be merged into a short briefing. Never return a list, list-like text, bullet prefix, or section label.",
-            },
-            "keyReasons": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": (
-                    "Up to two standalone evidence sentences. For entry approval, the first reason must name the concrete market trigger or entry thesis; "
-                    "read it through the trader-specific strategy concept, not as a generic indicator list. "
-                    "For entry approval, answer why the position was opened, not how to manage an already-open position. "
-                    "The second may add context only after the trigger is clear; avoid leading with current price, stop, target, PnL, RR, leverage, or risk percentage."
-                ),
-            },
-            "risks": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Up to one standalone caution sentence.",
-            },
-            "watchConditions": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Up to two standalone trigger sentences that would change the decision.",
-            },
-            "managerNote": {
-                "type": "string",
-                "description": "One concise desk note shown separately from the short review briefing.",
-            },
-        },
-        "required": ["verdict", "headline", "action", "keyReasons", "risks", "watchConditions", "managerNote"],
+        "properties": properties,
+        "required": required,
         "additionalProperties": False,
     }
 
@@ -182,7 +196,7 @@ def management_review_schema() -> dict[str, Any]:
             "reviewCode": {"type": "string"},
             "reviewFacts": {"type": "array", "items": review_fact_schema()},
             "riskFlags": string_array_schema(),
-            "structuredReview": structured_review_schema(),
+            "structuredReview": structured_review_schema(require_title=True),
             "actions": {"type": "array", "items": management_action_schema()},
             "riskChange": {"type": "string"},
             "nextReviewInSeconds": {"type": "integer", "description": "Seconds until the next review, from 60 to 3600."},

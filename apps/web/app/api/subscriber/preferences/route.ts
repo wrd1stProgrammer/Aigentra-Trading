@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth, authSetupComplete } from "@/auth";
-import { createSubscriberPreferences, mergeStoredSubscriberPreferences } from "@/lib/subscriber-preferences";
+import { mergeStoredSubscriberPreferences, type SubscriberPreferences } from "@/lib/subscriber-preferences";
 import { loadSubscriberPreferences, saveSubscriberPreferences } from "@/lib/subscriber-preference-api";
 import { isSupportedLocale, type Locale } from "@/lib/i18n";
 
@@ -21,11 +21,10 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const basePreferences = createSubscriberPreferences(identity);
+  const currentPreferences = await loadSubscriberPreferences(identity);
   const body: unknown = await readJson(request);
-  const nextPreferences = mergeStoredSubscriberPreferences(basePreferences, body);
-  const locale = readLocale(body);
-  const savedPreferences = await saveSubscriberPreferences(nextPreferences, locale);
+  const nextPreferences = mergeSubscriberPreferencePatch(currentPreferences, body);
+  const savedPreferences = await saveSubscriberPreferences(nextPreferences, nextPreferences.locale);
   if (!savedPreferences) {
     return NextResponse.json({ error: "subscriber_preferences_unavailable" }, { status: 502 });
   }
@@ -51,8 +50,22 @@ async function readJson(request: Request): Promise<unknown> {
   }
 }
 
-function readLocale(input: unknown): Locale {
-  if (typeof input !== "object" || input === null || !("locale" in input)) return "en";
-  const locale = input.locale;
-  return typeof locale === "string" && isSupportedLocale(locale) ? locale : "en";
+function mergeSubscriberPreferencePatch(currentPreferences: SubscriberPreferences, input: unknown): SubscriberPreferences {
+  if (!isRecord(input)) return currentPreferences;
+
+  return mergeStoredSubscriberPreferences(currentPreferences, {
+    locale: readLocaleWithFallback(input, currentPreferences.locale),
+    favoriteTraderIds: "favoriteTraderIds" in input ? input["favoriteTraderIds"] : currentPreferences.favoriteTraderIds,
+    telegramSettings: "telegramSettings" in input ? input["telegramSettings"] : currentPreferences.telegramSettings
+  });
+}
+
+function readLocaleWithFallback(input: unknown, fallback: Locale): Locale {
+  if (!isRecord(input) || !("locale" in input)) return fallback;
+  const locale = input["locale"];
+  return typeof locale === "string" && isSupportedLocale(locale) ? locale : fallback;
+}
+
+function isRecord(input: unknown): input is Readonly<Record<string, unknown>> {
+  return typeof input === "object" && input !== null && !Array.isArray(input);
 }

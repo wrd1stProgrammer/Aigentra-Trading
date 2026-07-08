@@ -3,8 +3,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionProvider, useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { Locale, isSupportedLocale, translate } from "@/lib/i18n";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { isSupportedLocale, translate, type Locale } from "@/lib/i18n";
 import { LEAGUE_QUERY_GC_TIME_MS, LEAGUE_QUERY_STALE_TIME_MS } from "@/lib/api";
 import { DASHBOARD_SESSION_REFETCH_POLICY } from "@/lib/session-refetch-policy";
 
@@ -17,6 +17,11 @@ type AppContextValue = {
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
+const LOCALE_STORAGE_KEY = "atl-locale";
+const LOCALE_SOURCE_STORAGE_KEY = "atl-locale-source";
+const LOCALE_PENDING_STORAGE_KEY = "atl-locale-pending-account-sync";
+
+type StoredLocaleSource = "auto" | "account" | "manual";
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -36,8 +41,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [theme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
-    const storedLocale = window.localStorage.getItem("atl-locale");
-    if (isSupportedLocale(storedLocale)) {
+    const storedLocale = readStoredLocale(LOCALE_STORAGE_KEY);
+    if (storedLocale) {
       setLocaleState(storedLocale);
       return;
     }
@@ -46,7 +51,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
     });
     setLocaleState(detectedLocale);
-    window.localStorage.setItem("atl-locale", detectedLocale);
+    writeStoredLocale(detectedLocale, "auto");
   }, []);
 
   useEffect(() => {
@@ -54,12 +59,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.localStorage.setItem("atl-theme", "dark");
   }, []);
 
+  const resolveLocale = useCallback((nextLocale: Locale, source: StoredLocaleSource) => {
+    setLocaleState(nextLocale);
+    writeStoredLocale(nextLocale, source);
+  }, []);
+
   const value = useMemo<AppContextValue>(
     () => ({
       locale,
       setLocale: (nextLocale) => {
         setLocaleState(nextLocale);
-        window.localStorage.setItem("atl-locale", nextLocale);
+        writeStoredLocale(nextLocale, "manual");
+        window.localStorage.setItem(LOCALE_PENDING_STORAGE_KEY, nextLocale);
+        void saveAccountLocalePreference(nextLocale).then((saved) => {
+          if (saved && readStoredLocale(LOCALE_PENDING_STORAGE_KEY) === nextLocale) {
+            window.localStorage.removeItem(LOCALE_PENDING_STORAGE_KEY);
+          }
+        }).catch((error: unknown) => {
+          if (isExpectedLocaleHydrationError(error)) return;
+          throw error;
+        });
       },
       theme: "dark",
       toggleTheme: () => {},
@@ -70,7 +89,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <SessionProvider {...DASHBOARD_SESSION_REFETCH_POLICY}>
-      <LocalePreferenceHydrator onLocaleResolved={setLocaleState} />
+      <LocalePreferenceHydrator onLocaleResolved={resolveLocale} />
       <QueryClientProvider client={queryClient}>
         <AppContext.Provider value={value}>{children}</AppContext.Provider>
       </QueryClientProvider>
@@ -133,7 +152,11 @@ function localeFromLanguageTag(languageTag: string): Locale | null {
   return LANGUAGE_LOCALE_MAP[language] ?? null;
 }
 
-function LocalePreferenceHydrator({ onLocaleResolved }: { readonly onLocaleResolved: (locale: Locale) => void }) {
+function LocalePreferenceHydrator({
+  onLocaleResolved
+}: {
+  readonly onLocaleResolved: (locale: Locale, source: StoredLocaleSource) => void;
+}) {
   const { data: session, status } = useSession();
   const pathname = usePathname();
 
@@ -150,10 +173,18 @@ function LocalePreferenceHydrator({ onLocaleResolved }: { readonly onLocaleResol
       if (!response.ok) return;
 
       const nextLocale = readPreferenceLocale(await response.json());
-      if (!nextLocale) return;
+      const pendingManualLocale = readStoredLocale(LOCALE_PENDING_STORAGE_KEY);
+      if (pendingManualLocale) {
+        const saved = await saveAccountLocalePreference(pendingManualLocale, abortController.signal);
+        onLocaleResolved(pendingManualLocale, "manual");
+        if (saved) {
+          window.localStorage.removeItem(LOCALE_PENDING_STORAGE_KEY);
+        }
+        return;
+      }
 
-      onLocaleResolved(nextLocale);
-      window.localStorage.setItem("atl-locale", nextLocale);
+      if (!nextLocale) return;
+      onLocaleResolved(nextLocale, "account");
     };
 
     void hydrateLocale().catch((error: unknown) => {
@@ -167,6 +198,31 @@ function LocalePreferenceHydrator({ onLocaleResolved }: { readonly onLocaleResol
   }, [onLocaleResolved, pathname, session?.user?.email, status]);
 
   return null;
+}
+
+function readStoredLocale(key: string): Locale | null {
+  const storedLocale = window.localStorage.getItem(key);
+  return isSupportedLocale(storedLocale) ? storedLocale : null;
+}
+
+function writeStoredLocale(locale: Locale, source: StoredLocaleSource): void {
+  window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+  window.localStorage.setItem(LOCALE_SOURCE_STORAGE_KEY, source);
+}
+
+async function saveAccountLocalePreference(locale: Locale, signal?: AbortSignal): Promise<boolean> {
+  try {
+    const response = await fetch("/api/subscriber/preferences", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locale }),
+      signal
+    });
+    return response.ok;
+  } catch (error: unknown) {
+    if (isExpectedLocaleHydrationError(error)) return false;
+    throw error;
+  }
 }
 
 function readPreferenceLocale(input: unknown): Locale | null {

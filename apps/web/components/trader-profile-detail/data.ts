@@ -469,7 +469,7 @@ export function scenarioTitle(scenario: TraderScenario, t: Translator) {
 }
 
 export function managementReviewScenarioTitle(scenario: TraderScenario, t: Translator) {
-  const aiTitle = generatedReviewScenarioTitle(scenario.reviewBrief?.headline);
+  const aiTitle = generatedReviewScenarioTitle(scenario.reviewBrief?.title) ?? generatedReviewScenarioTitle(scenario.reviewBrief?.headline);
   if (aiTitle) return aiTitle;
   const sideLabel = localizedScenarioSide(scenario.side, t);
   const title = reviewTitleTopic(scenario, t);
@@ -550,6 +550,7 @@ function reviewTitleHaystack(scenario: TraderScenario) {
       scenario.action,
       scenario.status,
       scenario.phase,
+      scenario.reviewBrief?.title,
       scenario.reviewBrief?.headline,
       scenario.reviewBrief?.action,
       scenario.reviewBrief?.managerNote,

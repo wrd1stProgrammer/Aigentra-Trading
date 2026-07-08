@@ -11,7 +11,7 @@ import {
 import { BrandMark } from "@/components/brand-mark";
 import { useAppContext } from "@/components/app-provider";
 import { useSubscriberAccess } from "@/components/use-subscriber-access";
-import { Locale, LOCALE_OPTIONS } from "@/lib/i18n";
+import { LOCALE_OPTIONS, type Locale } from "@/lib/i18n";
 import {
   isShellLinkActive,
   shouldHandleShellNavigationClick,
@@ -36,7 +36,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const accessQuery = useSubscriberAccess({ enabled: !isAdminPage });
   const access = accessQuery.data;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
   const [pendingPathname, setPendingPathname] = useState<string | null>(null);
   const visiblePath = visibleShellPathname(pathname, pendingPathname);
 
@@ -126,61 +125,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   })}
               </nav>
               <div className="flex items-center gap-2 z-10">
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setIsLanguageMenuOpen((open) => !open)}
-                    className="focus-ring inline-flex min-h-9 items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-3 py-1.5 font-mono text-xs text-zinc-200 transition hover:bg-white/[0.08] sm:px-4"
-                    aria-label={t("common.language")}
-                    aria-expanded={isLanguageMenuOpen}
-                  >
-                    <Translate size={14} />
-                    <span>{currentLanguage.shortLabel}</span>
-                  </button>
-                  {isLanguageMenuOpen ? (
-                    <div className="absolute right-0 top-11 z-30 w-52 overflow-hidden rounded-lg border border-white/10 bg-[#101312] p-1.5 shadow-2xl">
-                      {LOCALE_OPTIONS.map((option) => (
-                        <button
-                          key={option.locale}
-                          type="button"
-                          onClick={() => {
-                            setLocale(option.locale);
-                            setIsLanguageMenuOpen(false);
-                          }}
-                          className={`focus-ring flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs font-semibold transition ${
-                            option.locale === locale ? "bg-emerald-400/12 text-emerald-200" : "text-zinc-300 hover:bg-white/[0.06] hover:text-white"
-                          }`}
-                        >
-                          <span>{option.label}</span>
-                          <span className="font-mono text-[10px] text-zinc-500">{option.shortLabel}</span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-
-                {session?.user ? (
-                  <button
-                    type="button"
-                    onClick={() => setIsDrawerOpen(true)}
-                    className="focus-ring shrink-0 size-9 rounded-full border border-emerald-400/25 bg-emerald-400/12 flex items-center justify-center text-xs font-bold text-emerald-100 hover:scale-105 transition active:scale-[0.96] overflow-hidden"
-                    aria-label={t("shell.accountMenu")}
-                  >
-                    {session.user.image ? (
-                      <img src={session.user.image} alt={avatarText} width={36} height={36} referrerPolicy="no-referrer" className="size-full object-cover" />
-                    ) : (
-                      avatarText
-                    )}
-                  </button>
-                ) : (
-                  <Link
-                    href="/login"
-                    className="focus-ring inline-flex size-9 items-center justify-center rounded-full border border-white/12 bg-white/[0.04] text-zinc-200 hover:bg-white/[0.08] transition hover:text-white"
-                    aria-label={t("nav.login")}
-                  >
-                    <SignIn size={14} />
-                  </Link>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setIsDrawerOpen(true)}
+                  className="focus-ring shrink-0 size-9 rounded-full border border-emerald-400/25 bg-emerald-400/12 flex items-center justify-center text-xs font-bold text-emerald-100 hover:scale-105 transition active:scale-[0.96] overflow-hidden"
+                  aria-label={t("shell.accountMenu")}
+                >
+                  {session?.user?.image ? (
+                    <img src={session.user.image} alt={avatarText} width={36} height={36} referrerPolicy="no-referrer" className="size-full object-cover" />
+                  ) : session?.user ? (
+                    avatarText
+                  ) : (
+                    <UserCircle size={18} weight="bold" />
+                  )}
+                </button>
               </div>
             </div>
           </header>
@@ -235,6 +193,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className={`fixed top-0 right-0 z-50 h-full w-full max-w-[390px] bg-[#0c0d0d] border-l border-white/[0.06] shadow-2xl transition-transform duration-300 ease-in-out will-change-transform p-5 sm:p-6 flex flex-col justify-between ${
           isDrawerOpen ? "translate-x-0" : "translate-x-full"
         }`}
+        aria-hidden={!isDrawerOpen}
       >
         <div className="flex flex-col h-full justify-between">
           <div>
@@ -252,20 +211,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <h3 className="text-white text-sm font-bold tracking-tight">{session?.user?.name || t("shell.user")}</h3>
                   <p className="text-zinc-400 text-[10px] mt-0.5 font-mono break-all leading-none">{session?.user?.email || ""}</p>
                   <div className="flex items-center gap-2 mt-2">
-                    <span className="inline-block text-zinc-500 text-[9px] font-mono border border-white/10 rounded px-1.5 py-0.5 bg-white/[0.02] tracking-wider leading-none">
-                      GOOGLE
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsDrawerOpen(false);
-                        void signOut();
-                      }}
-                      className="focus-ring text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/40 bg-rose-500/5 hover:bg-rose-500/10 px-1.5 py-0.5 rounded text-[9px] font-bold flex items-center gap-0.5 transition cursor-pointer leading-none"
-                    >
-                      <SignOut size={10} weight="bold" />
-                      <span>{t("shell.signOut")}</span>
-                    </button>
+                    {session?.user ? (
+                      <>
+                        <span className="inline-block text-zinc-500 text-[9px] font-mono border border-white/10 rounded px-1.5 py-0.5 bg-white/[0.02] tracking-wider leading-none">
+                          GOOGLE
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsDrawerOpen(false);
+                            void signOut();
+                          }}
+                          className="focus-ring text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/40 bg-rose-500/5 hover:bg-rose-500/10 px-1.5 py-0.5 rounded text-[9px] font-bold flex items-center gap-0.5 transition cursor-pointer leading-none"
+                        >
+                          <SignOut size={10} weight="bold" />
+                          <span>{t("shell.signOut")}</span>
+                        </button>
+                      </>
+                    ) : (
+                      <Link
+                        href="/login"
+                        onClick={() => setIsDrawerOpen(false)}
+                        className="focus-ring inline-flex items-center gap-1 rounded border border-emerald-400/25 bg-emerald-400/10 px-2 py-1 text-[10px] font-bold text-emerald-200 transition hover:bg-emerald-400/15"
+                      >
+                        <SignIn size={11} weight="bold" />
+                        <span>{t("nav.login")}</span>
+                      </Link>
+                    )}
                   </div>
                 </div>
               </div>
@@ -281,47 +253,62 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </button>
             </div>
 
+            {/* Membership / Coupon Info */}
             {session?.user ? (
-              <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <div className="flex items-start gap-3">
-                  <span className={`grid size-10 shrink-0 place-items-center rounded-xl border ${
+              <div className="mt-5 pb-5 border-b border-white/[0.05]">
+                <div className="flex items-center gap-3">
+                  <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${
                     access?.isSubscribed
-                      ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
-                      : "border-amber-400/25 bg-amber-400/10 text-amber-200"
+                      ? "bg-emerald-500/10 text-emerald-400"
+                      : "bg-amber-500/10 text-amber-400"
                   }`}>
-                    {access?.isSubscribed ? <ShieldCheck size={18} weight="bold" /> : <Ticket size={18} weight="bold" />}
+                    {access?.isSubscribed ? <ShieldCheck size={16} weight="fill" /> : <Ticket size={16} weight="fill" />}
                   </span>
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-white">
+                  <div className="min-w-0 flex-1 flex items-center justify-between">
+                    <span className="text-xs font-bold text-zinc-300">
                       {access?.isSubscribed ? t("access.proActive") : t("access.drawerCouponLabel")}
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-zinc-400 text-pretty">
-                      {access?.isSubscribed ? t("access.proDetail") : t("access.drawerCouponDetail")}
-                    </p>
+                    </span>
                     {!access?.isSubscribed ? (
-                      <p className="mt-3 font-mono text-lg font-semibold text-emerald-200">
+                      <span className="font-mono text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
                         {access?.couponsRemaining ?? 0}/{access?.couponLimit ?? 3}
-                      </p>
-                    ) : null}
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full tracking-wider">
+                        ACTIVE
+                      </span>
+                    )}
                   </div>
                 </div>
+                <p className="mt-2 text-xs leading-relaxed text-zinc-400 text-pretty">
+                  {access?.isSubscribed ? t("access.proDetail") : t("access.drawerCouponDetail")}
+                </p>
+                {!access?.isSubscribed ? (
+                  <div className="mt-3 h-1.5 w-full bg-white/[0.04] rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-400 rounded-full transition-all duration-300"
+                      style={{ width: `${((access?.couponsRemaining ?? 0) / (access?.couponLimit ?? 3)) * 100}%` }}
+                    />
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
             {/* Menu List */}
-            <div className="py-8 flex flex-col gap-5">
-              <Link 
-                href="/account"
-                onClick={() => setIsDrawerOpen(false)}
-                className="flex items-center gap-4 text-zinc-300 hover:text-white text-sm font-semibold transition py-1 focus-ring rounded"
-              >
-                <User size={18} className="text-zinc-400" />
-                <span>{t("shell.myPage")}</span>
-              </Link>
+            <div className="py-5 flex flex-col gap-2.5">
+              {session?.user ? (
+                <Link 
+                  href="/account"
+                  onClick={() => setIsDrawerOpen(false)}
+                  className="flex items-center gap-3.5 text-zinc-300 hover:text-white text-sm font-semibold transition py-2 px-3 hover:bg-white/[0.03] rounded-xl focus-ring"
+                >
+                  <User size={18} className="text-zinc-400" />
+                  <span>{t("shell.myPage")}</span>
+                </Link>
+              ) : null}
               <Link 
                 href="/traders"
                 onClick={() => setIsDrawerOpen(false)}
-                className="flex items-center gap-4 text-zinc-300 hover:text-white text-sm font-semibold transition py-1 focus-ring rounded"
+                className="flex items-center gap-3.5 text-zinc-300 hover:text-white text-sm font-semibold transition py-2 px-3 hover:bg-white/[0.03] rounded-xl focus-ring"
               >
                 <Users size={18} className="text-zinc-400" />
                 <span>{t("shell.team")}</span>
@@ -329,7 +316,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link 
                 href="/tests"
                 onClick={() => setIsDrawerOpen(false)}
-                className="flex items-center gap-4 text-zinc-300 hover:text-white text-sm font-semibold transition py-1 focus-ring rounded"
+                className="flex items-center gap-3.5 text-zinc-300 hover:text-white text-sm font-semibold transition py-2 px-3 hover:bg-white/[0.03] rounded-xl focus-ring"
               >
                 <FileText size={18} className="text-zinc-400" />
                 <span>{t("shell.guide")}</span>
@@ -337,39 +324,69 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          {/* Social Links Panel at bottom */}
-          <div className="border-t border-white/[0.05] pt-6">
-            <h4 className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mb-3.5">
-              {t("shell.social")}
-            </h4>
-            <div className="flex flex-col gap-2">
-              <a 
-                href="https://instagram.com" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 text-zinc-400 hover:text-white text-xs font-semibold transition py-0.5 focus-ring rounded"
-              >
-                <InstagramLogo size={16} className="text-zinc-500" />
-                <span>{t("shell.instagram")}</span>
-              </a>
-              <a 
-                href="https://threads.net" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 text-zinc-400 hover:text-white text-xs font-semibold transition py-0.5 focus-ring rounded"
-              >
-                <ThreadsLogo size={16} className="text-zinc-500" />
-                <span>{t("shell.threads")}</span>
-              </a>
-              <a 
-                href="https://kakao.com" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 text-zinc-400 hover:text-white text-xs font-semibold transition py-0.5 focus-ring rounded"
-              >
-                <ChatCircleText size={16} className="text-zinc-500" />
-                <span>{t("shell.community")}</span>
-              </a>
+          {/* Bottom Panel (Language + Social Links) */}
+          <div className="border-t border-white/[0.05] pt-5 flex flex-col gap-5">
+            {/* Language Selector in Slot Control Format */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider">{t("common.language")}</span>
+                <span className="font-mono text-[10px] text-zinc-400 font-semibold">{currentLanguage.label}</span>
+              </div>
+              <div className="inline-flex w-full rounded-xl bg-white/[0.02] border border-white/[0.08] p-1 shadow-[inset_0_1px_1px_rgba(255,255,255,0.01)]">
+                {LOCALE_OPTIONS.map((option) => {
+                  const isActive = option.locale === locale;
+                  return (
+                    <button
+                      key={option.locale}
+                      type="button"
+                      onClick={() => setLocale(option.locale)}
+                      className={`focus-ring flex-1 text-center rounded-lg py-1.5 text-[11px] font-bold transition duration-200 ${
+                        isActive
+                          ? "bg-white text-zinc-950 shadow-sm"
+                          : "text-zinc-400 hover:text-white"
+                      }`}
+                    >
+                      {option.shortLabel}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Social Links */}
+            <div>
+              <h4 className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider mb-2.5">
+                {t("shell.social")}
+              </h4>
+              <div className="flex flex-col gap-1.5">
+                <a 
+                  href="https://instagram.com" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 text-zinc-400 hover:text-white text-xs font-semibold transition py-1.5 px-2 hover:bg-white/[0.02] rounded-lg focus-ring"
+                >
+                  <InstagramLogo size={16} className="text-zinc-500" />
+                  <span>{t("shell.instagram")}</span>
+                </a>
+                <a 
+                  href="https://threads.net" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 text-zinc-400 hover:text-white text-xs font-semibold transition py-1.5 px-2 hover:bg-white/[0.02] rounded-lg focus-ring"
+                >
+                  <ThreadsLogo size={16} className="text-zinc-500" />
+                  <span>{t("shell.threads")}</span>
+                </a>
+                <a 
+                  href="https://kakao.com" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 text-zinc-400 hover:text-white text-xs font-semibold transition py-1.5 px-2 hover:bg-white/[0.02] rounded-lg focus-ring"
+                >
+                  <ChatCircleText size={16} className="text-zinc-500" />
+                  <span>{t("shell.community")}</span>
+                </a>
+              </div>
             </div>
           </div>
         </div>

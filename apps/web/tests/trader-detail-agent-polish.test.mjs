@@ -654,6 +654,33 @@ test("management review titles distinguish repeated Korean profit labels", () =>
   assert.notEqual(nearEntryTitle, "숏 익절권 확인");
 });
 
+test("management review titles prefer generated one-line comments when present", () => {
+  const t = (key) =>
+    ({
+      "detail.sideLong": "롱",
+      "detail.reviewTitle.positionHold": "포지션 유지",
+      "detail.reviewTitle.marketWatch": "시장 확인"
+    })[key] ?? key;
+
+  const title = detailData.managementReviewScenarioTitle(
+    {
+      source: "review",
+      side: "LONG",
+      status: "HOLD",
+      phase: "OPEN_POSITION",
+      reviewBrief: {
+        title: "돌파는 아직 숨이 남았습니다",
+        headline:
+          "Donchian breakout is still working, but target progress is not enough for a full exit and this belongs in the body.",
+        action: "Hold and avoid adding until the next range expansion."
+      }
+    },
+    t
+  );
+
+  assert.equal(title, "돌파는 아직 숨이 남았습니다");
+});
+
 test("management review titles stay compact", () => {
   const t = (key) =>
     ({

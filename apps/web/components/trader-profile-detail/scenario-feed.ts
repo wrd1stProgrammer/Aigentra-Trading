@@ -57,8 +57,9 @@ function localizedTimelineText(value: string | null | undefined) {
 
 function managementReviewTimelineBody(brief: ReviewBrief | null, options: { omitHeadline?: boolean } = {}) {
   if (!brief) return null;
+  const includeHeadline = !options.omitHeadline || Boolean(brief.title);
   const parts = cleanReviewDisplayItems([
-    options.omitHeadline ? null : brief.headline,
+    includeHeadline ? brief.headline : null,
     brief.action,
     ...brief.keyReasons.slice(0, 2),
     ...brief.risks.slice(0, 1),
@@ -72,7 +73,8 @@ function hasSavedAiApproval(scenario: TraderScenario): boolean {
   if (typeof scenario.rationale === "string" && scenario.rationale.trim().length > 0) return true;
   const brief = scenario.reviewBrief;
   return Boolean(
-    brief?.headline ||
+    brief?.title ||
+      brief?.headline ||
       brief?.action ||
       brief?.managerNote ||
       brief?.keyReasons?.length ||

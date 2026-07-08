@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, BellRinging, CaretDown, CaretUp, Check, Star, TelegramLogo, Translate, Trophy } from "@phosphor-icons/react";
+import { signOut, useSession } from "next-auth/react";
+import { ArrowRight, BellRinging, CaretDown, Check, SignIn, SignOut, Star, TelegramLogo, Translate, Trophy, UserCircle } from "@phosphor-icons/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { BrandMark } from "@/components/brand-mark";
 import { useAppContext } from "@/components/app-provider";
@@ -98,12 +99,15 @@ function formatAboutText(text: string) {
 
 export function HomePageClient() {
   const { locale, setLocale, t } = useAppContext();
+  const { data: session } = useSession();
   const copy = landingCopy(locale);
   const [activeFaqIndex, setActiveFaqIndex] = useState<number | null>(null);
   const [isAboutExpanded, setIsAboutExpanded] = useState(false);
-  const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
   const currentLanguage = LOCALE_OPTIONS.find((option) => option.locale === locale) ?? LOCALE_OPTIONS[0];
+  const userName = session?.user?.name || t("shell.user");
+  const avatarText = userName.length > 2 ? userName.slice(-2) : userName;
 
   return (
     <div className="landing-page bg-white text-zinc-950 antialiased overflow-x-hidden">
@@ -128,50 +132,92 @@ export function HomePageClient() {
               <span className="text-base font-bold tracking-tight sm:text-lg">Aigentra Trading</span>
             </Link>
             <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setIsLanguageMenuOpen((open) => !open)}
-                  className="focus-ring inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-3 py-2 font-mono text-xs text-zinc-200 transition hover:bg-white/[0.08] select-none sm:px-4"
-                  aria-label={t("common.language")}
-                  aria-expanded={isLanguageMenuOpen}
-                >
-                  <Translate size={14} />
-                  <span>{currentLanguage.shortLabel}</span>
-                  {isLanguageMenuOpen ? <CaretUp size={12} /> : <CaretDown size={12} />}
-                </button>
-                {isLanguageMenuOpen ? (
-                  <div
-                    role="menu"
-                    aria-label={t("common.language")}
-                    className="absolute right-0 top-11 z-40 w-56 overflow-hidden rounded-xl border border-white/10 bg-[#101312] p-1.5 text-left shadow-2xl"
-                  >
-                    {LOCALE_OPTIONS.map((option) => (
-                      <button
-                        key={option.locale}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={option.locale === locale}
-                        onClick={() => {
-                          setLocale(option.locale);
-                          setIsLanguageMenuOpen(false);
-                        }}
-                        className={`focus-ring flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold transition ${
-                          option.locale === locale
-                            ? "bg-emerald-400/12 text-emerald-200"
-                            : "text-zinc-300 hover:bg-white/[0.06] hover:text-white"
-                        }`}
-                      >
-                        <span>{option.label}</span>
-                        <span className="font-mono text-[10px] text-zinc-500">{option.shortLabel}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
               <Link href="/login" className="hidden text-white hover:text-emerald-300 font-mono text-sm font-semibold transition shrink-0 sm:inline">
                 {copy.getStartedCta} →
               </Link>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsProfileMenuOpen((open) => !open)}
+                  className="focus-ring inline-flex size-10 items-center justify-center overflow-hidden rounded-full border border-white/12 bg-white/[0.04] text-xs font-bold text-zinc-100 transition hover:bg-white/[0.08] select-none"
+                  aria-label={t("shell.accountMenu")}
+                  aria-expanded={isProfileMenuOpen}
+                >
+                  {session?.user?.image ? (
+                    <img src={session.user.image} alt={avatarText} width={40} height={40} referrerPolicy="no-referrer" className="size-full object-cover" />
+                  ) : session?.user ? (
+                    avatarText
+                  ) : (
+                    <UserCircle size={18} weight="bold" />
+                  )}
+                </button>
+                {isProfileMenuOpen ? (
+                  <div
+                    role="menu"
+                    aria-label={t("shell.accountMenu")}
+                    className="absolute right-0 top-12 z-40 w-64 overflow-hidden rounded-2xl border border-white/10 bg-[#101312] p-3 text-left shadow-2xl"
+                  >
+                    <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-white">{session?.user?.name || t("shell.user")}</p>
+                        <p className="mt-0.5 truncate font-mono text-[10px] text-zinc-500">{session?.user?.email || t("nav.login")}</p>
+                      </div>
+                      <span className="shrink-0 font-mono text-[10px] text-zinc-500">{currentLanguage.shortLabel}</span>
+                    </div>
+                    <div className="mt-3">
+                      <div className="mb-2 flex items-center gap-2 text-xs font-bold text-zinc-300">
+                        <Translate size={14} className="text-emerald-300" />
+                        <span>{t("common.language")}</span>
+                      </div>
+                      <div role="radiogroup" aria-label={t("common.language")} className="grid grid-cols-1 gap-1.5">
+                        {LOCALE_OPTIONS.map((option) => (
+                          <button
+                            key={option.locale}
+                            type="button"
+                            role="radio"
+                            aria-checked={option.locale === locale}
+                            onClick={() => setLocale(option.locale)}
+                            className={`focus-ring flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold transition ${
+                              option.locale === locale
+                                ? "bg-emerald-400/12 text-emerald-200"
+                                : "text-zinc-300 hover:bg-white/[0.06] hover:text-white"
+                            }`}
+                          >
+                            <span>{option.label}</span>
+                            <span className="font-mono text-[10px] text-zinc-500">{option.shortLabel}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="mt-3 border-t border-white/10 pt-3">
+                      {session?.user ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setIsProfileMenuOpen(false);
+                            void signOut();
+                          }}
+                          className="focus-ring flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold text-rose-300 transition hover:bg-rose-500/10"
+                        >
+                          <SignOut size={14} weight="bold" />
+                          <span>{t("shell.signOut")}</span>
+                        </button>
+                      ) : (
+                        <Link
+                          href="/login"
+                          role="menuitem"
+                          onClick={() => setIsProfileMenuOpen(false)}
+                          className="focus-ring flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold text-emerald-200 transition hover:bg-emerald-400/10"
+                        >
+                          <SignIn size={14} weight="bold" />
+                          <span>{t("nav.login")}</span>
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
 
@@ -201,7 +247,7 @@ export function HomePageClient() {
             <div data-testid="landing-video-placeholder">
               <VideoFrame
                 title={copy.videoTitle}
-                src="/landing/aigentra-landing-video1.mp4"
+                src="/landing/aigentra1-home.mp4"
               />
             </div>
           </div>
@@ -237,7 +283,7 @@ export function HomePageClient() {
           <CandleNotch position="bottom-right" theme="dark" pulse />
 
           <div className="mx-auto max-w-3xl text-center">
-            <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">[ AI AGENT MONITORING ]</p>
+            <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">{copy.agentSystemEyebrow}</p>
             <h2 className="mt-5 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl">{copy.agentSystemTitle}</h2>
             <p className="mt-5 text-pretty text-base leading-relaxed text-zinc-400 sm:text-lg">{copy.agentSystemSubtitle}</p>
           </div>
@@ -246,10 +292,10 @@ export function HomePageClient() {
             {/* Cell 1: Pipeline (Col span 7) */}
             <div className="md:col-span-7 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-4 sm:p-5 md:p-6 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
               <div className="w-full flex-1 flex items-center justify-center min-h-[250px]">
-                <PipelinePreview />
+                <PipelinePreview copy={copy.previews.pipeline} />
               </div>
               <div className="mt-5 border-t border-white/5 pt-4">
-                <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-400 font-bold">[ Pipeline ]</span>
+                <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-400 font-bold">{copy.agentCardKickers[0]}</span>
                 <h3 className="text-lg font-bold text-white tracking-tight mt-1.5 break-keep">{copy.agentCards[0].title}</h3>
                 <p className="mt-2.5 text-sm leading-6 text-zinc-400 break-keep">{copy.agentCards[0].body}</p>
               </div>
@@ -258,10 +304,10 @@ export function HomePageClient() {
             {/* Cell 2: Position Risk (Col span 5) */}
             <div className="md:col-span-5 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-4 sm:p-5 md:p-6 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
               <div className="w-full flex-1 flex items-center justify-center min-h-[250px]">
-                <PositionManagementPreview />
+                <PositionManagementPreview copy={copy.previews.position} />
               </div>
               <div className="mt-5 border-t border-white/5 pt-4">
-                <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-400 font-bold">[ Position Risk ]</span>
+                <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-400 font-bold">{copy.agentCardKickers[1]}</span>
                 <h3 className="text-lg font-bold text-white tracking-tight mt-1.5 break-keep">{copy.agentCards[1].title}</h3>
                 <p className="mt-2.5 text-sm leading-6 text-zinc-400 break-keep">{copy.agentCards[1].body}</p>
               </div>
@@ -270,10 +316,10 @@ export function HomePageClient() {
             {/* Cell 3: Consensus (Col span 6) */}
             <div className="md:col-span-6 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-4 sm:p-5 md:p-6 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
               <div className="w-full flex-1 flex items-center justify-center min-h-[250px]">
-                <ConsensusPreview />
+                <ConsensusPreview copy={copy.previews.consensus} />
               </div>
               <div className="mt-5 border-t border-white/5 pt-4">
-                <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-400 font-bold">[ Consensus ]</span>
+                <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-400 font-bold">{copy.agentCardKickers[2]}</span>
                 <h3 className="text-lg font-bold text-white tracking-tight mt-1.5 break-keep">{copy.agentCards[2].title}</h3>
                 <p className="mt-2.5 text-sm leading-6 text-zinc-400 break-keep">{copy.agentCards[2].body}</p>
               </div>
@@ -282,10 +328,10 @@ export function HomePageClient() {
             {/* Cell 4: Trade Plan (Col span 6 - Option 1 Emphasized) */}
             <div className="md:col-span-6 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-4 sm:p-5 md:p-6 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
               <div className="w-full flex-1 flex items-center justify-center min-h-[250px]">
-                <TradePlanPreview />
+                <TradePlanPreview copy={copy.previews.tradePlan} />
               </div>
               <div className="mt-5 border-t border-white/5 pt-4">
-                <span className="font-mono text-[9px] uppercase tracking-wider text-amber-400 font-bold">[ Option 1 · Trade Plan ]</span>
+                <span className="font-mono text-[9px] uppercase tracking-wider text-amber-400 font-bold">{copy.agentCardKickers[3]}</span>
                 <h3 className="text-lg font-bold text-white tracking-tight mt-1.5 break-keep">{copy.agentCards[3].title}</h3>
                 <p className="mt-2.5 text-sm leading-6 text-zinc-400 break-keep">{copy.agentCards[3].body}</p>
               </div>
@@ -307,7 +353,7 @@ export function HomePageClient() {
 
           <ScrollReveal>
             <div className="mx-auto max-w-3xl text-center">
-              <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-600">[ 3 SIMPLE STEPS ]</p>
+              <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-600">{copy.getStartedEyebrow}</p>
               <h2 className="mt-5 text-balance text-3xl font-bold tracking-tight text-zinc-950 sm:text-4xl md:text-5xl">{copy.getStartedTitle}</h2>
               <p className="mx-auto mt-5 max-w-[64ch] text-pretty text-base leading-relaxed text-zinc-600 sm:text-lg">{copy.getStartedSubtitle}</p>
               <Link href="/leaderboard" className="focus-ring mt-8 inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-8 py-4 text-sm font-bold text-white shadow-neon-emerald hover:bg-emerald-400 transition duration-300">
@@ -318,7 +364,7 @@ export function HomePageClient() {
             <div data-testid="landing-second-video" className="mx-auto mt-14 w-full max-w-[1240px] text-left">
               <VideoFrame
                 title={copy.secondVideoTitle}
-                src="/landing/aigentra-landing-video2.mp4"
+                src="/landing/aigentra2-home.mp4"
               />
             </div>
           </ScrollReveal>
@@ -373,7 +419,7 @@ export function HomePageClient() {
                 </Link>
               </div>
               <div className="grid gap-4 lg:grid-cols-[1.02fr_0.98fr] xl:gap-5">
-                <AlertPreview />
+                <AlertPreview copy={copy.previews.alert} />
                 <div className="grid gap-4">
                   {copy.alertCards.map((card, idx) => (
                     <ScrollReveal key={card.title} delay={idx * 100}>
@@ -382,7 +428,7 @@ export function HomePageClient() {
                           <Check size={15} weight="bold" />
                         </span>
                         <div>
-                          <p className="font-mono text-[11px] text-emerald-300/80">0{idx + 1} · alert rule</p>
+                          <p className="font-mono text-[11px] text-emerald-300/80">0{idx + 1} · {copy.alertRuleLabel}</p>
                           <h3 className="mt-2 text-lg font-bold tracking-tight text-white break-keep">{card.title}</h3>
                           <p className="mt-2 text-sm leading-6 text-zinc-400 break-keep">{card.body}</p>
                         </div>
@@ -409,7 +455,7 @@ export function HomePageClient() {
 
           <ScrollReveal>
             <div className="mx-auto max-w-3xl text-center">
-              <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">[ PRICING ]</p>
+              <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-400">{copy.pricingEyebrow}</p>
               <h2 className="mt-5 text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl">{copy.pricingTitle}</h2>
               <p className="mx-auto mt-5 max-w-[64ch] text-pretty text-base leading-relaxed text-zinc-400 sm:text-lg">{copy.pricingSubtitle}</p>
             </div>
@@ -439,7 +485,7 @@ export function HomePageClient() {
 
           <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] items-start">
             <div>
-              <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-600">[ FAQ ]</p>
+              <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-600">{copy.faqEyebrow}</p>
               <h2 className="mt-5 text-4xl font-bold tracking-tight text-zinc-950 sm:text-5xl">
                 {copy.faqTitle}
               </h2>
@@ -513,7 +559,7 @@ export function HomePageClient() {
 
             <div className="relative mx-auto max-w-4xl z-10 flex flex-col items-center">
               <span className="inline-block text-emerald-400 font-mono text-[11px] sm:text-xs uppercase tracking-[0.15em] mb-4 select-none">
-                [ JOIN YOUR AI TRADING SOFTWARE ]
+                {copy.aboutEyebrow}
               </span>
               <h2 className="mt-6 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl lg:text-[2.6rem] lg:leading-[1.15]">
                 {copy.aboutTitle}
@@ -543,7 +589,7 @@ export function HomePageClient() {
                     onClick={() => setIsAboutExpanded(true)}
                     className="mx-auto mt-6 flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider text-zinc-500 transition duration-200 hover:text-white select-none"
                   >
-                    View more ∨
+                    {copy.aboutMoreCta}
                   </button>
                 ) : null}
               </div>
@@ -552,7 +598,7 @@ export function HomePageClient() {
                 href="/leaderboard"
                 className="focus-ring mt-8 inline-flex items-center justify-center rounded-xl bg-[#10b981] hover:bg-[#059669] px-8 py-3.5 text-base font-bold text-white shadow-[0_0_24px_rgba(16,185,129,0.35)] hover:shadow-[0_0_30px_rgba(16,185,129,0.55)] transition-all duration-300 select-none"
               >
-                Get started now
+                {copy.aboutPrimaryCta}
               </Link>
             </div>
           </div>

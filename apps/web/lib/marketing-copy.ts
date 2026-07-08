@@ -15,18 +15,84 @@ export type LandingCopy = {
   readonly videoSubtitle: string;
   readonly stats: readonly { readonly label: string; readonly value: string; readonly detail: string }[];
   readonly steps: readonly { readonly title: string; readonly body: string }[];
+  readonly agentSystemEyebrow: string;
   readonly agentSystemTitle: string;
   readonly agentSystemSubtitle: string;
   readonly agentCards: readonly { readonly title: string; readonly body: string }[];
+  readonly agentCardKickers: readonly string[];
+  readonly previews: {
+    readonly pipeline: {
+      readonly eyebrow: string;
+      readonly scanBadge: string;
+      readonly setupTitle: string;
+      readonly strategyLabel: string;
+      readonly triggerLimitLabel: string;
+      readonly timeframeLabel: string;
+      readonly auditTitle: string;
+      readonly auditBadge: string;
+      readonly decisionBadge: string;
+      readonly body: string;
+    };
+    readonly position: {
+      readonly eyebrow: string;
+      readonly marketBadge: string;
+      readonly entryLabel: string;
+      readonly markLabel: string;
+      readonly warningTitle: string;
+      readonly warningBody: string;
+    };
+    readonly consensus: {
+      readonly eyebrow: string;
+      readonly strategistsBadge: string;
+      readonly activeLabel: string;
+      readonly waitingLabel: string;
+      readonly flatLabel: string;
+      readonly avgEntryLabel: string;
+      readonly hourlyOpinionLabel: string;
+      readonly hourlyOpinionValue: string;
+      readonly aggregateLabel: string;
+      readonly body: string;
+      readonly trendDesksLabel: string;
+      readonly riskFlagsLabel: string;
+      readonly riskFlagsValue: string;
+    };
+    readonly tradePlan: {
+      readonly eyebrow: string;
+      readonly triggerBadge: string;
+      readonly waitLabel: string;
+      readonly technicalCheckLabel: string;
+      readonly checks: readonly string[];
+      readonly entryLimitLabel: string;
+      readonly targetRoiLabel: string;
+    };
+    readonly alert: {
+      readonly botName: string;
+      readonly meta: string;
+      readonly channel: string;
+      readonly title: string;
+      readonly trader: string;
+      readonly liveBadge: string;
+      readonly headline: string;
+      readonly body: string;
+      readonly priceLabel: string;
+      readonly roiLabel: string;
+      readonly delivered: string;
+      readonly language: string;
+      readonly event: string;
+    };
+  };
   readonly getStartedTitle: string;
+  readonly getStartedEyebrow: string;
   readonly getStartedSubtitle: string;
   readonly getStartedCta: string;
   readonly secondVideoTitle: string;
   readonly alertsTitle: string;
   readonly alertsSubtitle: string;
   readonly alertsCta: string;
+  readonly alertRuleLabel: string;
   readonly alertCards: readonly { readonly title: string; readonly body: string }[];
   readonly pricingTitle: string;
+  readonly pricingEyebrow: string;
   readonly pricingSubtitle: string;
   readonly billingAnnual: string;
   readonly billingMonthly: string;
@@ -46,10 +112,14 @@ export type LandingCopy = {
   readonly trustTitle: string;
   readonly trustBody: string;
   readonly faqTitle: string;
+  readonly faqEyebrow: string;
   readonly faqSubtitle: string;
   readonly faqCta: string;
   readonly faqs: readonly { readonly question: string; readonly answer: string }[];
   readonly aboutTitle: string;
+  readonly aboutEyebrow: string;
+  readonly aboutMoreCta: string;
+  readonly aboutPrimaryCta: string;
   readonly aboutBody: readonly string[];
   readonly aboutPoints: readonly string[];
   readonly footerTagline: string;
@@ -98,6 +168,7 @@ const copy = {
       { title: "상세 근거 확인", body: "트레이더별 차트, 최신 시나리오, 보유 현황, 거래 캘린더로 판단 흐름을 내려봅니다." },
       { title: "관심 트레이더 알림", body: "구독 계정은 즐겨찾기한 트레이더의 진입, 청산, 리스크 관리 이벤트를 Telegram으로 받을 수 있습니다." }
     ],
+    agentSystemEyebrow: "[ AI 에이전트 모니터링 ]",
     agentSystemTitle: "단순 신호 수신을 넘어, AI 트레이더들의 관점을 대조합니다.",
     agentSystemSubtitle: "서로 다른 규칙을 학습한 전략봇들과 리스크를 심사하는 AI 에이전트들의 매매 과정을 한눈에 모니터링하세요.",
     agentCards: [
@@ -106,19 +177,84 @@ const copy = {
       { title: "20개 전략 관점의 Aigentra 종합 의견", body: "롱/숏 비율만 세지 않고, 진행 중인 포지션, 진입 대기, 최근 익절/손절, AI 리뷰를 묶어 현재 리그의 위험 기울기를 정리합니다." },
       { title: "진입 전 시나리오 계획 수립", body: "AI 트레이더들은 무작정 진입하지 않습니다. 진입 전 가격대, 무효화 기준, 목표 익절가와 기술적 체크를 TradingView 차트처럼 읽히는 플랜으로 남깁니다." }
     ],
+    agentCardKickers: ["[ 파이프라인 ]", "[ 포지션 리스크 ]", "[ 종합 의견 ]", "[ 옵션 1 · 거래 계획 ]"],
+    previews: {
+      pipeline: {
+        eyebrow: "의사결정 파이프라인",
+        scanBadge: "BTCUSDT · 실시간 스캔",
+        setupTitle: "1. 스캐너 셋업",
+        strategyLabel: "전략",
+        triggerLimitLabel: "트리거 가격",
+        timeframeLabel: "확인 시간대",
+        auditTitle: "2. AI 리스크 심사",
+        auditBadge: "AI 에이전트",
+        decisionBadge: "판정 · 조정 승인",
+        body: "변동성 확장 조건은 통과했습니다. 다만 거래량이 얇아 레버리지를 낮추고 손절폭을 먼저 고정한 뒤 모의 진입을 승인합니다."
+      },
+      position: {
+        eyebrow: "포지션 리스크 모니터",
+        marketBadge: "BTCUSDT · 시뮬레이션",
+        entryLabel: "진입가",
+        markLabel: "현재가",
+        warningTitle: "AI 리스크 경고",
+        warningBody: "단기 매도 거래량 급증을 포착했습니다. 스톱로스를 본절가(67,520)로 올리고 포지션의 30%를 부분 익절로 관리합니다."
+      },
+      consensus: {
+        eyebrow: "전략 종합 센티멘트",
+        strategistsBadge: "AI 전략가 20명",
+        activeLabel: "진입 중",
+        waitingLabel: "대기",
+        flatLabel: "관망",
+        avgEntryLabel: "평균 진입가",
+        hourlyOpinionLabel: "시간별 의견",
+        hourlyOpinionValue: "혼조 · 리스크 우선",
+        aggregateLabel: "Aigentra 종합",
+        body: "활성 포지션, 진입 대기, 최근 익절/손절, AI 리뷰를 묶어 지금 리그가 어느 쪽으로 기울었는지 정리합니다.",
+        trendDesksLabel: "추세 데스크",
+        riskFlagsLabel: "리스크 플래그",
+        riskFlagsValue: "4개 활성"
+      },
+      tradePlan: {
+        eyebrow: "시나리오 플랜",
+        triggerBadge: "트리거 대기",
+        waitLabel: "B1 대기",
+        technicalCheckLabel: "[ 기술 체크 ]",
+        checks: ["EMA 200 반등", "15분 RSI 과매도", "종합 의견 55%"],
+        entryLimitLabel: "지정가 진입",
+        targetRoiLabel: "목표 ROE"
+      },
+      alert: {
+        botName: "Aigentra Trading Bot",
+        meta: "방금 · 즐겨찾기 트레이더만",
+        channel: "Telegram",
+        title: "[AI Trader League] 트레이더 피드",
+        trader: "VWAP 회수반장 · BTCUSDT",
+        liveBadge: "LIVE",
+        headline: "롱 유지, 익절선 근처는 추격 보류",
+        body: "롱 포지션은 유지 중입니다. 익절선 근처에서는 무리하게 따라붙지 않고, 거래량이 식으면 바로 보수적으로 관리합니다.",
+        priceLabel: "가격",
+        roiLabel: "ROI",
+        delivered: "8초 전 전달 · 즐겨찾기만",
+        language: "언어 · KO",
+        event: "이벤트 · 상태 피드"
+      }
+    },
     getStartedTitle: "먼저 리더보드에서 팔로우할 AI 트레이더를 고르세요.",
+    getStartedEyebrow: "[ 간단한 3단계 ]",
     getStartedSubtitle: "성과 순위만 보지 말고 최근 판단, 오픈 노출, 관리 리뷰를 함께 확인한 뒤 Telegram 알림을 연결합니다.",
     getStartedCta: "관심 트레이더 고르기",
     secondVideoTitle: "구독 설정과 실시간 액션 알림",
     alertsTitle: "텔레그램 알림은 관심 트레이더만 조용하게.",
     alertsSubtitle: "Aigentra Trading은 자동매매 버튼이 아니라, AI 판단을 비교하는 관제면입니다. 그래서 전체 리그 소음을 보내지 않고, 즐겨찾기한 트레이더의 체결·청산·관리 리뷰·상태 피드만 사용자 언어로 짧게 보냅니다.",
     alertsCta: "알림 설정하기",
+    alertRuleLabel: "알림 규칙",
     alertCards: [
       { title: "관심 트레이더 필터", body: "즐겨찾기한 AI 트레이더만 알림 대상으로 두어, 리더보드 전체의 잡음을 실제로 줄입니다." },
       { title: "상태 피드와 체결 이벤트", body: "진입 대기, 체결, 익절, 손절, 포지션 유지 메모를 봇 채팅처럼 짧고 빠르게 받습니다." },
       { title: "사용자 언어 기반 전송", body: "계정 언어 설정을 기준으로 AI 리뷰와 트레이더 피드를 번역해, 같은 알림도 읽기 편하게 전달합니다." }
     ],
     pricingTitle: "하나의 Pro 플랜으로 전체 리그와 알림을 엽니다.",
+    pricingEyebrow: "[ 요금제 ]",
     pricingSubtitle: "복잡한 등급을 두지 않고, AI 트레이더 상세·센티멘트·Telegram 알림을 한 플랜에서 제공합니다.",
     billingAnnual: "연간 결제 (45% 특가 할인)",
     billingMonthly: "월간 결제 (34% 특가 할인)",
@@ -143,6 +279,7 @@ const copy = {
     trustTitle: "라이브 거래소 주문이 아닌 시뮬레이션 검증 서비스입니다.",
     trustBody: "실제 자금 집행보다 먼저 전략 판단과 관리 과정을 읽기 쉽게 보관하는 데 초점을 둡니다.",
     faqTitle: "유저가 실제로 궁금해할 질문",
+    faqEyebrow: "[ 자주 묻는 질문 ]",
     faqSubtitle: "실거래 여부, 결제, 알림, 데이터 기준처럼 가입 전에 확인할 내용을 먼저 정리했습니다.",
     faqCta: "리더보드 먼저 보기",
     faqs: [
@@ -154,6 +291,9 @@ const copy = {
       { question: "투자 조언으로 봐도 되나요?", answer: "아니요. 모든 화면과 알림은 교육 및 시뮬레이션 목적의 정보입니다. 실제 투자 판단과 손익 책임은 사용자 본인에게 있습니다." }
     ],
     aboutTitle: "Aigentra Trading은 자동매매 버튼이 아니라, AI 판단을 비교하는 관제면입니다.",
+    aboutEyebrow: "[ AI 트레이딩 소프트웨어 시작하기 ]",
+    aboutMoreCta: "더 보기 ∨",
+    aboutPrimaryCta: "지금 시작하기",
     aboutBody: [
       "**Aigentra Trading**은 초보자와 숙련된 트레이더 모두가 전략형 AI 트레이더의 판단 흐름을 살펴볼 수 있도록 만든 **AI 기반 트레이딩 시뮬레이션 및 분석** 서비스입니다. 공개 시장 데이터를 바탕으로 주요 가격대, 지지 및 저항선, 추세, 변동성 조건을 추적합니다.",
       "기술적 분석을 더 읽기 쉽게 정리하기 위해 **다중 컨플루언스 분석**, **전략 센티멘트 비율**, **오더 블록**, **피보나치 레벨** 같은 도구를 함께 제공합니다. 스캘핑, 스윙 트레이딩, 데이 트레이딩 관점의 차이를 시뮬레이션 기록으로 비교할 수 있습니다.",
@@ -205,6 +345,7 @@ const copy = {
       { title: "Inspect the evidence", body: "Drill into charts, latest scenarios, holdings, and the monthly trading calendar for each trader." },
       { title: "Follow favorites", body: "Subscribers can favorite traders and receive entry, exit, risk, and management events through Telegram." }
     ],
+    agentSystemEyebrow: "[ AI AGENT MONITORING ]",
     agentSystemTitle: "Beyond Simple Signal Alerts: Compare Multi-Dimensional AI Trader Perspectives.",
     agentSystemSubtitle: "Monitor the entire trading process of strategy-driven bots and cross-validating AI agents at a glance.",
     agentCards: [
@@ -213,19 +354,84 @@ const copy = {
       { title: "20-Strategist Aigentra Opinion", body: "Instead of counting Long/Short votes only, Aigentra combines active positions, pending setups, recent exits, and AI reviews into a current risk read." },
       { title: "Pre-Entry Scenario & Trade Plans", body: "AI traders do not enter blindly. Before taking action, they publish TradingView-style plans with entry zones, invalidation, targets, and technical checks." }
     ],
+    agentCardKickers: ["[ Pipeline ]", "[ Position Risk ]", "[ Consensus ]", "[ Option 1 · Trade Plan ]"],
+    previews: {
+      pipeline: {
+        eyebrow: "Decision Pipeline",
+        scanBadge: "BTCUSDT · live scan",
+        setupTitle: "1. Scanner Setup",
+        strategyLabel: "Strategy",
+        triggerLimitLabel: "Trigger Limit",
+        timeframeLabel: "Timeframe",
+        auditTitle: "2. AI Risk Audit",
+        auditBadge: "AI Agent",
+        decisionBadge: "Decision · adjusted approval",
+        body: "Volatility expansion clears the filter. Volume is still thin, so the agent lowers leverage, locks the stop first, and only then approves the simulated entry."
+      },
+      position: {
+        eyebrow: "Position Risk Monitor",
+        marketBadge: "BTCUSDT · Simulated",
+        entryLabel: "Entry Price",
+        markLabel: "Mark Price",
+        warningTitle: "AI Risk Warning",
+        warningBody: "Short-term sell volume is spiking. The stop is lifted to breakeven (67,520), and 30% of the position is managed as partial profit."
+      },
+      consensus: {
+        eyebrow: "Consensus Sentiment",
+        strategistsBadge: "20 AI Strategists",
+        activeLabel: "Active",
+        waitingLabel: "Waiting",
+        flatLabel: "Flat",
+        avgEntryLabel: "Avg Entry",
+        hourlyOpinionLabel: "Hourly Opinion",
+        hourlyOpinionValue: "mixed · risk aware",
+        aggregateLabel: "Aigentra aggregate",
+        body: "Aigentra combines active positions, pending entries, recent wins and stops, and AI reviews to show which side the league currently leans toward.",
+        trendDesksLabel: "Trend desks",
+        riskFlagsLabel: "Risk flags",
+        riskFlagsValue: "4 active"
+      },
+      tradePlan: {
+        eyebrow: "Scenario Plan",
+        triggerBadge: "Pending Trigger",
+        waitLabel: "B1 wait",
+        technicalCheckLabel: "[ Technical Check ]",
+        checks: ["EMA 200 Rebound", "RSI Oversold (15m)", "Consensus 55%"],
+        entryLimitLabel: "ENTRY LIMIT",
+        targetRoiLabel: "TARGET ROI"
+      },
+      alert: {
+        botName: "Aigentra Trading Bot",
+        meta: "now · favorite traders only",
+        channel: "Telegram",
+        title: "[AI Trader League] Trader Feed",
+        trader: "VWAP Reclaim Captain · BTCUSDT",
+        liveBadge: "LIVE",
+        headline: "Long held; no chasing near take-profit",
+        body: "The long position remains active. Near the take-profit line, it avoids chasing price and tightens risk quickly if volume fades.",
+        priceLabel: "price",
+        roiLabel: "ROI",
+        delivered: "delivered 8 seconds ago · favorites only",
+        language: "language · EN",
+        event: "event · status feed"
+      }
+    },
     getStartedTitle: "Start by choosing which AI traders deserve your attention.",
+    getStartedEyebrow: "[ 3 SIMPLE STEPS ]",
     getStartedSubtitle: "Use the leaderboard, recent rationale, open exposure, and management reviews before connecting Telegram alerts.",
     getStartedCta: "Choose traders to follow",
     secondVideoTitle: "Subscription settings and real-time action alerts",
     alertsTitle: "Telegram alerts stay focused on the traders you follow.",
     alertsSubtitle: "Aigentra Trading is not an auto-trading button. It is a control surface for comparing AI decisions, so Telegram only sends favorite-trader fills, exits, management reviews, and status feeds in your account language.",
     alertsCta: "Configure alerts",
+    alertRuleLabel: "alert rule",
     alertCards: [
       { title: "Favorite-trader filter", body: "Keep alerts scoped to the AI traders you actually watch instead of turning the whole league into noise." },
       { title: "Status feeds and fills", body: "Receive pending entries, fills, exits, holds, and management notes as compact bot-style chat messages." },
       { title: "Localized delivery", body: "AI reviews and trader feeds follow your account language, so the same event is easier to scan." }
     ],
     pricingTitle: "One Pro plan unlocks the league and alerts.",
+    pricingEyebrow: "[ PRICING ]",
     pricingSubtitle: "No confusing tiers for now. Trader details, AI sentiment, and Telegram alerts are grouped into one plan.",
     billingAnnual: "Yearly (45% Special Discount)",
     billingMonthly: "Monthly (34% Special Discount)",
@@ -250,6 +456,7 @@ const copy = {
     trustTitle: "This is simulated validation, not live exchange execution.",
     trustBody: "The product stores strategy decisions and management context before any real capital workflow.",
     faqTitle: "Questions users actually ask",
+    faqEyebrow: "[ FAQ ]",
     faqSubtitle: "A quick check on live trading, billing, alerts, data, and what the AI output should and should not be used for.",
     faqCta: "Open leaderboard first",
     faqs: [
@@ -261,6 +468,9 @@ const copy = {
       { question: "Is this investment advice?", answer: "No. The product is for education and simulation. Alerts, reviews, targets, and stops are analytical records, not instructions to buy or sell." }
     ],
     aboutTitle: "Aigentra Trading is not an auto-trading button. It is a control surface for comparing AI decisions.",
+    aboutEyebrow: "[ JOIN YOUR AI TRADING SOFTWARE ]",
+    aboutMoreCta: "View more ∨",
+    aboutPrimaryCta: "Get started now",
     aboutBody: [
       "At **Aigentra Trading**, we build **AI-powered trading simulation and analysis** for users who want to inspect strategy behavior without placing live orders. The platform tracks key levels, supports, resistances, trend conditions, and volatility context from public market data.",
       "We also provide tools that make technical context easier to compare, including **multi-confluence analysis**, **strategy sentiment ratios**, **Order Blocks**, and **Fibonacci levels**. The focus is to show how different strategy styles behave in a simulated record.",
@@ -312,6 +522,7 @@ const copy = {
       { title: "Проверьте аргументы", body: "Откройте графики, свежие сценарии, текущие позиции и календарь сделок по каждому трейдеру." },
       { title: "Подпишитесь на избранных", body: "Подписчики получают события входа, выхода, риска и управления по избранным трейдерам в Telegram." }
     ],
+    agentSystemEyebrow: "[ МОНИТОРИНГ AI-АГЕНТОВ ]",
     agentSystemTitle: "Не просто сигналы: сравнение многомерных взглядов AI-трейдеров.",
     agentSystemSubtitle: "Следите за всем процессом: от стратегических ботов до AI-агентов, которые проверяют риск перед виртуальным исполнением.",
     agentCards: [
@@ -320,19 +531,84 @@ const copy = {
       { title: "Сводное мнение Aigentra из 20 стратегий", body: "Мы учитываем не только Long/Short баланс, но и открытые позиции, ожидающие сетапы, недавние выходы и AI-ревью." },
       { title: "План сценария до входа", body: "AI-трейдеры не входят вслепую: зоны входа, отмена, цели и технические проверки оформляются как TradingView-подобный план." }
     ],
+    agentCardKickers: ["[ Пайплайн ]", "[ Риск позиции ]", "[ Консенсус ]", "[ Вариант 1 · Торговый план ]"],
+    previews: {
+      pipeline: {
+        eyebrow: "Пайплайн решения",
+        scanBadge: "BTCUSDT · live-скан",
+        setupTitle: "1. Сетап сканера",
+        strategyLabel: "Стратегия",
+        triggerLimitLabel: "Триггер-лимит",
+        timeframeLabel: "Таймфрейм",
+        auditTitle: "2. AI-аудит риска",
+        auditBadge: "AI-агент",
+        decisionBadge: "Решение · одобрено с правкой",
+        body: "Фильтр расширения волатильности пройден. Но объем тонкий, поэтому агент снижает плечо, сначала фиксирует стоп и только затем одобряет виртуальный вход."
+      },
+      position: {
+        eyebrow: "Монитор риска позиции",
+        marketBadge: "BTCUSDT · симуляция",
+        entryLabel: "Цена входа",
+        markLabel: "Маркировочная цена",
+        warningTitle: "AI-предупреждение о риске",
+        warningBody: "Замечен всплеск краткосрочного объема продаж. Стоп поднят к безубытку (67,520), а 30% позиции управляется как частичная фиксация прибыли."
+      },
+      consensus: {
+        eyebrow: "Консенсус стратегий",
+        strategistsBadge: "20 AI-стратегов",
+        activeLabel: "Активно",
+        waitingLabel: "Ожидание",
+        flatLabel: "Вне рынка",
+        avgEntryLabel: "Средний вход",
+        hourlyOpinionLabel: "Почасовое мнение",
+        hourlyOpinionValue: "смешанно · риск под контролем",
+        aggregateLabel: "Сводка Aigentra",
+        body: "Aigentra объединяет активные позиции, ожидающие входы, недавние тейки и стопы, а также AI-ревью, чтобы показать текущий уклон лиги.",
+        trendDesksLabel: "Trend desks",
+        riskFlagsLabel: "Флаги риска",
+        riskFlagsValue: "4 активны"
+      },
+      tradePlan: {
+        eyebrow: "План сценария",
+        triggerBadge: "Ожидает триггер",
+        waitLabel: "B1 ждет",
+        technicalCheckLabel: "[ Техническая проверка ]",
+        checks: ["Отскок от EMA 200", "RSI перепродан (15м)", "Консенсус 55%"],
+        entryLimitLabel: "ЛИМИТ ВХОДА",
+        targetRoiLabel: "ЦЕЛЕВОЙ ROE"
+      },
+      alert: {
+        botName: "Aigentra Trading Bot",
+        meta: "сейчас · только избранные трейдеры",
+        channel: "Telegram",
+        title: "[AI Trader League] Лента трейдера",
+        trader: "Командир VWAP Reclaim · BTCUSDT",
+        liveBadge: "LIVE",
+        headline: "Лонг удерживается; без погони возле тейк-профита",
+        body: "Лонг-позиция остается активной. Возле линии тейк-профита стратегия не догоняет цену и быстро ужесточит риск, если объем ослабнет.",
+        priceLabel: "цена",
+        roiLabel: "ROI",
+        delivered: "доставлено 8 секунд назад · только избранное",
+        language: "язык · RU",
+        event: "событие · лента статуса"
+      }
+    },
     getStartedTitle: "Сначала выберите AI-трейдеров, за которыми стоит следить.",
+    getStartedEyebrow: "[ 3 ПРОСТЫХ ШАГА ]",
     getStartedSubtitle: "Смотрите не только доходность: проверяйте свежие решения, открытую экспозицию и управленческие ревью перед Telegram-алертами.",
     getStartedCta: "Выбрать трейдеров",
     secondVideoTitle: "Настройки подписки и action-алерты",
     alertsTitle: "Telegram-алерты — только по трейдерам, которые вам интересны.",
     alertsSubtitle: "Aigentra Trading — не кнопка автоторговли, а панель сравнения AI-решений. Поэтому Telegram отправляет только входы, выходы, risk review и статусные заметки по избранным трейдерам на языке аккаунта.",
     alertsCta: "Настроить алерты",
+    alertRuleLabel: "правило алерта",
     alertCards: [
       { title: "Фильтр избранных", body: "Оставьте алерты только по AI-трейдерам, за которыми действительно наблюдаете, без шума всей лиги." },
       { title: "Статусы и события сделок", body: "Ожидание входа, исполнение, TP, SL и заметки по удержанию приходят как короткие bot-сообщения." },
       { title: "Локализованная доставка", body: "AI-ревью и фиды трейдеров отправляются на языке аккаунта, чтобы событие читалось быстрее." }
     ],
     pricingTitle: "Один Pro-план открывает лигу и уведомления.",
+    pricingEyebrow: "[ ТАРИФЫ ]",
     pricingSubtitle: "Пока без сложных уровней: детали трейдеров, AI-сентимент и Telegram-алерты собраны в одном плане.",
     billingAnnual: "Годовая оплата (скидка 45%)",
     billingMonthly: "Месячная оплата (скидка 34%)",
@@ -357,6 +633,7 @@ const copy = {
     trustTitle: "Это симуляционная проверка, а не live-исполнение на бирже.",
     trustBody: "Сервис сохраняет стратегические решения и контекст управления до любых реальных действий с капиталом.",
     faqTitle: "Вопросы, которые действительно задают пользователи",
+    faqEyebrow: "[ FAQ ]",
     faqSubtitle: "Коротко о live-торговле, оплате, уведомлениях, данных и границах AI-аналитики.",
     faqCta: "Сначала открыть лидерборд",
     faqs: [
@@ -368,6 +645,9 @@ const copy = {
       { question: "Это инвестиционный совет?", answer: "Нет. Продукт предназначен для обучения и симуляции. Алерты, ревью, цели и стопы — аналитические записи, а не указания покупать или продавать." }
     ],
     aboutTitle: "Aigentra Trading — не кнопка автоторговли, а панель сравнения AI-решений.",
+    aboutEyebrow: "[ ЗАПУСТИТЕ СВОЕ AI TRADING-ПО ]",
+    aboutMoreCta: "Показать больше ∨",
+    aboutPrimaryCta: "Начать сейчас",
     aboutBody: [
       "**Aigentra Trading** — это **AI-сервис симуляции и анализа трейдинга** для пользователей, которые хотят изучать поведение стратегий без live-ордеров. Платформа отслеживает ключевые уровни, поддержку, сопротивление, тренд и волатильность по публичным рыночным данным.",
       "Для сравнения технического контекста мы используем **multi-confluence analysis**, **strategy sentiment ratios**, **order blocks** и **Fibonacci levels**. Цель — показать, как разные стили стратегий ведут себя в симулированной истории.",
@@ -419,6 +699,7 @@ const copy = {
       { title: "Confira a evidência", body: "Abra gráficos, cenários recentes, posições e calendário de trades de cada trader." },
       { title: "Siga favoritos", body: "Assinantes podem favoritar traders e receber eventos de entrada, saída, risco e gestão no Telegram." }
     ],
+    agentSystemEyebrow: "[ MONITORAMENTO DE AGENTES DE IA ]",
     agentSystemTitle: "Além de alertas simples: compare perspectivas multidimensionais de traders de IA.",
     agentSystemSubtitle: "Monitore o processo completo dos bots estratégicos e dos agentes de IA que validam risco antes da execução simulada.",
     agentCards: [
@@ -427,19 +708,84 @@ const copy = {
       { title: "Opinião Aigentra com 20 estratégias", body: "A visão não conta só Long/Short. Ela combina posições ativas, setups pendentes, saídas recentes e revisões de IA." },
       { title: "Plano de cenário antes da entrada", body: "Os traders de IA não entram no escuro. Zonas de entrada, invalidação, alvos e checagens técnicas viram um plano no estilo TradingView." }
     ],
+    agentCardKickers: ["[ Pipeline ]", "[ Risco da posição ]", "[ Consenso ]", "[ Opção 1 · Plano de trade ]"],
+    previews: {
+      pipeline: {
+        eyebrow: "Pipeline de decisão",
+        scanBadge: "BTCUSDT · varredura ao vivo",
+        setupTitle: "1. Setup do scanner",
+        strategyLabel: "Estratégia",
+        triggerLimitLabel: "Limite de gatilho",
+        timeframeLabel: "Timeframe",
+        auditTitle: "2. Auditoria de risco da IA",
+        auditBadge: "Agente de IA",
+        decisionBadge: "Decisão · aprovação ajustada",
+        body: "A expansão de volatilidade passa no filtro. Como o volume ainda está fino, a IA reduz a alavancagem, trava o stop primeiro e só então aprova a entrada simulada."
+      },
+      position: {
+        eyebrow: "Monitor de risco da posição",
+        marketBadge: "BTCUSDT · simulado",
+        entryLabel: "Preço de entrada",
+        markLabel: "Preço de marcação",
+        warningTitle: "Alerta de risco da IA",
+        warningBody: "Foi detectado um pico de volume vendedor de curto prazo. O stop sobe para o breakeven (67.520), e 30% da posição passa a ser gerenciado como realização parcial."
+      },
+      consensus: {
+        eyebrow: "Sentimento de consenso",
+        strategistsBadge: "20 estrategistas de IA",
+        activeLabel: "Ativos",
+        waitingLabel: "Aguardando",
+        flatLabel: "Neutros",
+        avgEntryLabel: "Entrada média",
+        hourlyOpinionLabel: "Opinião horária",
+        hourlyOpinionValue: "misto · atento ao risco",
+        aggregateLabel: "Agregado Aigentra",
+        body: "Aigentra combina posições ativas, entradas pendentes, lucros e stops recentes, além das revisões de IA, para mostrar para que lado a liga está inclinada.",
+        trendDesksLabel: "Mesas de tendência",
+        riskFlagsLabel: "Alertas de risco",
+        riskFlagsValue: "4 ativos"
+      },
+      tradePlan: {
+        eyebrow: "Plano de cenário",
+        triggerBadge: "Gatilho pendente",
+        waitLabel: "B1 aguarda",
+        technicalCheckLabel: "[ Checagem técnica ]",
+        checks: ["Rebote na EMA 200", "RSI sobrevendido (15m)", "Consenso 55%"],
+        entryLimitLabel: "ENTRADA LIMITE",
+        targetRoiLabel: "ROE ALVO"
+      },
+      alert: {
+        botName: "Aigentra Trading Bot",
+        meta: "agora · apenas traders favoritos",
+        channel: "Telegram",
+        title: "[AI Trader League] Feed do trader",
+        trader: "Capitão de Recuperação VWAP · BTCUSDT",
+        liveBadge: "LIVE",
+        headline: "Long mantido; sem perseguir perto do take-profit",
+        body: "A posição long continua ativa. Perto da linha de take-profit, a estratégia evita perseguir preço e aperta o risco rapidamente se o volume perder força.",
+        priceLabel: "preço",
+        roiLabel: "ROI",
+        delivered: "entregue há 8s · favoritos",
+        language: "idioma · PT",
+        event: "evento · feed de status"
+      }
+    },
     getStartedTitle: "Comece escolhendo quais traders de IA merecem sua atenção.",
+    getStartedEyebrow: "[ 3 PASSOS SIMPLES ]",
     getStartedSubtitle: "Use ranking, racional recente, exposição aberta e revisões de gestão antes de ligar os alertas no Telegram.",
     getStartedCta: "Escolher traders",
     secondVideoTitle: "Configuração de assinatura e alertas de ação",
     alertsTitle: "Alertas do Telegram focados nos traders que você segue.",
     alertsSubtitle: "Aigentra Trading não é um botão de auto-trade; é uma mesa para comparar decisões de IA. Por isso o Telegram envia apenas fills, saídas, revisões de gestão e status feeds dos favoritos no idioma da conta.",
     alertsCta: "Configurar alertas",
+    alertRuleLabel: "regra de alerta",
     alertCards: [
       { title: "Filtro de favoritos", body: "Mantenha alertas apenas nos traders de IA que você realmente acompanha, sem transformar a liga inteira em ruído." },
       { title: "Status feeds e execuções", body: "Receba entradas pendentes, fills, saídas, holds e notas de gestão como mensagens curtas de bot." },
       { title: "Entrega localizada", body: "Revisões de IA e feeds de traders seguem o idioma da conta para leitura mais rápida." }
     ],
     pricingTitle: "Um plano Pro libera a liga e os alertas.",
+    pricingEyebrow: "[ PREÇOS ]",
     pricingSubtitle: "Sem níveis confusos por enquanto. Detalhes dos traders, sentimento de IA e alertas no Telegram ficam em um único plano.",
     billingAnnual: "Anual (45% off)",
     billingMonthly: "Mensal (34% off)",
@@ -464,6 +810,7 @@ const copy = {
     trustTitle: "Isto é validação simulada, não execução ao vivo na exchange.",
     trustBody: "O produto registra decisões estratégicas e contexto de gestão antes de qualquer fluxo com capital real.",
     faqTitle: "Perguntas que usuários realmente fazem",
+    faqEyebrow: "[ FAQ ]",
     faqSubtitle: "Um resumo sobre trade real, cobrança, alertas, dados e como usar — ou não usar — a saída da IA.",
     faqCta: "Abrir leaderboard primeiro",
     faqs: [
@@ -475,6 +822,9 @@ const copy = {
       { question: "Isso é recomendação de investimento?", answer: "Não. O produto é educacional e simulado. Alertas, revisões, alvos e stops são registros analíticos, não ordens de compra ou venda." }
     ],
     aboutTitle: "Aigentra Trading não é um botão de auto-trade; é uma mesa para comparar decisões de IA.",
+    aboutEyebrow: "[ ENTRE NO SEU SOFTWARE DE TRADING COM IA ]",
+    aboutMoreCta: "Ver mais ∨",
+    aboutPrimaryCta: "Começar agora",
     aboutBody: [
       "Na **Aigentra Trading**, criamos **simulação e análise de trading com IA** para usuários que querem inspecionar comportamento de estratégia sem ordens reais. A plataforma acompanha níveis-chave, suportes, resistências, tendência e volatilidade por dados públicos de mercado.",
       "Também oferecemos ferramentas para comparar contexto técnico, como **análise de múltiplas confluências**, **proporções de sentimento por estratégia**, **order blocks** e **níveis de Fibonacci**. O foco é mostrar como estilos diferentes de estratégia se comportam no registro simulado.",
@@ -526,6 +876,7 @@ const copy = {
       { title: "Kanıtı incele", body: "Her trader için grafiklere, son senaryolara, pozisyonlara ve işlem takvimine girin." },
       { title: "Favorileri takip et", body: "Aboneler favori traderlarının giriş, çıkış, risk ve yönetim olaylarını Telegram'da alabilir." }
     ],
+    agentSystemEyebrow: "[ AI AJAN İZLEME ]",
     agentSystemTitle: "Basit sinyal alarmının ötesinde: AI trader perspektiflerini karşılaştırın.",
     agentSystemSubtitle: "Strateji botlarından riski kontrol eden AI ajanlarına kadar tüm simüle işlem sürecini tek bakışta izleyin.",
     agentCards: [
@@ -534,19 +885,84 @@ const copy = {
       { title: "20 stratejili Aigentra görüşü", body: "Sadece Long/Short sayımı değil; açık pozisyonlar, bekleyen kurulumlar, son çıkışlar ve AI incelemeleri birlikte okunur." },
       { title: "Giriş öncesi senaryo planı", body: "AI traderlar kör giriş yapmaz. Giriş bölgeleri, geçersizlik, hedefler ve teknik kontroller TradingView tarzı plan olarak kalır." }
     ],
+    agentCardKickers: ["[ Pipeline ]", "[ Pozisyon riski ]", "[ Konsensüs ]", "[ Seçenek 1 · İşlem planı ]"],
+    previews: {
+      pipeline: {
+        eyebrow: "Karar pipeline'ı",
+        scanBadge: "BTCUSDT · canlı tarama",
+        setupTitle: "1. Scanner kurulumu",
+        strategyLabel: "Strateji",
+        triggerLimitLabel: "Tetik limiti",
+        timeframeLabel: "Zaman aralığı",
+        auditTitle: "2. AI risk denetimi",
+        auditBadge: "AI ajanı",
+        decisionBadge: "Karar · ayarlı onay",
+        body: "Volatilite genişleme filtresi geçildi. Hacim hâlâ ince olduğu için ajan kaldıracı düşürür, stopu önce sabitler ve simüle girişi sonra onaylar."
+      },
+      position: {
+        eyebrow: "Pozisyon risk monitörü",
+        marketBadge: "BTCUSDT · simüle",
+        entryLabel: "Giriş fiyatı",
+        markLabel: "Mark fiyatı",
+        warningTitle: "AI risk uyarısı",
+        warningBody: "Kısa vadeli satış hacminde sıçrama görüldü. Stop breakeven seviyesine (67.520) taşınır ve pozisyonun %30'u kısmi kâr olarak yönetilir."
+      },
+      consensus: {
+        eyebrow: "Konsensüs sentiment",
+        strategistsBadge: "20 AI stratejisti",
+        activeLabel: "Aktif",
+        waitingLabel: "Bekliyor",
+        flatLabel: "Nötr",
+        avgEntryLabel: "Ortalama giriş",
+        hourlyOpinionLabel: "Saatlik görüş",
+        hourlyOpinionValue: "karışık · risk odaklı",
+        aggregateLabel: "Aigentra özeti",
+        body: "Aigentra açık pozisyonları, bekleyen girişleri, son kâr/stop kayıtlarını ve AI incelemelerini birleştirerek ligin hangi tarafa eğildiğini gösterir.",
+        trendDesksLabel: "Trend masaları",
+        riskFlagsLabel: "Risk bayrakları",
+        riskFlagsValue: "4 aktif"
+      },
+      tradePlan: {
+        eyebrow: "Senaryo planı",
+        triggerBadge: "Tetik bekliyor",
+        waitLabel: "B1 bekliyor",
+        technicalCheckLabel: "[ Teknik kontrol ]",
+        checks: ["EMA 200 tepkisi", "RSI aşırı satım (15m)", "Konsensüs 55%"],
+        entryLimitLabel: "LİMİT GİRİŞ",
+        targetRoiLabel: "HEDEF ROE"
+      },
+      alert: {
+        botName: "Aigentra Trading Bot",
+        meta: "şimdi · yalnızca favori traderlar",
+        channel: "Telegram",
+        title: "[AI Trader League] Trader Akışı",
+        trader: "VWAP Geri Alım Kaptanı · BTCUSDT",
+        liveBadge: "LIVE",
+        headline: "Long korunuyor; take-profit yakınında kovalamak yok",
+        body: "Long pozisyon aktif kalıyor. Take-profit çizgisine yakınken fiyat kovalanmaz; hacim zayıflarsa risk hızlıca sıkılaştırılır.",
+        priceLabel: "fiyat",
+        roiLabel: "ROI",
+        delivered: "8 saniye önce iletildi · favoriler",
+        language: "dil · TR",
+        event: "olay · durum akışı"
+      }
+    },
     getStartedTitle: "Önce hangi AI traderları takip edeceğinizi seçin.",
+    getStartedEyebrow: "[ 3 BASİT ADIM ]",
     getStartedSubtitle: "Telegram alarmını bağlamadan önce liderlik, son gerekçe, açık risk ve yönetim incelemelerini birlikte okuyun.",
     getStartedCta: "Trader seç",
     secondVideoTitle: "Abonelik ayarları ve gerçek zamanlı aksiyon alarmları",
     alertsTitle: "Telegram alarmları sadece takip ettiğiniz traderlara odaklanır.",
     alertsSubtitle: "Aigentra Trading otomatik işlem düğmesi değil, AI kararlarını karşılaştıran kontrol masasıdır. Bu yüzden Telegram sadece favori traderların fill, çıkış, yönetim review ve status feed mesajlarını hesap dilinde gönderir.",
     alertsCta: "Alarm ayarla",
+    alertRuleLabel: "alarm kuralı",
     alertCards: [
       { title: "Favori trader filtresi", body: "Alarmları gerçekten izlediğiniz AI traderlarla sınırlayın, tüm lig gürültüye dönüşmesin." },
       { title: "Status feed ve işlem olayları", body: "Bekleyen girişler, fill'ler, çıkışlar, hold ve yönetim notları kısa bot mesajları olarak gelir." },
       { title: "Yerelleştirilmiş teslim", body: "AI review ve trader feed mesajları hesap dilini izler, aynı olay daha hızlı okunur." }
     ],
     pricingTitle: "Tek Pro plan ligi ve alarmları açar.",
+    pricingEyebrow: "[ FİYATLANDIRMA ]",
     pricingSubtitle: "Şimdilik karmaşık katmanlar yok. Trader detayları, AI sentiment ve Telegram alarmları tek planda.",
     billingAnnual: "Yıllık (45% indirim)",
     billingMonthly: "Aylık (34% indirim)",
@@ -571,6 +987,7 @@ const copy = {
     trustTitle: "Bu canlı borsa işlemi değil, simülasyon doğrulamasıdır.",
     trustBody: "Ürün, gerçek sermaye akışından önce strateji kararlarını ve yönetim bağlamını kaydeder.",
     faqTitle: "Kullanıcıların gerçekten sorduğu sorular",
+    faqEyebrow: "[ SSS ]",
     faqSubtitle: "Canlı işlem, ödeme, alarmlar, veri ve AI çıktısının ne için kullanılıp kullanılmaması gerektiğine kısa cevaplar.",
     faqCta: "Önce liderliği aç",
     faqs: [
@@ -582,6 +999,9 @@ const copy = {
       { question: "Bu yatırım tavsiyesi mi?", answer: "Hayır. Ürün eğitim ve simülasyon içindir. Alarmlar, review'lar, hedefler ve stoplar analitik kayıttır; al veya sat talimatı değildir." }
     ],
     aboutTitle: "Aigentra Trading otomatik işlem düğmesi değil, AI kararlarını karşılaştıran kontrol masasıdır.",
+    aboutEyebrow: "[ AI TRADING YAZILIMINIZA KATILIN ]",
+    aboutMoreCta: "Daha fazla göster ∨",
+    aboutPrimaryCta: "Hemen başla",
     aboutBody: [
       "**Aigentra Trading**, canlı emir vermeden strateji davranışını incelemek isteyen kullanıcılar için geliştirilen **AI destekli trading simülasyon ve analiz** servisidir. Platform public market verisinden önemli seviyeleri, destek/dirençleri, trend koşullarını ve volatilite bağlamını izler.",
       "Teknik bağlamı daha kolay karşılaştırmak için **multi-confluence analysis**, **strategy sentiment ratios**, **order blocks** ve **Fibonacci levels** gibi araçlar da sunar. Amaç, farklı strateji stillerinin simüle kayıtta nasıl davrandığını göstermektir.",

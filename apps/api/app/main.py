@@ -1572,7 +1572,11 @@ def refresh_stale_position_management_review(
     side = str(exposure.side or "").upper() or "POSITION"
     action_type = primary_action_type(review) or review.decision
     position_state = management_position_state(side=side, price=price, entry=entry)
+    fallback_title = None
+    if str(review.sourceLocale or "en").lower().startswith("en"):
+        fallback_title = management_decision_title(action_type=action_type, position_state=position_state)
     structured = StructuredReview(
+        title=fallback_title,
         verdict=review.decision.replace("_", " ").title(),
         headline=management_decision_headline(side=side, price=price, action_type=action_type, position_state=position_state),
         action=management_action_sentence(action_type, position_state),
@@ -1660,6 +1664,7 @@ def structured_review_texts(structured_review: Optional[StructuredReview]) -> li
     if structured_review is None:
         return []
     values = [
+        structured_review.title,
         structured_review.verdict,
         structured_review.headline,
         structured_review.action,
@@ -1716,6 +1721,21 @@ def management_action_sentence(action_type: Optional[str], position_state: str) 
     if "move stop" in action or "breakeven" in action:
         return "Protect the position by keeping the stop tight; do not move risk farther away."
     return f"Hold the position for now because it is {position_state}, while watching the next invalidation trigger."
+
+
+def management_decision_title(*, action_type: Optional[str], position_state: str) -> str:
+    action = str(action_type or "HOLD").replace("_", " ").lower()
+    if "partial" in action:
+        return "Take some profit, keep the runner"
+    if "close" in action:
+        return "Exit before the edge fades"
+    if "cancel" in action:
+        return "Drop the stale extra order"
+    if "move stop" in action or "breakeven" in action or "trail" in action:
+        return "Protect the move now"
+    if "profit" in position_state:
+        return "Let the setup breathe"
+    return "Patience, but no extra risk"
 
 
 def management_live_context_sentence(action_type: Optional[str], *, side: str, position_state: str) -> str:

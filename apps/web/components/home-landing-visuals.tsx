@@ -8,6 +8,8 @@ import { useAppContext } from "@/components/app-provider";
 import { LandingCheckoutButton } from "@/components/landing-checkout-button";
 import { BILLING_PLAN_KEYS } from "@/lib/billing-plans";
 
+type LandingPreviewCopy = LandingCopy["previews"];
+
 export function VideoFrame({
   title,
   src
@@ -34,30 +36,30 @@ export function VideoFrame({
   );
 }
 
-export function PipelinePreview() {
+export function PipelinePreview({ copy }: { readonly copy: LandingPreviewCopy["pipeline"] }) {
   return (
     <div className="w-full text-left font-sans">
       <div className="mb-4 flex items-center justify-between border-b border-white/5 pb-3">
-        <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-emerald-400">Decision Pipeline</span>
-        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 font-mono text-[10px] font-semibold text-emerald-200">BTCUSDT · live scan</span>
+        <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-emerald-400">{copy.eyebrow}</span>
+        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 font-mono text-[10px] font-semibold text-emerald-200">{copy.scanBadge}</span>
       </div>
       <div className="grid items-stretch gap-3 sm:grid-cols-[1fr_54px_1fr]">
         <div className="rounded-xl border border-white/[0.08] bg-black/40 p-4 shadow-lg">
           <div className="mb-4 flex items-center gap-2">
             <span className="size-2 rounded-full bg-emerald-500" />
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400">1. Scanner Setup</p>
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400">{copy.setupTitle}</p>
           </div>
           <div className="space-y-2.5 text-[13px]">
             <div className="flex justify-between gap-3 border-b border-white/[0.04] pb-2">
-              <span className="text-zinc-500">Strategy</span>
+              <span className="text-zinc-500">{copy.strategyLabel}</span>
               <span className="text-zinc-200 font-semibold">Pullback EMA 200</span>
             </div>
             <div className="flex justify-between gap-3 border-b border-white/[0.04] pb-2">
-              <span className="text-zinc-500">Trigger Limit</span>
+              <span className="text-zinc-500">{copy.triggerLimitLabel}</span>
               <span className="text-emerald-400 font-bold font-mono">67,200 USDT</span>
             </div>
             <div className="flex justify-between gap-3">
-              <span className="text-zinc-500">Timeframe</span>
+              <span className="text-zinc-500">{copy.timeframeLabel}</span>
               <span className="text-zinc-200 font-semibold font-mono">5m / 15m / 1h</span>
             </div>
           </div>
@@ -73,14 +75,14 @@ export function PipelinePreview() {
           <div className="mb-3 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <span className="size-2 rounded-full bg-amber-400" />
-              <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-amber-300">2. AI Risk Audit</p>
+              <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-amber-300">{copy.auditTitle}</p>
             </div>
-            <span className="rounded-md border border-amber-400/25 bg-amber-400/12 px-2 py-1 font-mono text-[9px] font-bold text-amber-200">AI Agent</span>
+            <span className="rounded-md border border-amber-400/25 bg-amber-400/12 px-2 py-1 font-mono text-[9px] font-bold text-amber-200">{copy.auditBadge}</span>
           </div>
           <div className="space-y-2.5">
-            <div className="inline-flex rounded-md border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 font-mono text-[10px] font-bold text-emerald-300">Decision · adjusted approval</div>
+            <div className="inline-flex rounded-md border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 font-mono text-[10px] font-bold text-emerald-300">{copy.decisionBadge}</div>
             <p className="text-[13px] leading-6 text-zinc-300 break-keep font-sans">
-              변동성 확장 구간은 통과. 다만 거래량이 얇아 레버리지를 낮추고 손절폭을 먼저 고정한 뒤 모의 진입을 승인합니다.
+              {copy.body}
             </p>
           </div>
         </div>
@@ -89,12 +91,12 @@ export function PipelinePreview() {
   );
 }
 
-export function PositionManagementPreview() {
+export function PositionManagementPreview({ copy }: { readonly copy: LandingPreviewCopy["position"] }) {
   return (
     <div className="w-full text-left font-sans">
       <div className="mb-4 flex items-center justify-between border-b border-white/5 pb-3">
-        <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-emerald-400">Position Risk Monitor</span>
-        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 font-mono text-[10px] text-zinc-400">BTCUSDT · Simulated</span>
+        <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-emerald-400">{copy.eyebrow}</span>
+        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 font-mono text-[10px] text-zinc-400">{copy.marketBadge}</span>
       </div>
 
       <div className="grid items-stretch gap-3 sm:grid-cols-[1.08fr_0.92fr]">
@@ -105,11 +107,11 @@ export function PositionManagementPreview() {
           </div>
           <div className="grid grid-cols-2 gap-3 text-[13px] text-zinc-400">
             <div>
-              <span className="block font-mono text-[10px] text-zinc-500">Entry Price</span>
+              <span className="block font-mono text-[10px] text-zinc-500">{copy.entryLabel}</span>
               <span className="text-zinc-200 font-semibold font-mono">67,520 USDT</span>
             </div>
             <div className="text-right">
-              <span className="block font-mono text-[10px] text-zinc-500">Mark Price</span>
+              <span className="block font-mono text-[10px] text-zinc-500">{copy.markLabel}</span>
               <span className="text-emerald-400 font-bold font-mono">71,840 USDT</span>
             </div>
           </div>
@@ -129,12 +131,12 @@ export function PositionManagementPreview() {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-1.5">
               <span className="size-2 bg-rose-500 rounded-full" />
-              <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-rose-300">AI Risk Warning</span>
+              <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-rose-300">{copy.warningTitle}</span>
             </div>
             <span className="text-[8px] text-zinc-500 font-mono font-semibold">[18:24]</span>
           </div>
           <p className="text-[13px] leading-6 text-zinc-300 break-keep font-sans">
-            단기 매도 거래량 급증 포착. 스톱로스를 본절가(67,520)로 상향 조정하고 자산의 30%를 부분 익절 관리합니다.
+            {copy.warningBody}
           </p>
         </div>
       </div>
@@ -142,12 +144,12 @@ export function PositionManagementPreview() {
   );
 }
 
-export function ConsensusPreview() {
+export function ConsensusPreview({ copy }: { readonly copy: LandingPreviewCopy["consensus"] }) {
   return (
     <div className="w-full text-left font-sans">
       <div className="mb-4 flex items-center justify-between border-b border-white/5 pb-3">
-        <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-emerald-400">Consensus Sentiment</span>
-        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 font-mono text-[10px] font-bold text-emerald-200">20 AI Strategists</span>
+        <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-emerald-400">{copy.eyebrow}</span>
+        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 font-mono text-[10px] font-bold text-emerald-200">{copy.strategistsBadge}</span>
       </div>
 
       <div className="grid items-stretch gap-3 lg:grid-cols-[1.12fr_0.88fr]">
@@ -163,30 +165,30 @@ export function ConsensusPreview() {
             </div>
           </div>
           <div className="grid grid-cols-3 gap-2">
-            <MiniConsensusMetric label="Active" value="8" tone="text-emerald-300" />
-            <MiniConsensusMetric label="Waiting" value="7" tone="text-amber-300" />
-            <MiniConsensusMetric label="Flat" value="5" tone="text-zinc-300" />
+            <MiniConsensusMetric label={copy.activeLabel} value="8" tone="text-emerald-300" />
+            <MiniConsensusMetric label={copy.waitingLabel} value="7" tone="text-amber-300" />
+            <MiniConsensusMetric label={copy.flatLabel} value="5" tone="text-zinc-300" />
           </div>
           <div className="space-y-1.5 text-xs text-zinc-400">
             <div className="flex justify-between gap-3 border-b border-white/[0.04] pb-1.5">
-              <span className="text-zinc-500">Avg Entry</span>
+              <span className="text-zinc-500">{copy.avgEntryLabel}</span>
               <span className="text-zinc-200 font-semibold font-mono">64,280 USDT</span>
             </div>
             <div className="flex justify-between gap-3">
-              <span className="text-zinc-500">Hourly Opinion</span>
-              <span className="font-mono font-bold text-emerald-400">mixed · risk aware</span>
+              <span className="text-zinc-500">{copy.hourlyOpinionLabel}</span>
+              <span className="font-mono font-bold text-emerald-400">{copy.hourlyOpinionValue}</span>
             </div>
           </div>
         </div>
 
         <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4 shadow-md">
-          <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">Aigentra aggregate</p>
+          <p className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">{copy.aggregateLabel}</p>
           <p className="mt-2 text-[13px] leading-6 text-zinc-300 break-keep">
-            활성 포지션, 진입 대기, 최근 익절/손절, AI 리뷰를 묶어 지금 리그가 어느 쪽으로 기울었는지 정리합니다.
+            {copy.body}
           </p>
           <div className="mt-4 space-y-2">
-            <ConsensusLine label="Trend desks" value="12 / 20" />
-            <ConsensusLine label="Risk flags" value="4 active" />
+            <ConsensusLine label={copy.trendDesksLabel} value="12 / 20" />
+            <ConsensusLine label={copy.riskFlagsLabel} value={copy.riskFlagsValue} />
           </div>
         </div>
       </div>
@@ -212,7 +214,7 @@ function ConsensusLine({ label, value }: { readonly label: string; readonly valu
   );
 }
 
-export function TradePlanPreview() {
+export function TradePlanPreview({ copy }: { readonly copy: LandingPreviewCopy["tradePlan"] }) {
   const candles = [
     { x: 34, open: 114, close: 92, high: 124, low: 86 },
     { x: 56, open: 94, close: 76, high: 101, low: 68 },
@@ -237,8 +239,8 @@ export function TradePlanPreview() {
   return (
     <div className="w-full text-left font-sans">
       <div className="mb-4 flex items-center justify-between border-b border-white/5 pb-3">
-        <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-amber-400">Scenario Plan</span>
-        <span className="rounded-md bg-amber-500/10 px-2.5 py-1 font-mono text-[10px] font-semibold text-amber-300">Pending Trigger</span>
+        <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-amber-400">{copy.eyebrow}</span>
+        <span className="rounded-md bg-amber-500/10 px-2.5 py-1 font-mono text-[10px] font-semibold text-amber-300">{copy.triggerBadge}</span>
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[1.45fr_0.85fr]">
@@ -273,26 +275,26 @@ export function TradePlanPreview() {
             <path d="M410 22 C434 48 440 74 438 104" stroke="#fbbf24" strokeWidth="1.5" strokeDasharray="5 4" opacity="0.82" />
             <circle cx="438" cy="104" r="5.5" fill="#fbbf24" />
             <rect x="448" y="92" width="56" height="24" rx="4" fill="#fbbf24" fillOpacity="0.14" stroke="#fbbf24" strokeOpacity="0.4" />
-            <text x="458" y="108" fill="#fbbf24" fontSize="12" fontFamily="monospace" fontWeight="800">B1 wait</text>
+            <text x="458" y="108" fill="#fbbf24" fontSize="12" fontFamily="monospace" fontWeight="800">{copy.waitLabel}</text>
           </svg>
         </div>
 
         <div className="flex flex-col justify-between space-y-2">
           <div className="space-y-2 rounded-xl border border-white/[0.07] bg-white/[0.02] p-4 text-left text-[13px] text-zinc-300 shadow-md">
-            <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">[ Technical Check ]</span>
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500">{copy.technicalCheckLabel}</span>
             <div className="space-y-2 font-semibold">
-              <div className="flex items-center gap-2"><span className="text-emerald-400">✔</span> EMA 200 Rebound</div>
-              <div className="flex items-center gap-2"><span className="text-emerald-400">✔</span> RSI Oversold (15m)</div>
-              <div className="flex items-center gap-2"><span className="text-emerald-400">✔</span> Consensus 55%</div>
+              {copy.checks.map((check) => (
+                <div key={check} className="flex items-center gap-2"><span className="text-emerald-400">✔</span> {check}</div>
+              ))}
             </div>
           </div>
           <div className="space-y-2 font-mono text-sm">
             <div className="flex items-center justify-between rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 font-bold text-amber-300">
-              <span>ENTRY LIMIT</span>
+              <span>{copy.entryLimitLabel}</span>
               <span>67,200</span>
             </div>
             <div className="flex items-center justify-between rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 font-bold text-emerald-300">
-              <span>TARGET ROI</span>
+              <span>{copy.targetRoiLabel}</span>
               <span>+35.7% (5x)</span>
             </div>
           </div>
@@ -484,7 +486,7 @@ export function ProductProofCard({ copy }: { readonly copy: LandingCopy }) {
   );
 }
 
-export function AlertPreview() {
+export function AlertPreview({ copy }: { readonly copy: LandingPreviewCopy["alert"] }) {
   return (
     <div className="rounded-2xl border border-sky-300/15 bg-[#172535] p-4 shadow-[0_18px_42px_rgba(0,0,0,0.32)] transition-all duration-300 hover:-translate-y-1 sm:p-5">
       <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-4">
@@ -493,37 +495,37 @@ export function AlertPreview() {
             <TelegramLogo size={22} weight="fill" />
           </span>
           <div>
-            <p className="text-base font-bold tracking-tight text-white">Aigentra Trading Bot</p>
-            <p className="font-mono text-[11px] text-sky-100/65">now · favorite trader only</p>
+            <p className="text-base font-bold tracking-tight text-white">{copy.botName}</p>
+            <p className="font-mono text-[11px] text-sky-100/65">{copy.meta}</p>
           </div>
         </div>
-        <span className="rounded-full border border-sky-300/15 bg-white/10 px-2.5 py-1 font-mono text-[10px] text-sky-100">Telegram</span>
+        <span className="rounded-full border border-sky-300/15 bg-white/10 px-2.5 py-1 font-mono text-[10px] text-sky-100">{copy.channel}</span>
       </div>
       <div className="rounded-[18px] rounded-tl-sm bg-[#f3f7ff] p-4 text-sm leading-6 text-slate-900 shadow-[0_12px_24px_rgba(4,15,29,0.24)] sm:p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="font-bold text-slate-950">[AI Trader League] 트레이더 피드</p>
-            <p className="mt-1 font-semibold text-slate-600">VWAP 회수반장 · BTCUSDT</p>
+            <p className="font-bold text-slate-950">{copy.title}</p>
+            <p className="mt-1 font-semibold text-slate-600">{copy.trader}</p>
           </div>
-          <span className="rounded-full bg-emerald-100 px-2.5 py-1 font-mono text-[11px] font-bold text-emerald-700">LIVE</span>
+          <span className="rounded-full bg-emerald-100 px-2.5 py-1 font-mono text-[11px] font-bold text-emerald-700">{copy.liveBadge}</span>
         </div>
         <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/80 p-3">
-          <p className="font-bold text-emerald-800">롱 유지, 익절선 근처는 추격 보류</p>
-          <p className="mt-1 text-slate-700">내 롱은 살아 있고, 익절선 근처에서는 괜히 따라붙지 않을게요. 거래량이 식으면 바로 보수적으로 관리합니다.</p>
+          <p className="font-bold text-emerald-800">{copy.headline}</p>
+          <p className="mt-1 text-slate-700">{copy.body}</p>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 font-mono text-[11px]">
           <span className="rounded-lg bg-slate-950 px-2.5 py-2 text-emerald-300">LONG · 5x</span>
-          <span className="rounded-lg bg-slate-100 px-2.5 py-2 text-slate-600">price<br /><strong className="text-slate-900">64,280</strong></span>
-          <span className="rounded-lg bg-slate-100 px-2.5 py-2 text-slate-600">ROI<br /><strong className="text-emerald-700">+0.83%</strong></span>
+          <span className="rounded-lg bg-slate-100 px-2.5 py-2 text-slate-600">{copy.priceLabel}<br /><strong className="text-slate-900">64,280</strong></span>
+          <span className="rounded-lg bg-slate-100 px-2.5 py-2 text-slate-600">{copy.roiLabel}<br /><strong className="text-emerald-700">+0.83%</strong></span>
         </div>
       </div>
       <div className="mt-4 grid gap-2 text-xs text-sky-100/72">
         <p className="flex items-center gap-2 font-mono">
-          <Clock size={14} /> delivered 8 seconds ago · only favorites
+          <Clock size={14} /> {copy.delivered}
         </p>
         <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
-          <span className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2">language · KO</span>
-          <span className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2">event · status feed</span>
+          <span className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2">{copy.language}</span>
+          <span className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2">{copy.event}</span>
         </div>
       </div>
     </div>

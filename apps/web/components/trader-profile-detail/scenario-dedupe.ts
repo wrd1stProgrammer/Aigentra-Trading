@@ -14,6 +14,7 @@ type ScenarioDedupeShape = {
   rationale?: string | null;
   summary?: string | null;
   reviewBrief?: {
+    title?: string | null;
     headline?: string | null;
     action?: string | null;
     keyReasons?: readonly string[] | null;
@@ -66,6 +67,7 @@ export function scenarioTimelineContentDedupeKey(scenario: ScenarioDedupeShape):
   if (scenario.source !== "review") return null;
   const content = normalizeContent(
     [
+      scenario.reviewBrief?.title,
       scenario.reviewBrief?.headline,
       scenario.reviewBrief?.action,
       ...(scenario.reviewBrief?.keyReasons ?? []),

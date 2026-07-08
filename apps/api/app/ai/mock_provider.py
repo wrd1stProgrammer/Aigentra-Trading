@@ -563,8 +563,9 @@ class MockAIProvider(BaseAIProvider):
             }
             label = action_labels.get(suggested, "관리 보류")
             return {
+                "title": f"{label}보다 조건을 먼저 봅니다",
                 "verdict": label,
-                "headline": f"현재 판단은 {label}입니다.",
+                "headline": f"현재 포지션은 {label} 판단이지만, 트레이더 기준의 다음 조건이 먼저입니다.",
                 "action": f"{label} 기준으로 관리하고 {next_review_seconds}초 뒤 다시 확인하세요.",
                 "keyReasons": [
                     payload.event.reason,
@@ -581,8 +582,9 @@ class MockAIProvider(BaseAIProvider):
 
         label = suggested.replace("_", " ").title()
         return {
+            "title": f"{label} needs a trigger",
             "verdict": label,
-            "headline": f"The current management call is {label}.",
+            "headline": f"The current call is {label}, but the trader trigger decides the next change.",
             "action": f"Manage under {label} and review again in {next_review_seconds} seconds.",
             "keyReasons": [
                 payload.event.reason,

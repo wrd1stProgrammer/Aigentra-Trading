@@ -59,10 +59,13 @@ test("pricing plan calls to action route to real product surfaces", () => {
   assert.doesNotMatch(visualSource, /href=\{isFree \? "\/leaderboard" : "\/account"\}/, "paid CTA should not detour through account settings");
 });
 
-test("landing language selector opens a menu and first visit locale can be inferred", () => {
-  assert.match(homeSource, /LOCALE_OPTIONS\.map/, "landing language control should open a locale menu instead of cycling immediately");
-  assert.match(homeSource, /aria-expanded=\{isLanguageMenuOpen\}/, "language menu should expose expanded state");
-  assert.match(homeSource, /role="menuitemradio"/, "language choices should be exposed as selectable menu items");
+test("landing profile menu owns language selection and first visit locale can be inferred", () => {
+  assert.match(homeSource, /isProfileMenuOpen/, "landing should open locale choices from the profile menu");
+  assert.match(homeSource, /aria-expanded=\{isProfileMenuOpen\}/, "profile menu should expose expanded state");
+  assert.match(homeSource, /LOCALE_OPTIONS\.map/, "landing profile menu should list supported locales instead of cycling immediately");
+  assert.match(homeSource, /role="radiogroup"/, "language choices should be grouped as selectable radio options");
+  assert.match(homeSource, /role="radio"/, "each language choice should expose selected state");
+  assert.doesNotMatch(homeSource, /setIsLanguageMenuOpen/, "landing should not keep a separate top-level language menu");
   assert.doesNotMatch(homeSource, /nextLocale|SUPPORTED_LOCALES/, "landing language click should not rotate through locales");
   assert.match(appProviderSource, /detectBrowserLocale/, "first visit locale should be inferred before falling back");
   assert.match(appProviderSource, /COUNTRY_LOCALE_MAP/, "locale detection should include country-to-locale mapping");
@@ -70,22 +73,24 @@ test("landing language selector opens a menu and first visit locale can be infer
 });
 
 test("AI agent monitoring preview reflects current product language", () => {
-  assert.match(visualSource, /AI Agent/, "decision pipeline badge should not name a specific provider model");
+  assert.match(marketingSource, /AI Agent|AI 에이전트/, "decision pipeline badge should not name a specific provider model");
   assert.doesNotMatch(visualSource, /Gemini-3\.5/, "landing should not expose Gemini branding in the pipeline");
-  assert.match(visualSource, /20 AI Strategists/, "consensus preview should reflect the 20-trader sentiment system");
+  assert.match(marketingSource, /20 AI Strategists|AI 전략가 20명/, "consensus preview should reflect the 20-trader sentiment system");
   assert.match(visualSource, />ROI</, "position monitor should label the metric as ROI");
   assert.doesNotMatch(visualSource, /ROI PnL/, "position monitor should not use the old ROI PnL label");
-  assert.match(visualSource, /TARGET ROI/, "scenario plan should describe target as ROI");
+  assert.match(marketingSource, /TARGET ROI|목표 ROE/, "scenario plan should describe target as ROI");
   assert.match(visualSource, /candles\.map/, "scenario plan preview should render candle-like marks, not only a line chart");
   assert.doesNotMatch(marketingSource, /LLM agents|LLM 에이전트/, "landing monitoring copy should describe AI agents without provider or model-class jargon");
+  assert.match(visualSource, /LandingCopy\["previews"\]/, "home preview cards should source copy from localized marketing data");
+  assert.doesNotMatch(visualSource, /\[AI Trader League\] 트레이더 피드|변동성 확장 구간|단기 매도 거래량 급증/, "preview cards should not hardcode Korean copy in React components");
 });
 
 test("pricing, Telegram preview, and FAQ match the simplified Pro offer", () => {
   assert.match(marketingSource, /name: "Aigentra Pro"/, "pricing should expose the single Pro plan");
   assert.doesNotMatch(marketingSource, /\$49|Elite Operator|Tactician|Observer/, "old extra pricing tiers should be removed from landing copy");
   assert.match(marketingSource, /Questions users actually ask|유저가 실제로 궁금해할 질문/, "FAQ should be rewritten around buyer questions");
-  assert.match(visualSource, /Aigentra Trading Bot/, "Telegram preview should resemble the actual bot message surface");
-  assert.match(visualSource, /\[AI Trader League\] 트레이더 피드/, "Telegram preview should echo the production message format");
+  assert.match(marketingSource, /Aigentra Trading Bot/, "Telegram preview should resemble the actual bot message surface");
+  assert.match(marketingSource, /\[AI Trader League\] 트레이더 피드|\[AI Trader League\] Trader Feed/, "Telegram preview copy should echo the production message format through i18n");
   assert.match(visualSource, /ROI/, "Telegram preview should show a useful trading summary, not only prose");
   assert.match(homeSource, /max-w-\[1500px\]/, "Telegram section should use the wider landing panel requested by the user");
   assert.match(marketingSource, /자동매매 버튼이 아니라|not an auto-trading button/, "Telegram section should explain that Aigentra is a monitoring surface, not an execution bot");

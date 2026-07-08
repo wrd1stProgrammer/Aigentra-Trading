@@ -9,7 +9,7 @@ const sidebarSource = readFileSync(new URL("../components/trader-profile-detail/
 test("trader detail wires realized events, completed chart markers, and pnl calendar panel", () => {
   assert.match(pageSource, /buildScenarioTimelineItems\(\{\s*scenarios,\s*reviews,/s);
   assert.doesNotMatch(pageSource, /buildScenarioTimelineItems\(\{\s*scenarios,\s*events,/s);
-  assert.match(pageSource, /paperEvents=\{events\}/);
+  assert.match(pageSource, /paperEvents=\{chartEvents\}/);
   assert.match(pageSource, /reviewCountsByDay/);
   assert.match(pageSource, /scenarioCountByDate/);
   assert.match(pageSource, /tradeHistoryItems=\{historyItems\}/);
