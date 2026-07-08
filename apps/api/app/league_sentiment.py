@@ -232,7 +232,9 @@ async def get_or_create_league_sentiment_opinion(
     requested_locale = normalize_locale(locale)
     interval_start, interval_end = current_utc_hour_window(now)
     record_to_replace: Optional[LeagueSentimentOpinionRecord] = None
-    if not force:
+    if force:
+        record_to_replace = latest_hourly_opinion(db, symbol, CANONICAL_AI_LOCALE, interval_start)
+    else:
         cached_payload = await redis_get_json(league_sentiment_cache_key(symbol, requested_locale, interval_start))
         if isinstance(cached_payload, dict):
             cached_payload["cacheHit"] = True

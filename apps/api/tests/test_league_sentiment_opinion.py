@@ -1295,3 +1295,53 @@ def test_league_sentiment_http_surface_times_out_to_market_first_fallback(temp_d
     assert "유지하면" in brief["watch"]
     assert "이탈하면" in brief["watch"]
     assert "시뮬레이션" not in visible_text
+
+
+def test_league_sentiment_refresh_replaces_existing_fallback_with_generated_opinion(temp_db, monkeypatch):
+    seed_sentiment_context()
+    seed_market_context()
+
+    from app.ai.mock_provider import MockAIProvider
+
+    class SlowProvider:
+        name = "codex_cli"
+        model = "slow-league-sentiment"
+        fallback = False
+
+        async def review_league_sentiment(self, payload):
+            await anyio.sleep(1)
+
+    providers = [SlowProvider(), MockAIProvider()]
+
+    def provider_factory(settings, provider_name=None):
+        return providers.pop(0)
+
+    current_time = datetime(2026, 6, 18, 8, 35, tzinfo=timezone.utc)
+    monkeypatch.setattr("app.league_sentiment.utc_now", lambda: current_time)
+    monkeypatch.setattr("app.league_sentiment.get_ai_provider", provider_factory)
+    monkeypatch.setattr("app.main.settings.league_sentiment_provider", "mock")
+    monkeypatch.setattr("app.main.settings.league_sentiment_timeout_seconds", 0.01)
+
+    client = TestClient(app)
+    fallback_response = client.get("/api/league/sentiment/opinion?symbol=BTCUSDT&locale=ko&refresh=true")
+    assert fallback_response.status_code == 200
+    fallback_data = fallback_response.json()
+    assert fallback_data["status"] == "fallback"
+    assert fallback_data["opinion"]["fallback"] is True
+
+    monkeypatch.setattr("app.main.settings.league_sentiment_timeout_seconds", 5)
+    generated_response = client.get("/api/league/sentiment/opinion?symbol=BTCUSDT&locale=ko&refresh=true")
+
+    assert generated_response.status_code == 200
+    generated_data = generated_response.json()
+    assert generated_data["id"] == fallback_data["id"]
+    assert generated_data["cacheHit"] is False
+    assert generated_data["status"] == "ok"
+    assert generated_data["opinion"]["fallback"] is False
+    assert generated_data["opinion"]["brief"]["conclusion"].startswith("BTC")
+    assert generated_data["opinion"]["briefingVersion"] == LEAGUE_SENTIMENT_BRIEFING_VERSION
+    with session_scope() as db:
+        records = db.query(LeagueSentimentOpinionRecord).all()
+        assert len(records) == 1
+        assert records[0].status == "ok"
+        assert records[0].fallback is False
