@@ -1,5 +1,5 @@
 from app.ai.base import BaseAIProvider
-from app.ai.league_sentiment_models import LeagueSentimentOpinionResult, LeagueSentimentPayload
+from app.ai.league_sentiment_models import LeagueSentimentLocalizedOpinion, LeagueSentimentOpinionResult, LeagueSentimentPayload
 from app.paper.holding_policy import trader_holding_policy
 from app.traders.models import PositionManagementPayload, PositionManagementResult, TradeReviewPayload, TradeReviewResult
 from app.traders.strategy_base import candidate_geometry_errors
@@ -239,7 +239,6 @@ class MockAIProvider(BaseAIProvider):
     async def review_league_sentiment(
         self, payload: LeagueSentimentPayload
     ) -> LeagueSentimentOpinionResult:
-        locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
         counts = payload.sourceCounts
         long_count = int(counts.get("activeLongPositions", 0)) + int(counts.get("pendingLongOrders", 0))
         short_count = int(counts.get("activeShortPositions", 0)) + int(counts.get("pendingShortOrders", 0))
@@ -247,6 +246,8 @@ class MockAIProvider(BaseAIProvider):
         pending_count = int(counts.get("pendingOrders", 0))
         losses = int(counts.get("recentStopLosses", 0))
         wins = int(counts.get("recentTakeProfits", 0))
+        active_position_word = "position" if active_count == 1 else "positions"
+        pending_entry_word = "entry" if pending_count == 1 else "entries"
 
         if losses >= max(2, wins + 2):
             bias = "RISK_OFF"
@@ -265,54 +266,204 @@ class MockAIProvider(BaseAIProvider):
             confidence = 45
 
         risk_level = "HIGH" if losses >= 2 or bias == "RISK_OFF" else "MEDIUM"
-        if locale == "ko":
-            direction = "롱" if bias == "LONG_BIASED" else "숏" if bias == "SHORT_BIASED" else "혼조" if bias == "MIXED" else "방어"
-            headline = f"지금은 새 방향을 쫓기보다 {direction} 쪽 활성 셋업이 무효화되는지 먼저 볼 구간입니다."
-            summary = (
-                f"활성 포지션 {active_count}건과 진입 대기 {pending_count}건을 합치면 LONG {long_count}건, SHORT {short_count}건입니다. "
-                "이 수치는 리그 트레이더들이 어느 쪽에 실제 리스크를 걸었는지 보여주지만, 최근 익절/손절은 방향보다 신뢰도와 리스크 판단에 더 크게 반영했습니다. "
-                "따라서 지금은 한쪽 숫자만 보고 따라가기보다 체결 여부와 무효화 조건을 같이 봐야 합니다."
+        display_symbol = payload.symbol.upper().removesuffix("USDT") or payload.symbol.upper()
+        market = payload.market if isinstance(payload.market, dict) else {}
+        timeframes = market.get("timeframes") if isinstance(market.get("timeframes"), dict) else {}
+        primary_key = next((key for key in ("1h", "15m", "4h", "1d") if isinstance(timeframes.get(key), dict)), None)
+        primary = timeframes.get(primary_key, {}) if primary_key else {}
+        primary_label = (primary_key or "1h").upper()
+        primary_trend = str(primary.get("trend") or "mixed").replace("_", " ")
+        primary_trend_ko = {
+            "uptrend": "상승",
+            "bullish": "상승",
+            "downtrend": "하락",
+            "bearish": "하락",
+            "range": "박스권",
+            "sideways": "횡보",
+            "mixed": "혼조",
+        }.get(str(primary.get("trend") or "mixed").lower(), "혼조")
+        primary_trend_by_locale = {
+            "en": primary_trend,
+            "ru": {
+                "uptrend": "восходящего тренда",
+                "bullish": "бычьего тренда",
+                "downtrend": "нисходящего тренда",
+                "bearish": "медвежьего тренда",
+                "range": "диапазона",
+                "sideways": "бокового движения",
+                "mixed": "смешанной структуры",
+            }.get(str(primary.get("trend") or "mixed").lower(), "смешанной структуры"),
+            "pt-BR": {
+                "uptrend": "de alta",
+                "bullish": "compradora",
+                "downtrend": "de baixa",
+                "bearish": "vendedora",
+                "range": "em faixa",
+                "sideways": "lateral",
+                "mixed": "mista",
+            }.get(str(primary.get("trend") or "mixed").lower(), "mista"),
+            "tr": {
+                "uptrend": "yükseliş trendi",
+                "bullish": "alıcı ağırlıklı trend",
+                "downtrend": "düşüş trendi",
+                "bearish": "satıcı ağırlıklı trend",
+                "range": "bant yapısı",
+                "sideways": "yatay yapı",
+                "mixed": "karışık yapı",
+            }.get(str(primary.get("trend") or "mixed").lower(), "karışık yapı"),
+        }
+        anchor_value = primary.get("ema50") or primary.get("close") or market.get("price")
+        try:
+            anchor = f"{float(anchor_value):,.0f}"
+        except (TypeError, ValueError):
+            anchor = ""
+
+        def localized(locale: str) -> LeagueSentimentLocalizedOpinion:
+            if locale == "ko":
+                direction = "롱" if bias == "LONG_BIASED" else "숏" if bias == "SHORT_BIASED" else "혼조" if bias == "MIXED" else "방어"
+                headline = (
+                    f"{display_symbol}는 {primary_label} {primary_trend_ko} 흐름에서 리그 기준 {direction} 압력이 보이지만, "
+                    "지금은 새 방향 추격보다 무효화 확인이 먼저입니다."
+                )
+                summary = (
+                    f"리그 트레이더의 활성 포지션 {active_count}건과 진입 대기 {pending_count}건은 LONG {long_count}건, SHORT {short_count}건의 압력을 만듭니다. "
+                    f"최근 익절 {wins}건과 손절 {losses}건은 방향보다 신뢰도와 방어 필요성을 더 크게 흔듭니다. "
+                    "따라서 한쪽 숫자만 따라가기보다 실제 체결 변화와 무효화 조건을 같이 확인해야 합니다."
+                )
+                action = (
+                    f"다음 생성 전까지 {primary_label} 기준 {anchor} 유지 여부와 대기 주문 체결 변화를 확인하세요; "
+                    "유지하면 현재 리그 해석을 유지하고, 이탈하면 방어 우선으로 읽습니다."
+                    if anchor
+                    else "다음 생성 전까지 활성 포지션의 보호 손절/무효화 조건과 대기 주문의 실제 체결 변화를 확인하세요."
+                )
+                context = f"LONG {long_count}건 / SHORT {short_count}건이며, 최근 결과는 익절 {wins}건 / 손절 {losses}건입니다."
+                drivers = [
+                    f"활성 포지션 {active_count}건은 이미 리스크가 걸린 트레이더 수라 현재 방향 압력을 보여줍니다.",
+                    f"진입 대기 주문 {pending_count}건은 아직 확정 포지션이 아니므로 체결 전까지는 방향 신뢰도를 낮춥니다.",
+                ]
+                risks = ["활성 수와 대기 수를 같은 강도로 보면 아직 체결되지 않은 셋업을 과신할 수 있습니다."]
+                confidence_reason = "시장 흐름과 리그 노출은 읽을 수 있지만, mock 경로는 실제 AI 재검증이 없어 신뢰도를 제한합니다."
+            elif locale == "ru":
+                direction = "LONG" if bias == "LONG_BIASED" else "SHORT" if bias == "SHORT_BIASED" else "смешанный" if bias == "MIXED" else "защитный"
+                headline = f"{display_symbol} находится в структуре {primary_label} {primary_trend_by_locale['ru']}; давление лиги {direction}, но сейчас важнее проверка инвалидирования, а не погоня."
+                summary = (
+                    f"У трейдеров лиги {active_count} активных позиций и {pending_count} ожидающих входов: LONG {long_count} против SHORT {short_count}. "
+                    f"Недавние тейк-профиты {wins} и стоп-лоссы {losses} важнее для доверия и защиты, чем для направления. "
+                    "Смотрите не только на счет сторон, а на исполнение ожидающих входов и сохранение зон инвалидирования."
+                )
+                action = (
+                    f"До следующей генерации проверьте, удерживает ли {display_symbol} зону {primary_label} около {anchor}; "
+                    "удержание сохраняет чтение лиги, потеря делает защиту приоритетом."
+                    if anchor
+                    else "До следующей генерации сначала проверьте уровни инвалидирования активных позиций, затем исполнение ожидающих входов."
+                )
+                context = f"LONG {long_count} / SHORT {short_count}; недавние TP {wins} / SL {losses}."
+                drivers = [
+                    f"{active_count} активных позиций показывают, где трейдеры уже держат риск.",
+                    f"{pending_count} ожидающих входов могут изменить перекос только после исполнения.",
+                ]
+                risks = ["Если считать ожидающие ордера исполненной экспозицией, перекос будет выглядеть сильнее реального."]
+                confidence_reason = "Доверие ограничено: mock-путь видит рынок и лигу, но не выполняет живой второй AI-синтез."
+            elif locale == "pt-BR":
+                direction = "LONG" if bias == "LONG_BIASED" else "SHORT" if bias == "SHORT_BIASED" else "mista" if bias == "MIXED" else "defensiva"
+                headline = f"{display_symbol} está em leitura {primary_label} {primary_trend_by_locale['pt-BR']} com pressão {direction} da liga, mas a prioridade ainda é validar a invalidação, não perseguir."
+                summary = (
+                    f"Os traders da liga têm {active_count} posições ativas e {pending_count} entradas pendentes, com LONG {long_count} contra SHORT {short_count}. "
+                    f"Os take-profits {wins} e stop-losses {losses} recentes pesam mais na confiança e defesa do que na direção. "
+                    "Não leia só a contagem de lados; confirme se entradas pendentes executam e se as áreas de invalidação seguem válidas."
+                )
+                action = (
+                    f"Até a próxima geração, veja se {display_symbol} mantém a área {primary_label} perto de {anchor}; "
+                    "se mantiver, preserva a leitura da liga, se perder, a defesa vira prioridade."
+                    if anchor
+                    else "Até a próxima geração, confira primeiro as áreas de invalidação ativas e depois se as entradas pendentes executam."
+                )
+                context = f"LONG {long_count} / SHORT {short_count}; TP recentes {wins} / SL {losses}."
+                drivers = [
+                    f"{active_count} posições ativas mostram onde os traders já colocaram risco.",
+                    f"{pending_count} entradas pendentes só mudam o viés depois de executarem.",
+                ]
+                risks = ["Tratar ordens pendentes como exposição preenchida pode deixar a leitura mais forte do que ela é."]
+                confidence_reason = "A confiança fica limitada porque o mock vê mercado e liga, mas não roda uma segunda síntese de AI ao vivo."
+            elif locale == "tr":
+                direction = "LONG" if bias == "LONG_BIASED" else "SHORT" if bias == "SHORT_BIASED" else "karışık" if bias == "MIXED" else "savunmacı"
+                headline = f"{display_symbol} {primary_label} {primary_trend_by_locale['tr']} okumasında ve lig baskısı {direction}; yine de bu yeni kovalamadan çok geçersizlik kontrolü."
+                summary = (
+                    f"Lig traderlarında {active_count} aktif pozisyon ve {pending_count} bekleyen giriş var; LONG {long_count}, SHORT {short_count}. "
+                    f"Son take-profit {wins} ve stop-loss {losses} sonuçları yön tahmininden çok güven ve savunma filtresi olarak okunmalı. "
+                    "Sadece taraf sayısına bakmayın; bekleyen girişlerin gerçekleşmesini ve aktif geçersizlik alanlarının korunmasını doğrulayın."
+                )
+                action = (
+                    f"Sonraki üretime kadar {display_symbol} {primary_label} alanını {anchor} civarında koruyor mu izleyin; "
+                    "korursa lig okuması sürer, kaybederse savunma öncelik kazanır."
+                    if anchor
+                    else "Sonraki üretime kadar önce aktif geçersizlik/stop alanlarını, sonra bekleyen girişlerin gerçekleşip gerçekleşmediğini kontrol edin."
+                )
+                context = f"LONG {long_count} / SHORT {short_count}; son TP {wins} / SL {losses}."
+                drivers = [
+                    f"{active_count} aktif pozisyon traderların nerede risk aldığını gösterir.",
+                    f"{pending_count} bekleyen giriş ancak gerçekleşirse eğilimi değiştirir.",
+                ]
+                risks = ["Bekleyen emirleri gerçekleşmiş pozisyon gibi okumak eğilimi olduğundan güçlü gösterebilir."]
+                confidence_reason = "Güven sınırlı; mock yolu piyasa ve lig durumunu görür ama canlı ikinci AI sentezi çalıştırmaz."
+            else:
+                direction = "long" if bias == "LONG_BIASED" else "short" if bias == "SHORT_BIASED" else "mixed" if bias == "MIXED" else "defensive"
+                headline = f"{display_symbol} is in a {primary_label} {primary_trend} read with a {direction} league skew, but this is still an invalidation-check read rather than a fresh chase."
+                summary = (
+                    f"League traders have {active_count} active {active_position_word} and {pending_count} pending {pending_entry_word}, with LONG {long_count} versus SHORT {short_count}. "
+                    f"Recent take-profits {wins} and stop-losses {losses} matter less as direction and more as a confidence and defense filter. "
+                    "Do not read the side count alone as a signal; confirm whether pending entries fill and whether active invalidation levels hold."
+                )
+                action = (
+                    f"Until the next generation, check whether {display_symbol} holds the {primary_label} area near {anchor}; "
+                    "holding preserves the league read, losing it makes defense the priority."
+                    if anchor
+                    else "Until the next generation, check active invalidation/stop levels first, then see whether pending entries actually fill."
+                )
+                context = f"LONG {long_count} / SHORT {short_count}; recent TP {wins} / SL {losses}."
+                drivers = [
+                    f"{active_count} active positions show where traders already have risk on.",
+                    f"{pending_count} pending entries can change the skew, but only after they fill.",
+                ]
+                risks = ["Treating pending orders like filled exposure can make the read look stronger than it is."]
+                confidence_reason = "Confidence is capped because this mock path has market and league state, but no live second-pass AI synthesis."
+            return LeagueSentimentLocalizedOpinion(
+                confidenceReason=confidence_reason,
+                brief={"conclusion": headline, "reason": summary, "watch": action},
+                headline=headline,
+                summary=summary,
+                keyDrivers=drivers,
+                risks=risks,
+                watchConditions=[action],
+                action=action,
+                longShortContext=context,
             )
-            action = "다음 생성 전까지 활성 포지션의 손절/무효화 조건과 대기 주문이 실제 체결되는지만 우선 확인하세요."
-            context = f"LONG {long_count}건 / SHORT {short_count}건이며, 최근 결과는 익절 {wins}건 / 손절 {losses}건입니다."
-            drivers = [
-                f"활성 포지션 {active_count}건은 이미 리스크가 걸린 트레이더 수라 현재 방향 압력을 보여줍니다.",
-                f"진입 대기 주문 {pending_count}건은 아직 확정 포지션이 아니므로 체결 전까지는 방향 신뢰도를 낮춥니다.",
-                f"최근 익절 {wins}건과 손절 {losses}건은 현재 리그가 과열인지, 방어가 필요한지 판단하는 근거입니다.",
-            ]
-            risks = ["활성 수와 대기 수를 같은 강도로 보면 아직 체결되지 않은 셋업을 과신할 수 있습니다."]
-            watch = ["다음 생성 전까지 활성 LONG/SHORT 수가 바뀌는지, 손절 이벤트가 추가되는지 확인하세요."]
-        else:
-            direction = "long" if bias == "LONG_BIASED" else "short" if bias == "SHORT_BIASED" else "mixed" if bias == "MIXED" else "defensive"
-            headline = f"For now, watch whether the active {direction} setups stay valid before chasing a new direction."
-            summary = (
-                f"The league has {active_count} active positions and {pending_count} pending entries, with LONG {long_count} versus SHORT {short_count}. "
-                "That shows where simulation traders have risk or planned risk, but recent TP/SL history is used mainly to adjust confidence and risk. "
-                "Do not read the side count alone as a signal; confirm whether pending entries fill and whether active invalidation levels hold."
-            )
-            action = "Until the next generation, check active invalidation/stop levels first, then see whether pending entries actually fill."
-            context = f"LONG {long_count} / SHORT {short_count}; recent TP {wins} / SL {losses}."
-            drivers = [
-                f"{active_count} active positions show where traders already have risk on.",
-                f"{pending_count} pending entries can change the skew, but only after they fill.",
-                f"{wins} recent take-profits and {losses} stop-losses explain whether confidence should rise or become defensive.",
-            ]
-            risks = ["Treating pending orders like filled exposure can make the read look stronger than it is."]
-            watch = ["Before the next generation, check whether active LONG/SHORT counts change or new stop-loss events appear."]
+
+        translations = {
+            "en": localized("en"),
+            "ko": localized("ko"),
+            "ru": localized("ru"),
+            "pt-BR": localized("pt-BR"),
+            "tr": localized("tr"),
+        }
+        source = translations["en"]
 
         return self.normalize_league_sentiment_result(
             {
                 "bias": bias,
                 "confidence": confidence,
                 "riskLevel": risk_level,
-                "headline": headline,
-                "summary": summary,
-                "keyDrivers": drivers,
-                "risks": risks,
-                "watchConditions": watch,
-                "action": action,
-                "longShortContext": context,
+                "confidenceReason": source.confidenceReason,
+                "brief": source.brief.model_dump(),
+                "headline": source.headline,
+                "summary": source.summary,
+                "keyDrivers": source.keyDrivers,
+                "risks": source.risks,
+                "watchConditions": source.watchConditions,
+                "action": source.action,
+                "longShortContext": source.longShortContext,
                 "sourceCounts": counts,
+                "translations": {locale: localized_opinion.model_dump() for locale, localized_opinion in translations.items()},
             }
         )
 

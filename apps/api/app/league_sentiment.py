@@ -76,7 +76,7 @@ LOCALIZED_OPINION_KEYS = (
     "action",
     "longShortContext",
 )
-LEAGUE_SENTIMENT_BRIEFING_VERSION = "market-first-2026-07-07"
+LEAGUE_SENTIMENT_BRIEFING_VERSION = "btc-market-briefing-2026-07-08"
 
 
 def current_utc_hour_window(now: Optional[datetime] = None) -> tuple[datetime, datetime]:
@@ -1276,94 +1276,105 @@ def fallback_market_brief_lines(
     weak_recent_outcomes = stop_losses >= max(2, take_profits + 2)
 
     if locale == "ko":
+        hold_read = "LONG 우위 재테스트 해석을 유지" if long_skew else "SHORT/방어 해석을 유지" if short_skew else "혼조 압축 해석을 유지"
+        fail_read = "추격보다 리스크 축소가 우선입니다"
         if primary_key and secondary_key:
-            conclusion = f"{display_symbol}는 {primary_label} {primary_trend}이 {secondary_label} {secondary_trend} 안에서 재테스트 중인 구간입니다."
+            conclusion = (
+                f"{display_symbol}는 {primary_label} {primary_trend}이 {secondary_label} {secondary_trend} 안에서 재테스트 중인 구간입니다. "
+                "지금은 추격보다 확인이 먼저입니다."
+            )
         else:
-            conclusion = f"{display_symbol}는 {primary_label} {primary_trend} 기준으로 방향 확인을 기다리는 구간입니다."
+            conclusion = f"{display_symbol}는 {primary_label} {primary_trend} 기준으로 방향 확인을 기다리는 구간입니다. 지금은 추격보다 확인이 먼저입니다."
         if long_skew:
-            reason = "트레이더들은 LONG 쪽에 더 기울었지만, 최근 실현 결과가 약해 추격보다 확인을 기다리는 판단입니다."
+            reason = "트레이더들은 LONG 쪽에 더 기울었지만, 최근 실현 결과가 약해 방어적 리스크 관리를 붙인 재테스트 판단입니다."
         elif short_skew:
             reason = "트레이더들은 SHORT 쪽에 더 기울었지만, 시장 확인 전까지는 공격적인 확신보다 방어적 판단이 우선입니다."
         else:
             reason = "트레이더들은 LONG과 SHORT 압력이 갈려 있어, 시장 구조가 먼저 방향을 확인해줘야 하는 상황입니다."
         if weak_recent_outcomes and not (long_skew or short_skew):
-            reason = "트레이더들의 방향은 갈려 있고 최근 실현 결과도 약해, 지금은 확신보다 확인이 먼저인 구간입니다."
+            reason = "트레이더들의 방향은 갈려 있고 최근 실현 결과도 약해, 지금은 확신보다 방어적 확인이 먼저인 구간입니다."
         if anchor:
             side_text = "위" if above_anchor else "아래"
-            watch = f"다음 생성 전에는 {display_symbol}가 {primary_label} EMA50 {anchor} {side_text}에 머무는지 보세요."
+            watch = (
+                f"다음 생성 전에는 {display_symbol}가 {primary_label} EMA50 {anchor} {side_text}를 유지하는지 보세요; "
+                f"유지하면 {hold_read}하고, 이탈하면 {fail_read}."
+            )
         else:
-            watch = f"다음 생성 전에는 {display_symbol}가 {primary_label} 흐름을 유지하는지 먼저 확인하세요."
+            watch = (
+                f"다음 생성 전에는 {display_symbol}가 {primary_label} 흐름을 유지하는지 먼저 확인하세요; "
+                f"유지하면 {hold_read}하고, 이탈하면 {fail_read}."
+            )
         risk = "최근 실현 결과가 약해 같은 방향 추격 신뢰도가 낮아질 수 있습니다."
         long_short = f"LONG {long_count}건 / SHORT {short_count}건 기준으로 리그의 현재 압력을 봅니다."
     elif locale == "ru":
         conclusion = (
             f"{display_symbol} находится в {primary_label} {primary_trend} внутри {secondary_label} {secondary_trend}; "
-            "главный вопрос сейчас - подтверждение, а не погоня."
+            "это чтение подтверждения, а не погони."
         )
         if long_skew:
-            reason = "Трейдеры больше смещены в LONG, но слабые реализованные исходы требуют подтверждения перед усилением вывода."
+            reason = "Трейдеры больше смещены в LONG, но слабые реализованные исходы делают чтение защитным до подтверждения ретеста."
         elif short_skew:
             reason = "Трейдеры больше смещены в SHORT, но без подтверждения рынка это скорее защитное чтение."
         else:
             reason = "Трейдеры разделены между LONG и SHORT, поэтому направление должен подтвердить сам рынок."
         watch = (
-            f"До следующей генерации проверьте, удерживает ли {display_symbol} {primary_label} EMA50 {anchor}."
+            f"До следующей генерации проверьте, удерживает ли {display_symbol} {primary_label} EMA50 {anchor}; удержание сохраняет текущее чтение, потеря переводит его в защиту."
             if anchor
-            else f"До следующей генерации проверьте, сохраняет ли {display_symbol} структуру {primary_label}."
+            else f"До следующей генерации проверьте, сохраняет ли {display_symbol} структуру {primary_label}; удержание сохраняет текущее чтение, потеря переводит его в защиту."
         )
         risk = "Слабые реализованные исходы снижают надежность погони за той же стороной."
         long_short = f"LONG {long_count} / SHORT {short_count} показывает текущий нажим лиги."
     elif locale == "pt-BR":
         conclusion = (
             f"{display_symbol} está em {primary_label} {primary_trend} dentro de {secondary_label} {secondary_trend}; "
-            "a leitura pede confirmação, não perseguição."
+            "a leitura é de confirmação, não de perseguição."
         )
         if long_skew:
-            reason = "Os traders estão mais inclinados a LONG, mas resultados realizados fracos pedem confirmação antes de aumentar convicção."
+            reason = "Os traders estão mais inclinados a LONG, mas resultados realizados fracos deixam a leitura defensiva até o reteste confirmar."
         elif short_skew:
             reason = "Os traders estão mais inclinados a SHORT, mas sem confirmação do mercado a leitura segue defensiva."
         else:
             reason = "Os traders estão divididos entre LONG e SHORT, então a estrutura do BTC precisa confirmar a direção."
         watch = (
-            f"Até a próxima geração, veja se {display_symbol} mantém a EMA50 de {primary_label} em {anchor}."
+            f"Até a próxima geração, veja se {display_symbol} mantém a EMA50 de {primary_label} em {anchor}; se mantiver, preserva a leitura, se perder, a defesa vira prioridade."
             if anchor
-            else f"Até a próxima geração, veja se {display_symbol} mantém a estrutura de {primary_label}."
+            else f"Até a próxima geração, veja se {display_symbol} mantém a estrutura de {primary_label}; se mantiver, preserva a leitura, se perder, a defesa vira prioridade."
         )
         risk = "Resultados realizados fracos reduzem a confiança em perseguir o mesmo lado."
         long_short = f"LONG {long_count} / SHORT {short_count} resume a pressão atual da liga."
     elif locale == "tr":
         conclusion = (
             f"{display_symbol} {secondary_label} {secondary_trend} içinde {primary_label} {primary_trend} yapısını test ediyor; "
-            "şimdi kovalama değil teyit önemli."
+            "bu kovalama değil teyit okuması."
         )
         if long_skew:
-            reason = "Traderlar LONG tarafına daha eğimli, fakat zayıf gerçekleşen sonuçlar teyitsiz kovalamayı sınırlıyor."
+            reason = "Traderlar LONG tarafına daha eğimli, fakat zayıf gerçekleşen sonuçlar retest onaylanana kadar okumayı savunmacı tutuyor."
         elif short_skew:
             reason = "Traderlar SHORT tarafına daha eğimli, fakat piyasa teyidi gelmeden okuma savunmacı kalıyor."
         else:
             reason = "Traderlar LONG ve SHORT arasında bölünmüş durumda, bu yüzden yönü BTC yapısı doğrulamalı."
         watch = (
-            f"Sonraki üretime kadar {display_symbol} {primary_label} EMA50 {anchor} seviyesini koruyor mu izleyin."
+            f"Sonraki üretime kadar {display_symbol} {primary_label} EMA50 {anchor} seviyesini koruyor mu izleyin; korursa okuma sürer, kaybederse savunma öncelik kazanır."
             if anchor
-            else f"Sonraki üretime kadar {display_symbol} {primary_label} yapısını koruyor mu izleyin."
+            else f"Sonraki üretime kadar {display_symbol} {primary_label} yapısını koruyor mu izleyin; korursa okuma sürer, kaybederse savunma öncelik kazanır."
         )
         risk = "Zayıf gerçekleşen sonuçlar aynı tarafı kovalamada güveni düşürür."
         long_short = f"LONG {long_count} / SHORT {short_count} ligin mevcut baskısını özetler."
     else:
         conclusion = (
             f"{display_symbol} is testing a {primary_label} {primary_trend} inside a {secondary_label} {secondary_trend}, "
-            "so confirmation matters more than chasing."
+            "so this is a confirmation read, not a chase setup."
         )
         if long_skew:
-            reason = "Traders are leaning LONG, but weak realized outcomes keep the judgment confirmation-first."
+            reason = "League traders are leaning LONG, but weak realized outcomes keep the read defensive until the retest confirms."
         elif short_skew:
-            reason = "Traders are leaning SHORT, but without market confirmation the judgment stays defensive."
+            reason = "League traders are leaning SHORT, but without market confirmation the judgment stays defensive."
         else:
-            reason = "Traders are split between LONG and SHORT, so BTC structure needs to confirm direction first."
+            reason = "League traders are split between LONG and SHORT, so BTC structure needs to confirm direction first."
         watch = (
-            f"Before the next generation, check whether {display_symbol} holds the {primary_label} EMA50 near {anchor}."
+            f"Before the next generation, check whether {display_symbol} holds the {primary_label} EMA50 near {anchor}; holding preserves the read, losing it makes defense the priority."
             if anchor
-            else f"Before the next generation, check whether {display_symbol} holds its {primary_label} structure."
+            else f"Before the next generation, check whether {display_symbol} holds its {primary_label} structure; holding preserves the read, losing it makes defense the priority."
         )
         risk = "Weak realized outcomes can reduce confidence in chasing the same side."
         long_short = f"LONG {long_count} / SHORT {short_count} summarizes the current league pressure."

@@ -222,15 +222,24 @@ def league_sentiment_schema() -> dict[str, Any]:
                 "properties": {
                     "conclusion": {
                         "type": "string",
-                        "description": "One or two concise sentences that start with BTC market state, then the league read.",
+                        "description": (
+                            "One or two concise sentences that start with the BTC regime and directional pressure, "
+                            "then state the chase, retest, compression, defense, or risk-off implication for the league."
+                        ),
                     },
                     "reason": {
                         "type": "string",
-                        "description": "One or two concise sentences interpreting aggregate trader positioning and why it matters.",
+                        "description": (
+                            "One or two concise sentences synthesizing trader positioning across active exposure, pending orders, "
+                            "fresh AI reviews, and recent outcomes; explain whether trader behavior confirms, fades, or hesitates around the BTC regime."
+                        ),
                     },
                     "watch": {
                         "type": "string",
-                        "description": "One or two concise sentences naming the next market or positioning confirmation before the next generation.",
+                        "description": (
+                            "One or two concise sentences naming one concrete level, zone, timeframe close, or exposure change, "
+                            "and what holding or failing it means before the next generation."
+                        ),
                     },
                 },
                 "required": ["conclusion", "reason", "watch"],
@@ -281,15 +290,24 @@ def league_sentiment_schema() -> dict[str, Any]:
                 "properties": {
                     "conclusion": {
                         "type": "string",
-                        "description": "One or two concise sentences that start with BTC market state, then the league read.",
+                        "description": (
+                            "One or two concise sentences that start with the BTC regime and directional pressure, "
+                            "then state the chase, retest, compression, defense, or risk-off implication for the league."
+                        ),
                     },
                     "reason": {
                         "type": "string",
-                        "description": "One or two concise sentences interpreting aggregate trader positioning and why it matters.",
+                        "description": (
+                            "One or two concise sentences synthesizing trader positioning across active exposure, pending orders, "
+                            "fresh AI reviews, and recent outcomes; explain whether trader behavior confirms, fades, or hesitates around the BTC regime."
+                        ),
                     },
                     "watch": {
                         "type": "string",
-                        "description": "One or two concise sentences naming the next market or positioning confirmation before the next generation.",
+                        "description": (
+                            "One or two concise sentences naming one concrete level, zone, timeframe close, or exposure change, "
+                            "and what holding or failing it means before the next generation."
+                        ),
                     },
                 },
                 "required": ["conclusion", "reason", "watch"],

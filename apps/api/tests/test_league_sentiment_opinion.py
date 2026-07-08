@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
+import anyio
 import pytest
 from fastapi.testclient import TestClient
 
@@ -910,7 +911,7 @@ def test_league_sentiment_prompt_prioritizes_user_usefulness_and_specificity(tem
 
     assert "brief" in prompt
     assert "The default UI reads only brief" in prompt
-    assert "two or three short lines" in prompt
+    assert "compact three-line market briefing" in prompt
     assert "brief.conclusion" in prompt
     assert "brief.reason" in prompt
     assert "brief.watch" in prompt
@@ -965,6 +966,31 @@ def test_league_sentiment_prompt_requires_market_first_aggregate_briefing(temp_d
     assert "judgment follows" in prompt
 
 
+def test_league_sentiment_prompt_requires_decisive_btc_market_briefing(temp_db):
+    seed_sentiment_context()
+    seed_market_context()
+    with session_scope() as db:
+        payload = build_league_sentiment_payload(
+            db,
+            symbol="BTCUSDT",
+            locale="en",
+            interval_start=datetime(2026, 6, 18, 8, 0, tzinfo=timezone.utc),
+            interval_end=datetime(2026, 6, 18, 9, 0, tzinfo=timezone.utc),
+            now=datetime(2026, 6, 18, 8, 35, tzinfo=timezone.utc),
+            recent_hours=24,
+        )
+
+    prompt = league_sentiment_prompt(payload)
+
+    assert "Write brief as a BTC market briefing, not as a transaction log." in prompt
+    assert "brief.conclusion should be two punchy sentences when data allows" in prompt
+    assert "name the current BTC regime and the directional pressure in the same field" in prompt
+    assert "brief.reason must synthesize active exposure, pending orders, fresh AI reviews, and recent outcomes" in prompt
+    assert "explain whether trader behavior confirms, fades, or hesitates around the BTC regime" in prompt
+    assert "brief.watch must give one concrete level, zone, timeframe close, or exposure change" in prompt
+    assert "Forbid limp summaries such as 'not one-sided', 'monitor closely', or only restating LONG/SHORT counts" in prompt
+
+
 def test_league_sentiment_schema_allows_two_support_items():
     schema = league_sentiment_schema()
     localized = schema["properties"]["translations"]["properties"]["ko"]
@@ -975,6 +1001,26 @@ def test_league_sentiment_schema_allows_two_support_items():
         assert properties["keyDrivers"]["maxItems"] == 2
         assert properties["risks"]["maxItems"] == 2
         assert properties["watchConditions"]["maxItems"] == 2
+
+
+def test_league_sentiment_schema_requires_decisive_btc_briefing_descriptions():
+    schema = league_sentiment_schema()
+    localized = schema["properties"]["translations"]["properties"]["ko"]
+
+    for properties in (schema["properties"], localized["properties"]):
+        brief = properties["brief"]["properties"]
+        descriptions = " ".join(
+            [
+                brief["conclusion"]["description"],
+                brief["reason"]["description"],
+                brief["watch"]["description"],
+            ]
+        )
+        assert "BTC regime" in descriptions
+        assert "directional pressure" in descriptions
+        assert "trader positioning" in descriptions
+        assert "confirms, fades, or hesitates" in descriptions
+        assert "level, zone, timeframe close, or exposure change" in descriptions
 
 
 def test_fallback_league_sentiment_brief_uses_btc_market_state_before_trade_counts():
@@ -1034,9 +1080,161 @@ def test_fallback_league_sentiment_brief_uses_btc_market_state_before_trade_coun
     assert "최근 손절" not in brief_text
 
 
+def test_fallback_league_sentiment_brief_uses_decisive_btc_market_state():
+    from app.league_sentiment import fallback_league_sentiment_opinion
+    from app.ai.league_sentiment_models import LeagueSentimentPayload
+
+    payload = LeagueSentimentPayload(
+        symbol="BTCUSDT",
+        locale="ko",
+        generatedAt="2026-06-18T08:35:00+00:00",
+        intervalStart="2026-06-18T08:00:00+00:00",
+        intervalEnd="2026-06-18T09:00:00+00:00",
+        market={
+            "symbol": "BTCUSDT",
+            "price": 63377.7,
+            "dataAvailable": True,
+            "timeframes": {
+                "1h": {"trend": "uptrend", "close": 63377.7, "ema50": 62920.0, "rsi14": 58.4},
+                "4h": {"trend": "range", "close": 63377.7, "ema50": 63180.0, "rsi14": 54.2},
+            },
+        },
+        sourceCounts={
+            "activeLongPositions": 2,
+            "activeShortPositions": 1,
+            "pendingLongOrders": 1,
+            "pendingShortOrders": 0,
+            "recentTakeProfits": 0,
+            "recentStopLosses": 3,
+        },
+    )
+
+    opinion = fallback_league_sentiment_opinion(payload)
+    brief_text = " ".join([opinion.brief.conclusion, opinion.brief.reason, opinion.brief.watch])
+
+    assert opinion.brief.conclusion.startswith("BTC")
+    assert "추격" in opinion.brief.conclusion
+    assert "확인" in opinion.brief.conclusion
+    assert "트레이더" in opinion.brief.reason
+    assert "LONG" in opinion.brief.reason
+    assert "방어" in opinion.brief.reason or "리스크" in opinion.brief.reason
+    assert "유지하면" in opinion.brief.watch
+    assert "이탈하면" in opinion.brief.watch
+    assert "시뮬레이션" not in brief_text
+    assert "페이퍼" not in brief_text
+
+
+def test_mock_league_sentiment_brief_avoids_simulation_terms_and_names_btc():
+    from app.ai.league_sentiment_models import LeagueSentimentPayload
+    from app.ai.mock_provider import MockAIProvider
+
+    payload = LeagueSentimentPayload(
+        symbol="BTCUSDT",
+        locale="en",
+        generatedAt="2026-06-18T08:35:00+00:00",
+        intervalStart="2026-06-18T08:00:00+00:00",
+        intervalEnd="2026-06-18T09:00:00+00:00",
+        market={"symbol": "BTCUSDT", "price": 63377.7},
+        sourceCounts={
+            "activePositions": 3,
+            "pendingOrders": 2,
+            "activeLongPositions": 2,
+            "activeShortPositions": 0,
+            "pendingLongOrders": 1,
+            "pendingShortOrders": 1,
+            "recentTakeProfits": 1,
+            "recentStopLosses": 2,
+        },
+    )
+
+    opinion = anyio.run(MockAIProvider().review_league_sentiment, payload)
+    visible_text = " ".join(
+        [
+            opinion.brief.conclusion,
+            opinion.brief.reason,
+            opinion.brief.watch,
+            opinion.summary,
+        ]
+    )
+
+    assert opinion.brief.conclusion.startswith("BTC")
+    assert "league traders" in visible_text.lower()
+    assert "simulation" not in visible_text.lower()
+    assert "paper trading" not in visible_text.lower()
+
+
+def test_mock_league_sentiment_http_surface_embeds_korean_market_brief(temp_db, monkeypatch):
+    seed_sentiment_context()
+    seed_market_context()
+
+    monkeypatch.setattr("app.league_sentiment.utc_now", lambda: datetime(2026, 6, 18, 8, 35, tzinfo=timezone.utc))
+    monkeypatch.setattr("app.main.settings.league_sentiment_provider", "mock")
+
+    client = TestClient(app)
+    response = client.get("/api/league/sentiment/opinion?symbol=BTCUSDT&locale=ko&refresh=true")
+
+    assert response.status_code == 200
+    data = response.json()
+    brief = data["opinion"]["brief"]
+    visible_text = " ".join([brief["conclusion"], brief["reason"], brief["watch"]])
+
+    assert data["locale"] == "ko"
+    assert data["translation"]["status"] == "embedded"
+    assert brief["conclusion"].startswith("BTC")
+    assert "리그 트레이더" in visible_text
+    assert "유지하면" in brief["watch"]
+    assert "이탈하면" in brief["watch"]
+    assert "League traders" not in visible_text
+
+
+def test_mock_league_sentiment_embeds_supported_locale_briefs():
+    from app.ai.league_sentiment_models import LeagueSentimentPayload
+    from app.ai.mock_provider import MockAIProvider
+
+    payload = LeagueSentimentPayload(
+        symbol="BTCUSDT",
+        locale="en",
+        generatedAt="2026-06-18T08:35:00+00:00",
+        intervalStart="2026-06-18T08:00:00+00:00",
+        intervalEnd="2026-06-18T09:00:00+00:00",
+        market={
+            "symbol": "BTCUSDT",
+            "price": 63377.7,
+            "timeframes": {"1h": {"trend": "uptrend", "close": 63377.7, "ema50": 62920.0}},
+        },
+        sourceCounts={
+            "activePositions": 3,
+            "pendingOrders": 2,
+            "activeLongPositions": 2,
+            "activeShortPositions": 0,
+            "pendingLongOrders": 1,
+            "pendingShortOrders": 1,
+            "recentTakeProfits": 1,
+            "recentStopLosses": 2,
+        },
+    )
+
+    opinion = anyio.run(MockAIProvider().review_league_sentiment, payload)
+
+    for locale in ("en", "ko", "ru", "pt-BR", "tr"):
+        assert locale in opinion.translations
+        assert opinion.translations[locale].brief.conclusion.startswith("BTC")
+    assert "League traders" not in opinion.translations["ko"].brief.reason
+    assert "League traders" not in opinion.translations["ru"].brief.reason
+    assert "League traders" not in opinion.translations["pt-BR"].brief.reason
+    assert "League traders" not in opinion.translations["tr"].brief.reason
+    assert "리그 트레이더" in opinion.translations["ko"].brief.reason
+    assert "трейдеров лиги" in opinion.translations["ru"].brief.reason.lower()
+    assert "traders da liga" in opinion.translations["pt-BR"].brief.reason.lower()
+    assert "lig trader" in opinion.translations["tr"].brief.reason.lower()
+
+
 def test_league_sentiment_http_surface_returns_market_first_brief(temp_db, monkeypatch):
     seed_sentiment_context()
     seed_market_context()
+
+    class ProviderUnavailableForTest(Exception):
+        pass
 
     class FailingProvider:
         name = "anthropic"
@@ -1044,7 +1242,7 @@ def test_league_sentiment_http_surface_returns_market_first_brief(temp_db, monke
         fallback = False
 
         async def review_league_sentiment(self, payload):
-            raise RuntimeError("provider unavailable")
+            raise ProviderUnavailableForTest("provider unavailable")
 
     monkeypatch.setattr("app.league_sentiment.utc_now", lambda: datetime(2026, 6, 18, 8, 35, tzinfo=timezone.utc))
     monkeypatch.setattr("app.league_sentiment.get_ai_provider", lambda settings, provider_name=None: FailingProvider())
