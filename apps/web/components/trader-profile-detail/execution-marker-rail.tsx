@@ -1,6 +1,7 @@
 "use client";
 
 import { Crosshair, TrendDown, TrendUp } from "@phosphor-icons/react";
+import type { UIEvent } from "react";
 import { buildExecutionMarkerCycles, type ExecutionMarker, type ExecutionMarkerCycle } from "@/components/trader-profile-detail/execution-markers";
 import type { Locale } from "@/lib/i18n";
 import type { Translator } from "@/components/trader-profile-detail/types";
@@ -11,6 +12,9 @@ export function ExecutionMarkerRail({
   markers,
   selectedId,
   onSelect,
+  onLoadMore,
+  hasMore = false,
+  loadingMore = false,
   locale,
   t,
   accessState,
@@ -20,13 +24,23 @@ export function ExecutionMarkerRail({
   readonly markers: readonly ExecutionMarker[];
   readonly selectedId: string | null;
   readonly onSelect: (markerId: string) => void;
+  readonly onLoadMore?: () => void;
+  readonly hasMore?: boolean;
+  readonly loadingMore?: boolean;
   readonly locale: Locale;
   readonly t: Translator;
   readonly accessState?: SubscriberAccessState;
   readonly traderId?: string;
   readonly symbol?: string;
 }) {
-  const cycles = buildExecutionMarkerCycles({ markers, locale, t });
+  const cycles = buildExecutionMarkerCycles({ markers, locale, t, limit: Math.max(12, markers.length) });
+
+  const handleScroll = (event: UIEvent<HTMLDivElement>) => {
+    if (!onLoadMore || loadingMore || !hasMore) return;
+    const target = event.currentTarget;
+    if (target.scrollLeft + target.clientWidth < target.scrollWidth - 32) return;
+    onLoadMore();
+  };
 
   return (
     <section
@@ -39,47 +53,54 @@ export function ExecutionMarkerRail({
           <Crosshair size={14} />
           {t("detail.executionMarkers")}
         </div>
-        <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto py-0.5 pr-1 scrollbar-none">
+        <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto py-0.5 pr-1 scrollbar-none" onScroll={handleScroll}>
           {cycles.length ? (
-            cycles.map((cycle, index) => {
-              const sourceKey = traderId && symbol ? protectedScenarioSourceKey(traderId, symbol, cycle.id) : "";
-              const isUnlocked = accessState ? isProtectedSourceUnlocked(accessState, sourceKey) : true;
-              const isLocked = accessState && !accessState.isSubscribed && index > 0 && !isUnlocked;
+            <>
+              {cycles.map((cycle, index) => {
+                const sourceKey = traderId && symbol ? protectedScenarioSourceKey(traderId, symbol, cycle.id) : "";
+                const isUnlocked = accessState ? isProtectedSourceUnlocked(accessState, sourceKey) : true;
+                const isLocked = accessState && !accessState.isSubscribed && index > 0 && !isUnlocked;
 
-              const chip = (
-                <ExecutionMarkerChip
-                  cycle={cycle}
-                  selected={!isLocked && cycle.markers.some((marker) => marker.id === selectedId)}
-                  onSelect={onSelect}
-                  t={t}
-                  isLocked={isLocked}
-                />
-              );
-
-              if (isLocked && sourceKey) {
-                return (
-                  <ProtectedContentGate
-                    key={cycle.id}
-                    mode="coupon"
-                    sourceKey={sourceKey}
-                    sourceType="scenario"
-                    traderId={traderId}
-                    symbol={symbol}
-                    onUnlocked={() => onSelect(cycle.representativeId)}
-                    className="shrink-0"
-                    iconOnly={true}
-                  >
-                    {chip}
-                  </ProtectedContentGate>
+                const chip = (
+                  <ExecutionMarkerChip
+                    cycle={cycle}
+                    selected={!isLocked && cycle.markers.some((marker) => marker.id === selectedId)}
+                    onSelect={onSelect}
+                    t={t}
+                    isLocked={isLocked}
+                  />
                 );
-              }
 
-              return (
-                <div key={cycle.id} className="shrink-0">
-                  {chip}
+                if (isLocked && sourceKey) {
+                  return (
+                    <ProtectedContentGate
+                      key={cycle.id}
+                      mode="coupon"
+                      sourceKey={sourceKey}
+                      sourceType="scenario"
+                      traderId={traderId}
+                      symbol={symbol}
+                      onUnlocked={() => onSelect(cycle.representativeId)}
+                      className="shrink-0"
+                      iconOnly={true}
+                    >
+                      {chip}
+                    </ProtectedContentGate>
+                  );
+                }
+
+                return (
+                  <div key={cycle.id} className="shrink-0">
+                    {chip}
+                  </div>
+                );
+              })}
+              {loadingMore ? (
+                <div className="flex h-11 shrink-0 items-center rounded-lg border border-zinc-200 bg-zinc-50 px-3 text-[11px] font-bold text-zinc-400 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-500">
+                  {t("common.loading")}
                 </div>
-              );
-            })
+              ) : null}
+            </>
           ) : (
             <div className="flex min-h-10 items-center px-3 text-xs font-medium text-zinc-400">
               {t("detail.noExecutionMarkers")}

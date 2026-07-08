@@ -18,6 +18,8 @@ import {
   type TraderStatusFeed,
   getTraderManagementReviews,
   getTraderTradeHistory,
+  getTraderTradeEvents,
+  type PaperTradeEvent,
   type MergedTradeHistoryItem
 } from "@/lib/api";
 import { formatCurrency, formatDateTime, formatNumber, formatRelativeDateTime, intlLocale } from "@/lib/format";
@@ -66,6 +68,7 @@ import type { Locale } from "@/lib/i18n";
 
 const DETAIL_INITIAL_REVIEWS_LIMIT = 20;
 const DETAIL_REVIEWS_PAGE_SIZE = 20;
+const DETAIL_EVENTS_PAGE_SIZE = 10;
 type PositionTakeProfitTarget = NonNullable<PaperPosition["takeProfits"]>[number] & Record<string, unknown>;
 
 function isAbortLike(error: unknown) {
@@ -335,6 +338,42 @@ function managementReviewKey(review: ManagementReview, index: number) {
   return `row:${review.traderId ?? review.trader_id ?? ""}:${review.symbol ?? ""}:${review.createdAt ?? review.timestamp ?? index}`;
 }
 
+function tradeEventKey(event: PaperTradeEvent, index: number) {
+  if (event.id !== undefined && event.id !== null && event.id !== "") return `id:${String(event.id)}`;
+  return [
+    "row",
+    event.traderId ?? event.trader_id ?? "",
+    event.symbol ?? "",
+    event.eventType ?? event.type ?? "",
+    event.createdAt ?? event.timestamp ?? "",
+    event.price ?? "",
+    event.quantity ?? "",
+    index
+  ].join(":");
+}
+
+function tradeEventSortMs(event: PaperTradeEvent) {
+  const value = event.createdAt ?? event.timestamp;
+  if (!value) return Number.NEGATIVE_INFINITY;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : Number.NEGATIVE_INFINITY;
+}
+
+function mergeTradeEvents(...groups: readonly PaperTradeEvent[][]): PaperTradeEvent[] {
+  const byKey = new Map<string, PaperTradeEvent>();
+  groups.flat().forEach((event, index) => {
+    byKey.set(tradeEventKey(event, index), event);
+  });
+  return [...byKey.values()].sort((left, right) => {
+    const timeDelta = tradeEventSortMs(right) - tradeEventSortMs(left);
+    if (timeDelta !== 0) return timeDelta;
+    const rightId = Number(right.id);
+    const leftId = Number(left.id);
+    if (Number.isFinite(rightId) && Number.isFinite(leftId)) return rightId - leftId;
+    return 0;
+  });
+}
+
 function mapMergedItemToHistoryItem(
   item: MergedTradeHistoryItem,
   locale: Locale,
@@ -396,6 +435,10 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const [historyOffset, setHistoryOffset] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(true);
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+  const [pagedTradeEvents, setPagedTradeEvents] = useState<PaperTradeEvent[]>([]);
+  const [tradeEventsOffset, setTradeEventsOffset] = useState(0);
+  const [tradeEventsHasMore, setTradeEventsHasMore] = useState(true);
+  const [loadingMoreTradeEvents, setLoadingMoreTradeEvents] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(() => toDateString(new Date()));
   const [weekStart, setWeekStart] = useState<Date>(() => getSunday(new Date()));
   const [clientHydrated, setClientHydrated] = useState(false);
@@ -403,6 +446,9 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const historyLoadingRef = useRef(false);
   const historyContextKeyRef = useRef(`${traderId}:${symbol}`);
   const historyAbortRef = useRef<AbortController | null>(null);
+  const tradeEventsLoadingRef = useRef(false);
+  const tradeEventsContextKeyRef = useRef(`${traderId}:${symbol}:${locale}`);
+  const tradeEventsAbortRef = useRef<AbortController | null>(null);
   const reviewsLoadingRef = useRef(false);
   const reviewsContextKeyRef = useRef(`${traderId}:${symbol}:${locale}`);
   const [hydratedDetailContextKey, setHydratedDetailContextKey] = useState<string | null>(null);
@@ -471,8 +517,54 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     }
   }, [historyHasMore, traderId, symbol, locale, t]);
 
+  const loadTradeEventsPage = useCallback(async (nextOffset: number, reset: boolean) => {
+    const requestContextKey = `${traderId}:${symbol}:${locale}`;
+    const sameContext = tradeEventsContextKeyRef.current === requestContextKey;
+    if (!reset && sameContext && !tradeEventsHasMore) return;
+    if (tradeEventsLoadingRef.current && sameContext) return;
+    tradeEventsAbortRef.current?.abort();
+    const abortController = new AbortController();
+    tradeEventsAbortRef.current = abortController;
+    tradeEventsLoadingRef.current = true;
+    tradeEventsContextKeyRef.current = requestContextKey;
+    if (reset) {
+      setPagedTradeEvents([]);
+      setTradeEventsOffset(0);
+      setTradeEventsHasMore(true);
+    }
+    setLoadingMoreTradeEvents(true);
+    try {
+      const response = await getTraderTradeEvents(
+        traderId,
+        symbol,
+        DETAIL_EVENTS_PAGE_SIZE,
+        nextOffset,
+        locale,
+        { signal: abortController.signal }
+      );
+      if (tradeEventsContextKeyRef.current !== requestContextKey) return;
+      const nextEvents = response.events ?? [];
+      setPagedTradeEvents((current) => mergeTradeEvents(reset ? [] : current, nextEvents));
+      const responseNextOffset = Number.isFinite(response.nextOffset) ? response.nextOffset : nextOffset + nextEvents.length;
+      setTradeEventsOffset(responseNextOffset);
+      setTradeEventsHasMore(typeof response.hasMore === "boolean" ? response.hasMore : nextEvents.length >= DETAIL_EVENTS_PAGE_SIZE);
+    } catch (err) {
+      if (abortController.signal.aborted || tradeEventsContextKeyRef.current !== requestContextKey || isAbortLike(err)) return;
+      console.error("Failed to load trade events:", err);
+    } finally {
+      if (tradeEventsContextKeyRef.current === requestContextKey) {
+        tradeEventsLoadingRef.current = false;
+        setLoadingMoreTradeEvents(false);
+      }
+      if (tradeEventsAbortRef.current === abortController) tradeEventsAbortRef.current = null;
+    }
+  }, [locale, symbol, tradeEventsHasMore, traderId]);
+
   useEffect(() => {
-    return () => historyAbortRef.current?.abort();
+    return () => {
+      historyAbortRef.current?.abort();
+      tradeEventsAbortRef.current?.abort();
+    };
   }, []);
 
   const loadHistory = useCallback(async (reset = false) => {
@@ -580,6 +672,9 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       void queryClient.invalidateQueries({ queryKey: leaderboardKey });
       void queryClient.invalidateQueries({ queryKey: ["paper"] });
       void queryClient.invalidateQueries({ queryKey: ["paper", "equity-snapshots", traderId, symbol] });
+      lastTradeEventsRefreshKeyRef.current = null;
+      void loadTradeEventsPage(0, true);
+      void loadHistoryPage(0, true);
     };
 
     source.addEventListener("paper_execution", refreshDetail);
@@ -587,7 +682,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       source.removeEventListener("paper_execution", refreshDetail);
       source.close();
     };
-  }, [clientHydrated, locale, queryClient, symbol, traderId]);
+  }, [clientHydrated, loadHistoryPage, loadTradeEventsPage, locale, queryClient, symbol, traderId]);
 
   const equitySnapshotsQuery = useQuery({
     queryKey: ["paper", "equity-snapshots", traderId, symbol],
@@ -662,9 +757,10 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     () => buildHoldingItems({ standing, positions, orders, latestPlan, symbol, locale, t, liveMarkPrice }),
     [latestPlan, liveMarkPrice, locale, orders, positions, standing, symbol, t]
   );
+  const chartEvents = useMemo(() => mergeTradeEvents(pagedTradeEvents, events), [events, pagedTradeEvents]);
   const executionMarkers = useMemo(
     () => buildExecutionMarkers({
-      events,
+      events: chartEvents,
       positions,
       closedPositions,
       orders,
@@ -673,7 +769,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       t,
       limit: 30
     }),
-    [closedPositions, events, locale, orders, positions, symbol, t]
+    [chartEvents, closedPositions, locale, orders, positions, symbol, t]
   );
   const defaultSelectedExecutionMarkerId = useMemo(
     () => defaultExecutionMarkerSelection({ markers: executionMarkers, positions }),
@@ -694,10 +790,15 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     const pnlKey = dailyPnl.map((item) => `${item.date}:${item.pnl}`).join("|");
     return `${traderId}:${symbol}:${latestEvent}:${pnlKey}`;
   }, [dailyPnl, events, symbol, traderId]);
+  const tradeEventsRefreshKey = useMemo(() => {
+    const latestEvent = events[0] ? `${events[0].id ?? ""}:${events[0].eventType ?? events[0].type ?? ""}:${events[0].createdAt ?? events[0].timestamp ?? ""}` : "";
+    return `${traderId}:${symbol}:${locale}:${latestEvent}`;
+  }, [events, locale, symbol, traderId]);
 
   const lastTraderIdRef = useRef<string | null>(null);
   const lastSymbolRef = useRef<string | null>(null);
   const lastHistoryRefreshKeyRef = useRef<string | null>(null);
+  const lastTradeEventsRefreshKeyRef = useRef<string | null>(null);
   const lastScenarioHydrationKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -713,10 +814,18 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       historyContextKeyRef.current = `${traderId}:${symbol}`;
       historyLoadingRef.current = false;
       lastHistoryRefreshKeyRef.current = null;
+      lastTradeEventsRefreshKeyRef.current = null;
       setHistoryItems([]);
       setHistoryOffset(0);
       setHistoryHasMore(true);
       setLoadingMoreHistory(false);
+      tradeEventsAbortRef.current?.abort();
+      tradeEventsContextKeyRef.current = `${traderId}:${symbol}:${locale}`;
+      tradeEventsLoadingRef.current = false;
+      setPagedTradeEvents([]);
+      setTradeEventsOffset(0);
+      setTradeEventsHasMore(true);
+      setLoadingMoreTradeEvents(false);
       lastScenarioHydrationKeyRef.current = null;
       
       if (scenarioTimelineItems.length > 0) {
@@ -736,7 +845,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
         setWeekStart(getSunday(today));
       }
     }
-  }, [symbol, traderId, scenarioTimelineItems]);
+  }, [locale, symbol, traderId, scenarioTimelineItems]);
 
   useEffect(() => {
     const contextKey = `${traderId}:${symbol}:${locale}`;
@@ -746,6 +855,13 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     setExtraReviews([]);
     setReviewsNextOffset(DETAIL_INITIAL_REVIEWS_LIMIT);
     setReviewsHasMore(true);
+    tradeEventsAbortRef.current?.abort();
+    tradeEventsContextKeyRef.current = contextKey;
+    tradeEventsLoadingRef.current = false;
+    setPagedTradeEvents([]);
+    setTradeEventsOffset(0);
+    setTradeEventsHasMore(true);
+    setLoadingMoreTradeEvents(false);
   }, [locale, symbol, traderId]);
 
   useEffect(() => {
@@ -767,6 +883,12 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     lastHistoryRefreshKeyRef.current = historyRefreshKey;
     void loadHistoryPage(0, true);
   }, [detailQuery.data, historyRefreshKey, loadHistoryPage]);
+
+  useEffect(() => {
+    if (!detailQuery.data || lastTradeEventsRefreshKeyRef.current === tradeEventsRefreshKey) return;
+    lastTradeEventsRefreshKeyRef.current = tradeEventsRefreshKey;
+    void loadTradeEventsPage(0, true);
+  }, [detailQuery.data, loadTradeEventsPage, tradeEventsRefreshKey]);
 
   useEffect(() => {
     setSelectedExecutionMarkerId((current) => {
@@ -908,6 +1030,9 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
           markers={executionMarkers}
           selectedId={selectedExecutionMarkerId}
           onSelect={selectExecutionMarker}
+          onLoadMore={() => void loadTradeEventsPage(tradeEventsOffset, false)}
+          hasMore={tradeEventsHasMore}
+          loadingMore={loadingMoreTradeEvents}
           locale={locale}
           t={t}
           accessState={accessState}
@@ -923,7 +1048,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
             result={chartResult}
             paperPositions={positions}
             paperOrders={orders}
-            paperEvents={events}
+            paperEvents={chartEvents}
             managementReviews={reviews}
             executionMarkers={executionMarkers}
             selectedExecutionMarkerId={selectedExecutionMarkerId}

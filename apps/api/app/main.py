@@ -297,6 +297,102 @@ def invalidate_league_cache(symbol: Optional[str] = None, trader_id: Optional[st
             mark_stale(TRADER_DETAIL_CACHE, key)
 
 
+def cache_entry_was_invalidated(cached: Optional[tuple[float, dict[str, Any]]]) -> bool:
+    return bool(cached and cached[0] <= 0)
+
+
+def ensure_aware_utc_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def cached_league_payload_outdated(
+    db: Session,
+    *,
+    symbol: str,
+    payload: dict[str, Any],
+) -> bool:
+    payload_updated_at = datetime_or_none(payload.get("lastUpdatedAt"))
+    latest_snapshot_updated_at = db.execute(
+        select(func.max(TraderLeaderboardSnapshotRecord.updated_at)).where(
+            TraderLeaderboardSnapshotRecord.symbol == symbol
+        )
+    ).scalar_one_or_none()
+    if latest_snapshot_updated_at and (
+        payload_updated_at is None
+        or ensure_aware_utc_datetime(latest_snapshot_updated_at) > ensure_aware_utc_datetime(payload_updated_at)
+    ):
+        return True
+
+    return bool(find_drifted_trader_snapshots(db, symbol))
+
+
+def cached_trader_detail_payload_outdated(
+    db: Session,
+    *,
+    trader_id: str,
+    symbol: str,
+    payload: dict[str, Any],
+) -> bool:
+    cached_position_ids = {
+        str(record.get("id"))
+        for record in payload.get("positions", [])
+        if isinstance(record, dict) and record.get("id") is not None
+    }
+    actual_position_ids = {
+        str(record_id)
+        for record_id in db.execute(
+            select(PaperPositionRecord.id).where(
+                PaperPositionRecord.trader_id == trader_id,
+                PaperPositionRecord.symbol == symbol,
+                PaperPositionRecord.status == "open",
+            )
+        ).scalars().all()
+        if record_id is not None
+    }
+    if cached_position_ids != actual_position_ids:
+        return True
+
+    cached_order_ids = {
+        str(record.get("id"))
+        for record in payload.get("orders", [])
+        if isinstance(record, dict) and record.get("id") is not None
+    }
+    actual_order_ids = {
+        str(record_id)
+        for record_id in db.execute(
+            select(PaperOrderRecord.id).where(
+                PaperOrderRecord.trader_id == trader_id,
+                PaperOrderRecord.symbol == symbol,
+                PaperOrderRecord.status == "open",
+            )
+        ).scalars().all()
+        if record_id is not None
+    }
+    if cached_order_ids != actual_order_ids:
+        return True
+
+    cached_event_ids = [
+        int(record.get("id"))
+        for record in payload.get("events", [])
+        if isinstance(record, dict) and str(record.get("id") or "").isdigit()
+    ]
+    cached_latest_event_id = max(cached_event_ids) if cached_event_ids else None
+    actual_latest_event_id = db.execute(
+        select(func.max(TradeEventRecord.id)).where(
+            TradeEventRecord.trader_id == trader_id,
+            TradeEventRecord.symbol == symbol,
+        )
+    ).scalar_one_or_none()
+    if actual_latest_event_id is not None and (
+        cached_latest_event_id is None or int(actual_latest_event_id) > cached_latest_event_id
+    ):
+        return True
+
+    return False
+
+
 def schedule_thread_refresh(func, *args) -> None:
     async def runner() -> None:
         try:
@@ -5773,11 +5869,15 @@ def league_leaderboard_fast(
         cached = None
     now = time.monotonic()
     cache_was_stale = bool(cached and cached[0] <= now)
+    cache_payload_outdated = bool(
+        cached and cached_league_payload_outdated(db, symbol=clean_symbol, payload=cached[1])
+    )
+    cache_was_invalidated = cache_entry_was_invalidated(cached) or cache_payload_outdated
     if not refresh and cached:
         is_fresh = cached[0] > now
-        if is_fresh:
+        if is_fresh and not cache_payload_outdated:
             return {**cached[1], "cacheHit": True, "stale": False, "scheduledRefresh": False}
-        if monthly_period:
+        if not cache_was_invalidated and monthly_period:
             schedule_thread_refresh(
                 refresh_league_bundle_cache_background,
                 clean_symbol,
@@ -5786,14 +5886,15 @@ def league_leaderboard_fast(
                 clean_locale,
                 monthly_period[0],
             )
-        else:
+        elif not cache_was_invalidated:
             schedule_thread_refresh(refresh_league_bundle_cache_background, clean_symbol, include_empty, include_related, clean_locale)
-        return {**cached[1], "cacheHit": True, "stale": True, "scheduledRefresh": True}
+        if not cache_was_invalidated:
+            return {**cached[1], "cacheHit": True, "stale": True, "scheduledRefresh": True}
     missing_ids: set[str] = set()
     try:
         if monthly_period:
             league_month_value, period_start, period_end = monthly_period
-            if not refresh:
+            if not refresh and not cache_was_invalidated:
                 schedule_thread_refresh(
                     refresh_league_bundle_cache_background,
                     clean_symbol,
@@ -5970,12 +6071,23 @@ def league_trader_detail(
     cached = TRADER_DETAIL_CACHE.get(cache_key)
     now = time.monotonic()
     cache_was_stale = bool(cached and cached[0] <= now)
+    cache_payload_outdated = bool(
+        cached
+        and cached_trader_detail_payload_outdated(
+            db,
+            trader_id=trader_id,
+            symbol=clean_symbol,
+            payload=cached[1],
+        )
+    )
+    cache_was_invalidated = cache_entry_was_invalidated(cached) or cache_payload_outdated
     if cached and not refresh:
         is_fresh = cached[0] > now
-        if is_fresh:
+        if is_fresh and not cache_payload_outdated:
             return {**cached[1], "cacheHit": True, "stale": False, "scheduledRefresh": False}
-        schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol, clean_locale)
-        return {**cached[1], "cacheHit": True, "stale": True, "scheduledRefresh": True}
+        if not cache_was_invalidated:
+            schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol, clean_locale)
+            return {**cached[1], "cacheHit": True, "stale": True, "scheduledRefresh": True}
     if refresh:
         refresh_trader_leaderboard_snapshot(db, trader_id, clean_symbol)
         db.commit()
@@ -6647,11 +6759,30 @@ def active_paper_positions(
 @app.get("/api/trade-events")
 async def paper_events(
     limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     symbol: Optional[str] = Query(None),
     trader_id: Optional[str] = Query(None),
+    include_payload: bool = Query(False, alias="includePayload"),
+    locale: str = Query(CANONICAL_AI_LOCALE),
     db: Session = Depends(get_db),
 ):
-    return {"events": list_filtered_records(db, TradeEventRecord, limit=limit, symbol=symbol, trader_id=trader_id)}
+    records = list_filtered_records(
+        db,
+        TradeEventRecord,
+        limit=limit + 1,
+        offset=offset,
+        symbol=symbol,
+        trader_id=trader_id,
+        include_payload=include_payload,
+        locale=normalize_locale(locale),
+    )
+    page = records[:limit]
+    return {
+        "events": page,
+        "offset": offset,
+        "nextOffset": offset + len(page),
+        "hasMore": len(records) > limit,
+    }
 
 
 @app.get("/api/trader-status-feeds")

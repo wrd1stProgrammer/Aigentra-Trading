@@ -29,12 +29,12 @@ function resolveEventStreamBaseUrl() {
 
 export const API_BASE_URL = resolveApiBaseUrl();
 const EVENT_STREAM_API_BASE_URL = resolveEventStreamBaseUrl();
-export const LEAGUE_QUERY_STALE_TIME_MS = 60_000;
+export const LEAGUE_QUERY_STALE_TIME_MS = 15_000;
 export const LEAGUE_QUERY_GC_TIME_MS = 10 * 60_000;
-export const LEAGUE_LIVE_REFETCH_INTERVAL_MS = 60_000;
+export const LEAGUE_LIVE_REFETCH_INTERVAL_MS = 15_000;
 export const LEAGUE_WARMING_REFETCH_INTERVAL_MS = 3_000;
 export const LEAGUE_WARMING_REFETCH_WINDOW_MS = 30_000;
-export const TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS = 60_000;
+export const TRADER_DETAIL_LIVE_REFETCH_INTERVAL_MS = 15_000;
 const DEFAULT_BROWSER_REQUEST_TIMEOUT_MS = 18_000;
 const FAST_BROWSER_REQUEST_TIMEOUT_MS = 8_000;
 const SLOW_BROWSER_REQUEST_TIMEOUT_MS = 20_000;
@@ -577,6 +577,15 @@ export type TraderManagementReviewsResponse = {
   hasMore: boolean;
 };
 
+export type TraderTradeEventsResponse = {
+  symbol?: string;
+  traderId?: string;
+  events: PaperTradeEvent[];
+  offset: number;
+  nextOffset: number;
+  hasMore: boolean;
+};
+
 type KlineRequestOptions = {
   force?: boolean;
   staleMs?: number;
@@ -1078,6 +1087,25 @@ export function getTradeEvents(limit = 20, symbol?: string, traderId?: string) {
     `/api/trade-events?${params.toString()}`,
     `/api/paper-trading/events?${params.toString()}`
   ]);
+}
+
+export function getTraderTradeEvents(
+  traderId: string,
+  symbol: string = "BTCUSDT",
+  limit: number = 10,
+  offset: number = 0,
+  locale: Locale = "en",
+  options?: { readonly signal?: AbortSignal }
+) {
+  const params = new URLSearchParams({
+    symbol,
+    trader_id: traderId,
+    limit: String(limit),
+    offset: String(offset),
+    includePayload: "true",
+    locale
+  });
+  return request<TraderTradeEventsResponse>(`/api/paper/events?${params.toString()}`, { signal: options?.signal });
 }
 
 export function getEquitySnapshots(limit = 20, traderId?: string, symbol?: string, options?: { readonly signal?: AbortSignal }) {

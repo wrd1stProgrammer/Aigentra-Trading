@@ -162,6 +162,91 @@ def test_trade_history_returns_next_offset_and_has_more_for_stable_pagination(te
     assert second_page["hasMore"] is False
 
 
+def test_paper_events_returns_offset_page_metadata_for_recent_execution_rail(temp_db):
+    with session_scope() as db:
+        for index in range(12):
+            db.add(
+                TradeEventRecord(
+                    trader_id="vwap-reclaimer",
+                    symbol="BTCUSDT",
+                    event_type="position_closed",
+                    price=Decimal("62000") + index,
+                    quantity=Decimal("0.010"),
+                    realized_pnl=Decimal("3.25"),
+                    created_at=datetime(2026, 7, 4, 9, index, tzinfo=timezone.utc),
+                    payload_json=json.dumps({"side": "LONG", "entryPrice": 61900 + index}),
+                )
+            )
+
+    client = TestClient(app)
+    first = client.get(
+        "/api/paper/events?symbol=BTCUSDT&trader_id=vwap-reclaimer&limit=10&offset=0&includePayload=true"
+    )
+    second = client.get(
+        "/api/paper/events?symbol=BTCUSDT&trader_id=vwap-reclaimer&limit=10&offset=10&includePayload=true"
+    )
+
+    assert first.status_code == 200
+    first_page = first.json()
+    assert len(first_page["events"]) == 10
+    assert first_page["nextOffset"] == 10
+    assert first_page["hasMore"] is True
+    assert first_page["events"][0]["price"] == 62011.0
+    assert first_page["events"][0]["payload"]["entryPrice"] == 61911
+
+    assert second.status_code == 200
+    second_page = second.json()
+    assert len(second_page["events"]) == 2
+    assert second_page["nextOffset"] == 12
+    assert second_page["hasMore"] is False
+
+
+def test_invalidated_trader_detail_cache_rebuilds_before_returning_positions(temp_db):
+    opened_at = datetime(2026, 7, 4, 9, 0, tzinfo=timezone.utc)
+    with session_scope() as db:
+        db.add(
+            PaperPositionRecord(
+                trader_id="channel-rider",
+                symbol="BTCUSDT",
+                status="open",
+                side="long",
+                quantity=Decimal("0.200"),
+                entry_price=Decimal("62000"),
+                leverage=Decimal("5"),
+                notional=Decimal("62000"),
+                margin=Decimal("12400"),
+                opened_at=opened_at,
+                created_at=opened_at,
+            )
+        )
+
+    client = TestClient(app)
+    first = client.get("/api/league/traders/channel-rider?symbol=BTCUSDT&reviewsLimit=1&eventsLimit=1")
+    assert first.status_code == 200
+    assert len(first.json()["positions"]) == 1
+
+    with session_scope() as db:
+        position = db.execute(
+            main.select(PaperPositionRecord).where(
+                PaperPositionRecord.trader_id == "channel-rider",
+                PaperPositionRecord.symbol == "BTCUSDT",
+            )
+        ).scalar_one()
+        position.status = "closed"
+        position.exit_price = Decimal("62100")
+        position.realized_pnl = Decimal("18.25")
+        position.close_reason = "take_profit"
+        position.closed_at = datetime(2026, 7, 4, 9, 5, tzinfo=timezone.utc)
+
+    main.invalidate_league_cache("BTCUSDT", "channel-rider")
+
+    second = client.get("/api/league/traders/channel-rider?symbol=BTCUSDT&reviewsLimit=1&eventsLimit=1")
+    assert second.status_code == 200
+    data = second.json()
+    assert data["positions"] == []
+    assert len(data["closedPositions"]) == 1
+
+
 def test_trader_detail_exposes_review_counts_by_utc_day(temp_db):
     with session_scope() as db:
         db.add_all(
