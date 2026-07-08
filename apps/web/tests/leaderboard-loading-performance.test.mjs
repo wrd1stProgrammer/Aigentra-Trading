@@ -45,8 +45,8 @@ test("leaderboard initial overlay waits for the resolved ranking bundle, not the
       rankingPlaceholder: false,
       rankingWarming: true
     }),
-    true,
-    "a cold-cache monthly warming bundle should keep the full-page overlay alive until real summaries arrive"
+    false,
+    "a cold-cache monthly warming bundle should retry in the background instead of trapping users behind a full-page overlay"
   );
   assert.match(
     readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8"),

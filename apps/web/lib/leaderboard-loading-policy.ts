@@ -13,7 +13,7 @@ export function shouldShowLeaderboardInitialOverlay({
   rankingPlaceholder,
   rankingWarming = false
 }: LeaderboardInitialOverlayInput) {
-  const waitingForInitialBundle = rankingPending || rankingFetching || rankingPlaceholder || rankingWarming;
+  const waitingForInitialBundle = rankingPending || rankingPlaceholder || (rankingFetching && !rankingWarming);
   return !hasResolvedLeaderboardData && waitingForInitialBundle;
 }
 
