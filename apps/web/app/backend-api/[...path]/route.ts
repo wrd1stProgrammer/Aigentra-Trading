@@ -1,5 +1,6 @@
-const DEFAULT_API_BASE_URL = "http://localhost:8000";
-const EXTERNAL_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
+import { resolveExternalApiBaseUrl } from "@/lib/api-base-url";
+
+const EXTERNAL_API_BASE_URL = resolveExternalApiBaseUrl();
 const BACKEND_PROXY_TIMEOUT_MS = Number(process.env.BACKEND_PROXY_TIMEOUT_MS ?? 20_000);
 const BACKEND_PROXY_FAST_TIMEOUT_MS = Number(process.env.BACKEND_PROXY_FAST_TIMEOUT_MS ?? 8_000);
 const BACKEND_PROXY_SLOW_TIMEOUT_MS = Number(process.env.BACKEND_PROXY_SLOW_TIMEOUT_MS ?? 55_000);
@@ -65,8 +66,7 @@ async function upstreamUrl(request: Request, context: BackendApiContext) {
   const params = await Promise.resolve(context.params);
   const path = (params.path ?? []).map(encodeURIComponent).join("/");
   const source = new URL(request.url);
-  const base = EXTERNAL_API_BASE_URL.trim().replace(/\/+$/, "");
-  return `${base}/${path}${source.search}`;
+  return `${EXTERNAL_API_BASE_URL}/${path}${source.search}`;
 }
 
 function upstreamHeaders(headers: Headers) {

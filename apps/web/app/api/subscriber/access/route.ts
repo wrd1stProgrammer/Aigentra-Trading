@@ -19,15 +19,11 @@ export async function GET() {
     return NextResponse.json(await readSubscriberAccess(identity));
   } catch (error) {
     if (error instanceof SubscriberAccessApiError) {
-      if (error.status === 503 || error.status === 504) {
-        return NextResponse.json(subscriberAccessFallback(identity), {
-          headers: { "Cache-Control": "no-store" }
-        });
-      }
+      if (isTemporarySubscriberAccessFailure(error.status)) return subscriberAccessFallbackResponse(identity);
       const status = error.status === 503 || error.status === 504 ? error.status : 502;
       return NextResponse.json({ error: error.message }, { status });
     }
-    return NextResponse.json({ error: "subscriber_access_request_failed" }, { status: 502 });
+    return subscriberAccessFallbackResponse(identity);
   }
 }
 
@@ -53,4 +49,17 @@ function subscriberAccessFallback(identity: SubscriberIdentity): SubscriberAcces
     unlockedSourceKeys: [],
     unavailable: true
   };
+}
+
+function subscriberAccessFallbackResponse(identity: SubscriberIdentity) {
+  return NextResponse.json(subscriberAccessFallback(identity), {
+    headers: {
+      "Cache-Control": "no-store",
+      "X-Subscriber-Access-Fallback": "1"
+    }
+  });
+}
+
+function isTemporarySubscriberAccessFailure(status: number): boolean {
+  return status >= 500 && status < 600;
 }

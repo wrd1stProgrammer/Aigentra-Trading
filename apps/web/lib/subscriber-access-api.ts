@@ -1,6 +1,6 @@
 import { z } from "zod";
+import { resolveExternalApiBaseUrl } from "@/lib/api-base-url";
 
-const DEFAULT_API_BASE_URL = "http://localhost:8000";
 const SUBSCRIBER_ACCESS_TIMEOUT_MS = 8_000;
 
 const subscriberAccessSchema = z.object({
@@ -117,7 +117,7 @@ function subscriberAccessTimeoutSignal(timeoutMs = SUBSCRIBER_ACCESS_TIMEOUT_MS)
 }
 
 function subscriberAccessApiUrl(identity: SubscriberIdentity): string | null {
-  const baseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL).trim();
+  const baseUrl = resolveExternalApiBaseUrl();
   if (!baseUrl) return null;
   const url = new URL("/api/subscribers/access", baseUrl);
   url.searchParams.set("userId", identity.userId);
@@ -126,7 +126,7 @@ function subscriberAccessApiUrl(identity: SubscriberIdentity): string | null {
 }
 
 function subscriberUnlockApiUrl(): string | null {
-  const baseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL).trim();
+  const baseUrl = resolveExternalApiBaseUrl();
   if (!baseUrl) return null;
   return new URL("/api/subscribers/access/unlock", baseUrl).toString();
 }

@@ -363,7 +363,7 @@ export function LeaderboardPageClient() {
   );
   const accessReady = session.status === "unauthenticated" || Boolean(access) || (session.status === "authenticated" && accessQuery.isError);
   const subscriberAccessPending = !accessReady;
-  const subscriberAccessUnavailable = session.status === "authenticated" && accessQuery.isError && !access;
+  const subscriberAccessUnavailable = Boolean(access?.unavailable) || (session.status === "authenticated" && accessQuery.isError && !access);
   const isSubscribed = access?.isSubscribed === true;
   const freePreviewSeed = useMemo(() => currentFreeLeaderboardPreviewSeed(), []);
   const shouldLimitForFreeAccess = accessReady && Boolean(access) && !isSubscribed;

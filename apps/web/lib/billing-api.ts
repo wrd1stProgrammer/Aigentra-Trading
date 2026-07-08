@@ -1,8 +1,7 @@
 import type { Locale } from "@/lib/i18n";
 import type { BillingPlanKey } from "@/lib/billing-plans";
+import { resolveExternalApiBaseUrl } from "@/lib/api-base-url";
 import { z } from "zod";
-
-const DEFAULT_API_BASE_URL = "http://localhost:8000";
 
 const whopCheckoutSchema = z.object({
   checkoutId: z.string().min(1),
@@ -91,13 +90,13 @@ export async function readWhopSubscriptionStatus(identity: SubscriberIdentity): 
 }
 
 function whopCheckoutApiUrl(): string | null {
-  const baseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL).trim();
+  const baseUrl = resolveExternalApiBaseUrl();
   if (!baseUrl) return null;
   return new URL("/api/billing/whop/checkout", baseUrl).toString();
 }
 
 function whopStatusApiUrl(identity: SubscriberIdentity): string | null {
-  const baseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL).trim();
+  const baseUrl = resolveExternalApiBaseUrl();
   if (!baseUrl) return null;
   const url = new URL("/api/billing/whop/status", baseUrl);
   url.searchParams.set("userId", identity.userId);

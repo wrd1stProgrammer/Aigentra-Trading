@@ -3,10 +3,10 @@ import {
   mergeStoredSubscriberPreferences,
   type SubscriberPreferences,
 } from "@/lib/subscriber-preferences";
+import { resolveExternalApiBaseUrl } from "@/lib/api-base-url";
 import type { Locale } from "@/lib/i18n";
 import { z } from "zod";
 
-const DEFAULT_API_BASE_URL = "http://localhost:8000";
 const SUBSCRIBER_PREFERENCES_READ_TIMEOUT_MS = 2_000;
 
 const telegramStartLinkSchema = z.object({
@@ -86,7 +86,7 @@ function subscriberApiHeaders(): Record<string, string> {
 }
 
 function subscriberApiUrl(identity: SubscriberIdentity): string | null {
-  const baseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL).trim();
+  const baseUrl = resolveExternalApiBaseUrl();
   if (!baseUrl) return null;
 
   const url = new URL("/api/subscribers/preferences", baseUrl);
@@ -105,7 +105,7 @@ function subscriberPreferencesTimeoutSignal(timeoutMs = SUBSCRIBER_PREFERENCES_R
 }
 
 function subscriberTelegramLinkApiUrl(): string | null {
-  const baseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL).trim();
+  const baseUrl = resolveExternalApiBaseUrl();
   if (!baseUrl) return null;
   return new URL("/api/subscribers/telegram/link", baseUrl).toString();
 }

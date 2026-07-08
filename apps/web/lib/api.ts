@@ -1,9 +1,19 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { Locale } from "@/lib/i18n";
 
-const DEFAULT_API_BASE_URL = "http://localhost:8000";
-const EXTERNAL_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
+const LOCAL_API_BASE_URL = "http://localhost:8000";
+const PRODUCTION_API_BASE_URL = "https://aigentra-trading.nostalgia-drive.com";
+const EXTERNAL_API_BASE_URL = resolveExternalApiBaseUrl();
 const BROWSER_API_PROXY_BASE_URL = "/backend-api";
+
+function resolveExternalApiBaseUrl() {
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (configured) return configured.replace(/\/+$/, "");
+  const fallback = process.env.VERCEL === "1" || process.env.VERCEL === "true" || process.env.NODE_ENV === "production"
+    ? PRODUCTION_API_BASE_URL
+    : LOCAL_API_BASE_URL;
+  return fallback.replace(/\/+$/, "");
+}
 
 function resolveApiBaseUrl() {
   if (typeof window === "undefined") return EXTERNAL_API_BASE_URL;

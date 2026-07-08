@@ -290,6 +290,26 @@ test("leaderboard hot live queries use canonical endpoints instead of alias fall
   );
 });
 
+test("blank production API base falls back to the deployed backend origin", () => {
+  const productionPolicy = loadTsModule("../lib/api-base-url.ts", {
+    process: { env: { NEXT_PUBLIC_API_BASE_URL: "", VERCEL: "1" } }
+  });
+  assert.equal(
+    productionPolicy.resolveExternalApiBaseUrl(),
+    "https://aigentra-trading.nostalgia-drive.com",
+    "Vercel builds with a blank public API env should not route browser proxies to an empty upstream"
+  );
+
+  const configuredPolicy = loadTsModule("../lib/api-base-url.ts", {
+    process: { env: { NEXT_PUBLIC_API_BASE_URL: "https://backend.example.test///", VERCEL: "1" } }
+  });
+  assert.equal(
+    configuredPolicy.resolveExternalApiBaseUrl(),
+    "https://backend.example.test",
+    "configured API origins should still win and be normalized"
+  );
+});
+
 test("monthly leaderboard warming bundles stay transient and refetch quickly", async () => {
   const storage = new Map();
   const writes = [];

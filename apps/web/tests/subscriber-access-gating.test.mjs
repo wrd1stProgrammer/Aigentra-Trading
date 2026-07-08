@@ -142,7 +142,7 @@ test("subscriber access placeholder and browser cache only reuse the current acc
   );
 });
 
-test("authenticated subscriber access timeouts degrade to a conservative non-cacheable preview", () => {
+test("authenticated subscriber access server failures degrade to a conservative non-cacheable preview", () => {
   assert.doesNotMatch(
     subscriberAccessSource,
     /if \(!response\.ok\) return guestSubscriberAccess/,
@@ -167,6 +167,16 @@ test("authenticated subscriber access timeouts degrade to a conservative non-cac
     subscriberAccessRouteSource,
     /subscriberAccessFallback/,
     "subscriber access route should return a conservative preview fallback when entitlement lookup is temporarily unavailable"
+  );
+  assert.match(
+    subscriberAccessRouteSource,
+    /status >= 500 && status < 600/,
+    "subscriber access route should treat upstream 5xx responses as temporary fallback states"
+  );
+  assert.match(
+    subscriberAccessRouteSource,
+    /X-Subscriber-Access-Fallback/,
+    "temporary fallback responses should be marked for operational debugging"
   );
   assert.match(
     subscriberAccessSource,
@@ -210,6 +220,11 @@ test("subscriber gates use neutral pending state instead of guest blur while acc
     leaderboardSource,
     /const shouldLimitForFreeAccess =/,
     "leaderboard should only show free preview rows for a known free or guest state"
+  );
+  assert.match(
+    leaderboardSource,
+    /Boolean\(access\?\.unavailable\)/,
+    "leaderboard should keep the locked preview when subscriber access is temporarily unavailable"
   );
   assert.doesNotMatch(
     leaderboardSource,

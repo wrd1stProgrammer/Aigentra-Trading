@@ -1,6 +1,6 @@
 import { z } from "zod";
+import { resolveExternalApiBaseUrl } from "@/lib/api-base-url";
 
-const DEFAULT_API_BASE_URL = "http://localhost:8000";
 const PASSWORD_AUTH_TIMEOUT_MS = 8_000;
 
 const passwordAccountSchema = z.object({
@@ -65,7 +65,7 @@ async function passwordAuthRequest(path: "/signup" | "/login", body: object): Pr
 }
 
 function passwordAuthApiUrl(path: "/signup" | "/login"): string | null {
-  const baseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL).trim();
+  const baseUrl = resolveExternalApiBaseUrl();
   if (!baseUrl) return null;
   return new URL(`/api/auth/password${path}`, baseUrl).toString();
 }

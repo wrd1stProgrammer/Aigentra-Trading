@@ -1,6 +1,6 @@
 import { z } from "zod";
+import { resolveExternalApiBaseUrl } from "@/lib/api-base-url";
 
-const DEFAULT_API_BASE_URL = "http://localhost:8000";
 const ADMIN_API_TIMEOUT_MS = 6_000;
 
 const adminDatabaseSchema = z.object({
@@ -139,7 +139,7 @@ async function adminApiRequest(pathOrUrl: string | URL): Promise<unknown> {
 }
 
 function adminApiBaseUrl(): string {
-  const baseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL).trim();
+  const baseUrl = resolveExternalApiBaseUrl();
   if (!baseUrl) throw new AdminApiError("admin_api_unavailable", 503);
   return baseUrl;
 }
