@@ -299,3 +299,61 @@ def test_apply_management_actions_does_not_compound_unspecified_reductions(temp_
         assert quantity_after_first == Decimal("0.9000000000")
         assert second[0]["applied"] is False
         assert position.quantity == quantity_after_first
+
+
+def test_management_close_position_uses_short_db_reason(temp_db):
+    from app.main import apply_management_actions
+
+    with session_scope() as db:
+        position = _create_open_position(db)
+        exposure = ManagedExposure(
+            kind="position",
+            id=position.id,
+            status="open",
+            side="LONG",
+            quantity=1,
+            entryPrice=100,
+            stopLoss=90,
+            takeProfit=120,
+            leverage=5,
+        )
+        event = ManagementEvent(
+            eventType="pullback_position_heartbeat",
+            phase="OPEN_POSITION",
+            severity="MEDIUM",
+            reason="Review the open pullback position.",
+            suggestedAction="CLOSE_POSITION",
+        )
+        long_reason = (
+            "1h EMA50 회복 조건이 깨졌고 현재가는 진입가보다 낮으며 손절까지 남은 거리가 짧아 "
+            "Pullback Architect의 LONG 풀백 논리가 약해졌습니다."
+        )
+        review = PositionManagementResult(
+            decision="CLOSE_POSITION",
+            confidence=86,
+            riskLevel="HIGH",
+            actions=[ManagementAction(type="CLOSE_POSITION", reason=long_reason)],
+            riskChange="REDUCED",
+            nextReviewInSeconds=900,
+            rationale=long_reason,
+            counterThesis="Position thesis has weakened.",
+        )
+        snapshot = {"price": 95, "timeframes": {"1m": {"open": 95, "high": 95, "low": 95, "close": 95}}}
+
+        applied = apply_management_actions(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            event=event,
+            exposure=exposure,
+            review=review,
+            snapshot=snapshot,
+            result=PaperEngineResult(),
+        )
+        db.flush()
+        db.refresh(position)
+
+        assert applied[0]["applied"] is True
+        assert applied[0]["reason"] == long_reason
+        assert position.status == "closed"
+        assert position.close_reason == "management_close"

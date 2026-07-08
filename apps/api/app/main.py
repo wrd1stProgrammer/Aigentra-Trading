@@ -1150,6 +1150,9 @@ def safe_management_limit(order: PaperOrderRecord, raw_price: Any, mark_price: D
     return new_limit
 
 
+MANAGEMENT_CLOSE_REASON = "management_close"
+
+
 def utc_datetime(value: Optional[datetime]) -> Optional[datetime]:
     if value is None:
         return None
@@ -1821,7 +1824,15 @@ def apply_management_actions(
                     result=result,
                 )
             elif action_type == "CLOSE_POSITION":
-                record = close_position_by_management(db, state, position, mark_price, candle, reason, result)
+                record = close_position_by_management(
+                    db,
+                    state,
+                    position,
+                    mark_price,
+                    candle,
+                    MANAGEMENT_CLOSE_REASON,
+                    result,
+                )
             elif action_type in {"CANCEL_REMAINING_ORDERS", "EXPIRE_PLAN"}:
                 open_orders = db.execute(
                     select(PaperOrderRecord).where(
@@ -1857,7 +1868,15 @@ def apply_management_actions(
         position = db.get(PaperPositionRecord, exposure.id)
         if position and position.status == "open":
             fallback_reason = review.rationale or event.reason or "AI decision: CLOSE_POSITION (fallback)"
-            record = close_position_by_management(db, state, position, mark_price, candle, fallback_reason, result)
+            record = close_position_by_management(
+                db,
+                state,
+                position,
+                mark_price,
+                candle,
+                MANAGEMENT_CLOSE_REASON,
+                result,
+            )
             applied.append({
                 "type": "CLOSE_POSITION",
                 "applied": record is not None,
