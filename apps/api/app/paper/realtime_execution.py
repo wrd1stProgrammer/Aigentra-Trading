@@ -19,12 +19,13 @@ except ImportError:
     class RedisError(Exception):
         pass
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.clients.binance_client import ALLOWED_SYMBOLS, Candle as MarketCandle
 from app.clients.market_data_client import MarketDataClient
 from app.core.config import get_settings
-from app.db import PaperOrderRecord, PaperPositionRecord, session_scope
+from app.db import PaperExecutionCursorRecord, PaperOrderRecord, PaperPositionRecord, session_scope, utc_now
 from app.paper.engine import PaperEngineResult, process_candle
 from app.paper.planner import list_active_paper_exposure
 from app.paper.settings import sync_default_paper_settings
@@ -66,6 +67,7 @@ _PROCESS_ID = uuid.uuid4().hex
 _REDIS_CLIENT: Optional[Any] = None
 _REDIS_DISABLED_UNTIL = 0.0
 _REDIS_CHANNEL_SUFFIX = "paper_execution_events:v1"
+_EXECUTION_CANDLE_INTERVAL = "1m"
 
 
 def normalize_execution_symbol(symbol: str) -> str:
@@ -161,6 +163,19 @@ def oldest_active_exposure_started_at(db: Session, symbol: str) -> Optional[date
     return min(_aware_utc(started_at) for started_at in started_times)
 
 
+def execution_cursor_open_time_ms(db: Session, symbol: str, interval: str = _EXECUTION_CANDLE_INTERVAL) -> Optional[int]:
+    clean_symbol = normalize_execution_symbol(symbol)
+    cursor = db.execute(
+        select(PaperExecutionCursorRecord.last_open_time_ms).where(
+            PaperExecutionCursorRecord.symbol == clean_symbol,
+            PaperExecutionCursorRecord.interval == interval,
+        )
+    ).scalar_one_or_none()
+    if cursor is None:
+        return None
+    return int(cursor)
+
+
 async def fetch_execution_price(symbol: str, market_client: Optional[MarketDataClient] = None) -> Decimal:
     client = market_client or MarketDataClient(timeout_seconds=3.0)
     premium = await client.get_premium_index(normalize_execution_symbol(symbol))
@@ -186,11 +201,16 @@ def _candle_open_time_ms(candle: dict[str, Any]) -> Optional[int]:
         return None
 
 
-def _execution_backfill_since(symbol: str, oldest_active_at: Optional[datetime], now: datetime) -> Optional[datetime]:
+def _execution_backfill_since(
+    symbol: str,
+    oldest_active_at: Optional[datetime],
+    now: datetime,
+    last_open_time_ms: Optional[int] = None,
+) -> Optional[datetime]:
     settings = get_settings()
-    last_open_time_ms = _LAST_CANDLE_OPEN_TIME_BY_SYMBOL.get(symbol)
-    if last_open_time_ms is not None:
-        return datetime.fromtimestamp(last_open_time_ms / 1000, timezone.utc)
+    effective_open_time_ms = last_open_time_ms if last_open_time_ms is not None else _LAST_CANDLE_OPEN_TIME_BY_SYMBOL.get(symbol)
+    if effective_open_time_ms is not None:
+        return datetime.fromtimestamp(effective_open_time_ms / 1000, timezone.utc)
     if oldest_active_at is None:
         return None
     lookback_minutes = max(1, int(settings.realtime_paper_execution_backfill_minutes or 1))
@@ -205,11 +225,51 @@ def _filter_execution_candles_since(candles: list[dict[str, Any]], since: Option
     return [candle for candle in candles if (_candle_open_time_ms(candle) is None or _candle_open_time_ms(candle) >= since_ms)]
 
 
-def _mark_symbol_candles_processed(symbol: str, candles: list[dict[str, Any]]) -> None:
+def _latest_candle_open_time_ms(candles: list[dict[str, Any]]) -> Optional[int]:
     open_times = [_candle_open_time_ms(candle) for candle in candles]
     valid_open_times = [open_time for open_time in open_times if open_time is not None]
-    if valid_open_times:
-        _LAST_CANDLE_OPEN_TIME_BY_SYMBOL[symbol] = max(valid_open_times)
+    if not valid_open_times:
+        return None
+    return max(valid_open_times)
+
+
+def _mark_symbol_candles_processed(symbol: str, last_open_time_ms: Optional[int]) -> None:
+    if last_open_time_ms is not None:
+        _LAST_CANDLE_OPEN_TIME_BY_SYMBOL[symbol] = last_open_time_ms
+
+
+def upsert_execution_cursor(
+    db: Session,
+    symbol: str,
+    last_open_time_ms: Optional[int],
+    interval: str = _EXECUTION_CANDLE_INTERVAL,
+) -> Optional[int]:
+    if last_open_time_ms is None:
+        return None
+    clean_symbol = normalize_execution_symbol(symbol)
+    last_candle_at = datetime.fromtimestamp(last_open_time_ms / 1000, timezone.utc)
+    cursor = db.execute(
+        select(PaperExecutionCursorRecord).where(
+            PaperExecutionCursorRecord.symbol == clean_symbol,
+            PaperExecutionCursorRecord.interval == interval,
+        )
+    ).scalar_one_or_none()
+    if cursor is None:
+        cursor = PaperExecutionCursorRecord(
+            symbol=clean_symbol,
+            interval=interval,
+            last_open_time_ms=last_open_time_ms,
+            last_candle_at=last_candle_at,
+        )
+        db.add(cursor)
+    elif cursor.last_open_time_ms <= last_open_time_ms:
+        cursor.last_open_time_ms = last_open_time_ms
+        cursor.last_candle_at = last_candle_at
+        cursor.updated_at = utc_now()
+    db.flush()
+    persisted_open_time_ms = int(cursor.last_open_time_ms)
+    _mark_symbol_candles_processed(clean_symbol, persisted_open_time_ms)
+    return persisted_open_time_ms
 
 
 def _merge_paper_engine_result(target: PaperEngineResult, source: PaperEngineResult) -> None:
@@ -466,6 +526,7 @@ async def run_realtime_execution_once(
                     with session_scope() as db:
                         active_traders = active_exposure_trader_ids(db, symbol)
                         oldest_active_at = oldest_active_exposure_started_at(db, symbol)
+                        cursor_open_time_ms = execution_cursor_open_time_ms(db, symbol)
                 except Exception as exc:
                     counts["errors"] += 1
                     results.append(
@@ -481,13 +542,14 @@ async def run_realtime_execution_once(
                     results.append({"symbol": symbol, "status": "NO_ACTIVE_EXPOSURE", "tradersChecked": 0})
                     continue
 
+                _mark_symbol_candles_processed(symbol, cursor_open_time_ms)
                 try:
                     previous_price = _LAST_PRICE_BY_SYMBOL.get(symbol)
                     if price_by_symbol and symbol in price_by_symbol:
                         price = to_positive_execution_price(Decimal(str(price_by_symbol[symbol])))
                         candles = [execution_tick_candle(symbol, price, previous_price)]
                     else:
-                        since = _execution_backfill_since(symbol, oldest_active_at, started_at)
+                        since = _execution_backfill_since(symbol, oldest_active_at, started_at, cursor_open_time_ms)
                         price, candles = await fetch_execution_candles(
                             symbol,
                             market_client_factory(),
@@ -506,9 +568,10 @@ async def run_realtime_execution_once(
                     continue
 
                 _LAST_PRICE_BY_SYMBOL[symbol] = price
-                _mark_symbol_candles_processed(symbol, candles)
+                latest_open_time_ms = _latest_candle_open_time_ms(candles)
                 latest_candle = candles[-1]
                 symbol_changed_traders: list[str] = []
+                symbol_error_count = 0
 
                 for trader_id in active_traders:
                     counts["tradersChecked"] += 1
@@ -572,6 +635,7 @@ async def run_realtime_execution_once(
                             }
                         )
                     except Exception as exc:
+                        symbol_error_count += 1
                         counts["errors"] += 1
                         results.append(
                             {
@@ -582,6 +646,27 @@ async def run_realtime_execution_once(
                             }
                         )
 
+                cursor_status = "UNCHANGED"
+                persisted_cursor_open_time_ms = None
+                if symbol_error_count == 0:
+                    try:
+                        with session_scope() as db:
+                            persisted_cursor_open_time_ms = upsert_execution_cursor(db, symbol, latest_open_time_ms)
+                        if persisted_cursor_open_time_ms is not None:
+                            cursor_status = "ADVANCED"
+                    except SQLAlchemyError as exc:
+                        counts["errors"] += 1
+                        cursor_status = "ERROR"
+                        results.append(
+                            {
+                                "symbol": symbol,
+                                "status": "CURSOR_ERROR",
+                                "error": sanitize_error_message(str(exc)),
+                            }
+                        )
+                else:
+                    cursor_status = "SKIPPED_AFTER_TRADER_ERROR"
+
                 results.append(
                     {
                         "symbol": symbol,
@@ -590,6 +675,8 @@ async def run_realtime_execution_once(
                         "candlesProcessed": len(candles),
                         "tradersChecked": len(active_traders),
                         "changedTraders": symbol_changed_traders,
+                        "cursorStatus": cursor_status,
+                        "cursorOpenTimeMs": persisted_cursor_open_time_ms,
                     }
                 )
         finally:

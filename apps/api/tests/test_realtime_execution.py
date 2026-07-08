@@ -5,7 +5,15 @@ import pytest
 from sqlalchemy import select
 
 from app.clients.binance_client import Candle
-from app.db import PaperOrderRecord, PaperPositionRecord, RiskSettingsRecord, init_db, reset_db_engine, session_scope
+from app.db import (
+    PaperExecutionCursorRecord,
+    PaperOrderRecord,
+    PaperPositionRecord,
+    RiskSettingsRecord,
+    init_db,
+    reset_db_engine,
+    session_scope,
+)
 from app.paper.engine import place_paper_order
 from app.paper.realtime_execution import (
     EXECUTION_EVENT_HUB,
@@ -104,6 +112,98 @@ class KlineFailureMarketClient:
 
     async def get_klines(self, symbol, interval="1m", limit=20, before=None):
         raise RuntimeError("temporary kline provider failure")
+
+
+class PersistentCursorMarketClient:
+    client_count = 0
+    base_open_time_ms = 0
+
+    def __init__(self):
+        self.run_index = PersistentCursorMarketClient.client_count
+        PersistentCursorMarketClient.client_count += 1
+
+    @classmethod
+    def reset(cls, base_open_time_ms):
+        cls.client_count = 0
+        cls.base_open_time_ms = base_open_time_ms
+
+    async def get_premium_index(self, symbol):
+        return {"symbol": symbol, "markPrice": 100, "indexPrice": 100}
+
+    async def get_klines(self, symbol, interval="1m", limit=20, before=None):
+        if before is not None:
+            return []
+        base_open_time_ms = PersistentCursorMarketClient.base_open_time_ms
+        if self.run_index == 0:
+            return [
+                Candle(
+                    openTime=base_open_time_ms,
+                    open=100,
+                    high=101,
+                    low=95,
+                    close=100,
+                    volume=1,
+                    closeTime=base_open_time_ms + 59_999,
+                    quoteVolume=100,
+                    trades=1,
+                    takerBuyBaseVolume=0,
+                    takerBuyQuoteVolume=0,
+                ),
+                Candle(
+                    openTime=base_open_time_ms + 60_000,
+                    open=100,
+                    high=101,
+                    low=95,
+                    close=100,
+                    volume=1,
+                    closeTime=base_open_time_ms + 119_999,
+                    quoteVolume=100,
+                    trades=1,
+                    takerBuyBaseVolume=0,
+                    takerBuyQuoteVolume=0,
+                ),
+            ]
+        return [
+            Candle(
+                openTime=base_open_time_ms,
+                open=100,
+                high=101,
+                low=85,
+                close=100,
+                volume=1,
+                closeTime=base_open_time_ms + 59_999,
+                quoteVolume=100,
+                trades=1,
+                takerBuyBaseVolume=0,
+                takerBuyQuoteVolume=0,
+            ),
+            Candle(
+                openTime=base_open_time_ms + 60_000,
+                open=100,
+                high=101,
+                low=95,
+                close=100,
+                volume=1,
+                closeTime=base_open_time_ms + 119_999,
+                quoteVolume=100,
+                trades=1,
+                takerBuyBaseVolume=0,
+                takerBuyQuoteVolume=0,
+            ),
+            Candle(
+                openTime=base_open_time_ms + 120_000,
+                open=100,
+                high=101,
+                low=95,
+                close=100,
+                volume=1,
+                closeTime=base_open_time_ms + 179_999,
+                quoteVolume=100,
+                trades=1,
+                takerBuyBaseVolume=0,
+                takerBuyQuoteVolume=0,
+            ),
+        ]
 
 
 @pytest.fixture()
@@ -414,3 +514,50 @@ async def test_realtime_execution_backfills_missed_second_take_profit(temp_db):
         position = db.execute(select(PaperPositionRecord)).scalar_one()
         assert position.status == "closed"
         assert position.close_reason == "take_profit"
+
+
+@pytest.mark.asyncio
+async def test_realtime_execution_persists_backfill_cursor_across_restart(temp_db):
+    base_open_time_ms = int((datetime.now(timezone.utc) - timedelta(minutes=3)).timestamp() * 1000)
+    PersistentCursorMarketClient.reset(base_open_time_ms)
+    with session_scope() as db:
+        upsert_risk_settings(db, "realtime-trader", "BTCUSDT", max_leverage=10)
+        order = place_paper_order(
+            db,
+            trader_id="realtime-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=90,
+            quantity=1,
+            leverage=5,
+            take_profit_price=110,
+            stop_loss_price=80,
+        )
+        order.submitted_at = datetime.fromtimestamp((base_open_time_ms - 30_000) / 1000, timezone.utc)
+
+    first_result = await run_realtime_execution_once(
+        symbols=["BTCUSDT"],
+        market_client_factory=PersistentCursorMarketClient,
+    )
+
+    assert first_result["counts"]["fills"] == 0
+    with session_scope() as db:
+        cursor = db.execute(select(PaperExecutionCursorRecord)).scalar_one()
+        assert cursor.symbol == "BTCUSDT"
+        assert cursor.interval == "1m"
+        assert cursor.last_open_time_ms == base_open_time_ms + 60_000
+
+    _LAST_CANDLE_OPEN_TIME_BY_SYMBOL.clear()
+
+    second_result = await run_realtime_execution_once(
+        symbols=["BTCUSDT"],
+        market_client_factory=PersistentCursorMarketClient,
+    )
+
+    assert second_result["counts"]["fills"] == 0
+    with session_scope() as db:
+        order = db.execute(select(PaperOrderRecord)).scalar_one()
+        cursor = db.execute(select(PaperExecutionCursorRecord)).scalar_one()
+        assert order.status == "open"
+        assert cursor.last_open_time_ms == base_open_time_ms + 120_000

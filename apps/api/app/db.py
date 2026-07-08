@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Generator, Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text, TypeDecorator, UniqueConstraint, create_engine, text
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text, TypeDecorator, UniqueConstraint, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -458,6 +458,22 @@ class PaperPositionRecord(CommonMixin, Base):
     close_reason: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
     closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
+class PaperExecutionCursorRecord(Base):
+    __tablename__ = "paper_execution_cursors"
+    __table_args__ = (
+        UniqueConstraint("symbol", "interval", name="uq_paper_execution_cursors_symbol_interval"),
+        Index("ix_paper_execution_cursors_symbol_interval", "symbol", "interval"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    interval: Mapped[str] = mapped_column(String(20), default="1m", nullable=False, index=True)
+    last_open_time_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_candle_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
 
 
 class TradeEventRecord(CommonMixin, Base):
