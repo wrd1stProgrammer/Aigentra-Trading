@@ -1261,3 +1261,37 @@ def test_league_sentiment_http_surface_returns_market_first_brief(temp_db, monke
     assert "트레이더" in brief["reason"] or "리그" in brief["reason"]
     assert "익절/손절 이벤트" not in visible_text
     assert "최근 거래" not in visible_text
+
+
+def test_league_sentiment_http_surface_times_out_to_market_first_fallback(temp_db, monkeypatch):
+    seed_sentiment_context()
+    seed_market_context()
+
+    class SlowProvider:
+        name = "codex_cli"
+        model = "slow-league-sentiment"
+        fallback = False
+
+        async def review_league_sentiment(self, payload):
+            await anyio.sleep(1)
+
+    monkeypatch.setattr("app.league_sentiment.utc_now", lambda: datetime(2026, 6, 18, 8, 35, tzinfo=timezone.utc))
+    monkeypatch.setattr("app.league_sentiment.get_ai_provider", lambda settings, provider_name=None: SlowProvider())
+    monkeypatch.setattr("app.main.settings.league_sentiment_timeout_seconds", 0.01)
+
+    client = TestClient(app)
+    response = client.get("/api/league/sentiment/opinion?symbol=BTCUSDT&locale=ko&refresh=true")
+
+    assert response.status_code == 200
+    data = response.json()
+    brief = data["opinion"]["brief"]
+    visible_text = " ".join([brief["conclusion"], brief["reason"], brief["watch"]])
+
+    assert data["opinion"]["fallback"] is True
+    assert data["status"] == "fallback"
+    assert data["opinion"]["briefingVersion"] == LEAGUE_SENTIMENT_BRIEFING_VERSION
+    assert brief["conclusion"].startswith("BTC")
+    assert "트레이더" in brief["reason"] or "리그" in brief["reason"]
+    assert "유지하면" in brief["watch"]
+    assert "이탈하면" in brief["watch"]
+    assert "시뮬레이션" not in visible_text

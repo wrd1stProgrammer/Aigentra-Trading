@@ -4,6 +4,7 @@ import re
 import time
 from typing import Any, Optional
 
+import anyio
 from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -287,9 +288,11 @@ async def get_or_create_league_sentiment_opinion(
     start = time.perf_counter()
     status = "ok"
     error_message = None
+    timeout_seconds = max(1.0, float(getattr(settings, "league_sentiment_timeout_seconds", 18.0) or 18.0))
     try:
         provider = get_ai_provider(settings, provider_name)
-        opinion = await provider.review_league_sentiment(payload)
+        with anyio.fail_after(timeout_seconds):
+            opinion = await provider.review_league_sentiment(payload)
         latency_ms = int((time.perf_counter() - start) * 1000)
         create_provider_call_log(
             db,
@@ -301,6 +304,23 @@ async def get_or_create_league_sentiment_opinion(
             symbol=symbol,
             trader_id="aigentra-opinion",
             status="league_sentiment",
+        )
+    except TimeoutError:
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        status = "fallback"
+        error_message = f"League sentiment timed out after {timeout_seconds:.1f}s."
+        opinion = fallback_league_sentiment_opinion(payload)
+        create_provider_call_log(
+            db,
+            provider=str(provider_name or "unknown"),
+            model=str(getattr(settings, f"{provider_name}_model", provider_name) or provider_name),
+            success=False,
+            latency_ms=latency_ms,
+            decision=opinion.bias,
+            symbol=symbol,
+            trader_id="aigentra-opinion",
+            status="league_sentiment_error",
+            error_message=error_message,
         )
     except Exception as exc:
         latency_ms = int((time.perf_counter() - start) * 1000)
