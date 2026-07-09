@@ -841,10 +841,26 @@ def test_position_add_order_clamps_ai_fraction_to_service_band(temp_db, raw_frac
 
 @pytest.mark.asyncio
 async def test_run_cycle_persists_snapshot_candidate_review_and_plan(monkeypatch, temp_db):
+    provider_transaction_states: list[bool] = []
+    orders_visible_before_status_feed: list[bool] = []
+
     async def fake_snapshot(client, symbol):
         return sample_snapshot()
 
+    async def fake_review(review_db, payload, provider_name, *, settings):
+        provider_transaction_states.append(review_db.in_transaction())
+        return await MockAIProvider().review_trade_candidate(payload)
+
+    async def fake_pending_status_feed(db, *, settings, plan, created_orders):
+        order_ids = [order["id"] for order in created_orders]
+        with session_scope() as verification_db:
+            persisted = verification_db.query(PaperOrderRecord).filter(PaperOrderRecord.id.in_(order_ids)).count()
+        orders_visible_before_status_feed.append(persisted == len(order_ids))
+        return None
+
     monkeypatch.setattr("app.main.build_market_snapshot", fake_snapshot)
+    monkeypatch.setattr("app.main.run_review_with_logging", fake_review)
+    monkeypatch.setattr("app.main.create_status_feed_for_pending_trade_plan", fake_pending_status_feed)
     result = await run_trader_cycle("channel-rider", "BTCUSDT", provider_override="mock")
 
     assert result.persisted is True
@@ -868,6 +884,8 @@ async def test_run_cycle_persists_snapshot_candidate_review_and_plan(monkeypatch
     assert result.paperOrders
     assert result.tradePlan.leverage is not None
     assert result.tradePlan.earlyExitRules
+    assert provider_transaction_states == [False]
+    assert orders_visible_before_status_feed == [True]
 
 
 @pytest.mark.asyncio

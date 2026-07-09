@@ -5741,7 +5741,11 @@ async def run_trader_cycle(
                         locale=clean_locale,
                         **build_trade_review_context(db, strategy.profile.id, clean_symbol),
                     )
+                    # Do not keep an RDS read transaction open while Codex is
+                    # producing the second-stage approval.
+                    db.commit()
                     review = await run_review_with_logging(db, review_payload, requested_provider, settings=settings)
+                    db.commit()
                     review.sourceLocale = CANONICAL_AI_LOCALE
                     review_record = create_ai_review(db, record_ids["runId"], clean_symbol, strategy.profile.id, review)
                     create_observation_candidate(
@@ -5757,17 +5761,6 @@ async def run_trader_cycle(
                         status="approved" if review.decision in {"APPROVE", "ADJUST_AND_APPROVE"} else "ai_rejected",
                         payload={"source": "second_stage_review", "confidence": review.confidence, "riskLevel": review.riskLevel},
                     )
-                    await fanout_ai_translations(
-                        db,
-                        settings=settings,
-                        source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
-                        source_id=review_record.id,
-                        payload=from_json(review_record.payload_json) or {},
-                        symbol=clean_symbol,
-                        trader_id=strategy.profile.id,
-                        target_locales=NON_CANONICAL_AI_LOCALES,
-                    )
-                    await create_status_feed_for_ai_review(db, settings=settings, review=review_record)
                     plan = trade_plan_from_review(clean_symbol, candidate, review)
                     if review.decision in {"APPROVE", "ADJUST_AND_APPROVE"}:
                         plan_record = create_trade_plan(db, record_ids["runId"], clean_symbol, strategy.profile.id, plan)
@@ -5784,12 +5777,6 @@ async def run_trader_cycle(
                             ai_review_id=review_record.id,
                         )
                         created_paper_orders = paper_order_result.get("created", [])
-                        await create_status_feed_for_pending_trade_plan(
-                            db,
-                            settings=settings,
-                            plan=plan_record,
-                            created_orders=created_paper_orders,
-                        )
                         paper_result = {
                             **paper_result,
                             "ordersCreated": paper_order_result,
@@ -5798,6 +5785,28 @@ async def run_trader_cycle(
                     record_ids["aiReviewId"] = review_record.id
                     record_ids["tradePlanId"] = plan_record.id if plan_record else None
                     record_ids["paperOrderIds"] = [order["id"] for order in created_paper_orders]
+                    # Approval and paper orders are the critical path. Commit
+                    # them before optional translations/status-feed prose so a
+                    # slow auxiliary Codex call cannot delay order visibility.
+                    db.commit()
+                    await fanout_ai_translations(
+                        db,
+                        settings=settings,
+                        source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+                        source_id=review_record.id,
+                        payload=from_json(review_record.payload_json) or {},
+                        symbol=clean_symbol,
+                        trader_id=strategy.profile.id,
+                        target_locales=NON_CANONICAL_AI_LOCALES,
+                    )
+                    await create_status_feed_for_ai_review(db, settings=settings, review=review_record)
+                    if plan_record is not None:
+                        await create_status_feed_for_pending_trade_plan(
+                            db,
+                            settings=settings,
+                            plan=plan_record,
+                            created_orders=created_paper_orders,
+                        )
                 status = "completed"
         except Exception as exc:
             error_message = sanitize_error_message(str(exc))
