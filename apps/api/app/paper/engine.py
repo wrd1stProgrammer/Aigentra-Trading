@@ -691,16 +691,17 @@ def _fill_order(
 
 
 def _exit_signal(position: PaperPositionRecord, candle: Candle) -> tuple[Optional[Decimal], Optional[str]]:
+    take_profit_price = _next_take_profit_price(position)
     if position.side == "long":
         if position.stop_loss_price is not None and candle.low <= position.stop_loss_price:
             return position.stop_loss_price, "stop_loss"
-        if position.take_profit_price is not None and candle.high >= position.take_profit_price:
-            return position.take_profit_price, "take_profit"
+        if take_profit_price is not None and candle.high >= take_profit_price:
+            return take_profit_price, "take_profit"
     if position.side == "short":
         if position.stop_loss_price is not None and candle.high >= position.stop_loss_price:
             return position.stop_loss_price, "stop_loss"
-        if position.take_profit_price is not None and candle.low <= position.take_profit_price:
-            return position.take_profit_price, "take_profit"
+        if take_profit_price is not None and candle.low <= take_profit_price:
+            return take_profit_price, "take_profit"
     return None, None
 
 
