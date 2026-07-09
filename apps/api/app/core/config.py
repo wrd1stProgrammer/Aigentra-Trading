@@ -244,7 +244,7 @@ class Settings(BaseModel):
         )
     )
     league_sentiment_recent_hours: int = Field(default_factory=lambda: env_int("LEAGUE_SENTIMENT_RECENT_HOURS", "24"))
-    league_sentiment_timeout_seconds: float = Field(default_factory=lambda: env_float("LEAGUE_SENTIMENT_TIMEOUT_SECONDS", "45"))
+    league_sentiment_timeout_seconds: float = Field(default_factory=lambda: env_float("LEAGUE_SENTIMENT_TIMEOUT_SECONDS", "110"))
     enable_league_sentiment_scheduler: bool = Field(
         default_factory=lambda: env_bool("ENABLE_LEAGUE_SENTIMENT_SCHEDULER", "true")
     )
@@ -253,6 +253,9 @@ class Settings(BaseModel):
     )
     league_sentiment_generation_offset_seconds: int = Field(
         default_factory=lambda: env_int("LEAGUE_SENTIMENT_GENERATION_OFFSET_SECONDS", "30")
+    )
+    league_sentiment_retry_seconds: int = Field(
+        default_factory=lambda: env_int("LEAGUE_SENTIMENT_RETRY_SECONDS", "300")
     )
     price_shock_threshold_percent: float = Field(default_factory=lambda: env_float("PRICE_SHOCK_THRESHOLD_PERCENT", "0.7"))
     price_shock_review_seconds: int = Field(default_factory=lambda: env_int("PRICE_SHOCK_REVIEW_SECONDS", "120"))

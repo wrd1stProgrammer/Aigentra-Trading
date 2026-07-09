@@ -103,3 +103,12 @@ def test_sentiment_scheduler_catches_up_when_generation_crosses_hour_boundary():
     )
 
     assert delay == 5.0
+
+
+def test_sentiment_scheduler_retries_fallback_results():
+    assert main.league_sentiment_result_needs_retry(
+        {"status": "ok", "results": [{"symbol": "BTCUSDT", "status": "fallback", "stale": False}]}
+    ) is True
+    assert main.league_sentiment_result_needs_retry(
+        {"status": "ok", "results": [{"symbol": "BTCUSDT", "status": "ok", "stale": False}]}
+    ) is False

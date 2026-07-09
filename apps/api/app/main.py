@@ -5264,6 +5264,17 @@ def next_aligned_scheduler_delay(
     return max(5.0, next_epoch - cycle_finished_epoch)
 
 
+def league_sentiment_result_needs_retry(result: Optional[dict[str, Any]]) -> bool:
+    if not isinstance(result, dict) or str(result.get("status") or "").lower() != "ok":
+        return True
+    rows = result.get("results") if isinstance(result.get("results"), list) else []
+    return any(
+        str(row.get("status") or "").lower() != "ok" or bool(row.get("stale"))
+        for row in rows
+        if isinstance(row, dict)
+    )
+
+
 async def auto_league_sentiment_loop() -> None:
     interval = max(300, int(settings.league_sentiment_scheduler_interval_seconds or 3600))
     offset = max(0, min(interval - 1, int(settings.league_sentiment_generation_offset_seconds or 0)))
@@ -5273,8 +5284,9 @@ async def auto_league_sentiment_loop() -> None:
     try:
         while True:
             cycle_started_epoch = time.time()
+            cycle_result: Optional[dict[str, Any]] = None
             try:
-                await run_league_sentiment_once()
+                cycle_result = await run_league_sentiment_once()
             except Exception as exc:
                 logger.exception("league_sentiment_cycle_failed")
                 AUTO_LEAGUE_SENTIMENT_STATE.update(
@@ -5290,6 +5302,11 @@ async def auto_league_sentiment_loop() -> None:
                 interval_seconds=interval,
                 offset_seconds=offset,
             )
+            if league_sentiment_result_needs_retry(cycle_result):
+                delay = min(
+                    delay,
+                    float(max(60, int(settings.league_sentiment_retry_seconds or 300))),
+                )
             AUTO_LEAGUE_SENTIMENT_STATE["nextRunAt"] = datetime.fromtimestamp(
                 cycle_finished_epoch + delay,
                 timezone.utc,
