@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import app.main as main_module
 from app.ai.factory import get_ai_provider
 from app.ai.context import build_management_review_context
 from app.ai.mock_provider import MockAIProvider
@@ -39,7 +40,12 @@ from app.paper.management import order_management_events
 from app.paper.management_actions import create_position_add_order
 from app.paper.planner import create_paper_orders_from_plan
 from app.paper.plan_state import latest_active_trade_plan, list_active_trade_plans
-from app.main import run_scanner_once, run_trader_cycle, suppress_inactive_pending_plan_summary
+from app.main import (
+    process_existing_paper_exposure,
+    run_scanner_once,
+    run_trader_cycle,
+    suppress_inactive_pending_plan_summary,
+)
 from app.repositories import list_records
 from app.repositories import (
     create_ai_review,
@@ -1015,6 +1021,75 @@ async def test_run_cycle_heartbeat_reviews_active_position_without_event(monkeyp
         agent_state = db.query(TraderAgentStateRecord).filter_by(trader_id="channel-rider", symbol="BTCUSDT").one()
         assert agent_state.mode in {"ACTIVE_REVIEW", "PROFIT_MANAGEMENT", "RISK_MANAGEMENT", "DEFENSIVE"}
         assert agent_state.last_decision is not None
+
+
+@pytest.mark.asyncio
+async def test_position_management_releases_transaction_before_execution_lock_and_provider(monkeypatch, temp_db):
+    snapshot = sample_snapshot()
+    snapshot["price"] = 68100.0
+    snapshot["timeframes"]["1m"] = {
+        "open": 68100.0,
+        "high": 68120.0,
+        "low": 68020.0,
+        "close": 68100.0,
+        "volume": 180.0,
+    }
+    snapshot["timeframes"]["15m"]["close"] = 68100.0
+
+    with session_scope() as db:
+        place_paper_order(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="market",
+            quantity=0.01,
+            leverage=2,
+            take_profit_price=70000,
+            stop_loss_price=66800,
+        )
+        process_candle(
+            db,
+            "channel-rider",
+            "BTCUSDT",
+            {"open": 68000, "high": 68120, "low": 67980, "close": 68100},
+        )
+        position = db.query(PaperPositionRecord).filter_by(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="open",
+        ).one()
+        position.created_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+
+    lock_transaction_states: list[bool] = []
+    provider_transaction_states: list[bool] = []
+
+    with session_scope() as db:
+        class InspectingLock:
+            async def __aenter__(self):
+                lock_transaction_states.append(db.in_transaction())
+
+            async def __aexit__(self, exc_type, exc, traceback):
+                return False
+
+        async def fake_management_review(review_db, payload, provider_name, *, settings):
+            provider_transaction_states.append(review_db.in_transaction())
+            return await MockAIProvider().review_position_management(payload)
+
+        monkeypatch.setattr(main_module, "PAPER_EXECUTION_LOCK", InspectingLock())
+        monkeypatch.setattr(main_module, "run_position_management_with_logging", fake_management_review)
+        result = await process_existing_paper_exposure(
+            db,
+            "channel-rider",
+            "BTCUSDT",
+            snapshot,
+            "mock",
+            "ko",
+        )
+
+    assert result["managementReviews"]
+    assert lock_transaction_states == [False, False]
+    assert provider_transaction_states == [False]
 
 
 @pytest.mark.asyncio

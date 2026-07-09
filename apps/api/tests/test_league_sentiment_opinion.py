@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app.ai.anthropic_provider import league_sentiment_schema
 from app.ai.base import BaseAIProvider, league_sentiment_prompt
 from app.ai.league_sentiment_models import LeagueSentimentOpinionResult
+from app.ai.mock_provider import MockAIProvider
 from app.db import (
     AIReviewRecord,
     AITranslationCacheRecord,
@@ -25,6 +26,7 @@ from app.db import (
 from app.league_sentiment import (
     LEAGUE_SENTIMENT_BRIEFING_VERSION,
     build_league_sentiment_payload,
+    get_or_create_league_sentiment_opinion,
     scrub_banned_opinion_terms,
     serialize_league_sentiment_record,
 )
@@ -125,6 +127,40 @@ def seed_sentiment_context() -> None:
                 ),
             ]
         )
+
+
+@pytest.mark.asyncio
+async def test_league_sentiment_releases_read_transaction_before_provider(monkeypatch, temp_db):
+    seed_sentiment_context()
+    provider_transaction_states: list[bool] = []
+    current_time = datetime(2026, 6, 18, 8, 35, tzinfo=timezone.utc)
+
+    with session_scope() as db:
+        class InspectingProvider:
+            name = "mock"
+            model = "mock-v1"
+            fallback = False
+
+            async def review_league_sentiment(self, payload):
+                provider_transaction_states.append(db.in_transaction())
+                return await MockAIProvider().review_league_sentiment(payload)
+
+        monkeypatch.setattr(
+            "app.league_sentiment.get_ai_provider",
+            lambda settings, provider_name=None: InspectingProvider(),
+        )
+        from app.main import settings
+
+        generated = await get_or_create_league_sentiment_opinion(
+            db,
+            symbol="BTCUSDT",
+            locale="ko",
+            settings=settings,
+            now=current_time,
+        )
+
+    assert generated["status"] == "ok"
+    assert provider_transaction_states == [False]
 
 
 def seed_market_context() -> None:

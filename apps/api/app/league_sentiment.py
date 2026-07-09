@@ -317,6 +317,10 @@ async def get_or_create_league_sentiment_opinion(
         now=ensure_utc(now or utc_now()),
         recent_hours=max(1, int(getattr(settings, "league_sentiment_recent_hours", 24) or 24)),
     )
+    # Building the evidence payload opens a read transaction. A Codex CLI
+    # generation may run for nearly two minutes, so release the RDS connection
+    # transaction before awaiting the provider.
+    db.commit()
     provider_name = (
         getattr(settings, "league_sentiment_provider", "")
         or getattr(settings, "position_management_provider", "")

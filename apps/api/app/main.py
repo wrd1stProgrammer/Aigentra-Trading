@@ -2152,34 +2152,50 @@ async def run_management_reviews(
             locale=review_locale,
             **management_context,
         )
+        # The provider can take up to a couple of minutes. Release the read
+        # transaction before awaiting it so realtime execution is never left
+        # waiting behind an idle management transaction.
+        db.commit()
         try:
             review = await run_position_management_with_logging(db, payload, clean_provider, settings=settings)
+            # Provider-call logging opens a new transaction. Finish that
+            # transaction before waiting for the execution lock as well.
+            db.commit()
             review.sourceLocale = CANONICAL_AI_LOCALE
             review = refresh_stale_position_management_review(review, event=event, exposure=exposure)
             review = enforce_pending_order_cancel_event(review, event=event, exposure=exposure)
             if event.eventType == PRICE_SHOCK_EVENT_TYPE:
                 review.nextReviewInSeconds = max(60, int(settings.price_shock_review_seconds or 120))
-            applied_actions = apply_management_actions(
-                db,
-                trader_id=trader_id,
-                symbol=symbol,
-                event=event,
-                exposure=exposure,
-                review=review,
-                snapshot=snapshot,
-                result=result,
-            )
-            record = create_position_management_review(
-                db,
-                symbol=symbol,
-                trader_id=trader_id,
-                event=event,
-                exposure=exposure,
-                review=review,
-                applied_actions=applied_actions,
-                notify=False,
-            )
+            async with PAPER_EXECUTION_LOCK:
+                # The exposure may have filled or closed while the AI was
+                # responding. apply_management_actions reloads it by id and
+                # safely declines stale actions.
+                applied_actions = apply_management_actions(
+                    db,
+                    trader_id=trader_id,
+                    symbol=symbol,
+                    event=event,
+                    exposure=exposure,
+                    review=review,
+                    snapshot=snapshot,
+                    result=result,
+                )
+                record = create_position_management_review(
+                    db,
+                    symbol=symbol,
+                    trader_id=trader_id,
+                    event=event,
+                    exposure=exposure,
+                    review=review,
+                    applied_actions=applied_actions,
+                    notify=False,
+                )
+                # Commit paper mutations and their review before releasing the
+                # lock. Realtime execution can then proceed without observing
+                # an uncommitted intermediate state.
+                db.commit()
         except Exception as exc:
+            db.rollback()
             review = PositionManagementResult(
                 decision="NEEDS_MORE_DATA",
                 confidence=0,
@@ -2214,6 +2230,7 @@ async def run_management_reviews(
                 applied_actions=[],
                 notify=False,
             )
+            db.commit()
         if record.status == "ok":
             await fanout_ai_translations(
                 db,
@@ -2414,14 +2431,21 @@ async def process_existing_paper_exposure(
     provider_name: str,
     locale: str,
 ) -> dict:
-    before = list_active_paper_exposure(db, trader_id, symbol)
+    before = {"hasExposure": False, "openOrders": [], "openPositions": []}
     result = None
     management_reviews: list[dict[str, Any]] = []
     status_feed_ids: list[int] = []
-    if before["hasExposure"]:
-        sync_default_paper_settings(db, trader_id, symbol, settings)
-        async with PAPER_EXECUTION_LOCK:
+    # Acquire the execution lock before opening a transaction. Previously the
+    # management loop updated risk settings first and then waited here while
+    # realtime execution held this lock and waited on those uncommitted rows,
+    # creating an intermittent database/application deadlock.
+    async with PAPER_EXECUTION_LOCK:
+        before = list_active_paper_exposure(db, trader_id, symbol)
+        if before["hasExposure"]:
+            sync_default_paper_settings(db, trader_id, symbol, settings)
             result = process_candle(db, trader_id, symbol, snapshot_to_engine_candle(snapshot))
+        db.commit()
+    if before["hasExposure"]:
         management_reviews = await run_management_reviews(
             db,
             trader_id=trader_id,
