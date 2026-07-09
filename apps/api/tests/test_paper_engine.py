@@ -305,6 +305,108 @@ def test_take_profit_counts_prior_ai_reduction_against_planned_target(temp_db):
         assert rounded(take_profit_event.quantity) == Decimal("0.1000")
 
 
+def test_long_take_profit_uses_nearest_profitable_target_when_payload_is_unsorted(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)
+        place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=100,
+            quantity=1,
+            leverage=5,
+            take_profit_price=120,
+            stop_loss_price=90,
+            payload={
+                "initialQuantity": 1,
+                "takeProfits": [
+                    {"price": 120, "weight": 0.6, "reason": "far target"},
+                    {"price": 110, "weight": 0.4, "reason": "near target"},
+                ],
+            },
+        )
+
+        process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 99, "close": 100},
+        )
+
+        result = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 100, "high": 111, "low": 99, "close": 109},
+        )
+
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        take_profit_event = db.execute(
+            select(TradeEventRecord).where(TradeEventRecord.event_type == "take_partial_profit")
+        ).scalar_one()
+        payload = from_json(position.payload_json) or {}
+
+        assert result.closed_positions == []
+        assert rounded(position.quantity) == Decimal("0.5000")
+        assert rounded(take_profit_event.quantity) == Decimal("0.5000")
+        assert position.take_profit_price == Decimal("120.0000000000")
+        assert payload["takeProfits"][1]["status"] == "filled"
+        assert payload["takeProfits"][0].get("status") != "filled"
+
+
+def test_short_take_profit_uses_nearest_profitable_target_when_payload_is_unsorted(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)
+        place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="short",
+            order_type="limit",
+            limit_price=100,
+            quantity=1,
+            leverage=5,
+            take_profit_price=80,
+            stop_loss_price=110,
+            payload={
+                "initialQuantity": 1,
+                "takeProfits": [
+                    {"price": 80, "weight": 0.6, "reason": "far target"},
+                    {"price": 90, "weight": 0.4, "reason": "near target"},
+                ],
+            },
+        )
+
+        process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 99, "close": 100},
+        )
+
+        result = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 89, "close": 91},
+        )
+
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        take_profit_event = db.execute(
+            select(TradeEventRecord).where(TradeEventRecord.event_type == "take_partial_profit")
+        ).scalar_one()
+        payload = from_json(position.payload_json) or {}
+
+        assert result.closed_positions == []
+        assert rounded(position.quantity) == Decimal("0.5000")
+        assert rounded(take_profit_event.quantity) == Decimal("0.5000")
+        assert position.take_profit_price == Decimal("80.0000000000")
+        assert payload["takeProfits"][1]["status"] == "filled"
+        assert payload["takeProfits"][0].get("status") != "filled"
+
+
 def test_order_rejected_when_notional_exceeds_risk_settings(temp_db):
     with session_scope() as db:
         upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_notional=50)

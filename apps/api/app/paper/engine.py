@@ -312,10 +312,8 @@ def handle_take_profit_exit(
 
     is_long = position.side == "long"
     target_idx = -1
-    for idx, tp in enumerate(take_profits):
-        if tp.get("status") == "filled":
-            continue
-        tp_price = Decimal(str(tp["price"]))
+    executable_targets = _take_profit_targets_in_execution_order(position, take_profits)
+    for idx, tp, tp_price in executable_targets:
         crossed = (is_long and parsed_candle.high >= tp_price) or (not is_long and parsed_candle.low <= tp_price)
         if crossed:
             target_idx = idx
@@ -338,12 +336,14 @@ def handle_take_profit_exit(
     raw_initial_qty = Decimal(str(payload.get("initialQuantity", position.quantity)))
     initial_qty = max(raw_initial_qty, position.quantity + closed_qty)
     cumulative_weight = Decimal("0")
-    for idx, take_profit in enumerate(take_profits[: target_idx + 1]):
+    for sequence_idx, (idx, take_profit, _) in enumerate(executable_targets):
         target_weight = Decimal(str(take_profit.get("weight", 0.5)))
         target_weight = max(Decimal("0"), min(target_weight, Decimal("1")))
-        if idx == 0:
+        if sequence_idx == 0:
             target_weight = max(target_weight, MIN_FIRST_TAKE_PROFIT_EXIT_FRACTION)
         cumulative_weight += target_weight
+        if idx == target_idx:
+            break
     planned_closed_qty = initial_qty * min(cumulative_weight, Decimal("1"))
     close_qty = min(max(planned_closed_qty - closed_qty, Decimal("0")), position.quantity)
     
@@ -356,7 +356,7 @@ def handle_take_profit_exit(
             result.closed_positions.append(position)
     else:
         if close_qty <= 0:
-            next_tp = next((tp for tp in take_profits if tp.get("status") != "filled"), None)
+            next_tp = _next_take_profit_target(position, take_profits)
             if next_tp:
                 position.take_profit_price = Decimal(str(next_tp["price"]))
             else:
@@ -374,7 +374,7 @@ def handle_take_profit_exit(
             event_payload["takeProfitIndex"] = target_idx
             event.payload_json = to_json(event_payload)
             
-        next_tp = next((tp for tp in take_profits if tp.get("status") != "filled"), None)
+        next_tp = _next_take_profit_target(position, take_profits)
         if next_tp:
             position.take_profit_price = Decimal(str(next_tp["price"]))
         else:
@@ -606,7 +606,7 @@ def _fill_order(
         # Update take_profit_price and stop_loss_price
         tps = pos_payload.get("takeProfits")
         if tps:
-            first_tp = next((tp for tp in tps if tp.get("status") != "filled"), None)
+            first_tp = _next_take_profit_target(existing_position, tps) if isinstance(tps, list) else None
             if first_tp:
                 existing_position.take_profit_price = Decimal(str(first_tp["price"]))
             else:
@@ -650,6 +650,8 @@ def _fill_order(
         )
         db.add(position)
         db.flush()
+
+    position.take_profit_price = _next_take_profit_price(position)
 
     order.status = "filled"
     order.filled_price = fill_price
@@ -735,14 +737,38 @@ def _next_take_profit_price(position: PaperPositionRecord) -> Optional[Decimal]:
     payload = from_json(position.payload_json) or {}
     take_profits = payload.get("takeProfits")
     if isinstance(take_profits, list):
-        for take_profit in take_profits:
-            if not isinstance(take_profit, dict) or take_profit.get("status") == "filled":
-                continue
+        next_target = _next_take_profit_target(position, take_profits)
+        if next_target is not None:
             try:
-                return to_decimal(take_profit.get("price"), "take_profit_price")
+                return to_decimal(next_target.get("price"), "take_profit_price")
             except ValueError:
-                continue
+                return None
     return position.take_profit_price
+
+
+def _next_take_profit_target(position: PaperPositionRecord, take_profits: list[Any]) -> Optional[dict[str, Any]]:
+    targets = _take_profit_targets_in_execution_order(position, take_profits)
+    return targets[0][1] if targets else None
+
+
+def _take_profit_targets_in_execution_order(
+    position: PaperPositionRecord,
+    take_profits: list[Any],
+) -> list[tuple[int, dict[str, Any], Decimal]]:
+    targets: list[tuple[int, dict[str, Any], Decimal]] = []
+    for idx, take_profit in enumerate(take_profits):
+        if not isinstance(take_profit, dict) or take_profit.get("status") == "filled":
+            continue
+        try:
+            price = to_decimal(take_profit.get("price"), "take_profit_price")
+        except ValueError:
+            continue
+        if position.side == "long" and price <= position.entry_price:
+            continue
+        if position.side == "short" and price >= position.entry_price:
+            continue
+        targets.append((idx, take_profit, price))
+    return sorted(targets, key=lambda item: (abs(item[2] - position.entry_price), item[0]))
 
 
 def _first_take_profit_breakeven_trigger(position: PaperPositionRecord) -> Optional[Decimal]:
