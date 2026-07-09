@@ -140,6 +140,7 @@ class TradeReviewResult(BaseModel):
     approvalReason: str
     counterThesis: str
     userSummary: Optional[str] = None
+    translations: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     provider: str = "mock"
     model: str = "mock-reviewer"
     fallback: bool = False
@@ -206,6 +207,7 @@ class PositionManagementResult(BaseModel):
     rationale: str
     counterThesis: str
     userSummary: Optional[str] = None
+    translations: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     provider: str = "mock"
     model: str = "mock-position-manager"
     fallback: bool = False

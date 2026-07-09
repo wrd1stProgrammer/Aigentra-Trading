@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -33,6 +34,7 @@ from app.repositories import sanitize_error_message, serialize_record
 
 
 RealtimeResultCallback = Callable[[Session, str, str, PaperEngineResult], Awaitable[None] | None]
+logger = logging.getLogger("aigentra.worker.realtime")
 
 
 REALTIME_EXECUTION_STATE: dict[str, Any] = {
@@ -703,6 +705,14 @@ async def run_realtime_execution_once(
                     "currentScanStartedAt": None,
                 }
             )
+            if counts["errors"] or counts["events"]:
+                logger.info(
+                    "realtime_cycle status=%s duration_ms=%s events=%s errors=%s",
+                    status,
+                    payload["durationMs"],
+                    counts["events"],
+                    counts["errors"],
+                )
     return REALTIME_EXECUTION_STATE["lastResult"]
 
 
@@ -746,8 +756,12 @@ async def auto_realtime_execution_loop(*, on_result: Optional[RealtimeResultCall
             )
             next_tick += interval
             try:
-                await asyncio.to_thread(run_realtime_execution_once_sync, symbols=symbols, on_result=on_result)
+                # Keep execution, management, and their shared asyncio lock on one
+                # event loop. Spinning up a new loop in a worker thread every second
+                # can strand a waiter on PAPER_EXECUTION_LOCK and stop risk updates.
+                await run_realtime_execution_once(symbols=symbols, on_result=on_result)
             except Exception as exc:
+                logger.exception("realtime_cycle_failed")
                 REALTIME_EXECUTION_STATE.update(
                     {
                         "lastError": sanitize_error_message(str(exc)),

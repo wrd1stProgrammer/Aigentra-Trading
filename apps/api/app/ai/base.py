@@ -99,6 +99,17 @@ def user_facing_locale_instruction(locale_value: Optional[str], fields: str) -> 
     return locale, instruction
 
 
+MULTILINGUAL_REVIEW_OUTPUT_INSTRUCTION: Final[str] = (
+    "translations is required and must contain exactly en, ko, ru, pt-BR, and tr. "
+    "Top-level user-facing fields must mirror translations.en exactly and sourceLocale is en. "
+    "Each locale must preserve the identical decision, facts, action types, prices, quantities, and triggers; translate only user-facing text. "
+    "Write natural English, Korean, Russian, Brazilian Portuguese, and Turkish rather than literal mixed-language prose. "
+    "Keep LONG, SHORT, BTCUSDT, timeframe labels, and strategy names only where they are useful technical tokens. "
+    "Do not repeat reviewFacts or riskFlags inside translations; their labelKey values are localized by the UI. "
+    "For management actions, preserve type, price, and quantityFraction exactly while translating reason. "
+)
+
+
 class BaseAIProvider:
     name = "base"
     model = "base"
@@ -120,6 +131,7 @@ class BaseAIProvider:
         raise NotImplementedError
 
     def normalize_result(self, raw: Dict[str, Any]) -> TradeReviewResult:
+        raw = self._review_with_canonical_english(raw)
         decision = str(raw.get("decision", "NEEDS_MORE_DATA")).upper()
         if decision not in VALID_DECISIONS:
             decision = "NEEDS_MORE_DATA"
@@ -145,6 +157,7 @@ class BaseAIProvider:
             decision=decision,
             confidence=confidence,
             riskLevel=risk_level,
+            sourceLocale=CANONICAL_AI_LOCALE,
             reviewCode=str(raw.get("reviewCode") or "ENTRY_REVIEW").upper(),
             reviewFacts=review_facts,
             riskFlags=self._normalize_string_list(raw.get("riskFlags")) or [f"risk_level:{risk_level.lower()}"],
@@ -156,12 +169,14 @@ class BaseAIProvider:
             approvalReason=str(raw.get("approvalReason", "No provider reason supplied.")),
             counterThesis=str(raw.get("counterThesis", "Invalidation conditions require monitoring.")),
             userSummary=self._normalize_optional_text(raw.get("userSummary")),
+            translations=self._normalize_review_translations(raw.get("translations")),
             provider=self.name,
             model=self.model,
             fallback=self.fallback,
         )
 
     def normalize_management_result(self, raw: Dict[str, Any]) -> PositionManagementResult:
+        raw = self._review_with_canonical_english(raw)
         decision = self._normalize_management_action_type(raw.get("decision", "HOLD"))
         if decision not in VALID_MANAGEMENT_DECISIONS:
             decision = "NEEDS_MORE_DATA"
@@ -203,6 +218,7 @@ class BaseAIProvider:
             decision=decision,
             confidence=confidence,
             riskLevel=risk_level,
+            sourceLocale=CANONICAL_AI_LOCALE,
             reviewCode=str(raw.get("reviewCode") or "POSITION_MANAGEMENT_REVIEW").upper(),
             reviewFacts=review_facts,
             riskFlags=self._normalize_string_list(raw.get("riskFlags")) or [f"risk_level:{risk_level.lower()}"],
@@ -213,6 +229,7 @@ class BaseAIProvider:
             rationale=str(raw.get("rationale", "Management review completed.")),
             counterThesis=str(raw.get("counterThesis", "If invalidation fires, hard risk rules take priority.")),
             userSummary=self._normalize_optional_text(raw.get("userSummary")),
+            translations=self._normalize_review_translations(raw.get("translations")),
             provider=self.name,
             model=self.model,
             fallback=self.fallback,
@@ -221,6 +238,21 @@ class BaseAIProvider:
     def _normalize_management_action_type(self, value: Any) -> str:
         clean = str(value or "").strip().upper().replace("-", "_").replace(" ", "_")
         return MANAGEMENT_ACTION_ALIASES.get(clean, clean or "HOLD")
+
+    def _normalize_review_translations(self, value: Any) -> dict[str, dict[str, Any]]:
+        translations = value if isinstance(value, dict) else {}
+        return {
+            locale: dict(translations[locale])
+            for locale in SUPPORTED_LOCALES
+            if isinstance(translations.get(locale), dict)
+        }
+
+    def _review_with_canonical_english(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+        translations = raw.get("translations") if isinstance(raw.get("translations"), dict) else {}
+        english = translations.get(CANONICAL_AI_LOCALE)
+        if not isinstance(english, dict):
+            return raw
+        return {**raw, **english, "translations": translations}
 
     def normalize_league_sentiment_result(self, raw: Dict[str, Any]) -> LeagueSentimentOpinionResult:
         bias = str(raw.get("bias", "MIXED")).upper()
@@ -1211,19 +1243,15 @@ def extract_json_object(text: str) -> Dict[str, Any]:
 
 
 def entry_approval_prompt(payload: TradeReviewPayload) -> str:
-    locale, language_instruction = user_facing_locale_instruction(
-        payload.locale,
-        "structuredReview, approvalReason, counterThesis, adjustments, and earlyExitRecommendations",
-    )
     data = {
         "symbol": payload.symbol,
-        "locale": locale,
+        "requestedLocale": normalize_locale(payload.locale),
         "approvalDossier": build_entry_approval_dossier(payload, reviewer_policy=trader_review_policy(payload.trader.id)),
     }
     return (
         "You are the ENTRY APPROVAL reviewer for a futures paper-trading candidate. Return only strict JSON with keys "
         "decision, confidence, riskLevel, reviewCode, reviewFacts, riskFlags, structuredReview, adjustments, leverageOverride, riskPercentOverride, "
-        "earlyExitRecommendations, approvalReason, counterThesis. Valid decisions are "
+        "earlyExitRecommendations, approvalReason, counterThesis, translations. Valid decisions are "
         "APPROVE, ADJUST_AND_APPROVE, DEFER, REJECT, NEEDS_MORE_DATA. "
         "This is not financial advice and no real order will be placed. "
         "Treat paper-trading status as execution context only; do not use it as approval evidence. "
@@ -1298,7 +1326,7 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "Do not use setupScore as the main reason; mention setupScore only after concrete market and geometry evidence. "
         "counterThesis must be a concrete kill-switch or opposing market story, not a generic warning. "
         "Reject or defer if any required candidate field is missing or internally inconsistent. "
-        f"{language_instruction}\n\n"
+        f"{MULTILINGUAL_REVIEW_OUTPUT_INSTRUCTION}\n\n"
         f"Payload:\n{json.dumps(data, ensure_ascii=False)}"
     )
 
@@ -1308,10 +1336,6 @@ def review_prompt(payload: TradeReviewPayload) -> str:
 
 
 def position_management_review_prompt(payload: PositionManagementPayload) -> str:
-    locale, language_instruction = user_facing_locale_instruction(
-        payload.locale,
-        "structuredReview, rationale, counterThesis, and action reason",
-    )
     event_type = str(payload.event.eventType or "")
     is_price_shock = event_type == "common_price_shock"
     shock_instruction = (
@@ -1328,7 +1352,7 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "trader": payload.trader.model_dump(),
         "strategyManagementPolicy": trader_management_policy(payload.trader.id),
         "symbol": payload.symbol,
-        "locale": locale,
+        "requestedLocale": normalize_locale(payload.locale),
         "event": payload.event.model_dump(),
         "exposure": compact_management_exposure(payload.exposure),
         "entryThesis": compact_management_entry_thesis(payload.exposure),
@@ -1342,9 +1366,9 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
     }
     return (
         "You are the POSITION MANAGEMENT reviewer for an active simulated order or position. Return only strict JSON with keys "
-        "decision, confidence, riskLevel, reviewCode, reviewFacts, riskFlags, structuredReview, actions, riskChange, nextReviewInSeconds, rationale, counterThesis. "
-        "Write directly in the requested locale instead of relying on a later translation pass. "
-        "Use plain short sentences that translate naturally if cached translation is ever needed. Avoid phrasing like 'X versus Y' when 'current price is X, entry is Y' is clearer. "
+        "decision, confidence, riskLevel, reviewCode, reviewFacts, riskFlags, structuredReview, actions, riskChange, nextReviewInSeconds, rationale, counterThesis, translations. "
+        "Generate every supported locale in this same response so the UI never waits for a second translation call. "
+        "Use plain short sentences in every locale. Avoid phrasing like 'X versus Y' when 'current price is X, entry is Y' is clearer. "
         "Valid decisions are HOLD, CANCEL_PENDING_ORDER, ADJUST_PENDING_ORDER, MOVE_STOP, MOVE_STOP_TO_BREAKEVEN, "
         "TRAIL_STOP, TAKE_PARTIAL_PROFIT, CLOSE_POSITION, REDUCE_RISK, ADD_TO_POSITION, PYRAMID_POSITION, "
         "LET_PROFIT_RUN, NEEDS_MORE_DATA. "
@@ -1427,7 +1451,7 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "rationale is a legacy compatibility field; use one to two compact desk-style sentences that mirror structuredReview. "
         "If evidence is weak, choose HOLD or NEEDS_MORE_DATA, but include the exact next condition that would trigger action. "
         f"{shock_instruction}"
-        f"{language_instruction}\n\n"
+        f"{MULTILINGUAL_REVIEW_OUTPUT_INSTRUCTION}\n\n"
         f"Payload:\n{json.dumps(data, ensure_ascii=False)}"
     )
 

@@ -618,7 +618,8 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
         queryKey?.[0] === "league" &&
         queryKey?.[1] === "trader" &&
         queryKey?.[2] === traderId &&
-        queryKey?.[3] === symbol
+        queryKey?.[3] === symbol &&
+        queryKey?.[4] === locale
       ) {
         return previousData;
       }

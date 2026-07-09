@@ -187,6 +187,18 @@ def test_codex_cli_strict_schema_requires_nested_optional_properties_as_nullable
     assert action_schema["properties"]["quantityFraction"]["type"] == ["number", "null"]
 
 
+def test_codex_review_schemas_require_every_supported_locale():
+    from app.ai.anthropic_provider import management_review_schema, trade_review_schema
+
+    expected_locales = {"en", "ko", "ru", "pt-BR", "tr"}
+    for schema in (trade_review_schema(), management_review_schema()):
+        translations = schema["properties"]["translations"]
+        assert "translations" in schema["required"]
+        assert set(translations["properties"]) == expected_locales
+        assert set(translations["required"]) == expected_locales
+        assert translations["additionalProperties"] is False
+
+
 def test_codex_cli_strict_schema_converts_freeform_maps_to_empty_objects():
     from app.ai.anthropic_provider import league_sentiment_schema
     from app.ai.codex_cli_provider import codex_strict_output_schema
@@ -260,6 +272,7 @@ async def test_get_ai_provider_falls_back_to_openai_when_codex_cli_fails(tmp_pat
         ai_provider="codex_cli",
         codex_cli_command=str(codex_bin),
         codex_cli_workdir=str(tmp_path),
+        codex_cli_fallback_provider="openai",
         openai_api_key="test-key",
         openai_model="fallback-model",
         ai_missing_key_fallback_to_mock=False,
@@ -271,6 +284,16 @@ async def test_get_ai_provider_falls_back_to_openai_when_codex_cli_fails(tmp_pat
     assert review.provider == "openai"
     assert review.model == "fallback-model"
     assert review.approvalReason == "Fallback approval."
+
+
+def test_codex_cli_default_does_not_fall_through_to_an_api_provider(monkeypatch):
+    monkeypatch.delenv("CODEX_CLI_FALLBACK_PROVIDER", raising=False)
+    settings = Settings(ai_provider="codex_cli", codex_cli_command="codex")
+
+    provider = get_ai_provider(settings)
+
+    assert provider.name == "codex_cli"
+    assert provider.__class__.__name__ == "CodexCliAIProvider"
 
 
 @pytest.mark.asyncio

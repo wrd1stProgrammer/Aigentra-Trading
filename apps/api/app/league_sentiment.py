@@ -237,11 +237,28 @@ async def get_or_create_league_sentiment_opinion(
     else:
         cached_payload = await redis_get_json(league_sentiment_cache_key(symbol, requested_locale, interval_start))
         if isinstance(cached_payload, dict):
-            cached_payload["cacheHit"] = True
-            return cached_payload
+            # prefer_cached may seed this hour's key with the previous opinion.
+            # A fresh request must ignore that stale placeholder and generate
+            # the current interval instead of returning it again.
+            cached_opinion = cached_payload.get("opinion") if isinstance(cached_payload.get("opinion"), dict) else {}
+            generation_degraded = (
+                str(cached_payload.get("status") or "").lower() != "ok"
+                or bool(cached_opinion.get("fallback"))
+            )
+            if prefer_cached:
+                if generation_degraded:
+                    cached_payload["stale"] = True
+                    cached_payload["staleReason"] = "generation_retry"
+                    cached_payload["nextRefreshAt"] = iso_utc(ensure_utc(now or utc_now()))
+                cached_payload["cacheHit"] = True
+                return cached_payload
+            if not bool(cached_payload.get("stale")) and not generation_degraded:
+                cached_payload["cacheHit"] = True
+                return cached_payload
         existing = latest_hourly_opinion(db, symbol, CANONICAL_AI_LOCALE, interval_start)
         if existing is not None:
-            if league_sentiment_record_is_current(existing):
+            generation_ok = str(existing.status or "").lower() == "ok" and not bool(existing.fallback)
+            if league_sentiment_record_is_current(existing) and generation_ok:
                 await ensure_league_sentiment_translation(
                     db,
                     record=existing,
@@ -252,6 +269,25 @@ async def get_or_create_league_sentiment_opinion(
                 await cache_league_sentiment_payload(symbol, requested_locale, interval_start, interval_end, serialized)
                 return serialized
             record_to_replace = existing
+            if prefer_cached and league_sentiment_record_is_current(existing):
+                serialized = serialize_league_sentiment_record(
+                    db,
+                    existing,
+                    cache_hit=True,
+                    locale=requested_locale,
+                    stale=True,
+                    stale_reason="generation_retry",
+                    next_refresh_at=ensure_utc(now or utc_now()),
+                )
+                await cache_league_sentiment_payload(
+                    symbol,
+                    requested_locale,
+                    interval_start,
+                    interval_end,
+                    serialized,
+                    stale=True,
+                )
+                return serialized
         if prefer_cached:
             previous = latest_previous_opinion(db, symbol, CANONICAL_AI_LOCALE, interval_start)
             if previous is not None:
@@ -1572,6 +1608,7 @@ def serialize_league_sentiment_record(
     cache_hit: bool,
     locale: str,
     stale: bool = False,
+    stale_reason: Optional[str] = None,
     next_refresh_at: Optional[datetime] = None,
     now: Optional[datetime] = None,
 ) -> dict[str, Any]:
@@ -1608,7 +1645,7 @@ def serialize_league_sentiment_record(
         "updatedAt": iso_utc(record.updated_at),
         "cacheHit": cache_hit,
         "stale": stale,
-        "staleReason": "previous_interval" if stale else None,
+        "staleReason": (stale_reason or "previous_interval") if stale else None,
         "refreshOverdue": refresh_overdue_minutes > 0,
         "refreshOverdueMinutes": refresh_overdue_minutes,
         "opinionAgeMinutes": opinion_age_minutes,

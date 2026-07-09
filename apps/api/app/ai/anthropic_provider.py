@@ -117,6 +117,36 @@ def json_output_config(schema: dict[str, Any]) -> dict[str, Any]:
     return {"format": {"type": "json_schema", "schema": schema}}
 
 
+def localized_review_translations_schema(content_schema: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {locale: content_schema for locale in SUPPORTED_LOCALES},
+        "required": list(SUPPORTED_LOCALES),
+        "additionalProperties": False,
+    }
+
+
+def localized_trade_review_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "structuredReview": structured_review_schema(),
+            "adjustments": string_array_schema(),
+            "earlyExitRecommendations": string_array_schema(),
+            "approvalReason": {"type": "string"},
+            "counterThesis": {"type": "string"},
+        },
+        "required": [
+            "structuredReview",
+            "adjustments",
+            "earlyExitRecommendations",
+            "approvalReason",
+            "counterThesis",
+        ],
+        "additionalProperties": False,
+    }
+
+
 def trade_review_schema() -> dict[str, Any]:
     return {
         "type": "object",
@@ -147,6 +177,7 @@ def trade_review_schema() -> dict[str, Any]:
                 "type": "string",
                 "description": "Concrete opposing market story or kill-switch that would invalidate the entry approval.",
             },
+            "translations": localized_review_translations_schema(localized_trade_review_schema()),
         },
         "required": [
             "decision",
@@ -160,6 +191,7 @@ def trade_review_schema() -> dict[str, Any]:
             "earlyExitRecommendations",
             "approvalReason",
             "counterThesis",
+            "translations",
         ],
         "additionalProperties": False,
     }
@@ -186,6 +218,20 @@ def management_action_schema() -> dict[str, Any]:
     }
 
 
+def localized_management_review_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "structuredReview": structured_review_schema(require_title=True),
+            "actions": {"type": "array", "items": management_action_schema()},
+            "rationale": {"type": "string"},
+            "counterThesis": {"type": "string"},
+        },
+        "required": ["structuredReview", "actions", "rationale", "counterThesis"],
+        "additionalProperties": False,
+    }
+
+
 def management_review_schema() -> dict[str, Any]:
     return {
         "type": "object",
@@ -205,6 +251,7 @@ def management_review_schema() -> dict[str, Any]:
                 "description": "Legacy management rationale. Write 1-2 compact sentences mirroring the current exposure briefing in structuredReview.",
             },
             "counterThesis": {"type": "string"},
+            "translations": localized_review_translations_schema(localized_management_review_schema()),
         },
         "required": [
             "decision",
@@ -219,6 +266,7 @@ def management_review_schema() -> dict[str, Any]:
             "nextReviewInSeconds",
             "rationale",
             "counterThesis",
+            "translations",
         ],
         "additionalProperties": False,
     }

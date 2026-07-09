@@ -168,7 +168,7 @@ class Settings(BaseModel):
     codex_cli_home: str = Field(default_factory=lambda: os.getenv("CODEX_HOME", os.getenv("CODEX_CLI_HOME", "")))
     codex_cli_access_token: str = Field(default_factory=lambda: os.getenv("CODEX_ACCESS_TOKEN", ""))
     codex_cli_fallback_provider: str = Field(
-        default_factory=lambda: normalize_ai_provider_name(os.getenv("CODEX_CLI_FALLBACK_PROVIDER"), "openai")
+        default_factory=lambda: normalize_ai_provider_name(os.getenv("CODEX_CLI_FALLBACK_PROVIDER"), "codex_cli")
     )
     ai_translation_enabled: bool = Field(default_factory=lambda: env_bool("AI_TRANSLATION_ENABLED", "true"))
     ai_translation_provider: str = Field(default_factory=lambda: provider_from_env("AI_TRANSLATION_PROVIDER", "openai"))
@@ -230,6 +230,10 @@ class Settings(BaseModel):
     position_management_provider: str = Field(default_factory=lambda: provider_from_env("POSITION_MANAGEMENT_PROVIDER", ""))
     position_management_cooldown_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_COOLDOWN_SECONDS", "300"))
     position_management_max_reviews_per_cycle: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_MAX_REVIEWS_PER_CYCLE", "2"))
+    position_management_concurrency: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_CONCURRENCY", "2"))
+    position_management_provider_error_retry_seconds: int = Field(
+        default_factory=lambda: env_int("POSITION_MANAGEMENT_PROVIDER_ERROR_RETRY_SECONDS", "300")
+    )
     position_management_pending_heartbeat_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_PENDING_HEARTBEAT_SECONDS", "300"))
     position_management_open_heartbeat_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_OPEN_HEARTBEAT_SECONDS", "300"))
     position_management_urgent_cooldown_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_URGENT_COOLDOWN_SECONDS", "60"))
@@ -241,6 +245,15 @@ class Settings(BaseModel):
     )
     league_sentiment_recent_hours: int = Field(default_factory=lambda: env_int("LEAGUE_SENTIMENT_RECENT_HOURS", "24"))
     league_sentiment_timeout_seconds: float = Field(default_factory=lambda: env_float("LEAGUE_SENTIMENT_TIMEOUT_SECONDS", "45"))
+    enable_league_sentiment_scheduler: bool = Field(
+        default_factory=lambda: env_bool("ENABLE_LEAGUE_SENTIMENT_SCHEDULER", "true")
+    )
+    league_sentiment_scheduler_interval_seconds: int = Field(
+        default_factory=lambda: env_int("LEAGUE_SENTIMENT_SCHEDULER_INTERVAL_SECONDS", "3600")
+    )
+    league_sentiment_generation_offset_seconds: int = Field(
+        default_factory=lambda: env_int("LEAGUE_SENTIMENT_GENERATION_OFFSET_SECONDS", "30")
+    )
     price_shock_threshold_percent: float = Field(default_factory=lambda: env_float("PRICE_SHOCK_THRESHOLD_PERCENT", "0.7"))
     price_shock_review_seconds: int = Field(default_factory=lambda: env_int("PRICE_SHOCK_REVIEW_SECONDS", "120"))
     price_shock_review_cycles: int = Field(default_factory=lambda: env_int("PRICE_SHOCK_REVIEW_CYCLES", "5"))

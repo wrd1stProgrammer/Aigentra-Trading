@@ -303,24 +303,39 @@ def recent_management_review_exists(
     exposure_id: int,
     event_type: str,
     cooldown_seconds: int,
+    error_retry_seconds: int = 300,
 ) -> bool:
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=max(0, cooldown_seconds))
-    stmt = (
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=max(0, cooldown_seconds))
+    base_stmt = (
         select(PositionManagementReviewRecord)
         .where(
             PositionManagementReviewRecord.trader_id == trader_id,
             PositionManagementReviewRecord.symbol == symbol,
             PositionManagementReviewRecord.event_type == event_type,
-            PositionManagementReviewRecord.created_at >= cutoff,
         )
-        .order_by(desc(PositionManagementReviewRecord.created_at), desc(PositionManagementReviewRecord.id))
-        .limit(1)
     )
     if exposure_kind == "order":
-        stmt = stmt.where(PositionManagementReviewRecord.order_id == exposure_id)
+        base_stmt = base_stmt.where(PositionManagementReviewRecord.order_id == exposure_id)
     else:
-        stmt = stmt.where(PositionManagementReviewRecord.position_id == exposure_id)
-    return db.execute(stmt).scalar_one_or_none() is not None
+        base_stmt = base_stmt.where(PositionManagementReviewRecord.position_id == exposure_id)
+    order_by = (desc(PositionManagementReviewRecord.created_at), desc(PositionManagementReviewRecord.id))
+    successful = db.execute(
+        base_stmt.where(
+            PositionManagementReviewRecord.status == "ok",
+            PositionManagementReviewRecord.created_at >= cutoff,
+        ).order_by(*order_by).limit(1)
+    ).scalar_one_or_none()
+    if successful is not None:
+        return True
+    retry_cutoff = now - timedelta(seconds=max(30, error_retry_seconds))
+    failed = db.execute(
+        base_stmt.where(
+            PositionManagementReviewRecord.status != "ok",
+            PositionManagementReviewRecord.created_at >= retry_cutoff,
+        ).order_by(*order_by).limit(1)
+    ).scalar_one_or_none()
+    return failed is not None
 
 
 def management_review_cooldown_seconds(
@@ -340,7 +355,10 @@ def management_review_cooldown_seconds(
         return max(cooldown, order_stale_seconds)
     if event_type.endswith("_heartbeat"):
         heartbeat = int((event.metrics or {}).get("heartbeatSeconds") or 0)
-        return max(cooldown, heartbeat)
+        # Heartbeats are the configured periodic review contract. A larger
+        # event cooldown must not silently stretch a 25-minute heartbeat into
+        # an irregular 30-60 minute review cadence.
+        return max(60, heartbeat)
     if event_type in {"near_target_profit_protection", "near_stop_risk_reduction"}:
         return max(cooldown, PROTECTIVE_REVIEW_MIN_COOLDOWN_SECONDS)
     return cooldown

@@ -631,22 +631,15 @@ def test_entry_review_prompt_requires_modal_ready_entry_rationale():
     assert "Do not start headline with decision labels such as APPROVE, ADJUST_AND_APPROVE, DEFER, REJECT, or NEEDS_MORE_DATA" in prompt
     assert "Do not write management-review wording in entry detail fields" in prompt
     assert "Do not spend the entry detail on leverage, risk percent, stop/target math, fee-aware RR, or recent-loss memory" in prompt
-    assert "For Korean locale, every user-facing structuredReview and approvalReason string must be Korean" in prompt
-    assert "Use LONG/SHORT, BTCUSDT, timeframe labels, and strategy names as allowed technical tokens only" in prompt
+    assert "translations is required and must contain exactly en, ko, ru, pt-BR, and tr" in prompt
+    assert "Top-level user-facing fields must mirror translations.en exactly" in prompt
+    assert "Write natural English, Korean, Russian, Brazilian Portuguese, and Turkish" in prompt
 
 
 def test_entry_review_prompt_uses_supported_locale_languages():
     snapshot = sample_snapshot()
     strategy = get_strategy("trend-sentinel")
     candidate = strategy.evaluate(snapshot)
-    expected_languages = {
-        "en": "English",
-        "ko": "Korean",
-        "ru": "Russian",
-        "pt-BR": "Brazilian Portuguese",
-        "tr": "Turkish",
-    }
-
     for locale in SUPPORTED_LOCALES:
         prompt = entry_approval_prompt(
             TradeReviewPayload(
@@ -658,8 +651,8 @@ def test_entry_review_prompt_uses_supported_locale_languages():
             )
         )
 
-        assert f"Write every user-facing structuredReview, approvalReason, counterThesis, adjustments, and earlyExitRecommendations string in {expected_languages[locale]} for locale {locale}" in prompt
-        assert f'"locale": "{locale}"' in prompt
+        assert "translations is required and must contain exactly en, ko, ru, pt-BR, and tr" in prompt
+        assert f'"requestedLocale": "{locale}"' in prompt
 
 
 def test_position_management_prompt_uses_supported_locale_languages_without_canonical_conflict():
@@ -691,9 +684,10 @@ def test_position_management_prompt_uses_supported_locale_languages_without_cano
 
     prompt = position_management_review_prompt(payload)
 
-    assert "Write every user-facing structuredReview, rationale, counterThesis, and action reason string in Russian for locale ru" in prompt
+    assert "Generate every supported locale in this same response" in prompt
+    assert "translations is required and must contain exactly en, ko, ru, pt-BR, and tr" in prompt
     assert "canonical English unless locale explicitly says Korean" not in prompt
-    assert '"locale": "ru"' in prompt
+    assert '"requestedLocale": "ru"' in prompt
 
 
 @pytest.mark.asyncio
@@ -1245,7 +1239,7 @@ def test_position_management_prompt_uses_visible_metrics_only_when_decision_rele
     assert "early full take-profit" in prompt
     assert "TAKE_PARTIAL_PROFIT" in prompt
     assert "CLOSE_POSITION" in prompt
-    assert "Write directly in the requested locale instead of relying on a later translation pass" in prompt
+    assert "Generate every supported locale in this same response so the UI never waits for a second translation call" in prompt
     assert "do not expose raw field names such as progressR or targetProgress" in prompt
     assert "Do not lead with overall trend alignment, valid structure, risk-reward ratio, or no invalidation signal" in prompt
     assert "If progressR is between -0.25 and 0.25" in prompt

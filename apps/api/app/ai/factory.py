@@ -80,7 +80,9 @@ def get_ai_provider(settings: Settings, provider_override: str = None):
             position_management_model=settings.codex_cli_position_management_model,
             league_sentiment_model=settings.codex_cli_league_sentiment_model,
         )
-        fallback_name = settings.codex_cli_fallback_provider if settings.codex_cli_fallback_provider != "codex_cli" else "openai"
+        fallback_name = settings.codex_cli_fallback_provider
+        if fallback_name == "codex_cli":
+            return primary
         return FallbackAIProvider(primary=primary, fallback=get_ai_provider(settings, fallback_name))
     if provider == "gemini" and settings.gemini_api_key:
         return GeminiProvider(settings.gemini_api_key, settings.gemini_model)

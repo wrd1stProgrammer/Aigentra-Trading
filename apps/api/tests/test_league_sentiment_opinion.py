@@ -1297,7 +1297,7 @@ def test_league_sentiment_http_surface_times_out_to_market_first_fallback(temp_d
     assert "시뮬레이션" not in visible_text
 
 
-def test_league_sentiment_refresh_replaces_existing_fallback_with_generated_opinion(temp_db, monkeypatch):
+def test_league_sentiment_fresh_request_retries_existing_fallback(temp_db, monkeypatch):
     seed_sentiment_context()
     seed_market_context()
 
@@ -1330,7 +1330,7 @@ def test_league_sentiment_refresh_replaces_existing_fallback_with_generated_opin
     assert fallback_data["opinion"]["fallback"] is True
 
     monkeypatch.setattr("app.main.settings.league_sentiment_timeout_seconds", 5)
-    generated_response = client.get("/api/league/sentiment/opinion?symbol=BTCUSDT&locale=ko&refresh=true")
+    generated_response = client.get("/api/league/sentiment/opinion?symbol=BTCUSDT&locale=ko")
 
     assert generated_response.status_code == 200
     generated_data = generated_response.json()

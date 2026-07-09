@@ -1,9 +1,9 @@
 import asyncio
-import threading
 
 import pytest
 
 import app.main as main
+import app.paper.realtime_execution as realtime_execution
 
 
 @pytest.mark.asyncio
@@ -26,52 +26,80 @@ async def test_run_maybe_threaded_moves_sync_work_off_event_loop(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_auto_scanner_loop_runs_scanner_outside_api_event_loop(monkeypatch):
+async def test_auto_scanner_loop_keeps_async_scanner_on_worker_event_loop(monkeypatch):
     current_loop = asyncio.get_running_loop()
-    original_to_thread = asyncio.to_thread
-    called = threading.Event()
+    called = asyncio.Event()
     to_thread_calls: list[str] = []
 
     async def fake_run_scanner_once():
-        assert asyncio.get_running_loop() is not current_loop
+        assert asyncio.get_running_loop() is current_loop
         called.set()
 
     async def tracking_to_thread(func, *args, **kwargs):
         to_thread_calls.append(func.__name__)
-        return await original_to_thread(func, *args, **kwargs)
+        return func(*args, **kwargs)
 
     monkeypatch.setattr(main, "run_scanner_once", fake_run_scanner_once)
     monkeypatch.setattr(main.asyncio, "to_thread", tracking_to_thread)
 
     task = asyncio.create_task(main.auto_scanner_loop())
-    await asyncio.wait_for(original_to_thread(called.wait, 1), timeout=2)
+    await asyncio.wait_for(called.wait(), timeout=2)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert "run_coroutine_in_thread" in to_thread_calls
+    assert to_thread_calls == []
 
 
 @pytest.mark.asyncio
-async def test_auto_management_loop_runs_manager_outside_api_event_loop(monkeypatch):
+async def test_auto_management_loop_keeps_async_manager_on_worker_event_loop(monkeypatch):
     current_loop = asyncio.get_running_loop()
-    original_to_thread = asyncio.to_thread
-    called = threading.Event()
+    called = asyncio.Event()
     to_thread_calls: list[str] = []
 
     async def fake_run_management_once():
-        assert asyncio.get_running_loop() is not current_loop
+        assert asyncio.get_running_loop() is current_loop
         called.set()
 
     async def tracking_to_thread(func, *args, **kwargs):
         to_thread_calls.append(func.__name__)
-        return await original_to_thread(func, *args, **kwargs)
+        return func(*args, **kwargs)
 
     monkeypatch.setattr(main, "run_management_once", fake_run_management_once)
     monkeypatch.setattr(main.asyncio, "to_thread", tracking_to_thread)
 
     task = asyncio.create_task(main.auto_management_loop())
-    await asyncio.wait_for(original_to_thread(called.wait, 1), timeout=2)
+    await asyncio.wait_for(called.wait(), timeout=2)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert "run_coroutine_in_thread" in to_thread_calls
+    assert to_thread_calls == []
+
+
+@pytest.mark.asyncio
+async def test_auto_realtime_loop_keeps_execution_on_worker_event_loop(monkeypatch):
+    current_loop = asyncio.get_running_loop()
+    called = asyncio.Event()
+
+    async def fake_run_realtime_execution_once(**kwargs):
+        assert asyncio.get_running_loop() is current_loop
+        called.set()
+        return {"status": "ok"}
+
+    monkeypatch.setattr(realtime_execution, "run_realtime_execution_once", fake_run_realtime_execution_once)
+
+    task = asyncio.create_task(realtime_execution.auto_realtime_execution_loop())
+    await asyncio.wait_for(called.wait(), timeout=2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+def test_sentiment_scheduler_catches_up_when_generation_crosses_hour_boundary():
+    delay = main.next_aligned_scheduler_delay(
+        cycle_started_epoch=3_590,
+        cycle_finished_epoch=3_640,
+        interval_seconds=3_600,
+        offset_seconds=30,
+    )
+
+    assert delay == 5.0

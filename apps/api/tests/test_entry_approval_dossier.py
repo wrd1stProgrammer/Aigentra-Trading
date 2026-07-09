@@ -47,7 +47,7 @@ def test_entry_approval_prompt_uses_compact_data_dossier_instead_of_raw_payload_
     )
 
     data = prompt_payload(prompt)
-    assert sorted(data) == ["approvalDossier", "locale", "symbol"]
+    assert sorted(data) == ["approvalDossier", "requestedLocale", "symbol"]
     assert "candidate" not in data
     assert "marketSnapshot" not in data
     assert "recentAiReviews" not in data

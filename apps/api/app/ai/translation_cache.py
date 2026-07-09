@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.ai.translation_provider import AITranslationProvider, get_translation_provider, translate_json_with_logging
 from app.core.config import Settings
 from app.locales import (
+    AI_TRANSLATION_SOURCE_AI_REVIEW,
     AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT,
     AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
     CANONICAL_AI_LOCALE,
@@ -107,6 +108,19 @@ def localized_payload_for_source(
     if requested_locale == source_locale or source_id is None:
         return payload, {"status": "canonical", "locale": source_locale, "sourceLocale": source_locale}
     source_hash = stable_source_hash(payload)
+    embedded_payload = embedded_review_translation_payload(
+        source_type=source_type,
+        payload=payload,
+        locale=requested_locale,
+    )
+    if embedded_payload is not None:
+        return embedded_payload, {
+            "status": "ok",
+            "locale": requested_locale,
+            "sourceLocale": source_locale,
+            "sourceHash": source_hash,
+            "source": "embedded",
+        }
     record = get_translation_cache_record(
         db,
         source_type=source_type,
@@ -230,6 +244,12 @@ async def fanout_ai_translations(
         if locale != source_locale
     ))
     for locale in locales:
+        if embedded_review_translation_payload(
+            source_type=source_type,
+            payload=payload,
+            locale=locale,
+        ) is not None:
+            continue
         existing = get_translation_cache_record(
             db,
             source_type=source_type,
@@ -346,6 +366,37 @@ def release_clean_session_transaction(db: Session) -> None:
     if db.new or db.dirty or db.deleted:
         return
     db.commit()
+
+
+def embedded_review_translation_payload(
+    *,
+    source_type: str,
+    payload: dict[str, Any],
+    locale: str,
+) -> dict[str, Any] | None:
+    if source_type not in {AI_TRANSLATION_SOURCE_AI_REVIEW, AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT}:
+        return None
+    requested_locale = normalize_locale(locale)
+
+    direct_translations = payload.get("translations") if isinstance(payload.get("translations"), dict) else {}
+    direct_overlay = direct_translations.get(requested_locale)
+    if isinstance(direct_overlay, dict):
+        localized = merge_translation_overlay(payload, direct_overlay)
+        localized.pop("translations", None)
+        return localized
+
+    for nested_key in ("review", "aiReview"):
+        nested = payload.get(nested_key)
+        if not isinstance(nested, dict):
+            continue
+        translations = nested.get("translations") if isinstance(nested.get("translations"), dict) else {}
+        overlay = translations.get(requested_locale)
+        if not isinstance(overlay, dict):
+            continue
+        localized_nested = merge_translation_overlay(nested, overlay)
+        localized_nested.pop("translations", None)
+        return {**payload, nested_key: localized_nested}
+    return None
 
 
 def merge_validated_translation(original: Any, translated: Any, path: tuple[str, ...] = ()) -> Any:

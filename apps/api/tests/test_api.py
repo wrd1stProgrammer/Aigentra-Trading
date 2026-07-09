@@ -20,6 +20,38 @@ def ops_headers() -> dict[str, str]:
     return {"x-ops-api-token": OPS_TOKEN}
 
 
+def test_overview_uses_embedded_review_locale_without_cache_lookup(temp_api_db):
+    payload = {
+        "decision": "APPROVE",
+        "sourceLocale": "en",
+        "approvalReason": "The reclaim confirms the LONG entry.",
+        "structuredReview": {"headline": "The reclaim confirms the LONG entry."},
+        "translations": {
+            "ko": {
+                "approvalReason": "회수 확인으로 롱 진입 근거가 성립했습니다.",
+                "structuredReview": {"headline": "회수 확인으로 롱 진입 근거가 성립했습니다."},
+            }
+        },
+    }
+    with session_scope() as db:
+        record = AIReviewRecord(
+            trader_id="trend-sentinel",
+            symbol="BTCUSDT",
+            status="ok",
+            decision="APPROVE",
+            payload_json=to_json(payload),
+        )
+        db.add(record)
+        db.flush()
+
+        overlays = main.overview_translation_overlays(db, [("entry_review", record)], locale="ko")
+        localized, meta = overlays[("entry_review", record.id)]
+
+        assert localized["approvalReason"] == "회수 확인으로 롱 진입 근거가 성립했습니다."
+        assert localized["structuredReview"]["headline"] == "회수 확인으로 롱 진입 근거가 성립했습니다."
+        assert meta["source"] == "embedded"
+
+
 @pytest.fixture()
 def temp_api_db(tmp_path):
     db_path = tmp_path / "api-test.db"
@@ -536,7 +568,7 @@ def test_leaderboard_fast_serves_expired_cache_while_refreshing_in_background(mo
     cache_key = ("BTCUSDT", True, True, "en", "current")
     main.LEAGUE_BUNDLE_CACHE.clear()
     main.LEAGUE_BUNDLE_CACHE[cache_key] = (
-        0,
+        time.monotonic() - 1,
         {
             "symbol": "BTCUSDT",
             "lastUpdatedAt": "old-cache",
@@ -556,6 +588,7 @@ def test_leaderboard_fast_serves_expired_cache_while_refreshing_in_background(mo
         scheduled.append((symbol, include_empty, include_related, locale))
 
     monkeypatch.setattr(main, "list_traders", lambda: [])
+    monkeypatch.setattr(main, "cached_league_payload_outdated", lambda *args, **kwargs: False)
     monkeypatch.setattr(main, "build_league_bundle_payload", fake_payload)
     monkeypatch.setattr(main, "schedule_thread_refresh", fake_schedule)
 
@@ -574,7 +607,7 @@ def test_leaderboard_fast_serves_expired_monthly_cache_while_refreshing_same_mon
     cache_key = ("BTCUSDT", True, False, "ko", "2026-06")
     main.LEAGUE_BUNDLE_CACHE.clear()
     main.LEAGUE_BUNDLE_CACHE[cache_key] = (
-        0,
+        time.monotonic() - 1,
         {
             "symbol": "BTCUSDT",
             "period": {"type": "monthly", "month": "2026-06"},
@@ -595,6 +628,7 @@ def test_leaderboard_fast_serves_expired_monthly_cache_while_refreshing_same_mon
         scheduled.append((func.__name__, args))
 
     monkeypatch.setattr(main, "list_traders", lambda: [])
+    monkeypatch.setattr(main, "cached_league_payload_outdated", lambda *args, **kwargs: False)
     monkeypatch.setattr(main, "build_monthly_league_bundle_payload", fail_inline_monthly_build)
     monkeypatch.setattr(main, "schedule_thread_refresh", fake_schedule_thread_refresh)
 
@@ -1043,6 +1077,7 @@ def test_monthly_leaderboard_cache_uses_month_roster_size(monkeypatch):
     monkeypatch.setattr(main, "init_db", lambda: None)
     monkeypatch.setattr(main, "list_traders", lambda: all_traders)
     monkeypatch.setattr(main, "list_traders_for_league_month", lambda league_month: monthly_traders)
+    monkeypatch.setattr(main, "cached_league_payload_outdated", lambda *args, **kwargs: False)
     main.LEAGUE_BUNDLE_CACHE.clear()
     main.LEAGUE_BUNDLE_CACHE[cache_key] = (time.monotonic() + 60, payload)
 
@@ -1063,7 +1098,7 @@ def test_monthly_leaderboard_cache_uses_month_roster_size(monkeypatch):
     assert result["summaries"] == payload["summaries"]
 
 
-def test_trader_detail_serves_expired_cache_while_refreshing_in_background(monkeypatch):
+def test_trader_detail_rebuilds_expired_cache_before_returning(monkeypatch):
     cache_key = ("channel-rider", "BTCUSDT", 20, 20, "en", main.TRADER_DETAIL_CACHE_VERSION)
     main.TRADER_DETAIL_CACHE.clear()
     main.TRADER_DETAIL_CACHE[cache_key] = (
@@ -1078,26 +1113,32 @@ def test_trader_detail_serves_expired_cache_while_refreshing_in_background(monke
             "lastUpdatedAt": "old-detail-cache",
         },
     )
-    scheduled: list[tuple[str, tuple]] = []
+    def fresh_payload(*args, **kwargs):
+        return {
+            "symbol": "BTCUSDT",
+            "trader": {"id": "channel-rider", "name": "Channel Cartographer"},
+            "summaries": [],
+            "positions": [],
+            "orders": [],
+            "managementReviews": [],
+            "lastUpdatedAt": "fresh-detail",
+            "cacheHit": False,
+            "stale": False,
+        }
 
-    def fake_schedule_thread_refresh(func, *args):
-        scheduled.append((func.__name__, args))
-
-    def fail_sync_rebuild(*args, **kwargs):
-        raise AssertionError("expired trader detail cache should return before synchronous rebuild")
-
-    monkeypatch.setattr(main, "schedule_thread_refresh", fake_schedule_thread_refresh)
-    monkeypatch.setattr(main, "build_trader_detail_payload", fail_sync_rebuild)
+    monkeypatch.setattr(main, "cached_trader_detail_payload_outdated", lambda *args, **kwargs: False)
+    monkeypatch.setattr(main, "trader_snapshot_summary", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main, "trader_detail_translations_ready", lambda *args, **kwargs: True)
+    monkeypatch.setattr(main, "build_trader_detail_payload", fresh_payload)
 
     response = client.get("/api/league/traders/channel-rider?symbol=BTCUSDT")
 
     assert response.status_code == 200
     data = response.json()
-    assert data["lastUpdatedAt"] == "old-detail-cache"
-    assert data["cacheHit"] is True
-    assert data["stale"] is True
-    assert data["scheduledRefresh"] is True
-    assert scheduled == [("refresh_trader_detail_cache_background", ("channel-rider", "BTCUSDT", "en"))]
+    assert data["lastUpdatedAt"] == "fresh-detail"
+    assert data["cacheHit"] is False
+    assert data["stale"] is False
+    assert data["scheduledRefresh"] is False
 
 
 def test_trader_detail_uses_snapshot_summary_without_full_recompute(monkeypatch):
@@ -1133,6 +1174,7 @@ def test_trader_detail_uses_snapshot_summary_without_full_recompute(monkeypatch)
 
     monkeypatch.setattr(main, "trader_snapshot_summary", fake_snapshot)
     monkeypatch.setattr(main, "trader_summary_for_profile", fail_summary)
+    monkeypatch.setattr(main, "trader_detail_translations_ready", lambda *args, **kwargs: True)
     monkeypatch.setattr(main, "build_trader_detail_payload", fake_payload)
 
     response = client.get("/api/league/traders/channel-rider?symbol=BTCUSDT")

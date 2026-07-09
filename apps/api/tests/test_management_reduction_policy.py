@@ -1,12 +1,14 @@
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
 
-from app.db import PaperPositionRecord, init_db, reset_db_engine, session_scope
+from app.db import PaperPositionRecord, PositionManagementReviewRecord, init_db, reset_db_engine, session_scope
 from app.paper.engine import PaperEngineResult, place_paper_order, process_candle
 from app.paper.management import (
     management_review_cooldown_seconds,
+    recent_management_review_exists,
 )
 from app.paper.repositories import create_trade_event, upsert_risk_settings
 from app.paper.reduction_policy import build_reduction_decision
@@ -192,6 +194,50 @@ def test_pending_stale_management_review_cooldown_uses_order_stale_window():
         base_cooldown_seconds=300,
         urgent_cooldown_seconds=60,
     ) == 900
+
+
+def test_heartbeat_cadence_is_not_stretched_by_event_cooldown():
+    heartbeat = ManagementEvent(
+        eventType="pullback_architect_position_heartbeat",
+        phase="OPEN_POSITION",
+        severity="MEDIUM",
+        reason="Periodic active-position review.",
+        suggestedAction="HOLD",
+        metrics={"heartbeatSeconds": 1500},
+    )
+
+    assert management_review_cooldown_seconds(
+        heartbeat,
+        profile={"cooldown_seconds": 2000},
+        base_cooldown_seconds=2000,
+        urgent_cooldown_seconds=60,
+    ) == 1500
+
+
+def test_failed_management_review_retries_before_full_heartbeat_cooldown(temp_db):
+    with session_scope() as db:
+        position = _create_open_position(db)
+        failed = PositionManagementReviewRecord(
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            position_id=position.id,
+            status="error",
+            event_type="paper_trader_position_heartbeat",
+            created_at=datetime.now(timezone.utc) - timedelta(seconds=360),
+        )
+        db.add(failed)
+        db.flush()
+
+        assert recent_management_review_exists(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            exposure_kind="position",
+            exposure_id=position.id,
+            event_type="paper_trader_position_heartbeat",
+            cooldown_seconds=1500,
+            error_retry_seconds=300,
+        ) is False
 
 
 def test_legacy_position_floor_uses_filled_quantity_when_payload_lacks_initial_quantity(temp_db):

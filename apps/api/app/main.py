@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import logging
 import inspect
 import os
 import re
@@ -23,6 +24,7 @@ from app.ai.factory import provider_status
 from app.ai.context import build_management_review_context, build_trade_review_context
 from app.ai.review_logging import run_position_management_with_logging, run_review_with_logging
 from app.ai.translation_cache import (
+    embedded_review_translation_payload,
     ensure_localized_payload_for_source,
     fanout_ai_translations,
     localized_payload_for_source,
@@ -65,6 +67,7 @@ from app.locales import (
     AI_TRANSLATION_SOURCE_AI_REVIEW,
     AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
     CANONICAL_AI_LOCALE,
+    NON_CANONICAL_AI_LOCALES,
     SUPPORTED_LOCALES,
     normalize_locale as normalize_supported_locale,
 )
@@ -159,6 +162,7 @@ from app.traders.strategy_base import default_leverage_plan, default_order_inten
 
 
 settings = get_settings()
+logger = logging.getLogger("aigentra.worker")
 AI_COOLDOWN_DECISIONS = {"REJECT", "DEFER", "NEEDS_MORE_DATA"}
 PRICE_SHOCK_EVENT_TYPE = "common_price_shock"
 PENDING_ORDER_CANCEL_ACTIONS = {"CANCEL_PENDING_ORDER", "CANCEL_REMAINING_ORDERS", "EXPIRE_PLAN", "REDUCE_RISK"}
@@ -256,9 +260,21 @@ AUTO_MANAGEMENT_STATE: dict[str, Any] = {
     "lastResult": None,
 }
 AUTO_MANAGEMENT_TASK: Optional[asyncio.Task] = None
+AUTO_LEAGUE_SENTIMENT_STATE: dict[str, Any] = {
+    "enabled": settings.enable_league_sentiment_scheduler,
+    "running": False,
+    "intervalSeconds": settings.league_sentiment_scheduler_interval_seconds,
+    "lastStartedAt": None,
+    "lastFinishedAt": None,
+    "lastError": None,
+    "lastResult": None,
+    "nextRunAt": None,
+    "cycles": 0,
+}
 REALTIME_EXECUTION_TASK: Optional[asyncio.Task] = None
 PRICE_SHOCK_STATE: dict[str, dict[str, Any]] = {}
 LEAGUE_BUNDLE_CACHE_TTL_SECONDS = 300
+TRADER_DETAIL_CACHE_TTL_SECONDS = 15
 LEAGUE_BUNDLE_CACHE: dict[tuple[str, bool, bool, str, str], tuple[float, dict[str, Any]]] = {}
 OVERVIEW_REVIEWS_CACHE_TTL_SECONDS = LEAGUE_BUNDLE_CACHE_TTL_SECONDS
 OVERVIEW_REVIEWS_CACHE: dict[tuple[int, int, Optional[str], Optional[str], str], tuple[float, dict[str, Any]]] = {}
@@ -390,6 +406,23 @@ def cached_trader_detail_payload_outdated(
     ):
         return True
 
+    cached_review_ids = [
+        int(record.get("id"))
+        for record in payload.get("managementReviews", [])
+        if isinstance(record, dict) and str(record.get("id") or "").isdigit()
+    ]
+    cached_latest_review_id = max(cached_review_ids) if cached_review_ids else None
+    actual_latest_review_id = db.execute(
+        select(func.max(PositionManagementReviewRecord.id)).where(
+            PositionManagementReviewRecord.trader_id == trader_id,
+            PositionManagementReviewRecord.symbol == symbol,
+        )
+    ).scalar_one_or_none()
+    if actual_latest_review_id is not None and (
+        cached_latest_review_id is None or int(actual_latest_review_id) > cached_latest_review_id
+    ):
+        return True
+
     return False
 
 
@@ -406,13 +439,9 @@ def schedule_thread_refresh(func, *args) -> None:
         threading.Thread(target=func, args=args, daemon=True).start()
 
 
-def run_coroutine_in_thread(func, *args, **kwargs):
-    return asyncio.run(func(*args, **kwargs))
-
-
 async def run_maybe_threaded(func, *args, **kwargs):
     if inspect.iscoroutinefunction(func):
-        return await asyncio.to_thread(run_coroutine_in_thread, func, *args, **kwargs)
+        return await func(*args, **kwargs)
     return await asyncio.to_thread(func, *args, **kwargs)
 
 
@@ -705,15 +734,32 @@ def overview_translation_overlays(
         return {}
 
     sources: dict[tuple[str, int], tuple[str, dict[str, Any], str]] = {}
+    overlays: dict[tuple[str, int], tuple[dict[str, Any], dict[str, Any]]] = {}
     for overview_source, record in page_candidates:
         source_type = overview_translation_source(record, overview_source)
         payload = from_json(getattr(record, "payload_json", None))
         if source_type is None or record.id is None or not isinstance(payload, dict):
             continue
+        embedded = embedded_review_translation_payload(
+            source_type=source_type,
+            payload=payload,
+            locale=requested_locale,
+        )
+        if embedded is not None:
+            overlays[(overview_source, record.id)] = (
+                embedded,
+                {
+                    "status": "ok",
+                    "locale": requested_locale,
+                    "sourceLocale": source_locale_for_payload(payload),
+                    "source": "embedded",
+                },
+            )
+            continue
         sources[(overview_source, record.id)] = (source_type, payload, stable_source_hash(payload))
 
     if not sources:
-        return {}
+        return overlays
 
     source_types = sorted({source_type for source_type, _payload, _source_hash in sources.values()})
     source_ids = sorted({source_id for _overview_source, source_id in sources.keys()})
@@ -730,7 +776,6 @@ def overview_translation_overlays(
         for record in records
     }
 
-    overlays: dict[tuple[str, int], tuple[dict[str, Any], dict[str, Any]]] = {}
     for key, (source_type, payload, source_hash) in sources.items():
         cached = cache_by_source.get((source_type, key[1], source_hash))
         if cached is None:
@@ -1358,7 +1403,13 @@ def next_heartbeat_due_at_for_exposure(
     base_time = utc_datetime(latest_review.created_at) if latest_review else parse_exposure_datetime(exposure.createdAt)
     if base_time is None:
         return None
-    return base_time + timedelta(seconds=max(60, heartbeat_seconds))
+    next_interval = max(60, heartbeat_seconds)
+    if latest_review is not None and str(latest_review.status or "").lower() != "ok":
+        next_interval = min(
+            next_interval,
+            max(30, int(settings.position_management_provider_error_retry_seconds or 300)),
+        )
+    return base_time + timedelta(seconds=next_interval)
 
 
 def next_active_exposure_review_at(
@@ -1615,6 +1666,7 @@ def refresh_stale_position_management_review(
             "structuredReview": structured,
             "rationale": rationale,
             "riskFlags": unique_strings([*review.riskFlags, "STALE_STRUCTURED_REVIEW_REFRESHED"]),
+            "translations": {},
         }
     )
 
@@ -1640,6 +1692,7 @@ def enforce_pending_order_cancel_event(
             "actions": [ManagementAction(type=suggested_action, reason=event.reason)],
             "riskChange": "REDUCED",
             "riskFlags": unique_strings([*review.riskFlags, "PENDING_ORDER_CANCEL_EVENT_ENFORCED"]),
+            "translations": {},
         }
     )
 
@@ -2086,6 +2139,7 @@ async def run_management_reviews(
             exposure_id=exposure.id,
             event_type=event.eventType,
             cooldown_seconds=event_cooldown_seconds,
+            error_retry_seconds=settings.position_management_provider_error_retry_seconds,
         ):
             return
         management_context = build_management_review_context(db, trader_id, symbol)
@@ -2100,7 +2154,7 @@ async def run_management_reviews(
         )
         try:
             review = await run_position_management_with_logging(db, payload, clean_provider, settings=settings)
-            review.sourceLocale = review_locale
+            review.sourceLocale = CANONICAL_AI_LOCALE
             review = refresh_stale_position_management_review(review, event=event, exposure=exposure)
             review = enforce_pending_order_cancel_event(review, event=event, exposure=exposure)
             if event.eventType == PRICE_SHOCK_EVENT_TYPE:
@@ -2145,7 +2199,7 @@ async def run_management_reviews(
                 riskFlags=["provider_failed"],
                 provider=clean_provider,
                 model=clean_provider,
-                sourceLocale=review_locale,
+                sourceLocale=CANONICAL_AI_LOCALE,
                 fallback=False,
             )
             record = create_position_management_review(
@@ -2169,6 +2223,7 @@ async def run_management_reviews(
                 payload=from_json(record.payload_json) or {},
                 symbol=symbol,
                 trader_id=trader_id,
+                target_locales=NON_CANONICAL_AI_LOCALES,
             )
         from app.subscribers import notify_subscribers_for_management_review
 
@@ -2179,7 +2234,15 @@ async def run_management_reviews(
         next_review_at = next_review_at_from_review(
             review,
             urgent=event.severity.upper() == "HIGH",
-            max_seconds=settings.price_shock_review_seconds if is_price_shock_event else None,
+            max_seconds=(
+                settings.price_shock_review_seconds
+                if is_price_shock_event
+                else (
+                    settings.position_management_open_heartbeat_seconds
+                    if exposure.kind == "position"
+                    else settings.position_management_pending_heartbeat_seconds
+                )
+            ),
         )
         if is_price_shock_event:
             mark_price_shock_review_consumed(symbol)
@@ -2208,6 +2271,37 @@ async def run_management_reviews(
         serialized["agentState"] = serialize_record(state)
         review_records.append(serialized)
 
+    async def handle_exposure_events(
+        *,
+        events: list[ManagementEvent],
+        exposure: ManagedExposure,
+        heartbeat_seconds: int,
+        heartbeat_event: ManagementEvent,
+        allow_heartbeat: bool = True,
+    ) -> None:
+        before_count = len(review_records)
+        for event in events:
+            await handle_event(
+                event,
+                exposure,
+                force=event.eventType == PRICE_SHOCK_EVENT_TYPE,
+            )
+            if len(review_records) >= max_reviews:
+                break
+        if len(review_records) >= max_reviews or len(review_records) > before_count:
+            return
+        # A recurring strategy event can be inside its own cooldown while the
+        # periodic review is already due. Falling back to the heartbeat keeps
+        # the configured cadence instead of silently skipping the exposure.
+        if allow_heartbeat and should_run_heartbeat(
+            db,
+            trader_id=trader_id,
+            symbol=symbol,
+            exposure=exposure,
+            heartbeat_seconds=heartbeat_seconds,
+        ):
+            await handle_event(heartbeat_event, exposure)
+
     for order in orders:
         exposure = managed_exposure_from_order(order)
         shock_event = (
@@ -2227,22 +2321,13 @@ async def run_management_reviews(
             else None
         )
         events = [shock_event] if shock_event else order_management_events(trader_id, order, snapshot)
-        if not events and not positions and should_run_heartbeat(
-            db,
-            trader_id=trader_id,
-            symbol=symbol,
+        await handle_exposure_events(
+            events=events,
             exposure=exposure,
             heartbeat_seconds=settings.position_management_pending_heartbeat_seconds,
-        ):
-            events = [heartbeat_event_for_order(trader_id, order, snapshot)]
-        for event in events:
-            await handle_event(
-                event,
-                exposure,
-                force=event.eventType == PRICE_SHOCK_EVENT_TYPE,
-            )
-            if len(review_records) >= max_reviews:
-                break
+            heartbeat_event=heartbeat_event_for_order(trader_id, order, snapshot),
+            allow_heartbeat=not positions,
+        )
         if len(review_records) >= max_reviews:
             break
 
@@ -2268,22 +2353,12 @@ async def run_management_reviews(
                 else None
             )
             events = [shock_event] if shock_event else position_management_events(trader_id, position, snapshot)
-            if not events and should_run_heartbeat(
-                db,
-                trader_id=trader_id,
-                symbol=symbol,
+            await handle_exposure_events(
+                events=events,
                 exposure=exposure,
                 heartbeat_seconds=settings.position_management_open_heartbeat_seconds,
-            ):
-                events = [heartbeat_event_for_position(trader_id, position, snapshot)]
-            for event in events:
-                await handle_event(
-                    event,
-                    exposure,
-                    force=event.eventType == PRICE_SHOCK_EVENT_TYPE,
-                )
-                if len(review_records) >= max_reviews:
-                    break
+                heartbeat_event=heartbeat_event_for_position(trader_id, position, snapshot),
+            )
             if len(review_records) >= max_reviews:
                 break
 
@@ -4464,7 +4539,7 @@ def refresh_trader_detail_cache_background(trader_id: str, symbol: str, locale: 
             )
             if translations_ready:
                 TRADER_DETAIL_CACHE[(trader_id, clean_symbol, 20, 20, clean_locale, TRADER_DETAIL_CACHE_VERSION)] = (
-                    time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS,
+                    time.monotonic() + TRADER_DETAIL_CACHE_TTL_SECONDS,
                     payload,
                 )
     finally:
@@ -4986,50 +5061,78 @@ async def run_management_once(
         snapshot = await build_market_snapshot(binance_client(), symbol)
         update_price_shock_context(symbol, snapshot)
 
-        for trader_id in active_traders:
+        management_semaphore = asyncio.Semaphore(
+            max(1, min(4, int(settings.position_management_concurrency or 1)))
+        )
+
+        async def active_trader_job(trader_id: str) -> dict[str, Any]:
             trader = get_strategy(trader_id).profile
-            counts["tradersChecked"] += 1
             try:
-                with session_scope() as db:
-                    paper_result = await process_existing_paper_exposure(
-                        db,
-                        trader_id,
-                        symbol,
-                        snapshot,
-                        requested_provider,
-                        requested_locale,
-                    )
-                open_orders = len(paper_result.get("after", {}).get("openOrders", []))
-                open_positions = len(paper_result.get("after", {}).get("openPositions", []))
-                management_reviews = len(paper_result.get("managementReviews", []))
-                counts["activeExposure"] += 1
-                counts["openOrders"] += open_orders
-                counts["openPositions"] += open_positions
-                counts["managementReviews"] += management_reviews
-                results.append(
-                    {
-                        "traderId": trader_id,
-                        "trader": trader.name,
-                        "symbol": symbol,
-                        "status": "ACTIVE_PAPER_EXPOSURE",
-                        "openOrders": open_orders,
-                        "openPositions": open_positions,
-                        "managementReviews": management_reviews,
-                    }
-                )
-                if management_reviews:
-                    invalidate_league_cache(symbol, trader_id)
+                async with management_semaphore:
+                    with session_scope() as db:
+                        paper_result = await process_existing_paper_exposure(
+                            db,
+                            trader_id,
+                            symbol,
+                            snapshot,
+                            requested_provider,
+                            requested_locale,
+                        )
+                return {
+                    "traderId": trader_id,
+                    "trader": trader.name,
+                    "paperResult": paper_result,
+                    "error": None,
+                }
             except Exception as exc:
+                return {
+                    "traderId": trader_id,
+                    "trader": trader.name,
+                    "paperResult": None,
+                    "error": sanitize_error_message(str(exc)),
+                }
+
+        trader_results = await asyncio.gather(
+            *(active_trader_job(trader_id) for trader_id in active_traders)
+        )
+        for trader_result in trader_results:
+            trader_id = str(trader_result["traderId"])
+            trader_name = str(trader_result["trader"])
+            counts["tradersChecked"] += 1
+            if trader_result["error"] is not None:
                 counts["errors"] += 1
                 results.append(
                     {
                         "traderId": trader_id,
-                        "trader": trader.name,
+                        "trader": trader_name,
                         "symbol": symbol,
                         "status": "ERROR",
-                        "error": sanitize_error_message(str(exc)),
+                        "error": trader_result["error"],
                     }
                 )
+                continue
+
+            paper_result = trader_result["paperResult"] or {}
+            open_orders = len(paper_result.get("after", {}).get("openOrders", []))
+            open_positions = len(paper_result.get("after", {}).get("openPositions", []))
+            management_reviews = len(paper_result.get("managementReviews", []))
+            counts["activeExposure"] += 1
+            counts["openOrders"] += open_orders
+            counts["openPositions"] += open_positions
+            counts["managementReviews"] += management_reviews
+            results.append(
+                {
+                    "traderId": trader_id,
+                    "trader": trader_name,
+                    "symbol": symbol,
+                    "status": "ACTIVE_PAPER_EXPOSURE",
+                    "openOrders": open_orders,
+                    "openPositions": open_positions,
+                    "managementReviews": management_reviews,
+                }
+            )
+            if management_reviews:
+                invalidate_league_cache(symbol, trader_id)
         try:
             with session_scope() as db:
                 due_feeds = await regenerate_due_status_feeds(
@@ -5078,7 +5181,123 @@ async def run_management_once(
             "lastResult": payload,
         }
     )
+    logger.info(
+        "management_cycle status=%s duration_ms=%s traders=%s reviews=%s errors=%s",
+        payload["status"],
+        payload["durationMs"],
+        counts["tradersChecked"],
+        counts["managementReviews"],
+        counts["errors"],
+    )
     return payload
+
+
+async def run_league_sentiment_once(*, symbols: Optional[list[str]] = None) -> dict[str, Any]:
+    requested_symbols = symbols or settings.auto_scanner_symbols or ["BTCUSDT"]
+    clean_symbols = [normalize_symbol(symbol) for symbol in requested_symbols]
+    started_at = datetime.now(timezone.utc)
+    results: list[dict[str, Any]] = []
+    for symbol in clean_symbols:
+        try:
+            with session_scope() as db:
+                payload = await get_or_create_league_sentiment_opinion(
+                    db,
+                    symbol=symbol,
+                    locale=CANONICAL_AI_LOCALE,
+                    settings=settings,
+                    prefer_cached=False,
+                )
+            results.append(
+                {
+                    "symbol": symbol,
+                    "status": payload.get("status"),
+                    "opinionId": payload.get("id"),
+                    "stale": bool(payload.get("stale")),
+                    "createdAt": payload.get("createdAt"),
+                }
+            )
+        except Exception as exc:
+            results.append(
+                {
+                    "symbol": symbol,
+                    "status": "error",
+                    "error": sanitize_error_message(str(exc)),
+                }
+            )
+    finished_at = datetime.now(timezone.utc)
+    error_count = sum(1 for result in results if result.get("status") == "error")
+    payload = {
+        "status": "ok" if error_count == 0 else "partial_error",
+        "startedAt": started_at.isoformat(),
+        "finishedAt": finished_at.isoformat(),
+        "durationMs": int((finished_at - started_at).total_seconds() * 1000),
+        "results": results,
+    }
+    AUTO_LEAGUE_SENTIMENT_STATE.update(
+        {
+            "cycles": int(AUTO_LEAGUE_SENTIMENT_STATE.get("cycles") or 0) + 1,
+            "lastStartedAt": payload["startedAt"],
+            "lastFinishedAt": payload["finishedAt"],
+            "lastError": None if error_count == 0 else "One or more sentiment generations failed.",
+            "lastResult": payload,
+        }
+    )
+    logger.info(
+        "league_sentiment_cycle status=%s duration_ms=%s results=%s",
+        payload["status"],
+        payload["durationMs"],
+        results,
+    )
+    return payload
+
+
+def next_aligned_scheduler_delay(
+    *,
+    cycle_started_epoch: float,
+    cycle_finished_epoch: float,
+    interval_seconds: int,
+    offset_seconds: int,
+) -> float:
+    interval = max(1, int(interval_seconds))
+    offset = max(0, min(interval - 1, int(offset_seconds)))
+    next_epoch = ((int(cycle_started_epoch) // interval) + 1) * interval + offset
+    return max(5.0, next_epoch - cycle_finished_epoch)
+
+
+async def auto_league_sentiment_loop() -> None:
+    interval = max(300, int(settings.league_sentiment_scheduler_interval_seconds or 3600))
+    offset = max(0, min(interval - 1, int(settings.league_sentiment_generation_offset_seconds or 0)))
+    AUTO_LEAGUE_SENTIMENT_STATE.update(
+        {"enabled": True, "running": True, "intervalSeconds": interval, "lastError": None}
+    )
+    try:
+        while True:
+            cycle_started_epoch = time.time()
+            try:
+                await run_league_sentiment_once()
+            except Exception as exc:
+                logger.exception("league_sentiment_cycle_failed")
+                AUTO_LEAGUE_SENTIMENT_STATE.update(
+                    {
+                        "lastError": sanitize_error_message(str(exc)),
+                        "lastFinishedAt": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+            cycle_finished_epoch = time.time()
+            delay = next_aligned_scheduler_delay(
+                cycle_started_epoch=cycle_started_epoch,
+                cycle_finished_epoch=cycle_finished_epoch,
+                interval_seconds=interval,
+                offset_seconds=offset,
+            )
+            AUTO_LEAGUE_SENTIMENT_STATE["nextRunAt"] = datetime.fromtimestamp(
+                cycle_finished_epoch + delay,
+                timezone.utc,
+            ).isoformat()
+            await asyncio.sleep(delay)
+    except asyncio.CancelledError:
+        AUTO_LEAGUE_SENTIMENT_STATE.update({"running": False, "nextRunAt": None})
+        raise
 
 
 async def auto_management_loop() -> None:
@@ -5098,6 +5317,7 @@ async def auto_management_loop() -> None:
         try:
             await run_maybe_threaded(run_management_once)
         except Exception as exc:
+            logger.exception("management_cycle_failed")
             AUTO_MANAGEMENT_STATE.update(
                 {
                     "lastError": sanitize_error_message(str(exc)),
@@ -5172,6 +5392,7 @@ async def auto_scanner_loop() -> None:
         try:
             await run_maybe_threaded(run_scanner_once)
         except Exception as exc:
+            logger.exception("scanner_cycle_failed")
             AUTO_SCANNER_STATE.update(
                 {
                     "lastError": sanitize_error_message(str(exc)),
@@ -5480,7 +5701,7 @@ async def run_trader_cycle(
                         **build_trade_review_context(db, strategy.profile.id, clean_symbol),
                     )
                     review = await run_review_with_logging(db, review_payload, requested_provider, settings=settings)
-                    review.sourceLocale = clean_locale
+                    review.sourceLocale = CANONICAL_AI_LOCALE
                     review_record = create_ai_review(db, record_ids["runId"], clean_symbol, strategy.profile.id, review)
                     create_observation_candidate(
                         db,
@@ -5503,6 +5724,7 @@ async def run_trader_cycle(
                         payload=from_json(review_record.payload_json) or {},
                         symbol=clean_symbol,
                         trader_id=strategy.profile.id,
+                        target_locales=NON_CANONICAL_AI_LOCALES,
                     )
                     await create_status_feed_for_ai_review(db, settings=settings, review=review_record)
                     plan = trade_plan_from_review(clean_symbol, candidate, review)
@@ -6090,7 +6312,6 @@ def league_trader_detail(
     cache_key = (trader_id, clean_symbol, reviews_limit, events_limit, clean_locale, TRADER_DETAIL_CACHE_VERSION)
     cached = TRADER_DETAIL_CACHE.get(cache_key)
     now = time.monotonic()
-    cache_was_stale = bool(cached and cached[0] <= now)
     cache_payload_outdated = bool(
         cached
         and cached_trader_detail_payload_outdated(
@@ -6100,14 +6321,10 @@ def league_trader_detail(
             payload=cached[1],
         )
     )
-    cache_was_invalidated = cache_entry_was_invalidated(cached) or cache_payload_outdated
     if cached and not refresh:
         is_fresh = cached[0] > now
         if is_fresh and not cache_payload_outdated:
             return {**cached[1], "cacheHit": True, "stale": False, "scheduledRefresh": False}
-        if not cache_was_invalidated:
-            schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol, clean_locale)
-            return {**cached[1], "cacheHit": True, "stale": True, "scheduledRefresh": True}
     if refresh:
         refresh_trader_leaderboard_snapshot(db, trader_id, clean_symbol)
         db.commit()
@@ -6135,9 +6352,9 @@ def league_trader_detail(
     )
     if not any(summary.get("traderId") == trader_id for summary in payload["summaries"]):
         schedule_thread_refresh(refresh_trader_detail_cache_background, trader_id, clean_symbol, clean_locale)
-    payload["scheduledRefresh"] = bool(cache_was_stale and not refresh)
+    payload["scheduledRefresh"] = False
     if translations_ready:
-        TRADER_DETAIL_CACHE[cache_key] = (time.monotonic() + LEAGUE_BUNDLE_CACHE_TTL_SECONDS, payload)
+        TRADER_DETAIL_CACHE[cache_key] = (time.monotonic() + TRADER_DETAIL_CACHE_TTL_SECONDS, payload)
     return payload
 
 
@@ -6527,7 +6744,7 @@ async def ai_review_demo(request: RunCycleRequest, provider: Optional[str] = Que
             **build_trade_review_context(db, strategy.profile.id, clean_symbol),
         )
         review = await run_review_with_logging(db, review_payload, requested_provider, settings=settings)
-        review.sourceLocale = clean_locale
+        review.sourceLocale = CANONICAL_AI_LOCALE
         review_record = create_ai_review(db, run_id, clean_symbol, strategy.profile.id, review)
         await fanout_ai_translations(
             db,
@@ -6537,6 +6754,7 @@ async def ai_review_demo(request: RunCycleRequest, provider: Optional[str] = Que
             payload=from_json(review_record.payload_json) or {},
             symbol=clean_symbol,
             trader_id=strategy.profile.id,
+            target_locales=NON_CANONICAL_AI_LOCALES,
         )
         plan = trade_plan_from_review(clean_symbol, candidate, review)
         plan_record = None

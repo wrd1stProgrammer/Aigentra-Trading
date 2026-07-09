@@ -96,6 +96,37 @@ def temp_db(tmp_path):
         init_db()
 
 
+def test_embedded_review_locale_is_returned_without_translation_cache(temp_db):
+    payload = {
+        "decision": "HOLD",
+        "sourceLocale": "en",
+        "structuredReview": {"headline": "Hold the LONG.", "action": "Keep the stop protected."},
+        "rationale": "The pullback thesis remains intact.",
+        "translations": {
+            "ko": {
+                "structuredReview": {"headline": "롱을 유지합니다.", "action": "손절 보호를 유지합니다."},
+                "rationale": "눌림목 진입 논리가 유지되고 있습니다.",
+            }
+        },
+    }
+
+    with session_scope() as db:
+        localized, meta = localized_payload_for_source(
+            db,
+            source_type=AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
+            source_id=991,
+            payload=payload,
+            locale="ko",
+        )
+
+        assert meta["status"] == "ok"
+        assert meta["source"] == "embedded"
+        assert localized["structuredReview"]["headline"] == "롱을 유지합니다."
+        assert localized["rationale"] == "눌림목 진입 논리가 유지되고 있습니다."
+        assert "translations" not in localized
+        assert db.query(AITranslationCacheRecord).count() == 0
+
+
 def test_merge_validated_translation_preserves_codes_and_numbers():
     original = {
         "decision": "APPROVE",

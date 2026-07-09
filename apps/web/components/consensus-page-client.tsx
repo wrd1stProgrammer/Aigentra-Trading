@@ -308,7 +308,6 @@ export function ConsensusPageClient() {
     queryKey: hourlyOpinionQueryKey,
     queryFn: (context) => getLeagueSentimentOpinion("BTCUSDT", locale, { preferCached: true, signal: context.signal }),
     enabled: canLoadConsensusData,
-    placeholderData: (previousData) => previousData,
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchInterval: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
