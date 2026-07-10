@@ -76,9 +76,11 @@ class TransactionObservingTranslationProvider:
     def __init__(self, db) -> None:
         self.db = db
         self.saw_open_transaction = False
+        self.open_transactions: list[bool] = []
 
     async def translate_json(self, *, payload: dict, target_locale: str) -> dict:
         self.saw_open_transaction = self.db.in_transaction()
+        self.open_transactions.append(self.saw_open_transaction)
         translated = dict(payload)
         translated["approvalReason"] = f"{target_locale}: translated approval reason"
         return translated
@@ -423,6 +425,36 @@ def test_background_fanout_releases_clean_transaction_before_provider_call(temp_
         )
 
         assert provider.saw_open_transaction is False
+
+
+def test_background_fanout_commits_each_locale_before_next_provider_call(temp_db):
+    payload = {"decision": "HOLD", "approvalReason": "Wait for more data."}
+    settings = Settings(
+        openai_api_key="test-key",
+        ai_translation_enabled=True,
+        ai_translation_target_locales=["ko", "ru"],
+        openai_translation_model="gpt-4.1-nano",
+    )
+
+    with session_scope() as db:
+        provider = TransactionObservingTranslationProvider(db)
+
+        asyncio.run(
+            fanout_ai_translations(
+                db,
+                settings=settings,
+                source_type=AI_TRANSLATION_SOURCE_AI_REVIEW,
+                source_id=708,
+                payload=payload,
+                symbol="BTCUSDT",
+                trader_id="range-maker",
+                provider=provider,
+                release_clean_transaction_before_call=True,
+            )
+        )
+
+        assert provider.open_transactions == [False, False]
+        assert db.query(AITranslationCacheRecord).count() == 2
 
 
 def test_fanout_translation_falls_back_without_openai_key(temp_db):

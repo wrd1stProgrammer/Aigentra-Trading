@@ -278,6 +278,7 @@ async def fanout_ai_translations(
                     trader_id=trader_id,
                     raw=from_json(reusable.raw_json) if reusable.raw_json else None,
                 )
+                commit_translation_progress(db, enabled=release_clean_transaction_before_call)
                 continue
         if not getattr(settings, "ai_translation_enabled", True):
             upsert_translation_cache_record(
@@ -294,6 +295,7 @@ async def fanout_ai_translations(
                 trader_id=trader_id,
                 error_message="AI translation is disabled.",
             )
+            commit_translation_progress(db, enabled=release_clean_transaction_before_call)
             continue
         active_provider = provider
         if active_provider is None and getattr(settings, "ai_translation_provider", "openai") == "codex_cli":
@@ -313,6 +315,7 @@ async def fanout_ai_translations(
                 trader_id=trader_id,
                 error_message="OPENAI_API_KEY is missing for AI translation.",
             )
+            commit_translation_progress(db, enabled=release_clean_transaction_before_call)
             continue
         try:
             request_payload = translation_request_payload(source_type, payload)
@@ -343,6 +346,7 @@ async def fanout_ai_translations(
                 trader_id=trader_id,
                 raw={"translated": translated},
             )
+            commit_translation_progress(db, enabled=release_clean_transaction_before_call)
         except Exception as exc:
             upsert_translation_cache_record(
                 db,
@@ -358,6 +362,7 @@ async def fanout_ai_translations(
                 trader_id=trader_id,
                 error_message=sanitize_error_message(str(exc)),
             )
+            commit_translation_progress(db, enabled=release_clean_transaction_before_call)
 
 
 def release_clean_session_transaction(db: Session) -> None:
@@ -366,6 +371,11 @@ def release_clean_session_transaction(db: Session) -> None:
     if db.new or db.dirty or db.deleted:
         return
     db.commit()
+
+
+def commit_translation_progress(db: Session, *, enabled: bool) -> None:
+    if enabled and db.in_transaction():
+        db.commit()
 
 
 def embedded_review_translation_payload(

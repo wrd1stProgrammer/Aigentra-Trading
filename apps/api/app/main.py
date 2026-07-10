@@ -2247,6 +2247,7 @@ async def run_management_reviews(
                 symbol=symbol,
                 trader_id=trader_id,
                 target_locales=NON_CANONICAL_AI_LOCALES,
+                release_clean_transaction_before_call=True,
             )
         from app.subscribers import notify_subscribers_for_management_review
 
@@ -5804,6 +5805,7 @@ async def run_trader_cycle(
                         symbol=clean_symbol,
                         trader_id=strategy.profile.id,
                         target_locales=NON_CANONICAL_AI_LOCALES,
+                        release_clean_transaction_before_call=True,
                     )
                     await create_status_feed_for_ai_review(db, settings=settings, review=review_record)
                     if plan_record is not None:
