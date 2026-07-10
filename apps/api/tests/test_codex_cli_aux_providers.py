@@ -2,7 +2,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.ai.codex_translation_provider import CodexCliJSONTranslationProvider, FallbackTranslationProvider
+from app.ai.codex_translation_provider import (
+    CodexCliJSONTranslationProvider,
+    FallbackTranslationProvider,
+    translation_output_schema,
+)
 from app.ai.translation_cache import fanout_ai_translations
 from app.ai.translation_provider import get_translation_provider
 from app.core.config import Settings
@@ -40,6 +44,28 @@ async def test_codex_cli_translation_provider_returns_translated_content():
     )
 
     assert translated == {"headline": "진입 근거가 명확합니다.", "riskLevel": "MEDIUM"}
+
+
+def test_codex_cli_translation_schema_is_strict_and_matches_payload_shape():
+    schema = translation_output_schema(
+        {
+            "headline": "Hold the position.",
+            "review": {
+                "confidence": 81,
+                "actions": [{"type": "HOLD", "price": None, "reason": "Wait for confirmation."}],
+            },
+        }
+    )
+
+    assert schema["additionalProperties"] is False
+    assert schema["required"] == ["content"]
+    content = schema["properties"]["content"]
+    assert content["additionalProperties"] is False
+    assert set(content["required"]) == {"headline", "review"}
+    action = content["properties"]["review"]["properties"]["actions"]["items"]
+    assert action["additionalProperties"] is False
+    assert set(action["required"]) == {"type", "price", "reason"}
+    assert action["properties"]["price"] == {"type": "null"}
 
 
 @pytest.mark.asyncio

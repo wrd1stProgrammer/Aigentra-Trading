@@ -4,7 +4,7 @@ from app.locales import AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED, CANONICAL_AI_L
 
 
 TRANSLATION_SYSTEM_PROMPT = """You are Aigentra's localization engine for AI trading review JSON.
-Return only a strict JSON object.
+Return only a strict JSON object with exactly one root key named content. Put the translated JSON inside content.
 Translate ONLY human-readable natural-language string values.
 Do not translate JSON keys.
 Do not translate enum/status/code/id/provider/model/ticker/symbol/timeframe/order side values.

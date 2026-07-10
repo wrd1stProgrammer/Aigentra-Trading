@@ -169,7 +169,7 @@ class CodexCliClient:
         stdout = result.stdout.decode("utf-8", errors="replace")
         if result.returncode != 0:
             raise CodexCliError(
-                f"Codex CLI exited with {result.returncode}: {self._clean_error(stderr or stdout)}"
+                f"Codex CLI exited with {result.returncode}: {self._clean_error(codex_cli_error_detail(stdout, stderr))}"
             )
         return self._parse_stdout(stdout)
 
@@ -230,6 +230,23 @@ class CodexCliClient:
     def _clean_error(self, message: str) -> str:
         clean = sanitize_error_message(" ".join(message.split())[:600]) or ""
         return clean[:600]
+
+
+def codex_cli_error_detail(stdout: str, stderr: str) -> str:
+    details: list[str] = []
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "error" and event.get("message"):
+            details.append(str(event["message"]))
+        error = event.get("error")
+        if event.get("type") == "turn.failed" and isinstance(error, dict) and error.get("message"):
+            details.append(str(error["message"]))
+    return details[-1] if details else (stderr.strip() or stdout.strip())
 
 
 class CodexCliAIProvider(BaseAIProvider):

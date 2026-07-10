@@ -214,6 +214,26 @@ def test_codex_cli_strict_schema_converts_freeform_maps_to_empty_objects():
     }
 
 
+def test_codex_cli_error_detail_prefers_jsonl_provider_error_over_progress_stderr():
+    from app.ai.codex_cli_provider import codex_cli_error_detail
+
+    stdout = "\n".join(
+        [
+            json.dumps({"type": "error", "message": "invalid_json_schema: additionalProperties must be false"}),
+            json.dumps(
+                {
+                    "type": "turn.failed",
+                    "error": {"message": "invalid_json_schema: root schema rejected"},
+                }
+            ),
+        ]
+    )
+
+    assert codex_cli_error_detail(stdout, "Reading additional input from stdin...") == (
+        "invalid_json_schema: root schema rejected"
+    )
+
+
 def test_league_sentiment_schema_requires_freshness_and_evidence_contract():
     from app.ai.anthropic_provider import league_sentiment_schema
 
