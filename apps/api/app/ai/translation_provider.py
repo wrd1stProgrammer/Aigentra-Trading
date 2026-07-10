@@ -10,7 +10,7 @@ from app.ai.translation_contract import (
     translation_request_payload,
     translation_style_contract_for_payload,
 )
-from app.core.config import Settings
+from app.core.config import Settings, normalize_ai_provider_name
 from app.repositories import create_provider_call_log, sanitize_error_message
 
 
@@ -76,7 +76,8 @@ def get_translation_provider(settings: Settings) -> AITranslationProvider:
             ),
             model=settings.codex_cli_translation_model or settings.codex_cli_model,
         )
-        if settings.openai_api_key:
+        fallback_provider = normalize_ai_provider_name(settings.codex_cli_fallback_provider, "codex_cli")
+        if fallback_provider == "openai" and settings.openai_api_key:
             return FallbackTranslationProvider(
                 primary=primary,
                 fallback=OpenAIJSONTranslationProvider(

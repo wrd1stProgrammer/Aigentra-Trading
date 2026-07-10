@@ -199,6 +199,10 @@ class Settings(BaseModel):
     paper_max_margin_deployment_percent: float = Field(default_factory=lambda: env_float("PAPER_MAX_MARGIN_DEPLOYMENT_PERCENT", "100"))
     paper_max_active_positions_per_trader: int = Field(default_factory=lambda: env_int("PAPER_MAX_ACTIVE_POSITIONS_PER_TRADER", "1"))
     enable_auto_scanner: bool = Field(default_factory=lambda: env_bool("ENABLE_AUTO_SCANNER", "false"))
+    enable_worker_watchdog: bool = Field(default_factory=lambda: env_bool("ENABLE_WORKER_WATCHDOG", "true"))
+    worker_watchdog_timeout_seconds: int = Field(
+        default_factory=lambda: env_int("WORKER_WATCHDOG_TIMEOUT_SECONDS", "120")
+    )
     auto_scanner_symbols: List[str] = Field(default_factory=lambda: env_symbol_list("AUTO_SCANNER_SYMBOLS", "BTCUSDT"))
     auto_scanner_interval_seconds: int = Field(default_factory=lambda: env_int("AUTO_SCANNER_INTERVAL_SECONDS", "60"))
     auto_management_interval_seconds: int = Field(default_factory=lambda: env_int("AUTO_MANAGEMENT_INTERVAL_SECONDS", "10"))

@@ -209,7 +209,8 @@ def get_status_feed_generator(settings: Settings, provider_override: str | None 
             ),
             model=settings.codex_cli_status_feed_model or settings.trader_status_feed_model or settings.codex_cli_model,
         )
-        if settings.openai_api_key:
+        fallback_provider = normalize_ai_provider_name(settings.codex_cli_fallback_provider, "codex_cli")
+        if fallback_provider == "openai" and settings.openai_api_key:
             return FallbackTraderStatusFeedGenerator(
                 primary=primary,
                 fallback=OpenAITraderStatusFeedGenerator(
@@ -218,7 +219,7 @@ def get_status_feed_generator(settings: Settings, provider_override: str | None 
                     timeout_seconds=float(settings.trader_status_feed_timeout_seconds or 30.0),
                 ),
             )
-        if settings.ai_missing_key_fallback_to_mock:
+        if fallback_provider == "mock" and settings.ai_missing_key_fallback_to_mock:
             return FallbackTraderStatusFeedGenerator(primary=primary, fallback=MockTraderStatusFeedGenerator())
         return primary
     if requested != "openai":

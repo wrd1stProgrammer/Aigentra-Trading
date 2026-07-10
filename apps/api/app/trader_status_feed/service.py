@@ -2,6 +2,7 @@ from datetime import datetime
 import time
 from typing import Any, Iterable
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.ai.translation_cache import fanout_ai_translations
@@ -114,6 +115,9 @@ async def create_status_feed_for_event(
         trigger=trigger_payload or {},
         context=build_status_feed_context(db, trader_id, symbol),
     )
+    # Status generation can await an external provider. End the context read
+    # transaction first so it cannot retain an RDS snapshot or row lock.
+    db.commit()
     result = await _generate_with_logging(
         db,
         generator=generator or get_status_feed_generator(settings),
@@ -121,6 +125,7 @@ async def create_status_feed_for_event(
         symbol=symbol,
         trader_id=trader_id,
     )
+    db.commit()
     payload = status_feed_payload(result, state_key=state_key, event_type=event_type, now=generated_at)
     record = TraderStatusFeedRecord(
         symbol=symbol,
@@ -140,8 +145,25 @@ async def create_status_feed_for_event(
         payload_json=to_json(payload),
         raw_json=to_json({"request": request.model_dump(mode="json")}),
     )
-    db.add(record)
-    db.flush()
+    try:
+        db.add(record)
+        db.flush()
+        # Publish the canonical feed before translation. A second producer can
+        # now observe and reuse it instead of waiting on an uncommitted unique
+        # index entry while the first producer awaits translation.
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = find_status_feed_by_source(
+            db,
+            source_type=source_type,
+            source_id=source_id,
+            state_key=state_key,
+            refresh_reason=refresh_reason,
+        )
+        if existing is not None:
+            return existing
+        raise
     await fanout_ai_translations(
         db,
         settings=settings,
@@ -150,8 +172,10 @@ async def create_status_feed_for_event(
         payload=payload,
         symbol=symbol,
         trader_id=trader_id,
+        release_clean_transaction_before_call=True,
     )
     notify_subscribers_for_status_feed(db, record)
+    db.commit()
     return record
 
 

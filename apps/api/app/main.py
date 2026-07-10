@@ -506,6 +506,12 @@ async def create_realtime_status_feeds_for_events(event_ids: list[int], symbol: 
             if records:
                 invalidate_league_cache(symbol, trader_id)
     except Exception:
+        logger.exception(
+            "realtime_status_feed_generation_failed event_ids=%s symbol=%s trader_id=%s",
+            event_ids,
+            symbol,
+            trader_id,
+        )
         return
 
 

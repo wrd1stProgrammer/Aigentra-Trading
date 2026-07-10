@@ -11,6 +11,7 @@ from app.db import (
     AITranslationCacheRecord,
     PaperOrderRecord,
     PaperPositionRecord,
+    SessionLocal,
     TraderStatusFeedRecord,
     init_db,
     reset_db_engine,
@@ -114,6 +115,97 @@ def test_status_feed_created_for_required_lifecycle_events(temp_db):
         assert db.query(TraderStatusFeedRecord).count() == 4
         assert db.query(AITranslationCacheRecord).filter_by(source_type=AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED).count() == 4
         assert len(generator.calls) == 4
+
+
+def test_status_feed_is_committed_before_translation(monkeypatch, temp_db):
+    settings = Settings(openai_api_key="", ai_translation_enabled=True, ai_translation_target_locales=["ko"])
+    generator = FakeStatusFeedGenerator()
+    visible_during_translation: list[bool] = []
+
+    async def inspect_committed_feed(db, *, source_id, **kwargs):
+        with session_scope() as verification_db:
+            visible_during_translation.append(verification_db.get(TraderStatusFeedRecord, source_id) is not None)
+
+    monkeypatch.setattr("app.trader_status_feed.service.fanout_ai_translations", inspect_committed_feed)
+
+    with session_scope() as db:
+        record = asyncio.run(
+            create_status_feed_for_event(
+                db,
+                settings=settings,
+                trader_id="volume-breaker",
+                symbol="BTCUSDT",
+                state_key=STATUS_FEED_STATE_POSITION_ENTRY,
+                event_type="order_filled",
+                source_type="trade_event",
+                source_id=303,
+                trigger_payload={"eventType": "order_filled"},
+                generator=generator,
+            )
+        )
+
+    assert record.id is not None
+    assert visible_during_translation == [True]
+
+
+def test_concurrent_duplicate_status_feed_reuses_committed_record(temp_db):
+    settings = Settings(openai_api_key="", ai_translation_enabled=False)
+
+    async def run_race():
+        ready = asyncio.Event()
+
+        class BarrierGenerator(FakeStatusFeedGenerator):
+            async def generate(self, request):
+                self.calls.append(request)
+                if len(self.calls) >= 2:
+                    ready.set()
+                await ready.wait()
+                await asyncio.sleep(0)
+                return StatusFeedResult(
+                    headline="Position filled",
+                    message="I'm in and managing the invalidation now.",
+                    mood="focused",
+                    stance="patient",
+                    watch="",
+                    provider=self.name,
+                    model=self.model,
+                    fallback=False,
+                )
+
+        generator = BarrierGenerator()
+        first_db = SessionLocal()
+        second_db = SessionLocal()
+
+        async def create(db):
+            return await create_status_feed_for_event(
+                db,
+                settings=settings,
+                trader_id="volume-breaker",
+                symbol="BTCUSDT",
+                state_key=STATUS_FEED_STATE_POSITION_ENTRY,
+                event_type="order_filled",
+                source_type="trade_event",
+                source_id=4406,
+                trigger_payload={"eventId": 4406},
+                generator=generator,
+            )
+
+        try:
+            records = await asyncio.wait_for(
+                asyncio.gather(create(first_db), create(second_db)),
+                timeout=3,
+            )
+        finally:
+            first_db.close()
+            second_db.close()
+        return records, generator
+
+    records, generator = asyncio.run(run_race())
+
+    assert records[0].id == records[1].id
+    assert len(generator.calls) == 2
+    with session_scope() as db:
+        assert db.query(TraderStatusFeedRecord).count() == 1
 
 
 def test_live_status_feed_reuses_recent_same_state_instead_of_duplicate_thread_posts(temp_db):

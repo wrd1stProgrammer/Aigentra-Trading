@@ -2,12 +2,17 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.ai.codex_translation_provider import CodexCliJSONTranslationProvider
+from app.ai.codex_translation_provider import CodexCliJSONTranslationProvider, FallbackTranslationProvider
 from app.ai.translation_cache import fanout_ai_translations
+from app.ai.translation_provider import get_translation_provider
 from app.core.config import Settings
 from app.db import AITranslationCacheRecord, init_db, reset_db_engine, session_scope
 from app.locales import AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT
-from app.trader_status_feed.generator import CodexCliTraderStatusFeedGenerator
+from app.trader_status_feed.generator import (
+    CodexCliTraderStatusFeedGenerator,
+    FallbackTraderStatusFeedGenerator,
+    get_status_feed_generator,
+)
 from app.trader_status_feed.models import StatusFeedPersona, StatusFeedRequest
 
 
@@ -103,3 +108,32 @@ async def test_codex_cli_status_feed_generator_returns_status_result():
     assert result.model == "gpt-feed"
     assert result.headline == "I am in, risk first"
     assert result.watch == ""
+
+
+def test_codex_cli_auxiliary_providers_do_not_use_openai_without_explicit_fallback():
+    settings = Settings(
+        openai_api_key="present-but-disabled",
+        ai_translation_provider="codex_cli",
+        trader_status_feed_provider="codex_cli",
+        codex_cli_fallback_provider="codex_cli",
+    )
+
+    translation_provider = get_translation_provider(settings)
+    status_feed_generator = get_status_feed_generator(settings)
+
+    assert isinstance(translation_provider, CodexCliJSONTranslationProvider)
+    assert not isinstance(translation_provider, FallbackTranslationProvider)
+    assert isinstance(status_feed_generator, CodexCliTraderStatusFeedGenerator)
+    assert not isinstance(status_feed_generator, FallbackTraderStatusFeedGenerator)
+
+
+def test_codex_cli_auxiliary_providers_allow_explicit_openai_fallback():
+    settings = Settings(
+        openai_api_key="explicit-fallback-key",
+        ai_translation_provider="codex_cli",
+        trader_status_feed_provider="codex_cli",
+        codex_cli_fallback_provider="openai",
+    )
+
+    assert isinstance(get_translation_provider(settings), FallbackTranslationProvider)
+    assert isinstance(get_status_feed_generator(settings), FallbackTraderStatusFeedGenerator)
