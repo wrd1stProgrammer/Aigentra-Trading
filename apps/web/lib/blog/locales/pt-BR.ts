@@ -19,7 +19,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Identifique claramente a saída de troco.",
       "Confirme o gasto em duas fontes independentes.",
     ],
-    riskNotice: "UTXOs não revelam com certeza a identidade do controlador, e heurísticas de agrupamento podem produzir conclusões erradas.",
+    riskNotice: "Não atribua UTXOs a uma pessoa apenas por padrões observados na cadeia.",
     methodologyDisclosure,
   },
   {
@@ -38,7 +38,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Cheque o alvo antes de aceitar o cabeçalho.",
       "Trate intervalos entre blocos como variáveis.",
     ],
-    riskNotice: "A prova de trabalho não fixa o intervalo de cada bloco nem elimina reorganizações ou risco econômico.",
+    riskNotice: "Oscilações no hashrate podem alterar tempos de bloco e segurança econômica.",
     methodologyDisclosure,
   },
   {
@@ -57,7 +57,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Separe emissão nova de oferta negociável.",
       "Recalcule o subsídio pelas regras do protocolo.",
     ],
-    riskNotice: "Datas são estimativas porque blocos variam, e menor emissão não demonstra demanda nem garante valorização.",
+    riskNotice: "Não trate o halving como promessa de alta ou como data de mercado precisa.",
     methodologyDisclosure,
   },
   {
@@ -76,7 +76,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Reproduza o alvo com dados dos cabeçalhos.",
       "Considere a variabilidade dos timestamps.",
     ],
-    riskNotice: "Timestamps têm variabilidade e regras próprias, portanto médias simples podem divergir do cálculo dos nós.",
+    riskNotice: "Estimativas de dificuldade podem falhar se ignorarem as regras de consenso.",
     methodologyDisclosure,
   },
   {
@@ -95,7 +95,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Observe filas em mais de um nó.",
       "Escolha urgência sem prometer prazo exato.",
     ],
-    riskNotice: "Não há mempool global idêntica, e propagação, substituição e descarte impedem prometer prazo exato.",
+    riskNotice: "Uma taxa competitiva reduz espera, mas não assegura inclusão no próximo bloco.",
     methodologyDisclosure,
   },
   {
@@ -114,7 +114,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Registre altura e hash antes da liberação.",
       "Compare a cadeia em nós independentes.",
     ],
-    riskNotice: "Nenhuma contagem fixa produz finalização absoluta, especialmente diante de reorganizações ou ataques direcionados.",
+    riskNotice: "Libere valores relevantes somente após confirmações adequadas ao risco da operação.",
     methodologyDisclosure,
   },
   {
@@ -133,7 +133,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Evite reutilizar endereços de recebimento.",
       "Faça um envio pequeno antes do valor principal.",
     ],
-    riskNotice: "Um endereço não é uma conta nem a chave, e formatos compatíveis variam entre carteiras.",
+    riskNotice: "Nunca exponha a chave privada e confira rede e destino antes de enviar.",
     methodologyDisclosure,
   },
   {
@@ -152,7 +152,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Conecte a carteira ao validador correto.",
       "Investigue divergências por altura e hash.",
     ],
-    riskNotice: "O nó não elimina riscos de software, conectividade, operação ou vazamento de privacidade.",
+    riskNotice: "Um nó desatualizado ou mal configurado pode fornecer uma visão incorreta da rede.",
     methodologyDisclosure,
   },
   {
@@ -171,7 +171,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Mantenha backups e monitoramento dos canais.",
       "Separe falha de rota de timeout.",
     ],
-    riskNotice: "Fechamento, backups e monitoramento criam responsabilidades que não existem em uma simples transferência on-chain.",
+    riskNotice: "Canais Lightning exigem liquidez, backups e acompanhamento para evitar perdas.",
     methodologyDisclosure,
   },
   {
@@ -190,7 +190,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Simule o impacto para o tamanho desejado.",
       "Revise fills, saldo pendente e taxas.",
     ],
-    riskNotice: "A mercado não garante preço e a limitada não garante execução diante de latência ou livro móvel.",
+    riskNotice: "Escolha entre preço e rapidez sabendo que nenhuma ordem garante ambos.",
     methodologyDisclosure,
   },
   {
@@ -209,7 +209,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Escolha conscientemente a ordem liberada pelo stop.",
       "Acompanhe cada evento até o preenchimento.",
     ],
-    riskNotice: "Gaps, baixa liquidez e regras do ambiente impedem tratar qualquer stop como teto garantido de perda.",
+    riskNotice: "Stops podem executar longe do gatilho ou permanecer sem preenchimento.",
     methodologyDisclosure,
   },
   {
@@ -228,7 +228,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Meça o spread para o tamanho real.",
       "Compare a cotação ao preço executado.",
     ],
-    riskNotice: "Spread estreito no topo não prova profundidade, pois cotações podem desaparecer rapidamente.",
+    riskNotice: "Spreads podem se ampliar abruptamente e elevar o custo real da negociação.",
     methodologyDisclosure,
   },
   {
@@ -247,7 +247,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Estime o preço médio, não só o melhor nível.",
       "Observe reposição em horários diferentes.",
     ],
-    riskNotice: "Ordens ocultas, cancelamentos, latência e fragmentação limitam o retrato exibido.",
+    riskNotice: "A profundidade exibida pode sumir antes que sua ordem alcance o livro.",
     methodologyDisclosure,
   },
   {
@@ -266,7 +266,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Consulte a tabela vigente da sua conta.",
       "Inclua rebates no custo efetivo.",
     ],
-    riskNotice: "Faixas, pares e promoções mudam, então percentuais sem data e contexto enganam.",
+    riskNotice: "Confirme sua faixa de taxas antes de estimar o resultado líquido da ordem.",
     methodologyDisclosure,
   },
   {
@@ -285,7 +285,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Calcule o preço médio ponderado dos fills.",
       "Monitore a quantidade que ficou aberta.",
     ],
-    riskNotice: "A referência escolhida altera a medição, e impacto passado não garante execução semelhante.",
+    riskNotice: "Ordens grandes podem sofrer slippage e preenchimentos em preços diferentes.",
     methodologyDisclosure,
   },
   {
@@ -304,7 +304,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Meça impacto no tamanho necessário.",
       "Compare dados na mesma janela e unidade.",
     ],
-    riskNotice: "Volume isolado não mostra cancelamentos, fragmentação nem capacidade futura de execução.",
+    riskNotice: "Volume elevado não assegura saída rápida sem impacto relevante no preço.",
     methodologyDisclosure,
   },
   {
@@ -323,7 +323,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Inclua custos e gaps no cálculo.",
       "Compare o risco planejado ao realizado.",
     ],
-    riskNotice: "Percentuais fixos não servem a todos, e stops não limitam perfeitamente a perda.",
+    riskNotice: "Dimensione a posição para suportar perdas maiores que o cenário planejado.",
     methodologyDisclosure,
   },
   {
@@ -342,7 +342,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Inclua todos os custos no resultado.",
       "Reporte amostra, dispersão e exclusões.",
     ],
-    riskNotice: "Mudar o risco depois ou excluir casos distorce a métrica; expectativa passada pode não persistir.",
+    riskNotice: "Múltiplos de R históricos não garantem que a estratégia preserve sua expectativa.",
     methodologyDisclosure,
   },
   {
@@ -361,7 +361,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Revise fills e rejeições após a saída.",
       "Teste cenários de gap e conexão perdida.",
     ],
-    riskNotice: "Conexão, rejeição, liquidação e baixa profundidade criam perdas além do cenário planejado.",
+    riskNotice: "Um stop-loss reduz exposição, mas não estabelece uma perda máxima garantida.",
     methodologyDisclosure,
   },
   {
@@ -380,7 +380,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Teste sequências além do histórico observado.",
       "Reduza exposição antes de comprometer a operação.",
     ],
-    riskNotice: "O drawdown máximo histórico não limita o futuro, e simulações não dão probabilidade universal de ruína.",
+    riskNotice: "Sequências futuras podem superar o pior drawdown já registrado.",
     methodologyDisclosure,
   },
   {
@@ -399,7 +399,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Defina risco sem usar o poder de compra como limite.",
       "Teste manutenção e custos em cenário adverso.",
     ],
-    riskNotice: "Poder de compra exibido não significa exposição sustentável, e regras variam por produto.",
+    riskNotice: "Margem disponível não mede quanto capital você pode perder com segurança.",
     methodologyDisclosure,
   },
   {
@@ -418,7 +418,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Reconcilie o diário com extratos.",
       "Mantenha também sinais cancelados e desvios.",
     ],
-    riskNotice: "O diário apoia auditoria, mas não prova causalmente melhoria e sofre com classificação seletiva.",
+    riskNotice: "Registros incompletos ou seletivos podem produzir conclusões enganosas sobre desempenho.",
     methodologyDisclosure,
   },
   {
@@ -437,7 +437,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Some spread, taxas e slippage por período.",
       "Defina limites operacionais antes da sessão.",
     ],
-    riskNotice: "Não existe frequência ideal universal, e classificações retrospectivas podem racionalizar perdas.",
+    riskNotice: "Operar em excesso amplia taxas, erros e exposição sem assegurar retorno adicional.",
     methodologyDisclosure,
   },
   {
@@ -456,7 +456,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Use apenas barras já encerradas.",
       "Teste a classificação em escalas distintas.",
     ],
-    riskNotice: "A etiqueta depende da escala e não garante direção futura nem exclui lateralização.",
+    riskNotice: "Uma tendência identificada pode terminar antes da próxima decisão de entrada.",
     methodologyDisclosure,
   },
   {
@@ -475,7 +475,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Defina tolerância e invalidação.",
       "Conte rompimentos junto com respeitos.",
     ],
-    riskNotice: "Escolhas visuais variam e muitos níveis testados aumentam coincidências retrospectivas.",
+    riskNotice: "Zonas de suporte e resistência podem romper sem reação previsível.",
     methodologyDisclosure,
   },
   {
@@ -494,7 +494,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Reserve aquecimento antes de usar o indicador.",
       "Compare reação e atraso em regimes diferentes.",
     ],
-    riskNotice: "A média deriva do passado, e o melhor período de uma amostra pode ser sobreajuste.",
+    riskNotice: "Médias móveis reagem com atraso e podem gerar sinais tardios ou repetidos.",
     methodologyDisclosure,
   },
   {
@@ -513,7 +513,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Espere o aquecimento completo do cálculo.",
       "Teste extremos sem assumir reversão.",
     ],
-    riskNotice: "Bibliotecas divergem nas convenções, e limiares populares não garantem reversão.",
+    riskNotice: "RSI extremo pode persistir e não confirma sozinho uma reversão de preço.",
     methodologyDisclosure,
   },
   {
@@ -532,7 +532,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Espere a linha de sinal ficar disponível.",
       "Avalie cruzamentos também em mercados laterais.",
     ],
-    riskNotice: "O filtro é defasado e pode trocar repetidamente em lateralização; defaults não são universais.",
+    riskNotice: "Cruzamentos do MACD podem atrasar e falhar em mercados sem direção.",
     methodologyDisclosure,
   },
   {
@@ -551,7 +551,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Normalize antes de comparar ativos.",
       "Use o ATR para amplitude, não direção.",
     ],
-    riskNotice: "Comparações entre preços exigem normalização, e múltiplos fixos não são stops universais.",
+    riskNotice: "O ATR mede oscilação passada e não indica o sentido do próximo movimento.",
     methodologyDisclosure,
   },
   {
@@ -570,7 +570,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Calcule apenas com barras fechadas.",
       "Exija contexto além do toque na banda.",
     ],
-    riskNotice: "Toques podem continuar em tendências e não constituem sinal isolado.",
+    riskNotice: "Tocar uma banda não basta para justificar compra, venda ou reversão.",
     methodologyDisclosure,
   },
   {
@@ -589,7 +589,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Ignore o timeframe maior ainda aberto.",
       "Reproduza decisões na ordem cronológica.",
     ],
-    riskNotice: "Mais timeframes criam escolhas e sinais redundantes, sem garantir confirmação.",
+    riskNotice: "Combinar escalas pode multiplicar sinais conflitantes e escolhas retrospectivas.",
     methodologyDisclosure,
   },
   {
@@ -608,7 +608,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Planeje rolagem antes da expiração.",
       "Leia multiplicador e regra de liquidação.",
     ],
-    riskNotice: "Nem todo futuro usa funding e regras de perpétuos variam por ambiente e região.",
+    riskNotice: "Vencimento, funding e liquidação mudam conforme o contrato e a plataforma.",
     methodologyDisclosure,
   },
   {
@@ -627,7 +627,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Calcule o impacto sobre o nocional.",
       "Confirme o lançamento no extrato.",
     ],
-    riskNotice: "Cadência varia e funding positivo não demonstra alta ou baixa futura.",
+    riskNotice: "Funding pode mudar rapidamente e transformar uma posição alavancada em custo elevado.",
     methodologyDisclosure,
   },
   {
@@ -646,7 +646,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Simule manutenção e custos.",
       "Leia a sequência de redução e liquidação.",
     ],
-    riskNotice: "Preço e resultado da liquidação não são universais, sobretudo com gaps e baixa liquidez.",
+    riskNotice: "Alavancagem pode liquidar a posição antes que o mercado reverta a seu favor.",
     methodologyDisclosure,
   },
   {
@@ -665,7 +665,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Identifique a referência da liquidação.",
       "Revise fontes e filtros do índice.",
     ],
-    riskNotice: "Composição varia e pode divergir durante estresse ou indisponibilidade de componentes.",
+    riskNotice: "Mark, índice e último preço podem divergir e acionar resultados inesperados.",
     methodologyDisclosure,
   },
   {
@@ -684,7 +684,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Padronize moeda, vencimento e anualização.",
       "Inclua financiamento e margem na comparação.",
     ],
-    riskNotice: "Arbitragem enfrenta margem e liquidez, e o formato da curva não prevê retorno sozinho.",
+    riskNotice: "O basis pode convergir de forma adversa e consumir margem antes do vencimento.",
     methodologyDisclosure,
   },
   {
@@ -703,7 +703,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Alinhe open interest com preço e volume.",
       "Normalize métodos antes de comparar ambientes.",
     ],
-    riskNotice: "Ambientes publicam métricas incompatíveis, e correlação não estabelece causalidade.",
+    riskNotice: "Open interest crescente mostra exposição, não a direção provável do mercado.",
     methodologyDisclosure,
   },
   {
@@ -722,7 +722,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Defina o tratamento de lacunas antes do teste.",
       "Registre checksum e transformações.",
     ],
-    riskNotice: "Preencher lacunas inventa informação; remover períodos difíceis favorece resultados.",
+    riskNotice: "Dados ausentes, duplicados ou incorretos podem invalidar todo o backtest.",
     methodologyDisclosure,
   },
   {
@@ -741,7 +741,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Atrase features até sua disponibilidade real.",
       "Inclua ativos removidos da amostra.",
     ],
-    riskNotice: "Atrasar uma barra não corrige todo vazamento, e arquivos atuais podem conter revisões.",
+    riskNotice: "Vazamento futuro e sobrevivência podem criar desempenho impossível de reproduzir.",
     methodologyDisclosure,
   },
   {
@@ -760,7 +760,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Preserve todos os segmentos fora da amostra.",
       "Conte cada tentativa de parametrização.",
     ],
-    riskNotice: "Sobreposição cria dependência e muitas tentativas ainda permitem seleção favorável.",
+    riskNotice: "Walk-forward reduz sobreajuste, mas não elimina seleção oportunista de parâmetros.",
     methodologyDisclosure,
   },
   {
@@ -779,7 +779,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Limite fills à liquidez simulada.",
       "Reporte resultados brutos e líquidos.",
     ],
-    riskNotice: "Sem livro completo, o modelo não equivale a execução real e custos mudam por regime.",
+    riskNotice: "Custos subestimados podem converter um backtest lucrativo em estratégia deficitária.",
     methodologyDisclosure,
   },
   {
@@ -798,7 +798,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Analise caudas e drawdown em separado.",
       "Ajuste a leitura ao tamanho da amostra.",
     ],
-    riskNotice: "Muitas estratégias testadas inflam o melhor valor, e retornos dependentes fragilizam a leitura.",
+    riskNotice: "Sharpe alto pode ocultar caudas, dependência temporal e seleção entre muitos testes.",
     methodologyDisclosure,
   },
   {
@@ -817,7 +817,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Confira rede, endereço e memo integralmente.",
       "Envie primeiro uma quantia pequena.",
     ],
-    riskNotice: "Hash enviado não garante crédito: confirmações, mínimos e manutenção podem interferir.",
+    riskNotice: "Rede ou memo incorreto pode tornar a transferência irrecuperável.",
     methodologyDisclosure,
   },
   {
@@ -836,7 +836,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Teste a restauração em ambiente controlado.",
       "Recuse qualquer pedido pelas palavras.",
     ],
-    riskNotice: "Compatibilidade varia, e nenhuma equipe legítima precisa receber a frase.",
+    riskNotice: "Quem obtém sua frase de recuperação pode controlar todos os fundos associados.",
     methodologyDisclosure,
   },
   {
@@ -855,7 +855,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Compre hardware por canal verificável.",
       "Teste backup e recuperação antes do uso.",
     ],
-    riskNotice: "Hardware não impede assinatura maliciosa, phishing, perda da frase ou falha de cadeia de suprimentos.",
+    riskNotice: "Carteiras de hardware não protegem contra instruções falsas ou confirmações descuidadas.",
     methodologyDisclosure,
   },
   {
@@ -874,7 +874,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Abra o suporte por um canal independente.",
       "Revogue permissões e preserve evidências.",
     ],
-    riskNotice: "Identidade visual e dados pessoais não provam autenticidade, e recuperação pode ser outro golpe.",
+    riskNotice: "Suporte legítimo nunca precisa de frase-semente, chave privada ou assinatura suspeita.",
     methodologyDisclosure,
   },
   {
@@ -893,7 +893,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Compare todos os caracteres do endereço.",
       "Use uma lista autorizada e teste pequeno.",
     ],
-    riskNotice: "Caracteres coincidentes não validam o meio, e listas também podem ser alteradas.",
+    riskNotice: "Copiar endereços do histórico pode direcionar fundos a um invasor.",
     methodologyDisclosure,
   },
   {
@@ -912,7 +912,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Confirme contrato, rede e ativo.",
       "Revise e revogue permissões sem uso.",
     ],
-    riskNotice: "Revogar custa transação e não desfaz gastos; interfaces podem resumir dados insuficientemente.",
+    riskNotice: "Uma aprovação ilimitada pode permitir que o contrato mova tokens no futuro.",
     methodologyDisclosure,
   },
   {
@@ -931,7 +931,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Entenda quem valida e pode pausar mensagens.",
       "Teste resgate e liquidez com baixo valor.",
     ],
-    riskNotice: "Falhas de contrato, oráculo ou governança podem romper paridade; auditoria passada não elimina risco.",
+    riskNotice: "Bridges concentram riscos técnicos e podem perder ativos bloqueados ou representados.",
     methodologyDisclosure,
   },
   {
@@ -950,7 +950,7 @@ export const expandedPostsPtBr: readonly LocalizedBlogPost[] = [
       "Leia data, escopo e entidade do relatório.",
       "Avalie ativos, custodiantes e resgate.",
     ],
-    riskNotice: "Prova de reservas não equivale a auditoria completa ou solvência contínua.",
+    riskNotice: "Reservas divulgadas não garantem resgate, liquidez nem ausência de passivos ocultos.",
     methodologyDisclosure,
   },
 ] as const;
