@@ -125,6 +125,23 @@ class MockAIProvider(BaseAIProvider):
                 "leverageOverride": None,
                 "riskPercentOverride": None,
                 "earlyExitRecommendations": candidate.earlyExitRules[:2],
+                "managementPlan": {
+                    "holdingHorizon": payload.trader.holdingHorizon.value,
+                    "strategyFamily": payload.trader.strategyFamily.value,
+                    "primaryTimeframe": payload.trader.primaryTimeframe,
+                    "expectedHoldMinutes": payload.trader.expectedHoldMinutes,
+                    "calmReviewSeconds": {
+                        "SCALP": 300,
+                        "INTRADAY": 900,
+                        "SWING": 3600,
+                        "POSITION": 6000,
+                    }[payload.trader.holdingHorizon.value],
+                    "urgentReviewSeconds": 60,
+                    "eventTriggers": ["THESIS_INVALIDATION", "STOP_PROXIMITY", "TARGET_PROXIMITY", "TIME_STOP", "PRICE_SHOCK"],
+                    "allowedActions": ["HOLD", "MOVE_STOP", "MOVE_STOP_TO_BREAKEVEN", "TAKE_PARTIAL_PROFIT", "REDUCE_RISK", "CLOSE_POSITION"],
+                    "thesis": candidate.setupType or payload.trader.currentPlan,
+                    "invalidation": candidate.invalidation or counter_thesis,
+                },
                 "approvalReason": approval_reason,
                 "counterThesis": counter_thesis,
                 "userSummary": None,
@@ -137,6 +154,12 @@ class MockAIProvider(BaseAIProvider):
         locale = "ko" if (payload.locale or "ko").lower().startswith("ko") else "en"
         event = payload.event
         suggested = (event.suggestedAction or "HOLD").upper()
+        management_plan = payload.exposure.payload.get("managementPlan")
+        allowed_actions: set[str] | None = None
+        if isinstance(management_plan, dict) and isinstance(management_plan.get("allowedActions"), list):
+            allowed_actions = {str(action).strip().upper() for action in management_plan["allowedActions"]}
+            if suggested not in allowed_actions:
+                suggested = "HOLD"
         metrics = event.metrics or {}
         holding_policy = trader_holding_policy(payload.trader.id)
         progress_r = float(metrics.get("progressR") or 0)
@@ -149,7 +172,7 @@ class MockAIProvider(BaseAIProvider):
             if payload.exposure.kind == "order":
                 suggested = "CANCEL_PENDING_ORDER" if adverse or distance_percent >= 0.45 else "HOLD"
             elif adverse and progress_r <= 0.1:
-                suggested = "ADD_TO_POSITION" if progress_r >= -0.35 else "REDUCE_RISK"
+                suggested = "REDUCE_RISK" if progress_r <= -0.35 else "HOLD"
             elif favorable and (target_progress >= 0.65 or progress_r >= 0.8):
                 suggested = "TAKE_PARTIAL_PROFIT"
             elif favorable and progress_r >= 0.45 and target_progress < 0.65:
@@ -165,8 +188,6 @@ class MockAIProvider(BaseAIProvider):
                 suggested = "PYRAMID_POSITION"
             elif progress_r >= float(holding_policy.breakeven_progress_r):
                 suggested = "MOVE_STOP_TO_BREAKEVEN"
-            elif -0.45 < progress_r <= -0.2:
-                suggested = "ADD_TO_POSITION"
             elif progress_r <= -0.45:
                 suggested = "REDUCE_RISK"
             else:
@@ -176,6 +197,8 @@ class MockAIProvider(BaseAIProvider):
                 suggested = "CANCEL_PENDING_ORDER"
             else:
                 suggested = "HOLD"
+        if allowed_actions is not None and suggested not in allowed_actions:
+            suggested = "HOLD"
         confidence = 82 if event.eventType == "common_price_shock" else 78 if event.severity == "HIGH" else 66
         action = {"type": suggested, "reason": event.reason}
         if suggested in {"MOVE_STOP", "MOVE_STOP_TO_BREAKEVEN", "TRAIL_STOP"}:

@@ -50,6 +50,8 @@ import {
   shouldUseLeaderboardPreviewLimit
 } from "@/lib/leaderboard-loading-policy";
 import { activePositionLeverage, appendLeverageSample, formatLeverageBadge, orderLeverage, planLeverage, positionLeverage } from "@/components/leaderboard-leverage";
+import { TradeClassificationBadges } from "@/components/trade-classification-badges";
+import { tradeClassification, type TradeClassification } from "@/components/trade-classification";
 import type { SubscriberPreferences } from "@/lib/subscriber-preferences";
 
 const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_108px_108px_104px_80px_36px] gap-3";
@@ -72,6 +74,7 @@ type TraderProgress = {
   side?: "long" | "short";
   sideDetail?: string;
   leverage?: number | null;
+  classification?: TradeClassification | null;
 };
 
 type ReturnMetricKey = "monthly" | "cumulative" | "return7d" | "return24h" | "return30d";
@@ -1133,10 +1136,11 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
                       </p>
                     </div>
                     <p className="mt-0.5 truncate text-xs text-zinc-500">{t(traderShortKey(trader.id))}</p>
-                    <div className="mt-1.5 flex min-w-0 items-center gap-1.5">
+                    <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
                       <StatusPill label={progress.label} tone={progress.tone} />
                       <SideBadge progress={progress} />
                       <LeverageBadge progress={progress} />
+                      <TradeClassificationBadge progress={progress} t={t} />
                     </div>
                   </div>
                 </div>
@@ -1208,6 +1212,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
             <StatusPill label={state} tone={progress.tone} />
             <SideBadge progress={progress} />
             <LeverageBadge progress={progress} />
+            <TradeClassificationBadge progress={progress} t={t} />
           </div>
         </div>
 
@@ -1329,13 +1334,14 @@ function TraderIdentity({ trader, progress, t }: { trader: TraderStanding; progr
     <div className="flex min-w-0 items-center gap-3">
       <TraderMark trader={trader} />
       <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <TraderLifecycleBadge trader={trader} t={t} compact />
           <p className="truncate text-sm font-bold tracking-tight text-white">
             {displayName}
           </p>
           <SideBadge progress={progress} />
           <LeverageBadge progress={progress} />
+          <TradeClassificationBadge progress={progress} t={t} />
         </div>
         <p className="text-zinc-500 mt-1 truncate text-xs font-mono">{t(traderShortKey(trader.id))}</p>
       </div>
@@ -1407,6 +1413,10 @@ function LeverageBadge({ progress }: { progress: TraderProgress }) {
       {label}
     </span>
   );
+}
+
+function TradeClassificationBadge({ progress, t }: { progress: TraderProgress; t: (key: string) => string }) {
+  return <TradeClassificationBadges classification={progress.classification ?? null} t={t} compact />;
 }
 
 function buildReturnColumns({ keys, standings, t, monthlyReturnLabel }: ReturnColumnBuildOptions): readonly ReturnColumn[] {
@@ -1636,7 +1646,8 @@ function traderProgress(
       tone: roi !== null && roi < 0 ? "bad" : "good",
       side,
       sideDetail: roi === null ? undefined : formatSignedPercent(roi, 1),
-      leverage
+      leverage,
+      classification: tradeClassification(position, exposure, trader)
     };
   }
   if (order || (liveSummary?.openOrders ?? 0) > 0 || (summary?.openOrders ?? 0) > 0) {
@@ -1649,7 +1660,8 @@ function traderProgress(
       tone: "warn",
       side,
       sideDetail: price === null ? undefined : `@${formatNumber(price, 0, locale)}`,
-      leverage
+      leverage,
+      classification: tradeClassification(order, exposure, trader)
     };
   }
 
@@ -1666,7 +1678,8 @@ function traderProgress(
       tone: "warn",
       side,
       sideDetail: price === null ? undefined : `@${formatNumber(price, 0, locale)}`,
-      leverage
+      leverage,
+      classification: tradeClassification(plan, exposure, trader)
     };
   }
   if (runStatus === "NO_CANDIDATE") {

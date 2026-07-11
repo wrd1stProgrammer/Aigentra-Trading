@@ -521,6 +521,9 @@ def position_management_events(trader_id: str, position: PaperPositionRecord, sn
     volume_z = as_float(fifteen.get("volumeZscore"), 0.0)
     ratio = taker_buy_ratio(snapshot)
     events: list[ManagementEvent] = []
+    position_payload = from_json(position.payload_json) or {}
+    management_plan = position_payload.get("managementPlan") if isinstance(position_payload, dict) else None
+    management_plan = management_plan if isinstance(management_plan, dict) else {}
 
     def base_metrics(extra: dict[str, Any] = None) -> dict[str, Any]:
         return {
@@ -538,8 +541,32 @@ def position_management_events(trader_id: str, position: PaperPositionRecord, sn
             "volumeZscore": volume_z,
             "fundingRate": funding,
             "takerBuyRatio": round(ratio, 4),
+            "holdingHorizon": management_plan.get("holdingHorizon"),
+            "strategyFamily": management_plan.get("strategyFamily"),
+            "expectedHoldMinutes": management_plan.get("expectedHoldMinutes"),
             **(extra or {}),
         }
+
+    event_triggers = management_plan.get("eventTriggers")
+    expected_hold_minutes = management_plan.get("expectedHoldMinutes")
+    if (
+        isinstance(event_triggers, list)
+        and "TIME_STOP" in event_triggers
+        and isinstance(expected_hold_minutes, (int, float))
+        and expected_hold_minutes > 0
+    ):
+        held_minutes = (datetime.now(timezone.utc) - aware_datetime(position.opened_at)).total_seconds() / 60
+        if held_minutes >= float(expected_hold_minutes):
+            events.append(
+                ManagementEvent(
+                    eventType="management_time_stop_due",
+                    phase="OPEN_POSITION",
+                    severity="MEDIUM",
+                    reason="The frozen management plan reached its expected holding window and requires a fresh exit-or-extension decision.",
+                    suggestedAction="REDUCE_RISK",
+                    metrics=base_metrics({"heldMinutes": round(held_minutes, 1)}),
+                )
+            )
 
     if trader_id == "channel-rider":
         lower = as_float(channel.get("lower"), price * 0.99)

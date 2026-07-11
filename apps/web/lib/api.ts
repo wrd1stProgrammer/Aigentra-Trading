@@ -65,6 +65,8 @@ export type TraderProfile = {
   concept?: string;
   baseRiskPercent: number;
   riskLevel: string;
+  holdingHorizon?: "SCALP" | "INTRADAY" | "SWING" | "POSITION" | null;
+  strategyFamily?: "BREAKOUT" | "TREND_FOLLOW" | "PULLBACK" | "MEAN_REVERSION" | "LIQUIDITY_REVERSAL" | "FLOW_CONTRARIAN" | "VOLATILITY" | null;
   longConditions?: readonly string[];
   shortConditions?: readonly string[];
   entryRules?: readonly string[];
@@ -91,6 +93,8 @@ export type Candidate = {
   side?: string | null;
   setupType?: string | null;
   setupScore: number;
+  holdingHorizon?: "SCALP" | "INTRADAY" | "SWING" | "POSITION" | null;
+  strategyFamily?: "BREAKOUT" | "TREND_FOLLOW" | "PULLBACK" | "MEAN_REVERSION" | "LIQUIDITY_REVERSAL" | "FLOW_CONTRARIAN" | "VOLATILITY" | null;
   entries: Array<{ price: number; weight: number; reason: string }>;
   stopLoss?: number | null;
   takeProfits: Array<{ price: number; weight: number; reason: string }>;

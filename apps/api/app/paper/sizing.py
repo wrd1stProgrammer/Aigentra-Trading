@@ -3,7 +3,9 @@ from typing import Any, Final
 
 
 SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT: Final = Decimal("10")
-SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT: Final = Decimal("100")
+SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT: Final = Decimal("60")
+SERVICE_MAX_NOTIONAL_EXPOSURE_PERCENT: Final = Decimal("150")
+SERVICE_MARGIN_SCORE_CURVE_MAX_PERCENT: Final = Decimal("100")
 
 
 def final_trade_risk_percent(candidate: Any, review: Any) -> float:
@@ -20,7 +22,7 @@ def final_trade_risk_percent(candidate: Any, review: Any) -> float:
 def adjusted_margin_deployment_percent(base_deployment: Decimal, candidate: Any, settings: Any, review: Any | None) -> Decimal:
     maximum = min(
         SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT,
-        max(Decimal("0"), _as_decimal(getattr(settings, "paper_max_margin_deployment_percent", 100), Decimal("100"))),
+        max(Decimal("0"), _as_decimal(getattr(settings, "paper_max_margin_deployment_percent", 60), Decimal("60"))),
     )
     # AI confidence must not expand account deployment either.
     return min(maximum, base_deployment)
@@ -37,7 +39,7 @@ def minimum_margin_deployment_percent(settings: Any) -> Decimal:
 def target_margin_deployment_percent(candidate: Any, settings: Any) -> Decimal:
     minimum = minimum_margin_deployment_percent(settings)
     configured_max = _clamp_decimal(
-        _as_decimal(getattr(settings, "paper_max_margin_deployment_percent", 100), Decimal("100")),
+        _as_decimal(getattr(settings, "paper_max_margin_deployment_percent", 60), Decimal("60")),
         Decimal("0"),
         SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT,
     )
@@ -46,7 +48,9 @@ def target_margin_deployment_percent(candidate: Any, settings: Any) -> Decimal:
     if score <= Decimal("50"):
         target = minimum
     else:
-        target = minimum + ((score - Decimal("50")) / Decimal("50")) * (maximum - minimum)
+        target = minimum + ((score - Decimal("50")) / Decimal("50")) * (
+            SERVICE_MARGIN_SCORE_CURVE_MAX_PERCENT - minimum
+        )
     return _clamp_decimal(target, minimum, maximum)
 
 

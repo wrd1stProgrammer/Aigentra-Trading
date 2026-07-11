@@ -29,6 +29,7 @@ import { shouldShowTraderDetailInitialOverlay } from "@/lib/trader-detail-loadin
 import { fallbackTraders } from "@/lib/traders";
 import { buildScenarioTimelineItems } from "@/components/trader-profile-detail/data";
 import { buildHoldingItems } from "@/components/trader-profile-detail/holdings";
+import { tradeClassification } from "@/components/trade-classification";
 import { nextLiveDetailAlert, type LiveDetailAlert } from "@/components/trader-profile-detail/live-alerts";
 import { accountStartingEquity, buildMonthlyPnlCalendar, normalizeEquitySnapshots } from "@/components/trader-profile-detail/pnl-calendar";
 import { normalizePlan } from "@/components/trader-profile-detail/plan";
@@ -1077,6 +1078,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
           latestPlan={latestPlan}
           scenarios={scenarios}
           liveMarkPrice={liveMarkPrice}
+          classificationFallback={tradeClassification(trader)}
           onOpenScenario={setSelectedScenario}
           isSubscribed={accessState.isSubscribed}
         />

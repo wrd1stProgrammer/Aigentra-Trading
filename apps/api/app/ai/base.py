@@ -3,6 +3,8 @@ import json
 import re
 from typing import Any, Dict, Final, Optional
 
+from pydantic import ValidationError
+
 from app.ai.entry_approval_dossier import build_entry_approval_dossier
 from app.ai.league_sentiment_models import (
     LeagueSentimentBrief,
@@ -20,6 +22,7 @@ from app.traders.models import (
     PositionManagementResult,
     TradeReviewPayload,
     TradeReviewResult,
+    TradeManagementPlan,
 )
 
 
@@ -153,6 +156,13 @@ class BaseAIProvider:
                 {"code": "risk_plan_checked", "labelKey": "reviewFact.riskPlanChecked", "severity": "info"},
             ],
         )
+        management_plan = None
+        raw_management_plan = raw.get("managementPlan")
+        if isinstance(raw_management_plan, dict):
+            try:
+                management_plan = TradeManagementPlan.model_validate(self._normalize_trade_management_plan(raw_management_plan))
+            except ValidationError:
+                management_plan = None
         return TradeReviewResult(
             decision=decision,
             confidence=confidence,
@@ -166,6 +176,7 @@ class BaseAIProvider:
             leverageOverride=self._normalize_optional_float(raw.get("leverageOverride")),
             riskPercentOverride=self._normalize_optional_float(raw.get("riskPercentOverride")),
             earlyExitRecommendations=[str(item) for item in early_exit_recommendations],
+            managementPlan=management_plan,
             approvalReason=str(raw.get("approvalReason", "No provider reason supplied.")),
             counterThesis=str(raw.get("counterThesis", "Invalidation conditions require monitoring.")),
             userSummary=self._normalize_optional_text(raw.get("userSummary")),
@@ -174,6 +185,37 @@ class BaseAIProvider:
             model=self.model,
             fallback=self.fallback,
         )
+
+    def _normalize_trade_management_plan(self, value: Dict[str, Any]) -> Dict[str, Any]:
+        plan = dict(value)
+        horizon = str(plan.get("holdingHorizon") or "").upper()
+        cadence_by_horizon = {
+            "SCALP": 300,
+            "INTRADAY": 900,
+            "SWING": 3600,
+            "POSITION": 6000,
+        }
+        if horizon in cadence_by_horizon:
+            plan["holdingHorizon"] = horizon
+            plan["calmReviewSeconds"] = cadence_by_horizon[horizon]
+        if plan.get("strategyFamily") is not None:
+            plan["strategyFamily"] = str(plan["strategyFamily"]).upper()
+        primary_timeframe = str(plan.get("primaryTimeframe") or "").strip()
+        plan["primaryTimeframe"] = primary_timeframe[:16]
+        try:
+            plan["expectedHoldMinutes"] = max(5, min(int(plan.get("expectedHoldMinutes") or 5), 43200))
+        except (TypeError, ValueError):
+            plan["expectedHoldMinutes"] = 5
+        try:
+            plan["urgentReviewSeconds"] = max(30, min(int(plan.get("urgentReviewSeconds") or 60), 300))
+        except (TypeError, ValueError):
+            plan["urgentReviewSeconds"] = 60
+        for key, limit in (("eventTriggers", 6), ("allowedActions", 16)):
+            raw_items = plan.get(key)
+            plan[key] = raw_items[:limit] if isinstance(raw_items, list) else []
+        for key in ("thesis", "invalidation"):
+            plan[key] = str(plan.get(key) or "").strip()[:500]
+        return plan
 
     def normalize_management_result(self, raw: Dict[str, Any]) -> PositionManagementResult:
         raw = self._review_with_canonical_english(raw)
@@ -225,7 +267,7 @@ class BaseAIProvider:
             structuredReview=self._normalize_structured_review(raw.get("structuredReview")),
             actions=normalized_actions,
             riskChange=str(raw.get("riskChange", "UNCHANGED")).upper(),
-            nextReviewInSeconds=max(60, min(next_review, 3600)),
+            nextReviewInSeconds=max(60, min(next_review, 6000)),
             rationale=str(raw.get("rationale", "Management review completed.")),
             counterThesis=str(raw.get("counterThesis", "If invalidation fires, hard risk rules take priority.")),
             userSummary=self._normalize_optional_text(raw.get("userSummary")),
@@ -1047,6 +1089,27 @@ def compact_take_profit_context(value: Any) -> list[dict[str, Any]]:
 def compact_management_entry_thesis(exposure: ManagedExposure) -> dict[str, Any]:
     source = exposure.payload if isinstance(exposure.payload, dict) else {}
     thesis: dict[str, Any] = {}
+    management_plan = source.get("managementPlan")
+    if isinstance(management_plan, dict):
+        compact_plan = {
+            key: management_plan[key]
+            for key in (
+                "holdingHorizon",
+                "strategyFamily",
+                "primaryTimeframe",
+                "expectedHoldMinutes",
+                "calmReviewSeconds",
+                "urgentReviewSeconds",
+                "eventTriggers",
+                "allowedActions",
+            )
+            if key in management_plan
+        }
+        for key in ("thesis", "invalidation"):
+            value = compact_text(management_plan.get(key), 500)
+            if value:
+                compact_plan[key] = value
+        thesis["managementPlan"] = compact_plan
     review = source.get("aiReview") if isinstance(source.get("aiReview"), dict) else {}
     for source_key, output_key in (
         ("aiReviewDecision", "decision"),
@@ -1251,7 +1314,7 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
     return (
         "You are the ENTRY APPROVAL reviewer for a futures paper-trading candidate. Return only strict JSON with keys "
         "decision, confidence, riskLevel, reviewCode, reviewFacts, riskFlags, structuredReview, adjustments, leverageOverride, riskPercentOverride, "
-        "earlyExitRecommendations, approvalReason, counterThesis, translations. Valid decisions are "
+        "earlyExitRecommendations, managementPlan, approvalReason, counterThesis, translations. Valid decisions are "
         "APPROVE, ADJUST_AND_APPROVE, DEFER, REJECT, NEEDS_MORE_DATA. "
         "This is not financial advice and no real order will be placed. "
         "Treat paper-trading status as execution context only; do not use it as approval evidence. "
@@ -1280,6 +1343,11 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "If the thesis is valid but size or leverage is too aggressive, prefer ADJUST_AND_APPROVE with riskPercentOverride, "
         "scale-entry reduction or cancellation, or stricter early-exit rules instead of rejecting. "
         "riskPercentOverride may only keep or reduce candidate.riskPercent; it must never increase the deterministic candidate risk budget. "
+        "managementPlan is required for approved or adjusted entries. Choose the holdingHorizon and strategyFamily for this specific trade. "
+        "Treat the trader's supplied values as strong defaults, but select a different supported enum when the current setup, primary timeframe, and expected holding duration justify it. "
+        "Valid holding horizons are SCALP, INTRADAY, SWING, and POSITION. Valid strategy families are BREAKOUT, TREND_FOLLOW, PULLBACK, MEAN_REVERSION, LIQUIDITY_REVERSAL, FLOW_CONTRARIAN, and VOLATILITY. "
+        "Use exactly 300 seconds for SCALP, 900 for INTRADAY, 3600 for SWING, and 6000 for POSITION calmReviewSeconds. "
+        "Choose only the supplied event trigger and action enums, keep urgentReviewSeconds between 30 and 300, and write a concrete thesis and invalidation. "
         "A clean setup may keep leverage within leveragePlan.maxLeverage, but AI confidence is not permission to expand risk or account deployment. "
         "For reversal, mean-reversion, divergence, or fade strategies, an opposing higher-timeframe trend is a risk to price and manage, "
         "not an automatic rejection, when the setup explicitly trades exhaustion, retest, or reversal and has clear invalidation, acceptable RR, and confirmation. "
@@ -1374,12 +1442,14 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "LET_PROFIT_RUN, NEEDS_MORE_DATA. "
         "Valid action.type values are the same plus CANCEL_REMAINING_ORDERS, REDUCE_SIZE, EXPIRE_PLAN. "
         "No exchange order is placed from this review. Hard risk rules are superior to your decision. "
+        "When entryThesis.managementPlan.allowedActions is present, choose only actions in that frozen list; otherwise HOLD. "
+        "Treat its holdingHorizon, strategyFamily, expectedHoldMinutes, thesis, invalidation, and eventTriggers as the governing trade contract. "
         "Never widen a stop or exceed leverage/account deployment caps. "
         "You may reduce risk, cancel pending orders, move a stop tighter, take partial profit, close a position, hold, "
         "or propose controlled additional exposure. Use TAKE_PARTIAL_PROFIT for partial take-profit when the move has paid enough but the thesis still has room. "
         "Use CLOSE_POSITION for early full take-profit, full close, or early exit when remaining reward no longer justifies open risk. "
-        "Use ADD_TO_POSITION only when adverse movement is still inside the original thesis, the added order improves average price, "
-        "the existing hard stop does not move farther away, and recent reviews/events do not show repeated thesis decay. "
+        "Use ADD_TO_POSITION only on a non-losing position when a confirmed retest offers controlled additional exposure at or beyond breakeven, "
+        "the existing hard stop does not move farther away, and recent reviews/events do not show thesis decay. Never average down below the original entry. "
         "Use PYRAMID_POSITION only when the position is already working, structure confirms continuation, "
         "the added order does not turn a winner into an overleveraged chase, and accountState has spare margin. "
         "Use strategyManagementPolicy to match the trader's style. You should actively intervene when the event shows thesis decay, "

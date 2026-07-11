@@ -144,6 +144,7 @@ from app.trader_status_feed.service import (
 )
 from app.traders.models import (
     EntryPlan,
+    HoldingHorizon,
     ManagementAction,
     ManagedExposure,
     ManagementEvent,
@@ -154,6 +155,7 @@ from app.traders.models import (
     RunCycleResponse,
     TakeProfitPlan,
     TradeCandidate,
+    TradeManagementPlan,
     TradePlan,
     TradeReviewPayload,
 )
@@ -580,6 +582,73 @@ def normalize_symbol(symbol: str) -> str:
     return clean_symbol
 
 
+def management_review_interval_seconds(horizon: HoldingHorizon | str) -> int:
+    try:
+        normalized = horizon if isinstance(horizon, HoldingHorizon) else HoldingHorizon(str(horizon).upper())
+    except ValueError:
+        normalized = HoldingHorizon.INTRADAY
+    return {
+        HoldingHorizon.SCALP: settings.position_management_scalp_heartbeat_seconds,
+        HoldingHorizon.INTRADAY: settings.position_management_intraday_heartbeat_seconds,
+        HoldingHorizon.SWING: settings.position_management_swing_heartbeat_seconds,
+        HoldingHorizon.POSITION: settings.position_management_position_heartbeat_seconds,
+    }[normalized]
+
+
+def heartbeat_seconds_for_exposure(exposure: ManagedExposure, fallback_seconds: int) -> int:
+    management_plan = exposure.payload.get("managementPlan")
+    if not isinstance(management_plan, dict):
+        return fallback_seconds
+    raw_horizon = management_plan.get("holdingHorizon")
+    try:
+        holding_horizon = HoldingHorizon(str(raw_horizon).upper())
+    except ValueError:
+        return fallback_seconds
+    expected_seconds = management_review_interval_seconds(holding_horizon)
+    raw_seconds = management_plan.get("calmReviewSeconds")
+    if not isinstance(raw_seconds, (int, float)) or int(raw_seconds) != expected_seconds:
+        return expected_seconds
+    return expected_seconds
+
+
+def management_plan_from_review(candidate: TradeCandidate, review) -> TradeManagementPlan:
+    execution_profile = candidate.audit.get("executionProfile") if isinstance(candidate.audit, dict) else None
+    profile = execution_profile if isinstance(execution_profile, dict) else {}
+    submitted = getattr(review, "managementPlan", None)
+    holding_horizon = submitted.holdingHorizon if submitted else candidate.holdingHorizon or HoldingHorizon.INTRADAY
+    strategy_family = submitted.strategyFamily if submitted else candidate.strategyFamily or profile.get("strategyFamily") or "MEAN_REVERSION"
+    primary_timeframe = submitted.primaryTimeframe if submitted else str(profile.get("primaryTimeframe") or "1h")
+    expected_hold_minutes = submitted.expectedHoldMinutes if submitted else int(profile.get("expectedHoldMinutes") or 240)
+    urgent_review_seconds = submitted.urgentReviewSeconds if submitted else 60
+    event_triggers = submitted.eventTriggers if submitted else [
+        "THESIS_INVALIDATION",
+        "STOP_PROXIMITY",
+        "TARGET_PROXIMITY",
+        "TIME_STOP",
+        "PRICE_SHOCK",
+    ]
+    allowed_actions = submitted.allowedActions if submitted else [
+        "HOLD",
+        "MOVE_STOP",
+        "MOVE_STOP_TO_BREAKEVEN",
+        "TAKE_PARTIAL_PROFIT",
+        "REDUCE_RISK",
+        "CLOSE_POSITION",
+    ]
+    return TradeManagementPlan(
+        holdingHorizon=holding_horizon,
+        strategyFamily=strategy_family,
+        primaryTimeframe=primary_timeframe,
+        expectedHoldMinutes=expected_hold_minutes,
+        calmReviewSeconds=management_review_interval_seconds(holding_horizon),
+        urgentReviewSeconds=max(30, min(int(urgent_review_seconds), 300)),
+        eventTriggers=event_triggers,
+        allowedActions=allowed_actions,
+        thesis=submitted.thesis if submitted else str(candidate.setupType or "Approved trader setup"),
+        invalidation=submitted.invalidation if submitted else str(candidate.invalidation or getattr(review, "counterThesis", "Hard stop invalidates the setup.")),
+    )
+
+
 def trade_plan_from_review(symbol: str, candidate, review) -> TradePlan:
     if not candidate.created:
         return TradePlan(status="NO_CANDIDATE", symbol=symbol, notes=[candidate.reason or "No setup"])
@@ -622,6 +691,7 @@ def trade_plan_from_review(symbol: str, candidate, review) -> TradePlan:
             notes=list(candidate.notes) + review_adjustments,
             earlyExitRules=list(candidate.earlyExitRules) + early_exit_recommendations,
             managementNotes=list(candidate.managementNotes) + early_exit_recommendations,
+            managementPlan=management_plan_from_review(candidate, review),
         )
     review_adjustments = list(getattr(review, "adjustments", []) or [])
     counter_thesis = getattr(review, "counterThesis", "Review rejected the setup.")
@@ -1428,22 +1498,31 @@ def next_active_exposure_review_at(
 ) -> Optional[datetime]:
     due_times: list[datetime] = []
     for order in orders:
+        exposure = managed_exposure_from_order(order)
+        heartbeat_seconds = heartbeat_seconds_for_exposure(
+            exposure,
+            settings.position_management_pending_heartbeat_seconds,
+        )
         due_at = next_heartbeat_due_at_for_exposure(
             db,
             trader_id=trader_id,
             symbol=symbol,
-            exposure=managed_exposure_from_order(order),
-            heartbeat_seconds=settings.position_management_pending_heartbeat_seconds,
+            exposure=exposure,
+            heartbeat_seconds=heartbeat_seconds,
         )
         if due_at:
             due_times.append(due_at)
     for position in positions:
+        exposure = managed_exposure_from_position(position)
         due_at = next_heartbeat_due_at_for_exposure(
             db,
             trader_id=trader_id,
             symbol=symbol,
-            exposure=managed_exposure_from_position(position),
-            heartbeat_seconds=settings.position_management_open_heartbeat_seconds,
+            exposure=exposure,
+            heartbeat_seconds=heartbeat_seconds_for_exposure(
+                exposure,
+                settings.position_management_open_heartbeat_seconds,
+            ),
         )
         if due_at:
             due_times.append(due_at)
@@ -1471,7 +1550,12 @@ def should_run_heartbeat(
     return due_at <= now + timedelta(seconds=POSITION_MANAGEMENT_HEARTBEAT_LOOKAHEAD_SECONDS)
 
 
-def heartbeat_event_for_order(trader_id: str, order: PaperOrderRecord, snapshot: dict) -> ManagementEvent:
+def heartbeat_event_for_order(
+    trader_id: str,
+    order: PaperOrderRecord,
+    snapshot: dict,
+    heartbeat_seconds: int | None = None,
+) -> ManagementEvent:
     price = float(snapshot.get("price") or 0.0)
     limit_price = float(order.limit_price or price or 0.0)
     distance_percent = abs(price - limit_price) / price * 100 if price else 0.0
@@ -1482,7 +1566,7 @@ def heartbeat_event_for_order(trader_id: str, order: PaperOrderRecord, snapshot:
         "limitPrice": limit_price,
         "distancePercent": round(distance_percent, 4),
         "ageSeconds": age_seconds,
-        "heartbeatSeconds": settings.position_management_pending_heartbeat_seconds,
+        "heartbeatSeconds": heartbeat_seconds or settings.position_management_pending_heartbeat_seconds,
     }
     pending_reasons = {
         "channel-rider": "Decide whether the channel-edge pending order still deserves patience or should be cancelled or adjusted.",
@@ -1517,7 +1601,12 @@ def heartbeat_event_for_order(trader_id: str, order: PaperOrderRecord, snapshot:
     )
 
 
-def heartbeat_event_for_position(trader_id: str, position: PaperPositionRecord, snapshot: dict) -> ManagementEvent:
+def heartbeat_event_for_position(
+    trader_id: str,
+    position: PaperPositionRecord,
+    snapshot: dict,
+    heartbeat_seconds: int | None = None,
+) -> ManagementEvent:
     price = float(snapshot.get("price") or 0.0)
     entry = float(position.entry_price or price or 0.0)
     stop = float(position.stop_loss_price or entry or 0.0)
@@ -1534,7 +1623,7 @@ def heartbeat_event_for_position(trader_id: str, position: PaperPositionRecord, 
         "progressR": round(progress_r, 4),
         "targetProgress": round(target_progress, 4),
         "unrealizedPnl": float(position.unrealized_pnl or 0.0),
-        "heartbeatSeconds": settings.position_management_open_heartbeat_seconds,
+        "heartbeatSeconds": heartbeat_seconds or settings.position_management_open_heartbeat_seconds,
     }
     one_hour = snapshot.get("timeframes", {}).get("1h", {})
     channel = one_hour.get("channel", {}) if isinstance(one_hour.get("channel"), dict) else {}
@@ -1924,6 +2013,16 @@ def locked_management_record(db: Session, model: Any, record_id: int) -> Any:
     return db.execute(statement).scalar_one_or_none()
 
 
+def frozen_allowed_management_actions(exposure: ManagedExposure) -> set[str] | None:
+    management_plan = exposure.payload.get("managementPlan")
+    if not isinstance(management_plan, dict):
+        return None
+    raw_actions = management_plan.get("allowedActions")
+    if not isinstance(raw_actions, list):
+        return None
+    return {str(action).strip().upper() for action in raw_actions if str(action).strip()}
+
+
 def apply_management_actions(
     db: Session,
     *,
@@ -1939,9 +2038,20 @@ def apply_management_actions(
     candle = snapshot_to_engine_candle(snapshot)
     applied: list[dict[str, Any]] = []
     state = lock_trader_state(db, trader_id)
+    allowed_actions = frozen_allowed_management_actions(exposure)
 
     for action in review.actions:
         action_type = action.type.upper()
+        if allowed_actions is not None and action_type not in allowed_actions:
+            applied.append(
+                {
+                    "type": action_type,
+                    "applied": False,
+                    "reason": "Action is not allowed by the frozen management plan.",
+                    "guarded": True,
+                }
+            )
+            continue
         reason = action.reason or review.rationale or event.reason
         record = None
 
@@ -2050,6 +2160,7 @@ def apply_management_actions(
         exposure.kind == "position"
         and review.decision == "CLOSE_POSITION"
         and not any(a.get("applied") for a in applied)
+        and (allowed_actions is None or "CLOSE_POSITION" in allowed_actions)
     ):
         position = locked_management_record(db, PaperPositionRecord, exposure.id)
         if position and position.status == "open":
@@ -2272,10 +2383,13 @@ async def run_management_reviews(
             max_seconds=(
                 settings.price_shock_review_seconds
                 if is_price_shock_event
-                else (
-                    settings.position_management_open_heartbeat_seconds
-                    if exposure.kind == "position"
-                    else settings.position_management_pending_heartbeat_seconds
+                else heartbeat_seconds_for_exposure(
+                    exposure,
+                    (
+                        settings.position_management_open_heartbeat_seconds
+                        if exposure.kind == "position"
+                        else settings.position_management_pending_heartbeat_seconds
+                    ),
                 )
             ),
         )
@@ -2339,6 +2453,10 @@ async def run_management_reviews(
 
     for order in orders:
         exposure = managed_exposure_from_order(order)
+        heartbeat_seconds = heartbeat_seconds_for_exposure(
+            exposure,
+            settings.position_management_pending_heartbeat_seconds,
+        )
         shock_event = (
             price_shock_event_for_exposure(
                 trader_id=trader_id,
@@ -2359,8 +2477,8 @@ async def run_management_reviews(
         await handle_exposure_events(
             events=events,
             exposure=exposure,
-            heartbeat_seconds=settings.position_management_pending_heartbeat_seconds,
-            heartbeat_event=heartbeat_event_for_order(trader_id, order, snapshot),
+            heartbeat_seconds=heartbeat_seconds,
+            heartbeat_event=heartbeat_event_for_order(trader_id, order, snapshot, heartbeat_seconds),
             allow_heartbeat=not positions,
         )
         if len(review_records) >= max_reviews:
@@ -2371,6 +2489,10 @@ async def run_management_reviews(
             if position.status != "open":
                 continue
             exposure = managed_exposure_from_position(position)
+            heartbeat_seconds = heartbeat_seconds_for_exposure(
+                exposure,
+                settings.position_management_open_heartbeat_seconds,
+            )
             shock_event = (
                 price_shock_event_for_exposure(
                     trader_id=trader_id,
@@ -2391,8 +2513,8 @@ async def run_management_reviews(
             await handle_exposure_events(
                 events=events,
                 exposure=exposure,
-                heartbeat_seconds=settings.position_management_open_heartbeat_seconds,
-                heartbeat_event=heartbeat_event_for_position(trader_id, position, snapshot),
+                heartbeat_seconds=heartbeat_seconds,
+                heartbeat_event=heartbeat_event_for_position(trader_id, position, snapshot, heartbeat_seconds),
             )
             if len(review_records) >= max_reviews:
                 break
@@ -2409,13 +2531,14 @@ async def run_management_reviews(
             positions=positions,
         )
         if next_review_at is None:
+            default_heartbeat_seconds = (
+                settings.position_management_open_heartbeat_seconds
+                if positions
+                else settings.position_management_pending_heartbeat_seconds
+            )
+            active_heartbeat_seconds = heartbeat_seconds_for_exposure(active_exposure, default_heartbeat_seconds)
             next_review_at = utc_datetime(state.next_review_at) if state and state.next_review_at else (
-                datetime.now(timezone.utc)
-                + timedelta(
-                    seconds=settings.position_management_open_heartbeat_seconds
-                    if positions
-                    else settings.position_management_pending_heartbeat_seconds
-                )
+                datetime.now(timezone.utc) + timedelta(seconds=active_heartbeat_seconds)
             )
         upsert_trader_agent_state(
             db,

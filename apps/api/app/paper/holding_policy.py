@@ -1,6 +1,8 @@
 from dataclasses import asdict, dataclass
 from decimal import Decimal
-from typing import Dict, Union
+from typing import Dict, Final, Union
+
+from app.traders.models import HoldingHorizon, StrategyFamily
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,52 @@ DEFAULT_HOLDING_POLICY = HoldingPolicy(
     target_profile="balanced",
     risk_uplift_multiplier=Decimal("1.00"),
 )
+
+
+HOLDING_HORIZON_REVIEW_SECONDS: Final[dict[HoldingHorizon, int]] = {
+    HoldingHorizon.SCALP: 300,
+    HoldingHorizon.INTRADAY: 900,
+    HoldingHorizon.SWING: 3600,
+    HoldingHorizon.POSITION: 6000,
+}
+
+TRADER_HOLDING_HORIZONS: Final[dict[str, HoldingHorizon]] = {
+    "liquidation-pressure-sniper": HoldingHorizon.SCALP,
+    "session-raider": HoldingHorizon.SCALP,
+    "volatility-skew-sentinel": HoldingHorizon.SWING,
+    "funding-contrarian": HoldingHorizon.SWING,
+    "channel-rider": HoldingHorizon.SWING,
+    "pullback-architect": HoldingHorizon.SWING,
+    "donchian-breakout": HoldingHorizon.SWING,
+    "trend-sentinel": HoldingHorizon.POSITION,
+    "ichimoku-cloud-pilot": HoldingHorizon.POSITION,
+    "atr-trail-commander": HoldingHorizon.POSITION,
+}
+
+TRADER_STRATEGY_FAMILIES: Final[dict[str, StrategyFamily]] = {
+    "orderflow-sniper": StrategyFamily.BREAKOUT,
+    "leverage-hunter": StrategyFamily.FLOW_CONTRARIAN,
+    "liquidation-pressure-sniper": StrategyFamily.LIQUIDITY_REVERSAL,
+    "volatility-skew-sentinel": StrategyFamily.VOLATILITY,
+    "liquidity-reaper": StrategyFamily.LIQUIDITY_REVERSAL,
+    "volatility-squeezer": StrategyFamily.VOLATILITY,
+    "range-maker": StrategyFamily.MEAN_REVERSION,
+    "volume-breaker": StrategyFamily.BREAKOUT,
+    "funding-contrarian": StrategyFamily.FLOW_CONTRARIAN,
+    "channel-rider": StrategyFamily.PULLBACK,
+    "pullback-architect": StrategyFamily.PULLBACK,
+    "trend-sentinel": StrategyFamily.TREND_FOLLOW,
+    "donchian-breakout": StrategyFamily.BREAKOUT,
+    "ichimoku-cloud-pilot": StrategyFamily.TREND_FOLLOW,
+    "vwap-reclaimer": StrategyFamily.MEAN_REVERSION,
+    "wyckoff-spring": StrategyFamily.LIQUIDITY_REVERSAL,
+    "rsi-divergence-scout": StrategyFamily.MEAN_REVERSION,
+    "session-raider": StrategyFamily.BREAKOUT,
+    "imbalance-hunter": StrategyFamily.PULLBACK,
+    "momentum-ignition": StrategyFamily.BREAKOUT,
+    "bollinger-reversion": StrategyFamily.MEAN_REVERSION,
+    "atr-trail-commander": StrategyFamily.TREND_FOLLOW,
+}
 
 
 TRADER_HOLDING_POLICIES: dict[str, HoldingPolicy] = {
@@ -383,8 +431,26 @@ def trader_holding_policy(trader_id: str) -> HoldingPolicy:
     return TRADER_HOLDING_POLICIES.get(trader_id, DEFAULT_HOLDING_POLICY)
 
 
+def trader_holding_horizon(trader_id: str) -> HoldingHorizon:
+    return TRADER_HOLDING_HORIZONS.get(trader_id, HoldingHorizon.INTRADAY)
+
+
+def trader_strategy_family(trader_id: str) -> StrategyFamily:
+    return TRADER_STRATEGY_FAMILIES.get(trader_id, StrategyFamily.MEAN_REVERSION)
+
+
+def review_seconds_for_horizon(horizon: HoldingHorizon | str) -> int:
+    try:
+        parsed_horizon = HoldingHorizon(str(horizon).upper())
+    except ValueError:
+        parsed_horizon = HoldingHorizon.INTRADAY
+    return HOLDING_HORIZON_REVIEW_SECONDS[parsed_horizon]
+
+
 def trader_execution_profile_payload(trader_id: str) -> dict[str, Union[float, int, str]]:
     policy = trader_holding_policy(trader_id)
+    holding_horizon = trader_holding_horizon(trader_id)
+    strategy_family = trader_strategy_family(trader_id)
     return {
         "holdingProfile": policy.horizon,
         "policyName": policy.name,
@@ -394,4 +460,7 @@ def trader_execution_profile_payload(trader_id: str) -> dict[str, Union[float, i
         "orderTtlSeconds": policy.order_ttl_seconds,
         "targetProfile": policy.target_profile,
         "riskUpliftMultiplier": float(policy.risk_uplift_multiplier),
+        "holdingHorizon": holding_horizon.value,
+        "strategyFamily": strategy_family.value,
+        "reviewIntervalSeconds": review_seconds_for_horizon(holding_horizon),
     }

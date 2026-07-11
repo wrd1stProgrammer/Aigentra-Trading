@@ -1,10 +1,13 @@
 import copy
 import json
 import pytest
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import app.main as main_module
+from pydantic import ValidationError
 from app.ai.mock_provider import MockAIProvider
+from app.core.config import Settings
 from app.ai.base import (
     entry_approval_prompt,
     management_prompt,
@@ -29,6 +32,7 @@ from app.traders.models import (
     PositionManagementPayload,
     PositionManagementResult,
     StructuredReview,
+    TradeManagementPlan,
     TradeReviewPayload,
     TradeReviewResult,
 )
@@ -725,6 +729,43 @@ async def test_mock_position_management_review_uses_requested_locale():
 
 
 @pytest.mark.asyncio
+async def test_mock_management_never_adds_to_a_loser_or_bypasses_frozen_actions():
+    snapshot = sample_snapshot()
+    snapshot["price"] = 68000
+    strategy = get_strategy("channel-rider")
+    review = await MockAIProvider().review_position_management(
+        PositionManagementPayload(
+            trader=strategy.profile,
+            symbol="BTCUSDT",
+            marketSnapshot=snapshot,
+            event=ManagementEvent(
+                eventType="channel_position_heartbeat",
+                phase="OPEN_POSITION",
+                severity="MEDIUM",
+                reason="Routine review while the position is below entry.",
+                metrics={"progressR": -0.2, "targetProgress": -0.1},
+            ),
+            exposure=ManagedExposure(
+                kind="position",
+                id=1,
+                status="open",
+                side="LONG",
+                entryPrice=69000,
+                stopLoss=67000,
+                takeProfit=72000,
+                quantity=0.01,
+                leverage=2,
+                payload={"managementPlan": {"allowedActions": ["HOLD"]}},
+            ),
+            locale="en",
+        )
+    )
+
+    assert review.decision == "HOLD"
+    assert [action.type for action in review.actions] == ["HOLD"]
+
+
+@pytest.mark.asyncio
 async def test_structured_review_fields_for_management_review():
     snapshot = sample_snapshot()
     strategy = get_strategy("channel-rider")
@@ -814,6 +855,120 @@ def test_trader_execution_profiles_are_rebalanced_across_horizons():
     assert profiles.count("swing") + profiles.count("trend") in {6, 7, 8}
     assert trader_execution_profile_payload("orderflow-sniper")["policyName"] == "session_orb_breakout"
     assert trader_execution_profile_payload("momentum-ignition")["policyName"] == "compression_ignition"
+
+
+def test_second_review_management_plan_persists_with_trader_strategy():
+    snapshot = sample_snapshot()
+    strategy = get_strategy("channel-rider")
+    candidate = strategy.evaluate(snapshot)
+    review = TradeReviewResult(
+        decision="APPROVE",
+        confidence=84,
+        riskLevel="MEDIUM",
+        adjustments=[],
+        earlyExitRecommendations=[],
+        approvalReason="Channel support and the planned risk box justify entry.",
+        counterThesis="A confirmed channel break invalidates the entry.",
+        provider="openai",
+        model="gpt-test",
+        managementPlan={
+            "holdingHorizon": "SWING",
+            "strategyFamily": "MEAN_REVERSION",
+            "primaryTimeframe": "4h",
+            "expectedHoldMinutes": 720,
+            "calmReviewSeconds": 3600,
+            "urgentReviewSeconds": 60,
+            "eventTriggers": ["THESIS_INVALIDATION", "STOP_PROXIMITY", "TARGET_PROXIMITY", "TIME_STOP"],
+            "allowedActions": ["HOLD", "MOVE_STOP", "TAKE_PARTIAL_PROFIT", "CLOSE_POSITION"],
+            "thesis": "The 4h channel structure remains intact.",
+            "invalidation": "A 4h close outside the channel invalidates the setup.",
+        },
+    )
+
+    plan = trade_plan_from_review("BTCUSDT", candidate, review)
+
+    assert plan.managementPlan is not None
+    assert plan.managementPlan.holdingHorizon == "SWING"
+    assert plan.managementPlan.strategyFamily == "MEAN_REVERSION"
+    assert plan.managementPlan.calmReviewSeconds == 3600
+
+
+def test_management_plan_normalization_preserves_ai_choice_and_bounds_provider_drift():
+    normalized = MockAIProvider().normalize_result(
+        {
+            "decision": "APPROVE",
+            "confidence": 80,
+            "riskLevel": "MEDIUM",
+            "managementPlan": {
+                "holdingHorizon": "position",
+                "strategyFamily": "volatility",
+                "primaryTimeframe": "an-overly-long-timeframe-label",
+                "expectedHoldMinutes": 999999,
+                "calmReviewSeconds": 300,
+                "urgentReviewSeconds": 999,
+                "eventTriggers": ["PRICE_SHOCK"] * 10,
+                "allowedActions": ["HOLD"] * 20,
+                "thesis": "t" * 700,
+                "invalidation": "i" * 700,
+            },
+            "approvalReason": "Bounded plan.",
+            "counterThesis": "Invalidation remains explicit.",
+        }
+    )
+
+    assert normalized.managementPlan is not None
+    assert normalized.managementPlan.holdingHorizon == "POSITION"
+    assert normalized.managementPlan.strategyFamily == "VOLATILITY"
+    assert normalized.managementPlan.calmReviewSeconds == 6000
+    assert normalized.managementPlan.urgentReviewSeconds == 300
+    assert normalized.managementPlan.expectedHoldMinutes == 43200
+    assert len(normalized.managementPlan.eventTriggers) == 6
+    assert len(normalized.managementPlan.allowedActions) == 16
+    assert len(normalized.managementPlan.thesis) == 500
+
+
+def test_review_cadence_uses_exact_holding_horizon_minutes():
+    interval_selector = getattr(main_module, "management_review_interval_seconds", None)
+
+    assert callable(interval_selector)
+    assert interval_selector("SCALP") == 300
+    assert interval_selector("INTRADAY") == 900
+    assert interval_selector("SWING") == 3600
+    assert interval_selector("POSITION") == 6000
+
+
+def test_management_plan_rejects_unbounded_holding_window():
+    with pytest.raises(ValidationError):
+        TradeManagementPlan(
+            holdingHorizon="POSITION",
+            strategyFamily="TREND_FOLLOW",
+            primaryTimeframe="1d",
+            expectedHoldMinutes=43201,
+            calmReviewSeconds=6000,
+            eventTriggers=["TIME_STOP"],
+            allowedActions=["HOLD", "CLOSE_POSITION"],
+            thesis="Bounded trend thesis.",
+            invalidation="Bounded invalidation.",
+        )
+
+
+def test_settings_reject_non_contract_management_cadence(monkeypatch):
+    monkeypatch.setenv("POSITION_MANAGEMENT_SWING_HEARTBEAT_SECONDS", "3599")
+
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_trader_management_profiles_define_horizon_and_strategy_family():
+    scalp = trader_execution_profile_payload("session-raider")
+    intraday = trader_execution_profile_payload("vwap-reclaimer")
+    swing = trader_execution_profile_payload("channel-rider")
+    position = trader_execution_profile_payload("trend-sentinel")
+
+    assert (scalp["holdingHorizon"], scalp["strategyFamily"]) == ("SCALP", "BREAKOUT")
+    assert (intraday["holdingHorizon"], intraday["strategyFamily"]) == ("INTRADAY", "MEAN_REVERSION")
+    assert (swing["holdingHorizon"], swing["strategyFamily"]) == ("SWING", "PULLBACK")
+    assert (position["holdingHorizon"], position["strategyFamily"]) == ("POSITION", "TREND_FOLLOW")
 
 
 def test_ai_prompts_include_context_and_non_conservative_management_options():
@@ -1355,6 +1510,16 @@ def test_position_management_prompt_sends_slim_exposure_and_entry_thesis_context
                 "aiApprovalReason": "Trend continuation entry after rejection near EMA.",
                 "aiCounterThesis": "A reclaim above the invalidation line would cancel the short thesis.",
                 "candidateSetupType": "trend_continuation_short",
+                "managementPlan": {
+                    "holdingHorizon": "POSITION",
+                    "strategyFamily": "TREND_FOLLOW",
+                    "expectedHoldMinutes": 2880,
+                    "calmReviewSeconds": 6000,
+                    "allowedActions": ["HOLD", "MOVE_STOP", "CLOSE_POSITION"],
+                    "eventTriggers": ["TIME_STOP", "PRICE_SHOCK"],
+                    "thesis": "The higher-timeframe trend remains intact.",
+                    "invalidation": "A reclaim above the invalidation line ends the setup.",
+                },
                 "plannedEntryPrice": 60347.5,
                 "plannedStopLoss": 61337.8,
                 "riskPercent": 0.8,
@@ -1394,6 +1559,8 @@ def test_position_management_prompt_sends_slim_exposure_and_entry_thesis_context
     assert data["entryThesis"]["setupType"] == "trend_continuation_short"
     assert data["entryThesis"]["approvalSummary"] == "Trend continuation entry after rejection near EMA."
     assert data["entryThesis"]["takeProfits"][0]["status"] == "filled"
+    assert data["entryThesis"]["managementPlan"]["allowedActions"] == ["HOLD", "MOVE_STOP", "CLOSE_POSITION"]
+    assert data["entryThesis"]["managementPlan"]["holdingHorizon"] == "POSITION"
     assert data["exposure"]["entryPrice"] == 60347.5
     assert "payload" not in data["exposure"]
     assert previous_entry_review not in prompt_json
@@ -1759,6 +1926,63 @@ def test_session_orb_management_does_not_close_small_positive_hold_without_range
     events = position_management_events("orderflow-sniper", position, snapshot)
 
     assert all(event.suggestedAction != "CLOSE_POSITION" for event in events)
+
+
+def test_strategy_contract_event_triggers_time_stop_from_frozen_plan():
+    snapshot = sample_snapshot()
+    position = PaperPositionRecord(
+        trader_id="channel-rider",
+        symbol="BTCUSDT",
+        status="open",
+        side="long",
+        quantity=Decimal("0.1"),
+        entry_price=Decimal("68000.0"),
+        leverage=Decimal("5"),
+        notional=Decimal("6800.0"),
+        margin=Decimal("1360.0"),
+        unrealized_pnl=Decimal("0"),
+        take_profit_price=Decimal("70000.0"),
+        stop_loss_price=Decimal("67000.0"),
+        opened_at=datetime.now(timezone.utc) - timedelta(minutes=101),
+        payload_json=json.dumps(
+            {
+                "managementPlan": {
+                    "holdingHorizon": "POSITION",
+                    "strategyFamily": "TREND_FOLLOW",
+                    "expectedHoldMinutes": 100,
+                    "eventTriggers": ["TIME_STOP"],
+                }
+            }
+        ),
+    )
+
+    events = position_management_events("channel-rider", position, snapshot)
+
+    assert events
+    assert events[0].eventType == "management_time_stop_due"
+    assert events[0].metrics["holdingHorizon"] == "POSITION"
+    assert events[0].metrics["strategyFamily"] == "TREND_FOLLOW"
+    assert events[0].metrics["expectedHoldMinutes"] == 100
+
+
+def test_strategy_contract_event_uses_frozen_heartbeat_and_safe_legacy_fallback():
+    selector = getattr(main_module, "heartbeat_seconds_for_exposure", None)
+    position = ManagedExposure(
+        kind="position",
+        id=1,
+        status="open",
+        payload={"managementPlan": {"holdingHorizon": "POSITION", "calmReviewSeconds": 6000}},
+    )
+    malformed = ManagedExposure(
+        kind="position",
+        id=2,
+        status="open",
+        payload={"managementPlan": {"holdingHorizon": "UNKNOWN", "calmReviewSeconds": -1}},
+    )
+
+    assert callable(selector)
+    assert selector(position, 900) == 6000
+    assert selector(malformed, 900) == 900
 
 
 def test_structured_review_normalizer_removes_list_syntax_from_action():

@@ -13,6 +13,8 @@ from app.paper.repositories import create_trade_event
 from app.paper.review_payload import review_payload_fields
 from app.paper.settings import sync_default_paper_settings
 from app.paper.sizing import (
+    SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT,
+    SERVICE_MAX_NOTIONAL_EXPOSURE_PERCENT,
     adjusted_margin_deployment_percent,
     target_margin_deployment_percent,
 )
@@ -26,6 +28,35 @@ QUANTITY_STEP = Decimal("0.001")
 
 def quantize_quantity(quantity: Decimal) -> Decimal:
     return quantity.quantize(QUANTITY_STEP, rounding=ROUND_DOWN)
+
+
+def account_pending_exposure(db: Session, trader_id: str) -> tuple[Decimal, Decimal]:
+    orders = db.execute(
+        select(PaperOrderRecord).where(
+            PaperOrderRecord.trader_id == trader_id,
+            PaperOrderRecord.status == "open",
+        )
+    ).scalars().all()
+    margin = Decimal("0")
+    notional = Decimal("0")
+    for order in orders:
+        price = order.limit_price
+        if price is None or price <= 0 or order.leverage <= 0:
+            continue
+        order_notional = abs(order.quantity * price)
+        notional += order_notional
+        margin += order_notional / order.leverage
+    return margin, notional
+
+
+def account_open_position_notional(db: Session, trader_id: str) -> Decimal:
+    positions = db.execute(
+        select(PaperPositionRecord).where(
+            PaperPositionRecord.trader_id == trader_id,
+            PaperPositionRecord.status == "open",
+        )
+    ).scalars().all()
+    return sum((abs(position.notional or Decimal("0")) for position in positions), Decimal("0"))
 
 
 def list_active_paper_exposure(db: Session, trader_id: str, symbol: str) -> dict:
@@ -173,6 +204,27 @@ def create_paper_orders_from_plan(
     base_deployment_percent = target_margin_deployment_percent(candidate, settings)
     deployment_percent = adjusted_margin_deployment_percent(base_deployment_percent, candidate, settings, review)
     target_margin_budget = equity * (deployment_percent / Decimal("100"))
+    configured_margin_cap = Decimal(str(getattr(settings, "paper_max_margin_deployment_percent", 60)))
+    account_margin_cap_percent = min(
+        SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT,
+        max(Decimal("0"), configured_margin_cap),
+    )
+    pending_margin, pending_notional = account_pending_exposure(db, trader_id)
+    remaining_account_margin = max(
+        Decimal("0"),
+        equity * account_margin_cap_percent / Decimal("100") - Decimal(str(state.margin_used)) - pending_margin,
+    )
+    remaining_account_notional = max(
+        Decimal("0"),
+        equity * SERVICE_MAX_NOTIONAL_EXPOSURE_PERCENT / Decimal("100")
+        - account_open_position_notional(db, trader_id)
+        - pending_notional,
+    )
+    target_margin_budget = min(
+        target_margin_budget,
+        remaining_account_margin,
+        remaining_account_notional / leverage,
+    )
     fee_reserve_rate = max(risk_settings.maker_fee_rate, risk_settings.taker_fee_rate)
     cash_budget_cap = (
         available_cash / (Decimal("1") + (leverage * fee_reserve_rate))
@@ -269,6 +321,9 @@ def create_paper_orders_from_plan(
             "slippageRate": float(slippage_rate),
             "estimatedEntryFee": float(estimated_entry_fee),
             "candidateSetupType": candidate.setupType,
+            "holdingHorizon": plan.managementPlan.holdingHorizon.value if plan.managementPlan else None,
+            "strategyFamily": plan.managementPlan.strategyFamily.value if plan.managementPlan else None,
+            "managementPlan": plan.managementPlan.model_dump(mode="json") if plan.managementPlan else None,
             "orderIntent": candidate.orderIntent.model_dump() if candidate.orderIntent else None,
             "leveragePlan": candidate.leveragePlan.model_dump() if candidate.leveragePlan else None,
             "target": target.model_dump() if target else None,
@@ -310,6 +365,9 @@ def create_paper_orders_from_plan(
                 "reason": entry.reason,
                 "source": "trade_plan",
                 "aiReviewId": ai_review_id,
+                "holdingHorizon": plan.managementPlan.holdingHorizon.value if plan.managementPlan else None,
+                "strategyFamily": plan.managementPlan.strategyFamily.value if plan.managementPlan else None,
+                "managementPlan": plan.managementPlan.model_dump(mode="json") if plan.managementPlan else None,
                 **review_payload_fields(review),
             },
         )

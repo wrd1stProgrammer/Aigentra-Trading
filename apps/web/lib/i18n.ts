@@ -16,6 +16,17 @@ export function isSupportedLocale(value: string | null | undefined): value is Lo
 
 const baseDictionaries = {
   ko: {
+    "holdingHorizon.scalp": "스캘핑",
+    "holdingHorizon.intraday": "당일",
+    "holdingHorizon.swing": "스윙",
+    "holdingHorizon.position": "포지션",
+    "strategyFamily.breakout": "돌파",
+    "strategyFamily.trendFollow": "추세추종",
+    "strategyFamily.pullback": "눌림목",
+    "strategyFamily.meanReversion": "평균회귀",
+    "strategyFamily.liquidityReversal": "유동성반전",
+    "strategyFamily.flowContrarian": "수급역행",
+    "strategyFamily.volatility": "변동성",
     "nav.dashboard": "대시보드",
     "nav.traders": "트레이더",
     "nav.tests": "기술 테스트",
@@ -838,6 +849,17 @@ const baseDictionaries = {
     "traders.volatility-skew-sentinel.detail": "Deribit BTC 옵션 북의 풋/콜 IV 스큐, 콜풋 거래량 비율, 역사적 변동성과 현재 실현 변동성을 비교합니다. 옵션 시장이 공포나 추격으로 치우쳤는데 현물 구조가 되돌림을 확인할 때만 보수적으로 참여합니다."
   },
   en: {
+    "holdingHorizon.scalp": "Scalp",
+    "holdingHorizon.intraday": "Intraday",
+    "holdingHorizon.swing": "Swing",
+    "holdingHorizon.position": "Position",
+    "strategyFamily.breakout": "Breakout",
+    "strategyFamily.trendFollow": "Trend follow",
+    "strategyFamily.pullback": "Pullback",
+    "strategyFamily.meanReversion": "Mean reversion",
+    "strategyFamily.liquidityReversal": "Liquidity reversal",
+    "strategyFamily.flowContrarian": "Flow contrarian",
+    "strategyFamily.volatility": "Volatility",
     "nav.dashboard": "Dashboard",
     "nav.traders": "Traders",
     "nav.tests": "Tech Tests",
@@ -1664,6 +1686,17 @@ const baseDictionaries = {
 export type TranslationKey = keyof typeof baseDictionaries.ko;
 
 const ruOverrides: Partial<Record<TranslationKey, string>> = {
+  "holdingHorizon.scalp": "Скальпинг",
+  "holdingHorizon.intraday": "Внутри дня",
+  "holdingHorizon.swing": "Свинг",
+  "holdingHorizon.position": "Позиционная",
+  "strategyFamily.breakout": "Пробой",
+  "strategyFamily.trendFollow": "Следование тренду",
+  "strategyFamily.pullback": "Откат",
+  "strategyFamily.meanReversion": "Возврат к среднему",
+  "strategyFamily.liquidityReversal": "Разворот ликвидности",
+  "strategyFamily.flowContrarian": "Против потока",
+  "strategyFamily.volatility": "Волатильность",
   "nav.home": "Главная",
   "nav.leaderboard": "Рейтинг",
   "nav.consensus": "AI-сентимент",
@@ -1791,6 +1824,17 @@ const ruOverrides: Partial<Record<TranslationKey, string>> = {
 };
 
 const ptBROverrides: Partial<Record<TranslationKey, string>> = {
+  "holdingHorizon.scalp": "Scalping",
+  "holdingHorizon.intraday": "Intradiário",
+  "holdingHorizon.swing": "Swing",
+  "holdingHorizon.position": "Posicional",
+  "strategyFamily.breakout": "Rompimento",
+  "strategyFamily.trendFollow": "Seguir tendência",
+  "strategyFamily.pullback": "Retração",
+  "strategyFamily.meanReversion": "Reversão à média",
+  "strategyFamily.liquidityReversal": "Reversão de liquidez",
+  "strategyFamily.flowContrarian": "Contrário ao fluxo",
+  "strategyFamily.volatility": "Volatilidade",
   "nav.home": "Início",
   "nav.leaderboard": "Ranking",
   "nav.consensus": "Sentimento AI",
@@ -1918,6 +1962,17 @@ const ptBROverrides: Partial<Record<TranslationKey, string>> = {
 };
 
 const trOverrides: Partial<Record<TranslationKey, string>> = {
+  "holdingHorizon.scalp": "Skalping",
+  "holdingHorizon.intraday": "Gün içi",
+  "holdingHorizon.swing": "Swing",
+  "holdingHorizon.position": "Pozisyon",
+  "strategyFamily.breakout": "Kırılım",
+  "strategyFamily.trendFollow": "Trend takibi",
+  "strategyFamily.pullback": "Geri çekilme",
+  "strategyFamily.meanReversion": "Ortalamaya dönüş",
+  "strategyFamily.liquidityReversal": "Likidite dönüşü",
+  "strategyFamily.flowContrarian": "Akışa karşı",
+  "strategyFamily.volatility": "Volatilite",
   "nav.home": "Ana sayfa",
   "nav.leaderboard": "Liderlik",
   "nav.consensus": "AI duyarlılığı",

@@ -122,6 +122,12 @@ async def test_anthropic_entry_review_uses_json_output_schema(monkeypatch):
     assert "structuredReview" in schema["required"]
     assert schema["additionalProperties"] is False
     assert "maxItems" not in repr(schema)
+    management_plan_schema = schema["properties"]["managementPlan"]
+    assert management_plan_schema["properties"]["urgentReviewSeconds"] == {
+        "type": "integer",
+        "minimum": 30,
+        "maximum": 300,
+    }
     approval_description = schema["properties"]["approvalReason"]["description"]
     assert "Legacy entry approval rationale" in approval_description
     assert "1-2" in approval_description

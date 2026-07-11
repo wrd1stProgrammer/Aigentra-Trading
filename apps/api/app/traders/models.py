@@ -1,11 +1,76 @@
+from enum import StrEnum, unique
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 Decision = str
 RiskLevel = str
 Side = str
+
+
+@unique
+class HoldingHorizon(StrEnum):
+    SCALP = "SCALP"
+    INTRADAY = "INTRADAY"
+    SWING = "SWING"
+    POSITION = "POSITION"
+
+
+@unique
+class StrategyFamily(StrEnum):
+    BREAKOUT = "BREAKOUT"
+    TREND_FOLLOW = "TREND_FOLLOW"
+    PULLBACK = "PULLBACK"
+    MEAN_REVERSION = "MEAN_REVERSION"
+    LIQUIDITY_REVERSAL = "LIQUIDITY_REVERSAL"
+    FLOW_CONTRARIAN = "FLOW_CONTRARIAN"
+    VOLATILITY = "VOLATILITY"
+
+
+@unique
+class ManagementEventTrigger(StrEnum):
+    THESIS_INVALIDATION = "THESIS_INVALIDATION"
+    STOP_PROXIMITY = "STOP_PROXIMITY"
+    TARGET_PROXIMITY = "TARGET_PROXIMITY"
+    TIME_STOP = "TIME_STOP"
+    PRICE_SHOCK = "PRICE_SHOCK"
+    FLOW_REVERSAL = "FLOW_REVERSAL"
+
+
+@unique
+class ManagementActionType(StrEnum):
+    HOLD = "HOLD"
+    CANCEL_PENDING_ORDER = "CANCEL_PENDING_ORDER"
+    ADJUST_PENDING_ORDER = "ADJUST_PENDING_ORDER"
+    MOVE_STOP = "MOVE_STOP"
+    MOVE_STOP_TO_BREAKEVEN = "MOVE_STOP_TO_BREAKEVEN"
+    TRAIL_STOP = "TRAIL_STOP"
+    TAKE_PARTIAL_PROFIT = "TAKE_PARTIAL_PROFIT"
+    CLOSE_POSITION = "CLOSE_POSITION"
+    REDUCE_RISK = "REDUCE_RISK"
+    ADD_TO_POSITION = "ADD_TO_POSITION"
+    PYRAMID_POSITION = "PYRAMID_POSITION"
+    LET_PROFIT_RUN = "LET_PROFIT_RUN"
+    NEEDS_MORE_DATA = "NEEDS_MORE_DATA"
+    CANCEL_REMAINING_ORDERS = "CANCEL_REMAINING_ORDERS"
+    REDUCE_SIZE = "REDUCE_SIZE"
+    EXPIRE_PLAN = "EXPIRE_PLAN"
+
+
+class TradeManagementPlan(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    holdingHorizon: HoldingHorizon
+    strategyFamily: StrategyFamily
+    primaryTimeframe: str = Field(min_length=1, max_length=16)
+    expectedHoldMinutes: int = Field(ge=5, le=43200)
+    calmReviewSeconds: int = Field(ge=300, le=6000)
+    urgentReviewSeconds: int = Field(default=60, ge=30, le=300)
+    eventTriggers: List[ManagementEventTrigger] = Field(default_factory=list, max_length=6)
+    allowedActions: List[ManagementActionType] = Field(default_factory=list, max_length=16)
+    thesis: str = Field(min_length=1, max_length=500)
+    invalidation: str = Field(min_length=1, max_length=500)
 
 
 class TraderProfile(BaseModel):
@@ -18,6 +83,8 @@ class TraderProfile(BaseModel):
     holdingProfile: str = "intraday"
     primaryTimeframe: str = "1h"
     expectedHoldMinutes: int = 240
+    holdingHorizon: HoldingHorizon = HoldingHorizon.INTRADAY
+    strategyFamily: StrategyFamily = StrategyFamily.MEAN_REVERSION
     longConditions: List[str]
     shortConditions: List[str]
     entryRules: List[str]
@@ -77,6 +144,8 @@ class TradeCandidate(BaseModel):
     observationType: str = "NO_TRADE"
     holdingProfile: Optional[str] = None
     timeHorizon: Optional[str] = None
+    holdingHorizon: HoldingHorizon | None = None
+    strategyFamily: StrategyFamily | None = None
     audit: Dict[str, Any] = Field(default_factory=dict)
     entries: List[EntryPlan] = Field(default_factory=list)
     stopLoss: Optional[float] = None
@@ -139,6 +208,7 @@ class TradeReviewResult(BaseModel):
     leverageOverride: Optional[float] = None
     riskPercentOverride: Optional[float] = None
     earlyExitRecommendations: List[str] = Field(default_factory=list)
+    managementPlan: TradeManagementPlan | None = None
     approvalReason: str
     counterThesis: str
     userSummary: Optional[str] = None
@@ -230,6 +300,7 @@ class TradePlan(BaseModel):
     notes: List[str] = Field(default_factory=list)
     earlyExitRules: List[str] = Field(default_factory=list)
     managementNotes: List[str] = Field(default_factory=list)
+    managementPlan: TradeManagementPlan | None = None
 
 
 class RunCycleRequest(BaseModel):

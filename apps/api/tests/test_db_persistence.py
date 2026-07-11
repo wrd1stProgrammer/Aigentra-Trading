@@ -60,7 +60,10 @@ from app.repositories import (
 )
 from app.traders.models import (
     EntryPlan,
+    ManagedExposure,
     ManagementAction,
+    ManagementEvent,
+    PositionManagementResult,
     ReviewFact,
     TakeProfitPlan,
     TradeCandidate,
@@ -703,11 +706,67 @@ def test_paper_order_sizing_does_not_force_full_equity_for_high_score(temp_db):
 
         total_margin = sum(order["quantity"] * order["limitPrice"] / order["leverage"] for order in result["created"])
         assert result["created"]
-        assert result["marginDeploymentPercent"] == 100
-        assert result["targetMarginBudget"] <= 10000
+        assert result["marginDeploymentPercent"] == 60
+        assert result["targetMarginBudget"] <= 6000
         assert total_margin <= result["targetMarginBudget"]
         assert total_margin < result["targetMarginBudget"]
         assert result["plannedRisk"] <= result["riskBudget"] * 1.05
+
+
+def test_paper_order_sizing_respects_existing_account_margin_across_symbols(temp_db):
+    with session_scope() as db:
+        state_order = place_paper_order(
+            db,
+            trader_id="volume-breaker",
+            symbol="ETHUSDT",
+            side="long",
+            order_type="market",
+            quantity=0.5,
+            leverage=5,
+            take_profit_price=4200,
+            stop_loss_price=3800,
+        )
+        process_candle(db, "volume-breaker", "ETHUSDT", {"open": 4000, "high": 4010, "low": 3990, "close": 4000})
+        state = db.query(TraderStateRecord).filter_by(trader_id="volume-breaker").one()
+        assert db.query(PaperPositionRecord).filter_by(order_id=state_order.id, status="open").one()
+        state.margin_used = Decimal("5900")
+        state.cash_balance = Decimal("4100")
+        place_paper_order(
+            db,
+            trader_id="volume-breaker",
+            symbol="ETHUSDT",
+            side="long",
+            order_type="limit",
+            quantity=0.25,
+            leverage=5,
+            limit_price=4000,
+            take_profit_price=4200,
+            stop_loss_price=3800,
+        )
+        candidate = TradeCandidate(
+            created=True,
+            side="LONG",
+            setupType="TEST_SETUP",
+            setupScore=100,
+            entries=[EntryPlan(price=68000, weight=1.0, reason="new symbol entry")],
+            stopLoss=66000,
+            takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
+            riskPercent=0.7,
+        )
+
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="volume-breaker",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=build_orderable_plan(candidate, leverage=5),
+            settings=build_sizing_settings(minimum=10, maximum=100),
+        )
+
+        assert result["created"] == []
+        assert result["targetMarginBudget"] == pytest.approx(0)
 
 
 def test_paper_order_sizing_does_not_lift_margin_for_ai_confidence(temp_db):
@@ -747,7 +806,8 @@ def test_paper_order_sizing_does_not_lift_margin_for_ai_confidence(temp_db):
 
         assert result["created"]
         assert result["marginDeploymentPercent"] == pytest.approx(46)
-        assert result["targetMarginBudget"] == pytest.approx(4600)
+        assert result["targetMarginBudget"] == pytest.approx(2500)
+        assert result["targetMarginBudget"] * 6 == pytest.approx(10000 * 1.50)
         assert result["riskPercent"] == pytest.approx(1.0)
 
 
@@ -830,7 +890,7 @@ def test_position_add_order_clamps_ai_fraction_to_service_band(temp_db, raw_frac
             db,
             state=state,
             position=position,
-            action=ManagementAction(type="ADD_TO_POSITION", price=68000, quantityFraction=raw_fraction, reason="test add"),
+            action=ManagementAction(type="ADD_TO_POSITION", price=float(position.entry_price), quantityFraction=raw_fraction, reason="test add"),
             mark_price=position.entry_price,
             reason="test add",
             result=None,
@@ -838,6 +898,237 @@ def test_position_add_order_clamps_ai_fraction_to_service_band(temp_db, raw_frac
 
         assert created is not None
         assert created["payload"]["quantityFraction"] == pytest.approx(expected_fraction)
+
+
+def test_position_add_order_allows_exact_aggregate_margin_cap(temp_db):
+    with session_scope() as db:
+        order = place_paper_order(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="market",
+            quantity=0.05,
+            leverage=5,
+            take_profit_price=70000,
+            stop_loss_price=66000,
+        )
+        process_candle(db, "channel-rider", "BTCUSDT", {"open": 68000, "high": 68100, "low": 67900, "close": 68000})
+        state = db.query(TraderStateRecord).filter_by(trader_id="channel-rider").one()
+        position = db.query(PaperPositionRecord).filter_by(order_id=order.id, status="open").one()
+        state.equity = Decimal("10000")
+        state.cash_balance = Decimal("4500")
+        state.margin_used = Decimal("5500")
+        position.margin = Decimal("5000")
+
+        created = create_position_add_order(
+            db,
+            state=state,
+            position=position,
+            action=ManagementAction(type="PYRAMID_POSITION", price=float(position.entry_price), quantityFraction=0.10, reason="confirmed add"),
+            mark_price=position.entry_price,
+            reason="confirmed add",
+            result=None,
+        )
+
+        assert created is not None
+        assert created["payload"]["projectedAccountMarginPercent"] == pytest.approx(60.0)
+
+
+def test_position_add_order_rejects_when_pending_margin_exceeds_aggregate_margin_cap(temp_db):
+    with session_scope() as db:
+        order = place_paper_order(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="market",
+            quantity=0.05,
+            leverage=5,
+            take_profit_price=70000,
+            stop_loss_price=66000,
+        )
+        process_candle(db, "channel-rider", "BTCUSDT", {"open": 68000, "high": 68100, "low": 67900, "close": 68000})
+        state = db.query(TraderStateRecord).filter_by(trader_id="channel-rider").one()
+        position = db.query(PaperPositionRecord).filter_by(order_id=order.id, status="open").one()
+        state.equity = Decimal("10000")
+        state.cash_balance = Decimal("5000")
+        state.margin_used = Decimal("5000")
+        position.margin = Decimal("5000")
+        place_paper_order(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            quantity=Decimal("0.045"),
+            leverage=5,
+            limit_price=68000,
+            take_profit_price=70000,
+            stop_loss_price=66000,
+        )
+
+        created = create_position_add_order(
+            db,
+            state=state,
+            position=position,
+            action=ManagementAction(type="ADD_TO_POSITION", price=68000, quantityFraction=0.10, reason="average down"),
+            mark_price=position.entry_price,
+            reason="average down",
+            result=None,
+        )
+
+        assert created is None
+
+
+@pytest.mark.parametrize(("current_notional", "should_create"), [("13500", True), ("14000", False)])
+def test_position_add_order_enforces_aggregate_notional_cap(temp_db, current_notional, should_create):
+    with session_scope() as db:
+        order = place_paper_order(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="market",
+            quantity=0.05,
+            leverage=5,
+            take_profit_price=70000,
+            stop_loss_price=66000,
+        )
+        process_candle(db, "channel-rider", "BTCUSDT", {"open": 68000, "high": 68100, "low": 67900, "close": 68000})
+        state = db.query(TraderStateRecord).filter_by(trader_id="channel-rider").one()
+        position = db.query(PaperPositionRecord).filter_by(order_id=order.id, status="open").one()
+        state.equity = Decimal("10000")
+        state.cash_balance = Decimal("7000")
+        state.margin_used = Decimal("3000")
+        position.margin = Decimal("3000")
+        position.notional = Decimal(current_notional)
+
+        created = create_position_add_order(
+            db,
+            state=state,
+            position=position,
+            action=ManagementAction(type="PYRAMID_POSITION", price=float(position.entry_price), quantityFraction=0.10, reason="confirmed add"),
+            mark_price=position.entry_price,
+            reason="confirmed add",
+            result=None,
+        )
+
+        assert (created is not None) is should_create
+        if created is not None:
+            assert created["payload"]["projectedAccountNotionalPercent"] == pytest.approx(150.0)
+
+
+def test_position_add_order_rejects_averaging_a_losing_position(temp_db):
+    with session_scope() as db:
+        order = place_paper_order(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="market",
+            quantity=0.05,
+            leverage=5,
+            take_profit_price=70000,
+            stop_loss_price=66000,
+        )
+        process_candle(db, "channel-rider", "BTCUSDT", {"open": 68000, "high": 68100, "low": 67900, "close": 68000})
+        state = db.query(TraderStateRecord).filter_by(trader_id="channel-rider").one()
+        position = db.query(PaperPositionRecord).filter_by(order_id=order.id, status="open").one()
+
+        created = create_position_add_order(
+            db,
+            state=state,
+            position=position,
+            action=ManagementAction(type="ADD_TO_POSITION", price=67000, quantityFraction=0.10, reason="average down"),
+            mark_price=Decimal("67000"),
+            reason="average down",
+            result=None,
+        )
+
+        assert created is None
+
+
+def test_position_add_order_rejects_adverse_limit_beyond_entry(temp_db):
+    with session_scope() as db:
+        order = place_paper_order(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="market",
+            quantity=0.05,
+            leverage=5,
+            take_profit_price=71000,
+            stop_loss_price=66000,
+        )
+        process_candle(db, "channel-rider", "BTCUSDT", {"open": 68000, "high": 68100, "low": 67900, "close": 68000})
+        state = db.query(TraderStateRecord).filter_by(trader_id="channel-rider").one()
+        position = db.query(PaperPositionRecord).filter_by(order_id=order.id, status="open").one()
+
+        created = create_position_add_order(
+            db,
+            state=state,
+            position=position,
+            action=ManagementAction(type="ADD_TO_POSITION", price=67000, quantityFraction=0.10, reason="adverse resting add"),
+            mark_price=Decimal("69000"),
+            reason="adverse resting add",
+            result=None,
+        )
+
+        assert created is None
+
+
+def test_management_actions_reject_add_not_allowed_by_frozen_plan(temp_db):
+    with session_scope() as db:
+        order = place_paper_order(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="market",
+            quantity=0.05,
+            leverage=5,
+            take_profit_price=70000,
+            stop_loss_price=66000,
+            payload={
+                "managementPlan": {
+                    "allowedActions": ["HOLD", "MOVE_STOP", "CLOSE_POSITION"],
+                }
+            },
+        )
+        process_candle(db, "channel-rider", "BTCUSDT", {"open": 68000, "high": 68100, "low": 67900, "close": 68000})
+        position = db.query(PaperPositionRecord).filter_by(order_id=order.id, status="open").one()
+        exposure = ManagedExposure(
+            kind="position",
+            id=position.id,
+            status="open",
+            payload={"managementPlan": {"allowedActions": ["HOLD", "MOVE_STOP", "CLOSE_POSITION"]}},
+        )
+        review = PositionManagementResult(
+            decision="ADD_TO_POSITION",
+            confidence=80,
+            riskLevel="MEDIUM",
+            actions=[ManagementAction(type="ADD_TO_POSITION", price=68000, quantityFraction=0.10, reason="not approved at entry")],
+            riskChange="UNCHANGED",
+            nextReviewInSeconds=900,
+            rationale="Attempt an unapproved add.",
+            counterThesis="No change.",
+        )
+
+        applied = main_module.apply_management_actions(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            event=ManagementEvent(eventType="management_heartbeat", phase="OPEN_POSITION", severity="LOW", reason="review"),
+            exposure=exposure,
+            review=review,
+            snapshot=sample_snapshot(),
+            result=None,
+        )
+
+        assert applied == [{"type": "ADD_TO_POSITION", "applied": False, "reason": "Action is not allowed by the frozen management plan.", "guarded": True}]
+        assert db.query(PaperOrderRecord).filter_by(trader_id="channel-rider", status="open").count() == 0
 
 
 @pytest.mark.asyncio
@@ -877,7 +1168,12 @@ async def test_run_cycle_persists_snapshot_candidate_review_and_plan(monkeypatch
         assert len(list_records(db, CandidateTradeRecord, 10)) == 1
         assert len(list_records(db, AIReviewRecord, 10)) == 1
         assert len(list_records(db, TradePlanRecord, 10)) == 1
-        assert len(list_records(db, PaperOrderRecord, 10)) >= 1
+        saved_orders = list_records(db, PaperOrderRecord, 10)
+        assert len(saved_orders) >= 1
+        management_plan = saved_orders[0]["payload"]["managementPlan"]
+        assert management_plan["holdingHorizon"] == "SWING"
+        assert management_plan["strategyFamily"] == "PULLBACK"
+        assert management_plan["calmReviewSeconds"] == 3600
         assert len(list_records(db, TraderStateRecord, 10)) == 1
 
     assert result.paper is not None

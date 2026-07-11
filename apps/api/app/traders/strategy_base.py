@@ -6,6 +6,8 @@ from app.traders.models import (
     EntryPlan,
     LeveragePlan,
     OrderIntent,
+    HoldingHorizon,
+    StrategyFamily,
     TakeProfitPlan,
     TraderProfile,
     TradeCandidate,
@@ -45,6 +47,8 @@ def apply_execution_profile(profile: TraderProfile) -> TraderProfile:
             "holdingProfile": str(execution_profile["holdingProfile"]),
             "primaryTimeframe": str(execution_profile["primaryTimeframe"]),
             "expectedHoldMinutes": int(execution_profile["expectedHoldMinutes"]),
+            "holdingHorizon": HoldingHorizon(str(execution_profile["holdingHorizon"])),
+            "strategyFamily": StrategyFamily(str(execution_profile["strategyFamily"])),
         }
     )
 
@@ -69,6 +73,8 @@ def candidate_with_audit(
             "observationType": observation_type or ("CANDIDATE_READY" if candidate.created else "NO_TRADE"),
             "holdingProfile": str(execution_profile["holdingProfile"]),
             "timeHorizon": str(execution_profile["policyName"]),
+            "holdingHorizon": HoldingHorizon(str(execution_profile["holdingHorizon"])),
+            "strategyFamily": StrategyFamily(str(execution_profile["strategyFamily"])),
             "audit": audit,
         }
     )

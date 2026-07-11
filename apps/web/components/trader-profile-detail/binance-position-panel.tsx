@@ -13,6 +13,8 @@ import { statusLabel } from "@/lib/status";
 import { buildDisplayOpenOrders, type DisplayPaperOrder } from "@/components/trader-profile-detail/position-panel-rows";
 import type { PlanView } from "@/components/trader-profile-detail/types";
 import { MobilePositionCards } from "@/components/trader-profile-detail/binance-position-mobile-cards";
+import { TradeClassificationBadges } from "@/components/trade-classification-badges";
+import { tradeClassification, type TradeClassification } from "@/components/trade-classification";
 import {
   baseAsset,
   derivedMargin,
@@ -43,6 +45,7 @@ export function BinancePositionPanel({
   scenarios = [],
   onOpenScenario,
   liveMarkPrice,
+  classificationFallback = null,
   isSubscribed = true
 }: {
   readonly symbol: LeagueSymbol;
@@ -52,6 +55,7 @@ export function BinancePositionPanel({
   readonly scenarios?: readonly TraderScenario[];
   readonly onOpenScenario?: (scenario: TraderScenario) => void;
   readonly liveMarkPrice?: number | null;
+  readonly classificationFallback?: TradeClassification | null;
   readonly isSubscribed?: boolean;
 }) {
   const { locale, t } = useAppContext();
@@ -86,6 +90,7 @@ export function BinancePositionPanel({
         locale={locale}
         t={t}
         liveMarkPrice={liveMarkPrice}
+        classificationFallback={classificationFallback}
         onOpenPosition={onOpenScenario ? openScenarioForPosition : undefined}
         onOpenOrder={onOpenScenario ? openScenarioForOrder : undefined}
         isSubscribed={isSubscribed}
@@ -110,7 +115,7 @@ export function BinancePositionPanel({
             </thead>
             <tbody>
               {openPositions.map((position, index) => (
-                <PositionRow key={`position-${position.id ?? index}`} position={position} locale={locale} t={t} liveMarkPrice={liveMarkPrice} onOpenScenario={onOpenScenario ? openScenarioForPosition : undefined} isSubscribed={isSubscribed} nowMs={nowMs} />
+                <PositionRow key={`position-${position.id ?? index}`} position={position} locale={locale} t={t} liveMarkPrice={liveMarkPrice} classificationFallback={classificationFallback} onOpenScenario={onOpenScenario ? openScenarioForPosition : undefined} isSubscribed={isSubscribed} nowMs={nowMs} />
               ))}
             </tbody>
           </table>
@@ -133,7 +138,7 @@ export function BinancePositionPanel({
             </thead>
             <tbody>
               {openOrders.map((order, index) => (
-                <OrderRow key={`order-${order.id ?? index}`} order={order} locale={locale} t={t} onOpenScenario={onOpenScenario ? openScenarioForOrder : undefined} isSubscribed={isSubscribed} />
+                <OrderRow key={`order-${order.id ?? index}`} order={order} locale={locale} t={t} classificationFallback={classificationFallback} onOpenScenario={onOpenScenario ? openScenarioForOrder : undefined} isSubscribed={isSubscribed} />
               ))}
             </tbody>
           </table>
@@ -173,6 +178,7 @@ function PositionRow({
   locale,
   t,
   liveMarkPrice,
+  classificationFallback,
   onOpenScenario,
   isSubscribed = true,
   nowMs
@@ -181,6 +187,7 @@ function PositionRow({
   readonly locale: Locale;
   readonly t: (key: string) => string;
   readonly liveMarkPrice?: number | null;
+  readonly classificationFallback: TradeClassification | null;
   readonly onOpenScenario?: (position: PaperPosition) => void;
   readonly isSubscribed?: boolean;
   readonly nowMs: number;
@@ -202,9 +209,10 @@ function PositionRow({
       <PositionCell className={side === "SHORT" ? "border-l-[3px] border-l-rose-500/90" : "border-l-[3px] border-l-emerald-500/90"}>
         <div className="flex items-center gap-1.5 pl-1">
           <div>
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               <span className="font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100">{position.symbol}</span>
               <span className="rounded bg-zinc-100 px-1 py-0.5 text-[9px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">Perp</span>
+              <TradeClassificationBadges classification={tradeClassification(position, classificationFallback)} t={t} compact />
               <svg className="h-3 w-3 text-zinc-400 dark:text-zinc-500" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M2.166 4.9L10 .954 17.834 4.9a1 1 0 01.616.92v5.352c0 3.82-2.164 7.319-5.616 9.07l-.616.313a1 1 0 01-.87 0l-.616-.313C7.329 18.49 5.166 14.992 5.166 11.17V5.82a1 1 0 01.616-.92zM10 3.046L3.834 6.13v5.04c0 3.08 1.71 5.92 4.49 7.424l1.676.852 1.676-.852c2.78-1.503 4.49-4.343 4.49-7.424V6.13L10 3.046z" clipRule="evenodd"/>
               </svg>
@@ -243,12 +251,14 @@ function OrderRow({
   order,
   locale,
   t,
+  classificationFallback,
   onOpenScenario,
   isSubscribed = true
 }: {
   readonly order: DisplayPaperOrder;
   readonly locale: Locale;
   readonly t: (key: string) => string;
+  readonly classificationFallback: TradeClassification | null;
   readonly onOpenScenario?: (order: DisplayPaperOrder) => void;
   readonly isSubscribed?: boolean;
 }) {
@@ -265,9 +275,10 @@ function OrderRow({
       <PositionCell className={side === "SHORT" ? "border-l-[3px] border-l-rose-500/90" : "border-l-[3px] border-l-emerald-500/90"}>
         <div className="flex items-center gap-1.5 pl-1">
           <div>
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               <span className="font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100">{order.symbol}</span>
               <span className="rounded bg-zinc-100 px-1 py-0.5 text-[9px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">Perp</span>
+              <TradeClassificationBadges classification={tradeClassification(order, classificationFallback)} t={t} compact />
             </div>
             <p className={`text-[10px] font-semibold mt-0.5 ${side === "SHORT" ? "text-rose-500" : "text-emerald-500"}`}>
               Cross {formatLeverage(leverage)}

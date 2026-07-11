@@ -6,6 +6,8 @@ import type { Locale } from "@/lib/i18n";
 import { statusLabel } from "@/lib/status";
 import { ShareNetwork } from "@phosphor-icons/react";
 import type { DisplayPaperOrder } from "@/components/trader-profile-detail/position-panel-rows";
+import { TradeClassificationBadges } from "@/components/trade-classification-badges";
+import { tradeClassification, type TradeClassification } from "@/components/trade-classification";
 import {
   baseAsset,
   derivedMargin,
@@ -35,6 +37,7 @@ export function MobilePositionCards({
   locale,
   t,
   liveMarkPrice,
+  classificationFallback = null,
   onOpenPosition,
   onOpenOrder,
   isSubscribed = true,
@@ -46,6 +49,7 @@ export function MobilePositionCards({
   readonly locale: Locale;
   readonly t: Translator;
   readonly liveMarkPrice?: number | null;
+  readonly classificationFallback?: TradeClassification | null;
   readonly onOpenPosition?: (position: PaperPosition) => void;
   readonly onOpenOrder?: (order: DisplayPaperOrder) => void;
   readonly isSubscribed?: boolean;
@@ -61,6 +65,7 @@ export function MobilePositionCards({
               locale={locale}
               t={t}
               liveMarkPrice={liveMarkPrice}
+              classificationFallback={classificationFallback}
               onOpen={onOpenPosition}
               isSubscribed={isSubscribed}
               nowMs={nowMs}
@@ -72,6 +77,7 @@ export function MobilePositionCards({
               order={order}
               locale={locale}
               t={t}
+              classificationFallback={classificationFallback}
               onOpen={onOpenOrder}
               isSubscribed={isSubscribed}
             />
@@ -87,6 +93,7 @@ function MobilePositionCard({
   locale,
   t,
   liveMarkPrice,
+  classificationFallback,
   onOpen,
   isSubscribed = true,
   nowMs
@@ -95,6 +102,7 @@ function MobilePositionCard({
   readonly locale: Locale;
   readonly t: Translator;
   readonly liveMarkPrice?: number | null;
+  readonly classificationFallback: TradeClassification | null;
   readonly onOpen?: (position: PaperPosition) => void;
   readonly isSubscribed?: boolean;
   readonly nowMs: number;
@@ -121,8 +129,8 @@ function MobilePositionCard({
   return (
     <article className="py-4 text-[#eaecef]">
       {/* Header Row: Letter Icon, Symbol, Badges, Share/Detail Button */}
-      <div className="flex items-center justify-between pb-3">
-        <div className="flex items-center gap-2">
+      <div className="flex items-start justify-between gap-2 pb-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {/* Coin circle symbol icon */}
           <div className="flex h-5 w-5 items-center justify-center rounded bg-[#02c076] text-[11px] font-extrabold text-[#000000] leading-none">
             {position.symbol.charAt(0).toUpperCase()}
@@ -133,6 +141,7 @@ function MobilePositionCard({
           <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] font-bold text-zinc-400 uppercase tracking-wide">
             Perp
           </span>
+          <TradeClassificationBadges classification={tradeClassification(position, classificationFallback)} t={t} compact />
           <span className="rounded bg-zinc-850 px-1.5 py-0.5 text-[9px] font-bold text-zinc-400 uppercase tracking-wide">
             Cross {formatLeverage(leverage)}
           </span>
@@ -277,12 +286,14 @@ function MobileOrderCard({
   order,
   locale,
   t,
+  classificationFallback,
   onOpen,
   isSubscribed = true
 }: {
   readonly order: DisplayPaperOrder;
   readonly locale: Locale;
   readonly t: Translator;
+  readonly classificationFallback: TradeClassification | null;
   readonly onOpen?: (order: DisplayPaperOrder) => void;
   readonly isSubscribed?: boolean;
 }) {
@@ -300,8 +311,8 @@ function MobileOrderCard({
   return (
     <article className="py-4 text-[#eaecef]">
       {/* Header Row */}
-      <div className="flex items-center justify-between pb-3">
-        <div className="flex items-center gap-2">
+      <div className="flex items-start justify-between gap-2 pb-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {/* Coin circle symbol icon */}
           <div className="flex h-5 w-5 items-center justify-center rounded bg-[#02c076] text-[11px] font-extrabold text-[#000000] leading-none">
             {order.symbol.charAt(0).toUpperCase()}
@@ -312,6 +323,7 @@ function MobileOrderCard({
           <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] font-bold text-zinc-400 uppercase tracking-wide">
             Perp
           </span>
+          <TradeClassificationBadges classification={tradeClassification(order, classificationFallback)} t={t} compact />
           <span className="rounded bg-zinc-850 px-1.5 py-0.5 text-[9px] font-bold text-zinc-400 uppercase tracking-wide">
             Cross {formatLeverage(leverage)}
           </span>

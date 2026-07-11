@@ -1,7 +1,7 @@
 from functools import lru_cache
 import os
 from pathlib import Path
-from typing import List
+from typing import List, Literal
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
@@ -204,7 +204,7 @@ class Settings(BaseModel):
     paper_funding_interval_hours: int = Field(default_factory=lambda: env_int("PAPER_FUNDING_INTERVAL_HOURS", "8"))
     paper_max_leverage: float = Field(default_factory=lambda: env_float("PAPER_MAX_LEVERAGE", "10"))
     paper_min_margin_deployment_percent: float = Field(default_factory=lambda: env_float("PAPER_MIN_MARGIN_DEPLOYMENT_PERCENT", "10"))
-    paper_max_margin_deployment_percent: float = Field(default_factory=lambda: env_float("PAPER_MAX_MARGIN_DEPLOYMENT_PERCENT", "100"))
+    paper_max_margin_deployment_percent: float = Field(default_factory=lambda: env_float("PAPER_MAX_MARGIN_DEPLOYMENT_PERCENT", "60"))
     paper_max_active_positions_per_trader: int = Field(default_factory=lambda: env_int("PAPER_MAX_ACTIVE_POSITIONS_PER_TRADER", "1"))
     enable_auto_scanner: bool = Field(default_factory=lambda: env_bool("ENABLE_AUTO_SCANNER", "false"))
     enable_worker_watchdog: bool = Field(default_factory=lambda: env_bool("ENABLE_WORKER_WATCHDOG", "true"))
@@ -248,6 +248,10 @@ class Settings(BaseModel):
     )
     position_management_pending_heartbeat_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_PENDING_HEARTBEAT_SECONDS", "300"))
     position_management_open_heartbeat_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_OPEN_HEARTBEAT_SECONDS", "300"))
+    position_management_scalp_heartbeat_seconds: Literal[300] = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_SCALP_HEARTBEAT_SECONDS", "300"), validate_default=True)
+    position_management_intraday_heartbeat_seconds: Literal[900] = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_INTRADAY_HEARTBEAT_SECONDS", "900"), validate_default=True)
+    position_management_swing_heartbeat_seconds: Literal[3600] = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_SWING_HEARTBEAT_SECONDS", "3600"), validate_default=True)
+    position_management_position_heartbeat_seconds: Literal[6000] = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_POSITION_HEARTBEAT_SECONDS", "6000"), validate_default=True)
     position_management_urgent_cooldown_seconds: int = Field(default_factory=lambda: env_int("POSITION_MANAGEMENT_URGENT_COOLDOWN_SECONDS", "60"))
     league_sentiment_provider: str = Field(
         default_factory=lambda: provider_from_env(

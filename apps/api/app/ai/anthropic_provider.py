@@ -16,7 +16,15 @@ from app.ai.base import (
 )
 from app.ai.league_sentiment_models import LeagueSentimentOpinionResult, LeagueSentimentPayload
 from app.locales import SUPPORTED_LOCALES
-from app.traders.models import PositionManagementPayload, PositionManagementResult, TradeReviewPayload, TradeReviewResult
+from app.traders.models import (
+    HoldingHorizon,
+    ManagementEventTrigger,
+    PositionManagementPayload,
+    PositionManagementResult,
+    StrategyFamily,
+    TradeReviewPayload,
+    TradeReviewResult,
+)
 
 
 TRADE_REVIEW_TOOL_NAME = "submit_trade_review"
@@ -147,6 +155,43 @@ def localized_trade_review_schema() -> dict[str, Any]:
     }
 
 
+def trade_management_plan_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "holdingHorizon": {"type": "string", "enum": [item.value for item in HoldingHorizon]},
+            "strategyFamily": {"type": "string", "enum": [item.value for item in StrategyFamily]},
+            "primaryTimeframe": {"type": "string", "minLength": 1, "maxLength": 16},
+            "expectedHoldMinutes": {"type": "integer", "minimum": 5, "maximum": 43200},
+            "calmReviewSeconds": {"type": "integer", "enum": [300, 900, 3600, 6000]},
+            "urgentReviewSeconds": {"type": "integer", "minimum": 30, "maximum": 300},
+            "eventTriggers": {
+                "type": "array",
+                "items": {"type": "string", "enum": [item.value for item in ManagementEventTrigger]},
+            },
+            "allowedActions": {
+                "type": "array",
+                "items": {"type": "string", "enum": sorted(VALID_MANAGEMENT_ACTIONS)},
+            },
+            "thesis": {"type": "string", "minLength": 1, "maxLength": 500},
+            "invalidation": {"type": "string", "minLength": 1, "maxLength": 500},
+        },
+        "required": [
+            "holdingHorizon",
+            "strategyFamily",
+            "primaryTimeframe",
+            "expectedHoldMinutes",
+            "calmReviewSeconds",
+            "urgentReviewSeconds",
+            "eventTriggers",
+            "allowedActions",
+            "thesis",
+            "invalidation",
+        ],
+        "additionalProperties": False,
+    }
+
+
 def trade_review_schema() -> dict[str, Any]:
     return {
         "type": "object",
@@ -162,6 +207,7 @@ def trade_review_schema() -> dict[str, Any]:
             "leverageOverride": {"type": "number"},
             "riskPercentOverride": {"type": "number"},
             "earlyExitRecommendations": string_array_schema(),
+            "managementPlan": trade_management_plan_schema(),
             "approvalReason": {
                 "type": "string",
                 "description": (
@@ -189,6 +235,7 @@ def trade_review_schema() -> dict[str, Any]:
             "structuredReview",
             "adjustments",
             "earlyExitRecommendations",
+            "managementPlan",
             "approvalReason",
             "counterThesis",
             "translations",
@@ -245,7 +292,7 @@ def management_review_schema() -> dict[str, Any]:
             "structuredReview": structured_review_schema(require_title=True),
             "actions": {"type": "array", "items": management_action_schema()},
             "riskChange": {"type": "string"},
-            "nextReviewInSeconds": {"type": "integer", "description": "Seconds until the next review, from 60 to 3600."},
+            "nextReviewInSeconds": {"type": "integer", "description": "Seconds until the next review, from 60 to 6000."},
             "rationale": {
                 "type": "string",
                 "description": "Legacy management rationale. Write 1-2 compact sentences mirroring the current exposure briefing in structuredReview.",

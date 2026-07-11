@@ -22,7 +22,7 @@ Step 3에서는 승인된 trade plan을 실제 거래소 주문이 아니라 `pa
 
 Step 4에서는 활성 paper 주문/포지션을 관리하는 Position Management AI를 추가했습니다. hard TP/SL/수수료/PnL 처리는 paper engine이 먼저 수행하고, 남아 있는 대기 주문 또는 오픈 포지션에 대해 트레이더별 관리 이벤트가 발생하면 AI가 취소, 손절 상향/하향 조정, 부분익절, 위험 축소, 조기종료 중 하나를 paper 상태에만 적용합니다.
 
-Step 5에서는 Position Management AI를 v2 agent 방식으로 확장했습니다. 이제 특정 이벤트가 없어도 활성 대기 주문과 오픈 포지션은 기본 5분마다 AI heartbeat 리뷰를 수행하고 `trader_agent_states`에 현재 agent mode, phase, 다음 리뷰 예정시각, 마지막 판단을 저장합니다.
+Step 5에서는 Position Management AI를 v2 agent 방식으로 확장했습니다. 2차 진입 리뷰가 거래별 보유기간·전략·허용 액션·무효화 조건을 고정하며, 이벤트가 없을 때도 스캘핑 5분, 당일 15분, 스윙 60분, 포지션 100분 간격으로 AI heartbeat 리뷰를 수행합니다. `trader_agent_states`에는 현재 agent mode, phase, 다음 리뷰 예정시각, 마지막 판단을 저장합니다.
 
 현재 데모 UI는 `/traders`와 `/traders/[id]`에서 TradingView Lightweight Charts 기반 공통 캔들 차트를 표시합니다. 기본 타임프레임은 `1h`이며, `1m`, `5m`, `15m`, `30m`, `1h`, `4h`, `1d`, `1w`를 전환할 수 있습니다. run-cycle 후 candidate가 생성되고 AI review가 승인 또는 수정승인하면 생성된 paper trade plan의 진입, 손절, 익절 가격이 차트에 price line으로 표시됩니다.
 
@@ -63,7 +63,12 @@ POSITION_MANAGEMENT_COOLDOWN_SECONDS=300
 POSITION_MANAGEMENT_MAX_REVIEWS_PER_CYCLE=2
 POSITION_MANAGEMENT_PENDING_HEARTBEAT_SECONDS=300
 POSITION_MANAGEMENT_OPEN_HEARTBEAT_SECONDS=300
+POSITION_MANAGEMENT_SCALP_HEARTBEAT_SECONDS=300
+POSITION_MANAGEMENT_INTRADAY_HEARTBEAT_SECONDS=900
+POSITION_MANAGEMENT_SWING_HEARTBEAT_SECONDS=3600
+POSITION_MANAGEMENT_POSITION_HEARTBEAT_SECONDS=6000
 POSITION_MANAGEMENT_URGENT_COOLDOWN_SECONDS=60
+PAPER_MAX_MARGIN_DEPLOYMENT_PERCENT=60
 AI_PROVIDER=mock
 AI_MISSING_KEY_FALLBACK_TO_MOCK=true
 GEMINI_API_KEY=
@@ -673,16 +678,16 @@ Gemini 사용 시 주의사항:
 - 트레이더별 시작 equity 기본값은 `$10,000`입니다.
 - 기본 maker fee는 `0.0002`, taker fee는 `0.0005`로 둡니다. 실제 Binance Futures 수수료는 계정 등급, 프로모션, 시장 정책에 따라 바뀔 수 있으므로 운영 전에는 최신 fee schedule에 맞춰 `.env` 값을 조정해야 합니다.
 - 후보마다 1차 전략이 `riskPercent`, `leveragePlan`, `orderIntent`, `earlyExitRules`를 생성합니다.
-- 2차 AI review는 승인/수정승인 시 leverage/risk/early exit 보정값을 줄 수 있습니다.
+- 2차 AI review는 승인/수정승인 시 leverage/risk/early exit 보정값과 거래별 보유기간·전략·이벤트·허용 관리 액션을 고정합니다.
 - paper order 수량은 `equity * riskPercent / stopDistance` 기반으로 산정하고, leverage 기반 최대 notional cap을 다시 적용합니다.
 - `paper engine run-once`는 1분봉 OHLC로 limit/market fill, TP/SL, maker/taker fee, realized/unrealized PnL을 갱신합니다.
 - 열린 paper position은 1R 이상 유리하게 움직이면 stop을 본절로 이동합니다.
 - TP의 80% 근처까지 갔다가 강하게 되돌리면 조기익절(`early_profit_protect`)을 수행할 수 있습니다.
 - 손절가에 닿기 전이라도 현재 캔들 종가가 thesis failure 기준을 넘으면 조기종료(`early_thesis_failure`)를 수행할 수 있습니다.
-- Position Management AI는 hard risk engine 이후에 호출됩니다. stop을 무제한으로 넓히거나 설정된 최대 레버리지를 넘기는 액션은 허용하지 않지만, 트레이더 컨셉과 리스크 한도 안에서는 남은 주문 취소, 손절 조정, 부분익절, 조기종료, 제한적 물타기/불타기 주문을 제안할 수 있습니다.
+- Position Management AI는 hard risk engine 이후에 호출됩니다. 고정 계획에 없는 액션, stop 확대, 손실 포지션 물타기, 계좌 증거금 60% 또는 명목 노출 150%를 넘기는 추가 진입은 실행하지 않습니다. 계획이 허용한 경우에만 비손실 구간의 제한적 추가 진입·불타기를 제안할 수 있습니다.
 - 관리 AI 액션은 `position_management_reviews`에 저장되고, 적용된 paper 이벤트는 `trade_events`에 남습니다.
 - agent의 현재 상태와 다음 리뷰 예정시각은 `trader_agent_states`에 저장됩니다.
-- 대기 주문과 오픈 포지션은 기본 300초마다 heartbeat AI 리뷰를 수행합니다. HIGH severity 이벤트는 기본 60초 cooldown으로 더 빠르게 재검토할 수 있습니다.
+- 대기 주문과 오픈 포지션은 고정 보유기간에 따라 300/900/3600/6000초 heartbeat AI 리뷰를 수행합니다. HIGH severity 이벤트는 기본 60초 cooldown으로 더 빠르게 재검토할 수 있습니다.
 - 같은 trader+symbol에 open paper order 또는 open paper position이 있으면 새 run-cycle은 후보를 만들지 않고 `ACTIVE_PAPER_EXPOSURE` 관리 상태를 반환합니다.
 
 ## 트레이더별 Position Management 이벤트
@@ -723,6 +728,10 @@ POSITION_MANAGEMENT_PROVIDER=mock
 POSITION_MANAGEMENT_COOLDOWN_SECONDS=300
 POSITION_MANAGEMENT_PENDING_HEARTBEAT_SECONDS=300
 POSITION_MANAGEMENT_OPEN_HEARTBEAT_SECONDS=300
+POSITION_MANAGEMENT_SCALP_HEARTBEAT_SECONDS=300
+POSITION_MANAGEMENT_INTRADAY_HEARTBEAT_SECONDS=900
+POSITION_MANAGEMENT_SWING_HEARTBEAT_SECONDS=3600
+POSITION_MANAGEMENT_POSITION_HEARTBEAT_SECONDS=6000
 ```
 
 자동 스캐너는 paper only이며 Binance private API나 실제 주문 API를 호출하지 않습니다. 기본값은 `mock` provider라서 매분 AI 유료 호출이 발생하지 않습니다. Gemini를 쓰려면 `AUTO_SCANNER_PROVIDER=gemini` 또는 `POSITION_MANAGEMENT_PROVIDER=gemini`로 명시해야 하지만, 후보나 관리 이벤트가 자주 생기는 장에서는 비용/쿼터가 발생할 수 있으므로 로컬 장시간 테스트는 `mock`을 권장합니다.

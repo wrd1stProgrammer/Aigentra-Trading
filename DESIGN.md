@@ -108,6 +108,12 @@ All spacing derives from a 4px base.
 - **Structure**: tonal surface, 1px token border, 14-22px radius depending on outer/inner role.
 - **States**: hover border shift is subtle; no dramatic shadows.
 
+### Trade Classification Badge
+
+- **Structure**: one compact tokenized chip combining localized holding horizon and strategy family as `horizon · strategy`.
+- **Placement**: follow side and leverage in leaderboard exposure rows; sit immediately after `Perp` in desktop and mobile position symbols.
+- **Rules**: use muted surface/border tokens, remain visually secondary to LONG/SHORT, never introduce page-level horizontal overflow, and hide only when no valid frozen-plan or trader fallback classification exists.
+
 ### Alert/Review Row
 
 - **Structure**: time, trader identity, decision summary, optional severity dot.

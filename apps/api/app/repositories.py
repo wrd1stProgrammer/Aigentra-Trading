@@ -118,7 +118,7 @@ def compact_ai_review_payload(payload: Optional[dict]) -> Optional[dict]:
 def compact_trade_plan_payload(payload: Optional[dict]) -> Optional[dict]:
     if payload is None:
         return None
-    compact = pick_existing(payload, ("status", "side", "riskPercent"))
+    compact = pick_existing(payload, ("status", "side", "riskPercent", "managementPlan"))
     if payload.get("entries"):
         compact["entryCount"] = len(payload.get("entries") or [])
     if payload.get("takeProfits"):
