@@ -59,6 +59,40 @@ def build_data_checks(payload: TradeReviewPayload, geometry: dict[str, Any]) -> 
     else:
         append_check(data_checks, "active_exposure", "pass", "No active paper order or position blocks this candidate.")
 
+    guardrails = payload.entryGuardrails if isinstance(payload.entryGuardrails, dict) else {}
+    if guardrails.get("blocked"):
+        reasons = guardrails.get("blockReasons") or ["Account entry guardrail is active."]
+        detail = " ".join(str(reason) for reason in reasons[:3])
+        append_check(data_checks, "account_guardrails", "fail", detail)
+        hard_blockers.append(detail)
+    else:
+        multiplier = safe_float(guardrails.get("riskMultiplier")) or 1.0
+        status = "warn" if multiplier < 1.0 else "pass"
+        detail = (
+            f"Account drawdown guard reduces candidate risk to {multiplier:.2f}x."
+            if multiplier < 1.0
+            else "Daily loss, consecutive-loss, and drawdown entry guards are clear."
+        )
+        append_check(data_checks, "account_guardrails", status, detail, f"{multiplier:.2f}x")
+        if multiplier < 1.0:
+            warnings.append(detail)
+
+    account = payload.accountState if isinstance(payload.accountState, dict) else {}
+    equity = safe_float(account.get("equity"))
+    risk_percent = safe_float(candidate.riskPercent)
+    if account and equity <= 0:
+        detail = "Account equity is unavailable or non-positive."
+        append_check(data_checks, "account_risk_budget", "fail", detail)
+        hard_blockers.append(detail)
+    elif account:
+        append_check(
+            data_checks,
+            "account_risk_budget",
+            "pass",
+            "Candidate risk budget is anchored to current account equity.",
+            f"{risk_percent:.2f}% / {equity:.2f}",
+        )
+
     losses = loss_context(payload)
     if losses["lossDiscipline"].get("active") or losses["recentLossReviews"]:
         detail = "Recent loss context should affect sizing or patience, not automatically reject the setup."

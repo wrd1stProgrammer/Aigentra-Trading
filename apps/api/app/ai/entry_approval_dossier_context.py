@@ -73,6 +73,22 @@ def market_summary(payload: TradeReviewPayload) -> dict[str, Any]:
 def context_summary(payload: TradeReviewPayload) -> dict[str, Any]:
     return {
         **loss_context(payload),
+        "accountState": compact_mapping(
+            payload.accountState,
+            ("equity", "cashBalance", "marginUsed", "realizedPnl", "unrealizedPnl", "totalFees"),
+        ),
+        "entryGuardrails": compact_mapping(
+            payload.entryGuardrails,
+            (
+                "blocked",
+                "blockReasons",
+                "riskMultiplier",
+                "dailyLossPercent",
+                "dailyLossLimitPercent",
+                "drawdownPercent",
+                "consecutiveLosses",
+            ),
+        ),
         "activeExposure": active_exposure(payload.activeExposure),
         "recentEntryReviewMemory": recent_entry_memory(payload.recentAiReviews),
         "recentManagementContext": recent_management_context(payload.recentManagementReviews),

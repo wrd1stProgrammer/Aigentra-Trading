@@ -12,49 +12,18 @@ def final_trade_risk_percent(candidate: Any, review: Any) -> float:
         return 0.0
 
     requested = _as_float(getattr(review, "riskPercentOverride", None), base_risk)
-    confidence = _as_float(getattr(review, "confidence", None), 0.0)
-    risk_reward = estimated_risk_reward(candidate)
-    setup_score = _as_float(getattr(candidate, "setupScore", None), 0.0)
-
-    multiplier = 1.25
-    absolute_cap = 1.5
-    horizon_multiplier = _horizon_risk_multiplier(candidate)
-    if confidence >= 82 and risk_reward >= 1.5 and setup_score >= 58:
-        multiplier = Decimal("1.75") * horizon_multiplier
-        absolute_cap = float(Decimal("2.25") * horizon_multiplier)
-        if getattr(review, "riskPercentOverride", None) is None:
-            requested = max(requested, base_risk * 1.25)
-    if confidence >= 90 and risk_reward >= 2.0 and setup_score >= 65:
-        multiplier = Decimal("2.25") * horizon_multiplier
-        absolute_cap = float(Decimal("3.0") * horizon_multiplier)
-        if getattr(review, "riskPercentOverride", None) is None:
-            requested = max(requested, base_risk * 1.5)
-
-    cap = min(absolute_cap, max(base_risk, base_risk * float(multiplier)))
-    return max(0.1, min(requested, cap))
+    # The second-stage model is a veto/reduction layer. It may never increase
+    # the risk budget produced by the deterministic strategy.
+    return max(0.0, min(requested, base_risk))
 
 
 def adjusted_margin_deployment_percent(base_deployment: Decimal, candidate: Any, settings: Any, review: Any | None) -> Decimal:
-    if review is None:
-        return base_deployment
-
-    confidence = _as_float(getattr(review, "confidence", None), 0.0)
-    risk_reward = estimated_risk_reward(candidate)
-    setup_score = _as_float(getattr(candidate, "setupScore", None), 0.0)
-    uplift = Decimal("0")
-    horizon_multiplier = _horizon_risk_multiplier(candidate)
-    if confidence >= 90 and risk_reward >= 2.0 and setup_score >= 65:
-        uplift = Decimal("14") * horizon_multiplier
-    elif confidence >= 82 and risk_reward >= 1.5 and setup_score >= 58:
-        uplift = Decimal("8") * horizon_multiplier
-    elif confidence >= 76 and getattr(review, "riskPercentOverride", None) is not None and setup_score >= 60:
-        uplift = Decimal("5")
-
     maximum = min(
         SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT,
         max(Decimal("0"), _as_decimal(getattr(settings, "paper_max_margin_deployment_percent", 100), Decimal("100"))),
     )
-    return min(maximum, base_deployment + uplift)
+    # AI confidence must not expand account deployment either.
+    return min(maximum, base_deployment)
 
 
 def minimum_margin_deployment_percent(settings: Any) -> Decimal:

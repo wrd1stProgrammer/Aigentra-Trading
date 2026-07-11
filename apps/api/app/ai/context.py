@@ -13,6 +13,7 @@ from app.db import (
 )
 from app.core.config import get_settings
 from app.paper.loss_discipline import latest_loss_discipline_context, recent_loss_review_context
+from app.paper.entry_guardrails import entry_guardrail_context
 from app.repositories import from_json
 
 
@@ -165,7 +166,12 @@ def recent_trade_events_context(db: Session, trader_id: str, symbol: str, limit:
     return [_event_summary(record) for record in records]
 
 
-def build_trade_review_context(db: Session, trader_id: str, symbol: str) -> dict[str, Any]:
+def build_trade_review_context(
+    db: Session,
+    trader_id: str,
+    symbol: str,
+    candidate_risk_percent: float | None = None,
+) -> dict[str, Any]:
     ai_reviews = db.execute(
         select(AIReviewRecord)
         .where(AIReviewRecord.trader_id == trader_id, AIReviewRecord.symbol == symbol)
@@ -192,6 +198,13 @@ def build_trade_review_context(db: Session, trader_id: str, symbol: str) -> dict
         "recentTradeEvents": recent_trade_events_context(db, trader_id, symbol, limit=8),
         "lossDiscipline": loss_discipline or {},
         "recentLossReviews": recent_loss_review_context(db, trader_id, symbol, limit=3),
+        "accountState": account_state_context(db, trader_id),
+        "entryGuardrails": entry_guardrail_context(
+            db,
+            trader_id,
+            candidate_risk_percent=candidate_risk_percent,
+            settings=settings,
+        ),
     }
 
 

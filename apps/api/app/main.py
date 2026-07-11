@@ -5829,7 +5829,7 @@ async def run_trader_cycle(
                         marketSnapshot=snapshot,
                         candidate=candidate,
                         locale=clean_locale,
-                        **build_trade_review_context(db, strategy.profile.id, clean_symbol),
+                        **build_trade_review_context(db, strategy.profile.id, clean_symbol, candidate.riskPercent),
                     )
                     # Do not keep an RDS read transaction open while Codex is
                     # producing the second-stage approval.
@@ -6882,7 +6882,7 @@ async def ai_review_demo(request: RunCycleRequest, provider: Optional[str] = Que
             marketSnapshot=snapshot,
             candidate=candidate,
             locale=clean_locale,
-            **build_trade_review_context(db, strategy.profile.id, clean_symbol),
+            **build_trade_review_context(db, strategy.profile.id, clean_symbol, candidate.riskPercent),
         )
         review = await run_review_with_logging(db, review_payload, requested_provider, settings=settings)
         review.sourceLocale = CANONICAL_AI_LOCALE

@@ -273,6 +273,7 @@ class DonchianBreakout(TraderStrategy):
 
     def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
         g = _gate_common(snapshot)
+        fifteen = timeframe(snapshot, "15m")
         score = 48 + int(max(0.0, float(g["volumeZ15m"]) + 0.3) * 7) + int(abs(float(g["oi30m"])) * 4)
         score += 9 if g["regime"] in {"trend", "squeeze"} else 0
         score += 7 if float(g["candleBody"]) >= 0.45 else 0
@@ -517,12 +518,16 @@ class SessionRaider(TraderStrategy):
 
     def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
         g = _gate_common(snapshot)
+        fifteen = timeframe(snapshot, "15m")
+        prior_range = fifteen.get("priorRange") or {}
+        range_high = fvalue(prior_range.get("high"), float(g["price"]) * 1.003)
+        range_low = fvalue(prior_range.get("low"), float(g["price"]) * 0.997)
         open_time = int(float(g["openTime15m"]) or 0)
         hour = datetime.fromtimestamp(open_time / 1000, timezone.utc).hour if open_time else datetime.now(timezone.utc).hour
         active_window = hour in {0, 1, 7, 8, 13, 14, 15}
-        long_break = float(g["close15m"]) > max(float(g["open15m"]), float(g["ema20_1h"])) and g["trend4h"] != "bearish"
-        short_break = float(g["close15m"]) < min(float(g["open15m"]), float(g["ema20_1h"])) and g["trend4h"] != "bullish"
-        impulse = float(g["candleBody"]) >= 0.40 or float(g["volumeZ15m"]) > -0.20
+        long_break = float(g["close15m"]) > range_high and float(g["open15m"]) <= range_high and g["trend4h"] != "bearish"
+        short_break = float(g["close15m"]) < range_low and float(g["open15m"]) >= range_low and g["trend4h"] != "bullish"
+        impulse = float(g["candleBody"]) >= 0.48 and float(g["volumeZ15m"]) >= 0.25
         score = 44 + (12 if active_window else -6) + (10 if impulse else 0) + (7 if long_break or short_break else 0)
         if active_window and impulse and long_break:
             side, setup = "LONG", "SESSION_RANGE_BREAK_LONG"
@@ -537,8 +542,14 @@ class SessionRaider(TraderStrategy):
         )
         if not derivative_confirmed:
             score -= 4
-        enriched_g = {**g, "derivativeConfirmed": 1.0 if derivative_confirmed else 0.0}
-        risk_distance = max(float(g["atr1h"]) * 0.80, float(g["price"]) * 0.0045)
+        enriched_g = {
+            **g,
+            "derivativeConfirmed": 1.0 if derivative_confirmed else 0.0,
+            "priorSessionRangeHigh": range_high,
+            "priorSessionRangeLow": range_low,
+        }
+        broken_boundary = range_high if side == "LONG" else range_low
+        risk_distance = max(abs(float(g["price"]) - broken_boundary) + float(g["atr1h"]) * 0.35, float(g["price"]) * 0.0035)
         return _candidate(
             profile=self.profile,
             snapshot=snapshot,

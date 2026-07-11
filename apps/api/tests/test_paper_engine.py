@@ -28,11 +28,12 @@ def fee_inclusive_breakeven(entry_price, quantity, entry_fee, taker_fee_rate, si
     qty = Decimal(str(quantity))
     fee = Decimal(str(entry_fee))
     taker = Decimal(str(taker_fee_rate))
+    slippage = Decimal("0.0001")
     match side:
         case "short":
-            return ((entry * qty) - fee) / (qty * (Decimal("1") + taker))
+            return ((entry * qty) - fee) / (qty * (Decimal("1") + taker) * (Decimal("1") + slippage))
         case "long":
-            return ((entry * qty) + fee) / (qty * (Decimal("1") - taker))
+            return ((entry * qty) + fee) / (qty * (Decimal("1") - taker) * (Decimal("1") - slippage))
         case _:
             raise AssertionError(f"unexpected side: {side}")
 
@@ -124,9 +125,9 @@ def test_market_long_fills_marks_to_market_and_closes_take_profit(temp_db):
         position = db.execute(select(PaperPositionRecord)).scalar_one()
         state = db.execute(select(TraderStateRecord)).scalar_one()
         assert position.status == "open"
-        assert rounded(position.margin) == Decimal("10.0000")
-        assert rounded(position.unrealized_pnl) == Decimal("3.0000")
-        assert rounded(state.equity) == Decimal("10002.9500")
+        assert rounded(position.margin) == Decimal("10.0010")
+        assert rounded(position.unrealized_pnl) == Decimal("2.9900")
+        assert rounded(state.equity) == Decimal("10002.9400")
 
         second = process_candle(
             db,
@@ -139,9 +140,9 @@ def test_market_long_fills_marks_to_market_and_closes_take_profit(temp_db):
         state = db.execute(select(TraderStateRecord)).scalar_one()
         assert position.status == "closed"
         assert position.close_reason == "take_profit"
-        assert rounded(position.realized_pnl) == Decimal("9.8950")
-        assert rounded(state.cash_balance) == Decimal("10009.8950")
-        assert rounded(state.equity) == Decimal("10009.8950")
+        assert rounded(position.realized_pnl) == Decimal("9.8850")
+        assert rounded(state.cash_balance) == Decimal("10009.8850")
+        assert rounded(state.equity) == Decimal("10009.8850")
         assert rounded(state.total_fees) == Decimal("0.1050")
 
         events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
@@ -184,8 +185,8 @@ def test_limit_short_uses_maker_fee_and_closes_stop_loss(temp_db):
         state = db.execute(select(TraderStateRecord)).scalar_one()
 
         assert position.close_reason == "stop_loss"
-        assert rounded(position.realized_pnl) == Decimal("-10.0750")
-        assert rounded(state.cash_balance) == Decimal("9989.9250")
+        assert rounded(position.realized_pnl) == Decimal("-10.0860")
+        assert rounded(state.cash_balance) == Decimal("9989.9140")
         assert rounded(state.total_fees) == Decimal("0.0750")
 
 
@@ -519,7 +520,7 @@ def test_position_management_moves_stop_to_breakeven(temp_db):
 
         assert second.closed_positions == []
         expected_stop = fee_inclusive_breakeven(
-            entry_price=100,
+            entry_price=position.entry_price,
             quantity=1,
             entry_fee=position.entry_fee,
             taker_fee_rate=Decimal("0.0005"),
@@ -576,7 +577,7 @@ def test_old_entry_breakeven_stop_upgrades_to_fee_inclusive_breakeven(temp_db):
 
         db.refresh(position)
         expected_stop = fee_inclusive_breakeven(
-            entry_price=100,
+            entry_price=position.entry_price,
             quantity=position.quantity,
             entry_fee=position.entry_fee,
             taker_fee_rate=Decimal("0.0005"),
@@ -613,7 +614,7 @@ def test_fee_inclusive_breakeven_upgrade_is_stable_at_database_price_precision(t
         )
         position = db.execute(select(PaperPositionRecord)).scalar_one()
         expected_stop = fee_inclusive_breakeven(
-            entry_price=100,
+            entry_price=position.entry_price,
             quantity=position.quantity,
             entry_fee=position.entry_fee,
             taker_fee_rate=Decimal("0.0005"),
@@ -699,7 +700,7 @@ def test_orderflow_sniper_can_move_stop_to_breakeven_before_one_r(temp_db):
 
         assert second.closed_positions == []
         expected_stop = fee_inclusive_breakeven(
-            entry_price=100,
+            entry_price=position.entry_price,
             quantity=1,
             entry_fee=position.entry_fee,
             taker_fee_rate=Decimal("0.0005"),
@@ -748,7 +749,7 @@ def test_newly_filled_position_waits_for_next_candle_before_breakeven_management
         assert second.filled_orders == []
         assert position.status == "open"
         expected_stop = fee_inclusive_breakeven(
-            entry_price=100,
+            entry_price=position.entry_price,
             quantity=1,
             entry_fee=position.entry_fee,
             taker_fee_rate=Decimal("0.0005"),
@@ -793,7 +794,7 @@ def test_60_hour_profitable_long_moves_stop_to_breakeven(temp_db):
 
         db.refresh(position)
         expected_stop = fee_inclusive_breakeven(
-            entry_price=100,
+            entry_price=position.entry_price,
             quantity=position.quantity,
             entry_fee=position.entry_fee,
             taker_fee_rate=Decimal("0.0005"),
@@ -840,7 +841,7 @@ def test_60_hour_profitable_short_moves_stop_to_breakeven(temp_db):
 
         db.refresh(position)
         expected_stop = fee_inclusive_breakeven(
-            entry_price=100,
+            entry_price=position.entry_price,
             quantity=position.quantity,
             entry_fee=position.entry_fee,
             taker_fee_rate=Decimal("0.0005"),
@@ -1010,11 +1011,11 @@ def test_market_fill_reanchors_stop_and_targets_to_actual_fill_price(temp_db):
         payload = from_json(position.payload_json)
 
         assert result.filled_orders
-        assert position.entry_price == Decimal("105.0000000000")
-        assert position.stop_loss_price == Decimal("115.0000000000")
-        assert position.take_profit_price == Decimal("95.0000000000")
-        assert payload["takeProfits"][0]["price"] == 95.0
-        assert payload["target"]["price"] == 95.0
+        assert position.entry_price == Decimal("104.9895000000")
+        assert position.stop_loss_price == Decimal("114.9895000000")
+        assert position.take_profit_price == Decimal("94.9895000000")
+        assert payload["takeProfits"][0]["price"] == 94.9895
+        assert payload["target"]["price"] == 94.9895
 
 
 def test_partial_take_profit_reduces_position_size(temp_db):
@@ -1067,7 +1068,7 @@ def test_partial_take_profit_reduces_position_size(temp_db):
         assert rounded(position.quantity) == Decimal("0.5000")
         assert rounded(position.take_profit_price) == Decimal("120.0000")
         expected_stop = fee_inclusive_breakeven(
-            entry_price=100,
+            entry_price=position.entry_price,
             quantity=position.quantity,
             entry_fee=position.entry_fee,
             taker_fee_rate=Decimal("0.0005"),
@@ -1185,7 +1186,7 @@ def test_short_partial_take_profit_moves_stop_to_breakeven(temp_db):
         assert rounded(position.quantity) == Decimal("0.5000")
         assert rounded(position.take_profit_price) == Decimal("80.0000")
         expected_stop = fee_inclusive_breakeven(
-            entry_price=100,
+            entry_price=position.entry_price,
             quantity=position.quantity,
             entry_fee=position.entry_fee,
             taker_fee_rate=Decimal("0.0005"),
@@ -1241,7 +1242,7 @@ def test_options_skew_moves_stop_to_breakeven_at_halfway_to_first_take_profit(te
 
         db.refresh(position)
         expected_stop = fee_inclusive_breakeven(
-            entry_price=100,
+            entry_price=position.entry_price,
             quantity=position.quantity,
             entry_fee=position.entry_fee,
             taker_fee_rate=Decimal("0.0005"),
@@ -1295,7 +1296,7 @@ def test_short_moves_stop_to_breakeven_at_halfway_to_first_take_profit(temp_db):
 
         db.refresh(position)
         expected_stop = fee_inclusive_breakeven(
-            entry_price=100,
+            entry_price=position.entry_price,
             quantity=position.quantity,
             entry_fee=position.entry_fee,
             taker_fee_rate=Decimal("0.0005"),
@@ -1371,3 +1372,72 @@ def test_close_position_cancels_remaining_orders_for_same_plan(temp_db):
         db.refresh(order2)
         # Verify order2 has been automatically cancelled!
         assert order2.status == "canceled"
+
+
+def test_limit_order_requires_price_through_not_exact_touch(temp_db):
+    with session_scope() as db:
+        order = place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=100,
+            quantity=1,
+        )
+        exact_touch = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 101, "high": 102, "low": 100, "close": 101},
+        )
+        assert exact_touch.filled_orders == []
+        assert order.status == "open"
+
+        traded_through = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 101, "high": 101, "low": 99.9, "close": 100},
+        )
+        assert traded_through.filled_orders == [order]
+
+
+def test_open_position_pays_funding_once_per_settlement_bucket(temp_db):
+    base_time = datetime(2026, 7, 1, 0, 1, tzinfo=timezone.utc)
+    with session_scope() as db:
+        order = place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="long",
+            quantity=1,
+            leverage=1,
+            take_profit_price=130,
+            stop_loss_price=80,
+        )
+        order.submitted_at = base_time
+        db.flush()
+        process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 99, "close": 100, "timestamp": base_time},
+        )
+        settlement = base_time.replace(hour=8, minute=0)
+        result = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 99, "close": 100, "timestamp": settlement, "fundingRate": 0.001},
+        )
+        duplicate = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 100, "high": 101, "low": 99, "close": 100, "timestamp": settlement + timedelta(minutes=1), "fundingRate": 0.001},
+        )
+        funding_events = [event for event in result.events if event.event_type == "funding_payment"]
+        assert len(funding_events) == 1
+        assert rounded(funding_events[0].realized_pnl) == Decimal("-0.1000")
+        assert not [event for event in duplicate.events if event.event_type == "funding_payment"]

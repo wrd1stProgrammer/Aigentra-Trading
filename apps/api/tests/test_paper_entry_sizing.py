@@ -46,7 +46,7 @@ def margin_used(order: dict) -> float:
     return order["quantity"] * order["limitPrice"] / order["leverage"]
 
 
-def test_split_entry_sizing_uses_minimum_budget_for_first_fill(temp_db):
+def test_split_entry_sizing_allocates_total_stop_risk_across_entries(temp_db):
     with session_scope() as db:
         candidate = TradeCandidate(
             created=True,
@@ -73,8 +73,47 @@ def test_split_entry_sizing_uses_minimum_budget_for_first_fill(temp_db):
             settings=sizing_settings(minimum=1, maximum=100),
         )
 
-        assert len(result["created"]) == 1
+        assert len(result["created"]) == 2
         assert result["marginDeploymentPercent"] == 10
-        assert margin_used(result["created"][0]) >= 990
-        assert result["actualMarginDeploymentPercent"] >= 9.9
-        assert "Entry 2 skipped: quantity below paper minimum." in result["skipped"]
+        assert result["plannedRisk"] <= result["riskBudget"] * 1.05
+        assert result["riskBudgetUtilizationPercent"] <= 105
+        assert result["actualMarginDeploymentPercent"] < 10
+
+
+def test_funding_contrarian_cannot_retry_in_same_funding_interval(temp_db):
+    with session_scope() as db:
+        candidate = TradeCandidate(
+            created=True,
+            side="SHORT",
+            setupType="POSITIVE_FUNDING_STALL_SHORT",
+            setupScore=70,
+            entries=[EntryPlan(price=68000, weight=1.0, reason="funding unwind")],
+            stopLoss=69000,
+            takeProfits=[TakeProfitPlan(price=66000, weight=1.0, reason="normalization")],
+            riskPercent=0.4,
+        )
+        settings = sizing_settings()
+        first = create_paper_orders_from_plan(
+            db,
+            trader_id="funding-contrarian",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=orderable_plan(candidate),
+            settings=settings,
+        )
+        second = create_paper_orders_from_plan(
+            db,
+            trader_id="funding-contrarian",
+            symbol="BTCUSDT",
+            run_id=2,
+            trade_plan_id=2,
+            candidate=candidate,
+            plan=orderable_plan(candidate),
+            settings=settings,
+        )
+
+        assert first["created"]
+        assert second["created"] == []
+        assert "already attempted this funding interval" in second["skipped"][0]

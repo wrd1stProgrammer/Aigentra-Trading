@@ -491,7 +491,7 @@ def test_trade_plan_clamps_provider_leverage_override_to_service_minimum():
     assert "clamped to the service minimum" in " ".join(plan.notes)
 
 
-def test_trade_plan_allows_larger_risk_for_high_confidence_high_rr_setup():
+def test_trade_plan_never_allows_ai_to_increase_candidate_risk():
     snapshot = sample_snapshot()
     snapshot["timeframes"]["15m"]["open"] = 67900.0
     snapshot["timeframes"]["15m"]["close"] = snapshot["price"]
@@ -519,8 +519,7 @@ def test_trade_plan_allows_larger_risk_for_high_confidence_high_rr_setup():
     plan = trade_plan_from_review("BTCUSDT", candidate, review)
 
     assert plan.status == "PAPER_TRADING_PENDING"
-    assert plan.riskPercent > 1.575
-    assert plan.riskPercent == pytest.approx(1.81125)
+    assert plan.riskPercent == candidate.riskPercent
 
 
 def test_public_trader_profiles_have_beginner_readable_concepts():

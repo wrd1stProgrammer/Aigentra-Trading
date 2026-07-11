@@ -336,6 +336,13 @@ async def fetch_execution_candles(
     except (httpx.HTTPError, KeyError, TypeError, ValueError):
         price = to_positive_execution_price(market_candles[-1]["close"])
     market_candles[-1] = execution_live_market_candle(symbol, market_candles[-1], price, previous_price)
+    try:
+        premium = await client.get_premium_index(normalize_execution_symbol(symbol))
+        funding_rate = premium.get("lastFundingRate") if isinstance(premium, dict) else None
+        if funding_rate is not None:
+            market_candles[-1]["fundingRate"] = funding_rate
+    except (AttributeError, httpx.HTTPError, KeyError, RuntimeError, TypeError, ValueError):
+        pass
     return price, market_candles
 
 

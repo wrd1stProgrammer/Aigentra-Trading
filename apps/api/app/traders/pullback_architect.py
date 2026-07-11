@@ -76,6 +76,8 @@ class PullbackArchitect(TraderStrategy):
         four_hour_ema50 = four_hour.get("ema50") or price
         bullish_alignment = trend == "bullish" and four_hour_ema20 > four_hour_ema50
         bearish_alignment = trend == "bearish" and four_hour_ema20 < four_hour_ema50
+        atr_1h = float(one_hour.get("atr14") or price * 0.008)
+        swings_1h = one_hour.get("swings") or {}
 
         if not (bullish_alignment or bearish_alignment):
             return make_rejection("4H trend and EMA alignment do not agree for a pullback setup.", 40)
@@ -122,13 +124,13 @@ class PullbackArchitect(TraderStrategy):
                 ]
             elif scale_count == 2:
                 entries = [
-                    EntryPlan(price=round_price(price * 0.997), weight=0.32, reason="Probe scale after late pullback confirmation"),
-                    EntryPlan(price=round_price(price * 0.990), weight=0.68, reason="Structure scale only if pullback stays orderly"),
+                    EntryPlan(price=round_price(price * 0.997), weight=1.0, reason="Single probe after late pullback confirmation"),
                 ]
-            stop = round_price(price * 0.975)
+            structural_low = min(swings_1h.get("lows", []) or [lower_zone])
+            stop = round_price(min(structural_low - atr_1h * 0.35, min(entry.price for entry in entries) - atr_1h * 0.45))
             tps = [
-                TakeProfitPlan(price=round_price(price * 1.014), weight=0.5, reason="Prior swing high"),
-                TakeProfitPlan(price=round_price(price * 1.032), weight=0.5, reason="Next resistance zone"),
+                TakeProfitPlan(price=round_price(max(price * 1.014, price + (price - stop) * 1.45)), weight=0.5, reason="Prior swing high or 1.45R"),
+                TakeProfitPlan(price=round_price(max(price * 1.032, price + (price - stop) * 2.6)), weight=0.5, reason="Next resistance zone or 2.6R"),
             ]
             setup = "THREE_STAGE_PULLBACK_LONG"
         else:
@@ -146,13 +148,13 @@ class PullbackArchitect(TraderStrategy):
                 ]
             elif scale_count == 2:
                 entries = [
-                    EntryPlan(price=round_price(price * 1.003), weight=0.32, reason="Probe scale after late rebound confirmation"),
-                    EntryPlan(price=round_price(price * 1.010), weight=0.68, reason="Structure scale only if rebound stays orderly"),
+                    EntryPlan(price=round_price(price * 1.003), weight=1.0, reason="Single probe after late rebound confirmation"),
                 ]
-            stop = round_price(price * 1.025)
+            structural_high = max(swings_1h.get("highs", []) or [upper_zone])
+            stop = round_price(max(structural_high + atr_1h * 0.35, max(entry.price for entry in entries) + atr_1h * 0.45))
             tps = [
-                TakeProfitPlan(price=round_price(price * 0.986), weight=0.5, reason="Prior swing low"),
-                TakeProfitPlan(price=round_price(price * 0.968), weight=0.5, reason="Next support zone"),
+                TakeProfitPlan(price=round_price(min(price * 0.986, price - (stop - price) * 1.45)), weight=0.5, reason="Prior swing low or 1.45R"),
+                TakeProfitPlan(price=round_price(min(price * 0.968, price - (stop - price) * 2.6)), weight=0.5, reason="Next support zone or 2.6R"),
             ]
             setup = "THREE_STAGE_PULLBACK_SHORT"
 

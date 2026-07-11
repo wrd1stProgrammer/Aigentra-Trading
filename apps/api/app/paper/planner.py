@@ -1,5 +1,6 @@
 from decimal import Decimal, ROUND_DOWN
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -7,13 +8,12 @@ from sqlalchemy.orm import Session
 
 from app.db import PaperOrderRecord, PaperPositionRecord
 from app.paper.engine import place_paper_order
+from app.paper.entry_guardrails import entry_guardrail_context
 from app.paper.repositories import create_trade_event
 from app.paper.review_payload import review_payload_fields
 from app.paper.settings import sync_default_paper_settings
 from app.paper.sizing import (
     adjusted_margin_deployment_percent,
-    minimum_margin_deployment_percent,
-    planned_entry_margin_budgets,
     target_margin_deployment_percent,
 )
 from app.repositories import serialize_record
@@ -118,10 +118,36 @@ def create_paper_orders_from_plan(
     if plan.status != "PAPER_TRADING_PENDING" or not plan.side or not plan.entries or plan.stopLoss is None:
         return {"created": [], "skipped": ["Trade plan is not orderable."]}
 
+    if trader_id == "funding-contrarian":
+        now = datetime.now(timezone.utc)
+        interval_hours = max(1, int(getattr(settings, "paper_funding_interval_hours", 8)))
+        funding_bucket = now.replace(
+            hour=(now.hour // interval_hours) * interval_hours,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        prior_attempt = db.execute(
+            select(PaperOrderRecord.id)
+            .where(
+                PaperOrderRecord.trader_id == trader_id,
+                PaperOrderRecord.symbol == symbol,
+                PaperOrderRecord.created_at >= funding_bucket,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if prior_attempt is not None:
+            return {
+                "created": [],
+                "skipped": ["Funding Contrarian already attempted this funding interval."],
+                "fundingInterval": funding_bucket.isoformat(),
+            }
+
     state, risk_settings = sync_default_paper_settings(db, trader_id, symbol, settings)
     side = plan.side.lower()
     stop_loss = Decimal(str(plan.stopLoss))
-    risk_percent = Decimal(str(plan.riskPercent or candidate.riskPercent or 0))
+    candidate_risk_percent = Decimal(str(candidate.riskPercent or 0))
+    risk_percent = min(Decimal(str(plan.riskPercent or candidate.riskPercent or 0)), candidate_risk_percent)
     if risk_percent <= 0:
         return {"created": [], "skipped": ["Risk percent is not positive."]}
 
@@ -133,6 +159,16 @@ def create_paper_orders_from_plan(
 
     equity = Decimal(str(state.equity))
     available_cash = max(Decimal("0"), Decimal(str(state.cash_balance)))
+    guardrails = entry_guardrail_context(
+        db,
+        trader_id,
+        candidate_risk_percent=risk_percent,
+        settings=settings,
+    )
+    if guardrails["blocked"]:
+        reasons = guardrails.get("blockReasons") or ["Account entry guardrail is active."]
+        return {"created": [], "skipped": reasons, "entryGuardrails": guardrails}
+    risk_percent *= Decimal(str(guardrails.get("riskMultiplier", 1.0)))
     risk_budget = equity * (risk_percent / Decimal("100"))
     base_deployment_percent = target_margin_deployment_percent(candidate, settings)
     deployment_percent = adjusted_margin_deployment_percent(base_deployment_percent, candidate, settings, review)
@@ -144,45 +180,67 @@ def create_paper_orders_from_plan(
         else Decimal("0")
     )
     target_margin_budget = min(target_margin_budget, cash_budget_cap)
-    minimum_first_entry_percent = min(deployment_percent, minimum_margin_deployment_percent(settings))
-    first_entry_floor_budget = equity * (minimum_first_entry_percent / Decimal("100"))
-    planned_margins = planned_entry_margin_budgets(
-        entries=plan.entries,
-        target_margin_budget=target_margin_budget,
-        total_weight=total_weight,
-        first_entry_floor_budget=first_entry_floor_budget,
-    )
     slippage_rate = Decimal(str(settings.paper_slippage_rate))
     created: list[dict] = []
     skipped: list[str] = []
     actual_margin_used = Decimal("0")
+    total_planned_risk = Decimal("0")
 
     for index, entry in enumerate(plan.entries):
         entry_price = Decimal(str(entry.price))
-        distance_to_stop = abs(entry_price - stop_loss)
-        if distance_to_stop <= 0:
+        if abs(entry_price - stop_loss) <= 0:
             skipped.append(f"Entry {index + 1} skipped: stop distance is zero.")
             continue
 
         weight = Decimal(str(max(entry.weight, 0.0))) / total_weight
-        planned_margin = planned_margins[index]
-        effective_weight = planned_margin / target_margin_budget if target_margin_budget > 0 else Decimal("0")
-        planned_notional = planned_margin * leverage
-        quantity = quantize_quantity(planned_notional / entry_price)
-        if quantity < MIN_PAPER_QUANTITY:
-            skipped.append(f"Entry {index + 1} skipped: quantity below paper minimum.")
-            continue
-        actual_margin = (quantity * entry_price) / leverage
-        actual_margin_used += actual_margin
-
         target = plan.takeProfits[min(index, len(plan.takeProfits) - 1)] if plan.takeProfits else None
         post_only = candidate.orderIntent.postOnly if candidate.orderIntent else True
         use_market = not post_only and index == 0
         order_type = "market" if use_market else "limit"
-        limit_price = None if use_market else entry_price
-        estimated_entry_fee = entry_price * quantity * (
-            risk_settings.taker_fee_rate if use_market else risk_settings.maker_fee_rate
+        entry_fee_rate = risk_settings.taker_fee_rate if use_market else risk_settings.maker_fee_rate
+        expected_entry_fill = entry_price * (
+            Decimal("1") + slippage_rate if side == "long" and use_market
+            else Decimal("1") - slippage_rate if side == "short" and use_market
+            else Decimal("1")
         )
+        expected_stop_fill = stop_loss * (
+            Decimal("1") - slippage_rate if side == "long"
+            else Decimal("1") + slippage_rate
+        )
+        loss_distance = (
+            expected_entry_fill - expected_stop_fill
+            if side == "long"
+            else expected_stop_fill - expected_entry_fill
+        )
+        risk_per_unit = loss_distance + expected_entry_fill * entry_fee_rate + expected_stop_fill * risk_settings.taker_fee_rate
+        if risk_per_unit <= 0:
+            skipped.append(f"Entry {index + 1} skipped: fee/slippage-adjusted risk is not positive.")
+            continue
+        allocated_risk = risk_budget * weight
+        risk_sized_quantity = allocated_risk / risk_per_unit
+        margin_cap = target_margin_budget * weight
+        margin_sized_quantity = (margin_cap * leverage) / expected_entry_fill if expected_entry_fill > 0 else Decimal("0")
+        quantity = quantize_quantity(min(risk_sized_quantity, margin_sized_quantity))
+        if quantity < MIN_PAPER_QUANTITY:
+            skipped.append(f"Entry {index + 1} skipped: quantity below paper minimum.")
+            continue
+        planned_risk = quantity * risk_per_unit
+        tolerance = Decimal("1") + Decimal(str(getattr(settings, "paper_risk_budget_tolerance_percent", 5))) / Decimal("100")
+        remaining_risk = max(Decimal("0"), risk_budget * tolerance - total_planned_risk)
+        if planned_risk > remaining_risk:
+            quantity = quantize_quantity(remaining_risk / risk_per_unit)
+            planned_risk = quantity * risk_per_unit
+        if quantity < MIN_PAPER_QUANTITY:
+            skipped.append(f"Entry {index + 1} skipped: remaining risk budget is below paper minimum.")
+            continue
+        total_planned_risk += planned_risk
+        actual_margin = (quantity * expected_entry_fill) / leverage
+        actual_margin_used += actual_margin
+        limit_price = None if use_market else entry_price
+        estimated_entry_fee = expected_entry_fill * quantity * entry_fee_rate
+        planned_notional = expected_entry_fill * quantity
+        planned_margin = planned_notional / leverage
+        effective_weight = planned_risk / risk_budget if risk_budget > 0 else Decimal("0")
         payload = {
             "paperOnly": True,
             "runId": run_id,
@@ -196,13 +254,18 @@ def create_paper_orders_from_plan(
             "riskPercent": float(risk_percent),
             "baseMarginDeploymentPercent": float(base_deployment_percent),
             "marginDeploymentPercent": float(deployment_percent),
-            "minimumFirstEntryMarginPercent": float(minimum_first_entry_percent),
             "plannedMargin": float(planned_margin),
             "plannedNotional": float(planned_notional),
             "actualPlannedMargin": float(actual_margin),
             "accountMarginPercent": float((actual_margin / equity) * Decimal("100")) if equity > 0 else 0.0,
             "notionalExposurePercent": float(((actual_margin * leverage) / equity) * Decimal("100")) if equity > 0 else 0.0,
             "riskBudget": float(risk_budget),
+            "allocatedRiskBudget": float(allocated_risk),
+            "plannedRisk": float(planned_risk),
+            "riskPerUnit": float(risk_per_unit),
+            "expectedEntryFill": float(expected_entry_fill),
+            "expectedStopFill": float(expected_stop_fill),
+            "entryGuardrails": guardrails,
             "slippageRate": float(slippage_rate),
             "estimatedEntryFee": float(estimated_entry_fee),
             "candidateSetupType": candidate.setupType,
@@ -257,6 +320,9 @@ def create_paper_orders_from_plan(
         "skipped": skipped,
         "riskBudget": float(risk_budget),
         "riskPercent": float(risk_percent),
+        "plannedRisk": float(total_planned_risk),
+        "riskBudgetUtilizationPercent": float(total_planned_risk / risk_budget * Decimal("100")) if risk_budget > 0 else 0.0,
+        "entryGuardrails": guardrails,
         "baseMarginDeploymentPercent": float(base_deployment_percent),
         "marginDeploymentPercent": float(deployment_percent),
         "actualMarginDeploymentPercent": float((actual_margin_used / equity) * Decimal("100")) if equity > 0 else 0.0,

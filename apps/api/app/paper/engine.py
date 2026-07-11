@@ -42,6 +42,7 @@ class Candle:
     low: Decimal
     close: Decimal
     timestamp: Optional[datetime] = None
+    funding_rate: Optional[Decimal] = None
 
     @classmethod
     def from_mapping(cls, symbol: str, data: dict[str, Any]) -> "Candle":
@@ -52,6 +53,11 @@ class Candle:
             low=to_decimal(data["low"], "low"),
             close=to_decimal(data["close"], "close"),
             timestamp=data.get("timestamp") or data.get("time") or data.get("candle_time"),
+            funding_rate=(
+                to_decimal(data.get("fundingRate"), "fundingRate")
+                if data.get("fundingRate") is not None
+                else None
+            ),
         )
 
 
@@ -411,6 +417,7 @@ def process_candle(db: Session, trader_id: str, symbol: str, candle: Union[Candl
             continue
         if not _record_is_active_for_candle(position.opened_at, parsed_candle):
             continue
+        _apply_funding_if_due(db, state, position, parsed_candle, result)
         if _should_upgrade_fee_inclusive_breakeven_stop(db, position):
             _move_stop_to_breakeven(
                 db,
@@ -450,19 +457,20 @@ def process_candle(db: Session, trader_id: str, symbol: str, candle: Union[Candl
 
 
 def _fill_price(order: PaperOrderRecord, candle: Candle) -> Optional[Decimal]:
+    slippage = Decimal(str(get_settings().paper_slippage_rate))
     if order.order_type == "market":
-        return candle.open
+        return candle.open * (Decimal("1") + slippage if (order.side or "long").lower() == "long" else Decimal("1") - slippage)
     if order.limit_price is None:
         return None
     
     side = (order.side or "long").lower()
+    buffer_rate = Decimal(str(get_settings().paper_limit_fill_buffer_rate))
     if side == "long":
-        # Buy Limit: price falls to or below the limit price
-        if candle.low <= order.limit_price:
+        # A mere print at the limit is not treated as a guaranteed full fill.
+        if candle.open <= order.limit_price or candle.low < order.limit_price * (Decimal("1") - buffer_rate):
             return order.limit_price if candle.open >= order.limit_price else candle.open
     else:
-        # Sell Limit: price rises to or above the limit price
-        if candle.high >= order.limit_price:
+        if candle.open >= order.limit_price or candle.high > order.limit_price * (Decimal("1") + buffer_rate):
             return order.limit_price if candle.open <= order.limit_price else candle.open
             
     return None
@@ -704,6 +712,62 @@ def _exit_signal(position: PaperPositionRecord, candle: Candle) -> tuple[Optiona
         if take_profit_price is not None and candle.low <= take_profit_price:
             return take_profit_price, "take_profit"
     return None, None
+
+
+def _funding_bucket(timestamp: datetime, interval_hours: int) -> datetime:
+    aware = _aware_utc(timestamp)
+    hour = (aware.hour // interval_hours) * interval_hours
+    return aware.replace(hour=hour, minute=0, second=0, microsecond=0)
+
+
+def _apply_funding_if_due(
+    db: Session,
+    state: TraderStateRecord,
+    position: PaperPositionRecord,
+    candle: Candle,
+    result: PaperEngineResult,
+) -> None:
+    if candle.timestamp is None or candle.funding_rate is None or candle.funding_rate == 0:
+        return
+    interval_hours = max(1, int(get_settings().paper_funding_interval_hours))
+    bucket = _funding_bucket(candle.timestamp, interval_hours)
+    if _aware_utc(position.opened_at) >= bucket:
+        return
+    payload = from_json(position.payload_json) or {}
+    bucket_key = bucket.isoformat()
+    if payload.get("lastFundingBucket") == bucket_key:
+        return
+    mark_notional = candle.close * position.quantity
+    direction = Decimal("-1") if position.side == "long" else Decimal("1")
+    funding_pnl = mark_notional * candle.funding_rate * direction
+    state.cash_balance += funding_pnl
+    state.realized_pnl += funding_pnl
+    state.updated_at = utc_now()
+    payload["lastFundingBucket"] = bucket_key
+    payload["lastFundingRate"] = float(candle.funding_rate)
+    position.payload_json = to_json(payload)
+    position.updated_at = utc_now()
+    result.events.append(
+        create_trade_event(
+            db,
+            position.trader_id or "",
+            position.symbol or candle.symbol,
+            "funding_payment",
+            order_id=position.order_id,
+            position_id=position.id,
+            price=candle.close,
+            quantity=position.quantity,
+            realized_pnl=funding_pnl,
+            equity=state.equity,
+            payload={
+                "paperOnly": True,
+                "fundingRate": candle.funding_rate,
+                "fundingBucket": bucket_key,
+                "side": position.side,
+                "notional": mark_notional,
+            },
+        )
+    )
 
 
 def _risk_distance(position: PaperPositionRecord) -> Optional[Decimal]:
@@ -960,17 +1024,20 @@ def _fee_inclusive_breakeven_stop(db: Session, position: PaperPositionRecord) ->
         return _quantize_paper_price(position.entry_price)
     settings = ensure_risk_settings(db, position.trader_id or "", position.symbol)
     taker_fee_rate = settings.taker_fee_rate
+    slippage = Decimal(str(get_settings().paper_slippage_rate))
     match position.side:
         case "long":
             denominator = position.quantity * (Decimal("1") - taker_fee_rate)
             if denominator <= 0:
                 return _quantize_paper_price(position.entry_price)
-            return _quantize_paper_price(((position.entry_price * position.quantity) + position.entry_fee) / denominator)
+            required_exit = ((position.entry_price * position.quantity) + position.entry_fee) / denominator
+            return _quantize_paper_price(required_exit / (Decimal("1") - slippage))
         case "short":
             denominator = position.quantity * (Decimal("1") + taker_fee_rate)
             if denominator <= 0:
                 return _quantize_paper_price(position.entry_price)
-            return _quantize_paper_price(((position.entry_price * position.quantity) - position.entry_fee) / denominator)
+            required_exit = ((position.entry_price * position.quantity) - position.entry_fee) / denominator
+            return _quantize_paper_price(required_exit / (Decimal("1") + slippage))
         case _:
             return _quantize_paper_price(position.entry_price)
 
@@ -1012,6 +1079,10 @@ def _close_position(
     result: PaperEngineResult,
 ) -> None:
     settings = ensure_risk_settings(db, position.trader_id or "", position.symbol)
+    if reason != "take_profit":
+        slippage = Decimal(str(get_settings().paper_slippage_rate))
+        exit_price *= Decimal("1") - slippage if position.side == "long" else Decimal("1") + slippage
+        exit_price = exit_price.quantize(PAPER_PRICE_QUANT)
     gross_pnl = _position_gross_pnl(position, exit_price)
     exit_fee = exit_price * position.quantity * settings.taker_fee_rate
     net_pnl = gross_pnl - position.entry_fee - exit_fee

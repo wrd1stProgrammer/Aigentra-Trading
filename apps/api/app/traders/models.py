@@ -103,6 +103,8 @@ class TradeReviewPayload(BaseModel):
     recentTradeEvents: List[Dict[str, Any]] = Field(default_factory=list)
     lossDiscipline: Dict[str, Any] = Field(default_factory=dict)
     recentLossReviews: List[Dict[str, Any]] = Field(default_factory=list)
+    accountState: Dict[str, Any] = Field(default_factory=dict)
+    entryGuardrails: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ReviewFact(BaseModel):

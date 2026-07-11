@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import time
+from statistics import mean, pstdev
 from typing import Any, Dict, Iterable, Optional
 
 import httpx
@@ -10,6 +11,20 @@ from app.core.config import get_settings
 
 
 COINALYZE_BTC_SYMBOLS = ("BTCUSDT_PERP.A", "BTCUSDT.6", "BTCUSDT_PERP.3")
+_DERIBIT_SKEW_HISTORY: dict[int, float] = {}
+
+
+def _skew_history_state(spread: float, now: datetime) -> tuple[float, int]:
+    bucket = int(now.timestamp() // (15 * 60))
+    _DERIBIT_SKEW_HISTORY[bucket] = spread
+    minimum_bucket = bucket - (7 * 24 * 4)
+    for stale_bucket in [key for key in _DERIBIT_SKEW_HISTORY if key < minimum_bucket]:
+        _DERIBIT_SKEW_HISTORY.pop(stale_bucket, None)
+    history = [value for key, value in sorted(_DERIBIT_SKEW_HISTORY.items()) if key < bucket]
+    if len(history) < 8:
+        return 0.0, len(history) + 1
+    deviation = pstdev(history)
+    return ((spread - mean(history)) / deviation if deviation > 0 else 0.0), len(history) + 1
 
 
 class ExternalDerivativesClient:
@@ -36,6 +51,9 @@ class ExternalDerivativesClient:
                 self._coinalyze_context(client),
                 self._deribit_context(client),
             )
+        spread = float(put["markIv"]) - float(call["markIv"])
+        now = datetime.now(timezone.utc)
+        skew_zscore, skew_sample_count = _skew_history_state(spread, now)
         return {
             "enabled": True,
             "symbol": clean_symbol,
@@ -142,12 +160,14 @@ class ExternalDerivativesClient:
             "putStrike": put["strike"],
             "callMarkIv": round(float(call["markIv"]), 4),
             "putMarkIv": round(float(put["markIv"]), 4),
-            "putCallIvSpread": round(float(put["markIv"]) - float(call["markIv"]), 4),
+            "putCallIvSpread": round(spread, 4),
+            "putCallIvSpreadZscore": round(skew_zscore, 4),
+            "skewSampleCount": skew_sample_count,
             "callPutVolumeRatio": round(call_volume / put_volume, 4) if put_volume > 0 else round(call_volume, 4),
             "ivPercentile": round(_percentile_rank(iv_values, current_iv), 4),
             "realizedVolatility30d": round(realized_vol, 4),
             "sampleOptions": len(near_rows),
-            "updatedAt": datetime.now(timezone.utc).isoformat(),
+            "updatedAt": now.isoformat(),
         }
 
     async def _deribit_get(self, client: httpx.AsyncClient, path: str, params: dict[str, Any]) -> dict[str, Any]:

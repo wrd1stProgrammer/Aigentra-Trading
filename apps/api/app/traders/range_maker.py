@@ -64,10 +64,11 @@ class RangeMaker(TraderStrategy):
         one_hour = timeframe(snapshot, "1h")
         four_hour = timeframe(snapshot, "4h")
         fifteen = timeframe(snapshot, "15m")
-        channel = four_hour.get("channel") or one_hour.get("channel") or {}
-        lower = fvalue(channel.get("lower"), price * 0.985)
-        mid = fvalue(channel.get("mid"), price)
-        upper = fvalue(channel.get("upper"), price * 1.015)
+        prior_range = one_hour.get("priorRange") or {}
+        fallback_channel = four_hour.get("channel") or one_hour.get("channel") or {}
+        lower = fvalue(prior_range.get("low"), fvalue(fallback_channel.get("lower"), price * 0.985))
+        upper = fvalue(prior_range.get("high"), fvalue(fallback_channel.get("upper"), price * 1.015))
+        mid = lower + (upper - lower) * 0.5
         width = max(upper - lower, price * 0.004)
         position = min(max((price - lower) / width, 0.0), 1.0)
         trend = trend_for(snapshot, "4h")
@@ -78,6 +79,14 @@ class RangeMaker(TraderStrategy):
         regime = market_regime(snapshot)
         volume_z = fvalue(fifteen.get("volumeZscore"), 0.0)
         atr_1h = fvalue(one_hour.get("atr14"), price * 0.007)
+        candle = fifteen.get("latestCandle") or {}
+        candle_open = fvalue(candle.get("open"), price)
+        candle_close = fvalue(candle.get("close"), price)
+        candle_high = fvalue(candle.get("high"), price)
+        candle_low = fvalue(candle.get("low"), price)
+        candle_range = max(candle_high - candle_low, price * 0.0001)
+        lower_rejection = candle_close > candle_open and (min(candle_open, candle_close) - candle_low) / candle_range >= 0.25
+        upper_rejection = candle_close < candle_open and (candle_high - max(candle_open, candle_close)) / candle_range >= 0.25
 
         if regime in {"shock", "trend"} and adx_4h >= 22:
             return make_rejection("Range gate failed because 4H trend strength is too high.", 42)
@@ -91,6 +100,10 @@ class RangeMaker(TraderStrategy):
             return make_rejection("Volume expansion suggests breakout risk, not range fading.", 48)
 
         side = "LONG" if position <= 0.22 else "SHORT"
+        if side == "LONG" and not lower_rejection:
+            return make_rejection("Lower range edge was touched without a confirmed 15m rejection candle.", 50)
+        if side == "SHORT" and not upper_rejection:
+            return make_rejection("Upper range edge was touched without a confirmed 15m rejection candle.", 50)
         score = 62 + (10 if trend == "sideways" else 0) + (8 if adx_4h <= 18 else 0)
         breakout_pressure = volume_z >= 1.0 or position <= 0.08 or position >= 0.92
         if breakout_pressure:

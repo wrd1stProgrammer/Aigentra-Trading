@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from app.traders.models import EntryPlan, TakeProfitPlan, TradeCandidate, TraderProfile
@@ -345,13 +346,22 @@ class VolatilitySkewSentinel(TraderStrategy):
         deribit = _external(snapshot, "deribit")
         available = bool(deribit.get("available"))
         put_call_iv_spread = fvalue(deribit.get("putCallIvSpread"))
+        skew_zscore = fvalue(deribit.get("putCallIvSpreadZscore"))
+        skew_samples = int(fvalue(deribit.get("skewSampleCount")))
         call_put_volume_ratio = fvalue(deribit.get("callPutVolumeRatio"), 1.0)
         iv_percentile = fvalue(deribit.get("ivPercentile"), 50.0)
         realized_volatility = fvalue(deribit.get("realizedVolatility30d"), 0.0)
         reclaim_long = float(g["close15m"]) > float(g["open15m"]) and float(g["close15m"]) >= float(g["ema20_1h"]) and g["trend4h"] != "bearish"
         reject_short = float(g["close15m"]) < float(g["open15m"]) and float(g["close15m"]) <= float(g["ema20_1h"]) and g["trend4h"] != "bullish"
-        fear_reversal = put_call_iv_spread >= 4.0 and reclaim_long and 35 <= float(g["rsi1h"]) <= 58
-        upside_chase_fade = (put_call_iv_spread <= -2.5 or call_put_volume_ratio >= 1.65) and reject_short and float(g["rsi1h"]) >= 48
+        updated_at = deribit.get("updatedAt")
+        try:
+            updated = datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
+            fresh = (datetime.now(timezone.utc) - updated.astimezone(timezone.utc)).total_seconds() <= 600
+        except (TypeError, ValueError):
+            fresh = False
+        history_ready = skew_samples >= 8
+        fear_reversal = skew_zscore >= 1.25 and reclaim_long and 35 <= float(g["rsi1h"]) <= 58
+        upside_chase_fade = skew_zscore <= -1.25 and call_put_volume_ratio >= 1.15 and reject_short and float(g["rsi1h"]) >= 48
         vol_ok = realized_volatility <= 95 or realized_volatility == 0
         score = 38 + (17 if available else 0) + min(16, int(abs(put_call_iv_spread) * 2.2))
         score += 7 if 45 <= iv_percentile <= 88 else 0
@@ -361,11 +371,22 @@ class VolatilitySkewSentinel(TraderStrategy):
             **g,
             "externalAvailable": available,
             "putCallIvSpread": put_call_iv_spread,
+            "putCallIvSpreadZscore": skew_zscore,
+            "skewSampleCount": skew_samples,
+            "sourceFresh": fresh,
             "callPutVolumeRatio": call_put_volume_ratio,
             "ivPercentile": iv_percentile,
             "realizedVolatility30d": realized_volatility,
             "deribitSource": deribit.get("source"),
         }
+        if not available or not fresh or not history_ready:
+            return _reject(
+                self.profile,
+                "Deribit skew history is stale or has not completed its minimum warm-up sample.",
+                score,
+                gate_scores,
+                "options_skew_history_not_ready",
+            )
         if fear_reversal and vol_ok:
             side, setup, reason = "LONG", "OPTIONS_SKEW_FEAR_REVERSAL_LONG", "put_skew_reclaim"
         elif upside_chase_fade and vol_ok:
@@ -383,6 +404,7 @@ class VolatilitySkewSentinel(TraderStrategy):
         notes = [
             f"Deribit available: {available}.",
             f"Put-call IV spread {put_call_iv_spread:.2f}, IV percentile {iv_percentile:.1f}.",
+            f"Historical skew z-score {skew_zscore:.2f} across {skew_samples} 15m samples.",
             f"Call/put option volume ratio {call_put_volume_ratio:.2f}, realized volatility {realized_volatility:.1f}.",
         ]
         return _build_candidate(

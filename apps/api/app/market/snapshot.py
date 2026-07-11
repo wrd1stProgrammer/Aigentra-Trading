@@ -95,6 +95,13 @@ async def build_market_snapshot(client: BinanceClient, symbol: str) -> Dict[str,
             },
             "latestCandle": latest.model_dump(),
         }
+        prior_sample = candles[-21:-1]
+        if prior_sample:
+            frame["priorRange"] = {
+                "high": max(candle.high for candle in prior_sample),
+                "low": min(candle.low for candle in prior_sample),
+                "candles": len(prior_sample),
+            }
         if interval in {"1h", "4h", "1d"}:
             frame["trend"] = basic_trend(closes, ema20_value, ema50_value)
         if interval in {"1h", "4h", "1d"}:

@@ -638,7 +638,7 @@ def build_sizing_settings(minimum: int = 10, maximum: int = 100):
     )
 
 
-def test_paper_order_sizing_uses_service_ten_percent_floor(temp_db):
+def test_paper_order_sizing_uses_margin_target_only_as_a_cap(temp_db):
     with session_scope() as db:
         candidate = TradeCandidate(
             created=True,
@@ -671,11 +671,11 @@ def test_paper_order_sizing_uses_service_ten_percent_floor(temp_db):
         assert result["marginDeploymentPercent"] == 10
         assert result["marginDeploymentPercent"] <= 100
         assert result["targetMarginBudget"] == pytest.approx(1000)
-        assert total_margin >= 990
-        assert result["actualMarginDeploymentPercent"] >= 9.9
+        assert total_margin < result["targetMarginBudget"]
+        assert result["plannedRisk"] <= result["riskBudget"] * 1.05
 
 
-def test_paper_order_sizing_can_use_full_equity_budget_for_high_score(temp_db):
+def test_paper_order_sizing_does_not_force_full_equity_for_high_score(temp_db):
     with session_scope() as db:
         candidate = TradeCandidate(
             created=True,
@@ -706,11 +706,11 @@ def test_paper_order_sizing_can_use_full_equity_budget_for_high_score(temp_db):
         assert result["marginDeploymentPercent"] == 100
         assert result["targetMarginBudget"] <= 10000
         assert total_margin <= result["targetMarginBudget"]
-        assert total_margin >= 9960
-        assert result["actualMarginDeploymentPercent"] >= 99.6
+        assert total_margin < result["targetMarginBudget"]
+        assert result["plannedRisk"] <= result["riskBudget"] * 1.05
 
 
-def test_paper_order_sizing_lifts_margin_for_high_confidence_review(temp_db):
+def test_paper_order_sizing_does_not_lift_margin_for_ai_confidence(temp_db):
     with session_scope() as db:
         candidate = TradeCandidate(
             created=True,
@@ -746,8 +746,9 @@ def test_paper_order_sizing_lifts_margin_for_high_confidence_review(temp_db):
         )
 
         assert result["created"]
-        assert result["marginDeploymentPercent"] == pytest.approx(60)
-        assert result["targetMarginBudget"] == pytest.approx(6000)
+        assert result["marginDeploymentPercent"] == pytest.approx(46)
+        assert result["targetMarginBudget"] == pytest.approx(4600)
+        assert result["riskPercent"] == pytest.approx(1.0)
 
 
 def test_paper_order_payload_preserves_ai_review_rationale(temp_db):

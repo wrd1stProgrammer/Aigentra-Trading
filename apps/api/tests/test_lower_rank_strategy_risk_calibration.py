@@ -131,7 +131,6 @@ def session_raider_breakout_snapshot() -> dict:
     ("trader_id", "snapshot_factory", "setup_type", "max_risk", "max_score"),
     [
         ("channel-rider", channel_upper_edge_without_reaction_snapshot, "CHANNEL_UPPER_BAND_REJECTION", 0.55, 80),
-        ("session-raider", session_raider_breakout_snapshot, "SESSION_RANGE_BREAK_LONG", 0.4, 70),
         ("atr-trail-commander", atr_continuation_after_extended_move_snapshot, "ATR_TREND_TRAIL_LONG", 0.42, 72),
     ],
 )
@@ -160,30 +159,22 @@ def test_pullback_architect_keeps_trade_but_makes_late_pullback_a_probe_first() 
     assert candidate.riskPercent is not None
     assert candidate.riskPercent <= 0.55
     assert candidate.setupScore <= 70
-    assert candidate.entries[0].weight <= 0.35
-    assert len(candidate.entries) >= 2
+    assert candidate.entries[0].weight == 1.0
+    assert len(candidate.entries) == 1
 
 
-def test_funding_contrarian_keeps_positive_funding_short_but_splits_squeeze_risk() -> None:
+def test_funding_contrarian_rejects_while_crowded_oi_is_still_expanding() -> None:
     candidate = get_strategy("funding-contrarian").evaluate(positive_funding_stall_with_squeeze_pressure_snapshot())
 
-    assert candidate.created is True
-    assert candidate.setupType == "POSITIVE_FUNDING_STALL_SHORT"
-    assert candidate.riskPercent is not None
-    assert candidate.riskPercent <= 0.32
-    assert candidate.entries[0].weight <= 0.5
-    assert candidate.setupScore <= 76
+    assert candidate.created is False
+    assert "open interest is still expanding" in candidate.reason.lower()
 
 
-def test_range_maker_keeps_edge_fade_but_requires_smaller_probe_near_breakout_acceptance() -> None:
+def test_range_maker_rejects_edge_touch_without_rejection_candle() -> None:
     candidate = get_strategy("range-maker").evaluate(range_upper_edge_breakout_pressure_snapshot())
 
-    assert candidate.created is True
-    assert candidate.setupType == "HIGH_RANGE_REVERSION_SHORT"
-    assert candidate.riskPercent is not None
-    assert candidate.riskPercent <= 0.32
-    assert candidate.entries[0].weight <= 0.55
-    assert candidate.setupScore <= 70
+    assert candidate.created is False
+    assert "without a confirmed 15m rejection candle" in candidate.reason
 
 
 def test_channel_rider_reduces_all_valid_edges_without_reaction_confirmation() -> None:
@@ -200,15 +191,30 @@ def test_channel_rider_reduces_all_valid_edges_without_reaction_confirmation() -
     assert candidate.entries[0].weight <= 0.35
 
 
-def test_range_maker_breakout_pressure_stays_lower_confidence_even_in_clean_range() -> None:
+def test_range_maker_still_requires_rejection_candle_in_clean_range() -> None:
     snapshot = range_upper_edge_breakout_pressure_snapshot()
     snapshot["timeframes"]["4h"]["adx14"] = 16.0
     snapshot["marketRegime"]["adx4h"] = 16.0
 
     candidate = get_strategy("range-maker").evaluate(snapshot)
 
+    assert candidate.created is False
+    assert "without a confirmed 15m rejection candle" in candidate.reason
+
+
+def test_session_raider_rejects_breakout_without_completed_prior_range() -> None:
+    candidate = get_strategy("session-raider").evaluate(session_raider_breakout_snapshot())
+
+    assert candidate.created is False
+    assert "session window or impulse confirmation" in candidate.reason.lower()
+
+
+def test_session_raider_uses_completed_prior_range_for_breakout() -> None:
+    snapshot = session_raider_breakout_snapshot()
+    snapshot["timeframes"]["15m"]["priorRange"] = {"high": 69000.0, "low": 68000.0, "candles": 20}
+
+    candidate = get_strategy("session-raider").evaluate(snapshot)
+
     assert candidate.created is True
-    assert candidate.setupType == "HIGH_RANGE_REVERSION_SHORT"
-    assert candidate.setupScore <= 70
-    assert candidate.leveragePlan is not None
-    assert candidate.leveragePlan.suggestedLeverage <= 5
+    assert candidate.setupType == "SESSION_RANGE_BREAK_LONG"
+    assert candidate.audit["gateScores"]["priorSessionRangeHigh"] == 69000.0

@@ -64,6 +64,7 @@ class FundingContrarian(TraderStrategy):
         price = float(snapshot["price"])
         fifteen = timeframe(snapshot, "15m")
         one_hour = timeframe(snapshot, "1h")
+        four_hour = timeframe(snapshot, "4h")
         candle = latest_candle(fifteen)
         funding = fvalue(snapshot.get("derivatives", {}).get("fundingRate"), 0.0)
         mark_price = fvalue(snapshot.get("derivatives", {}).get("markPrice"), price)
@@ -100,6 +101,16 @@ class FundingContrarian(TraderStrategy):
             return make_rejection("Contrarian short rejected because current crowding is already short-sided.", 48)
         if side == "LONG" and crowding == "LONG":
             return make_rejection("Contrarian long rejected because current crowding is already long-sided.", 48)
+        trend_4h = str(four_hour.get("trend") or "sideways")
+        positioning_unwinding = oi_change_30m <= 0.15
+        flow_confirmed = (side == "SHORT" and taker_ratio <= 0.95) or (side == "LONG" and taker_ratio >= 1.05)
+        trend_allows = (side == "SHORT" and trend_4h != "bullish") or (side == "LONG" and trend_4h != "bearish")
+        if not positioning_unwinding:
+            return make_rejection("Funding is extreme, but open interest is still expanding with the crowded trade.", 50)
+        if not flow_confirmed:
+            return make_rejection("Funding fade lacks taker-flow confirmation from the unwinding side.", 50)
+        if not trend_allows:
+            return make_rejection("Funding fade is blocked by the opposing 4H trend.", 50)
 
         score = 60 + min(16, int(abs(funding) / 0.00001)) + (6 if abs(price_change_1h) < 0.0015 else 0)
         if funding_percentile >= 80:
@@ -114,6 +125,7 @@ class FundingContrarian(TraderStrategy):
             "Funding or mark/index premium is stretched enough for a contrarian watch.",
             "15m structure shows stall before entry.",
             f"30m OI change is {oi_change_30m:.2f}% and taker buy/sell ratio is {taker_ratio:.2f}.",
+            f"4H trend is {trend_4h}; crowding must be unwinding before entry.",
         ]
         if squeeze_pressure:
             notes.append("Crowded-side pressure is still active, so this remains a smaller probe-and-retest fade.")
