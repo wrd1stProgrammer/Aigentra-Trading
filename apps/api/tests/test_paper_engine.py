@@ -7,6 +7,7 @@ from sqlalchemy import select
 from app.db import (
     EquitySnapshotRecord,
     PaperPositionRecord,
+    SessionLocal,
     TradeEventRecord,
     TraderStateRecord,
     init_db,
@@ -34,6 +35,58 @@ def fee_inclusive_breakeven(entry_price, quantity, entry_fee, taker_fee_rate, si
             return ((entry * qty) + fee) / (qty * (Decimal("1") - taker))
         case _:
             raise AssertionError(f"unexpected side: {side}")
+
+
+def test_stale_engine_session_cannot_close_position_twice(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)
+        place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="market",
+            quantity=1,
+            leverage=5,
+            take_profit_price=120,
+            stop_loss_price=90,
+        )
+        process_candle(db, "paper-trader", "BTCUSDT", {"open": 100, "high": 101, "low": 99, "close": 100})
+
+    stale_db = SessionLocal()
+    try:
+        stale_position = stale_db.execute(select(PaperPositionRecord)).scalar_one()
+        assert stale_position.status == "open"
+        stale_db.commit()
+
+        with session_scope() as execution_db:
+            first = process_candle(
+                execution_db,
+                "paper-trader",
+                "BTCUSDT",
+                {"open": 100, "high": 101, "low": 89, "close": 90},
+            )
+            cash_after_close = execution_db.execute(select(TraderStateRecord.cash_balance)).scalar_one()
+            assert len(first.closed_positions) == 1
+
+        second = process_candle(
+            stale_db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 90, "high": 91, "low": 89, "close": 90},
+        )
+        stale_db.commit()
+    finally:
+        stale_db.close()
+
+    with session_scope() as db:
+        state = db.execute(select(TraderStateRecord)).scalar_one()
+        close_events = db.execute(
+            select(TradeEventRecord).where(TradeEventRecord.event_type == "position_closed")
+        ).scalars().all()
+        assert second.closed_positions == []
+        assert state.cash_balance == cash_after_close
+        assert len(close_events) == 1
 
 
 @pytest.fixture()

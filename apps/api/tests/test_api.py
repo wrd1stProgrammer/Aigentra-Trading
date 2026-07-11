@@ -746,6 +746,32 @@ def test_leaderboard_fast_returns_utc_monthly_league_without_live_cache_pollutio
                     trader_id="channel-rider",
                     symbol="BTCUSDT",
                     status="recorded",
+                    cash_balance=Decimal("11000"),
+                    equity=Decimal("11000"),
+                    margin_used=Decimal("0"),
+                    realized_pnl=Decimal("1000"),
+                    unrealized_pnl=Decimal("0"),
+                    total_fees=Decimal("1"),
+                    candle_time=june_start - timedelta(days=8),
+                    created_at=june_start - timedelta(days=8),
+                ),
+                EquitySnapshotRecord(
+                    trader_id="channel-rider",
+                    symbol="BTCUSDT",
+                    status="recorded",
+                    cash_balance=Decimal("11100"),
+                    equity=Decimal("11100"),
+                    margin_used=Decimal("0"),
+                    realized_pnl=Decimal("1100"),
+                    unrealized_pnl=Decimal("0"),
+                    total_fees=Decimal("1"),
+                    candle_time=june_start - timedelta(days=1, hours=1),
+                    created_at=june_start - timedelta(days=1, hours=1),
+                ),
+                EquitySnapshotRecord(
+                    trader_id="channel-rider",
+                    symbol="BTCUSDT",
+                    status="recorded",
                     cash_balance=Decimal("11200"),
                     equity=Decimal("11200"),
                     margin_used=Decimal("0"),
@@ -767,6 +793,32 @@ def test_leaderboard_fast_returns_utc_monthly_league_without_live_cache_pollutio
                     total_fees=Decimal("0"),
                     candle_time=may_start,
                     created_at=may_start,
+                ),
+                EquitySnapshotRecord(
+                    trader_id="volume-breaker",
+                    symbol="BTCUSDT",
+                    status="recorded",
+                    cash_balance=Decimal("10300"),
+                    equity=Decimal("10300"),
+                    margin_used=Decimal("0"),
+                    realized_pnl=Decimal("300"),
+                    unrealized_pnl=Decimal("0"),
+                    total_fees=Decimal("1"),
+                    candle_time=june_start - timedelta(days=8),
+                    created_at=june_start - timedelta(days=8),
+                ),
+                EquitySnapshotRecord(
+                    trader_id="volume-breaker",
+                    symbol="BTCUSDT",
+                    status="recorded",
+                    cash_balance=Decimal("10350"),
+                    equity=Decimal("10350"),
+                    margin_used=Decimal("0"),
+                    realized_pnl=Decimal("350"),
+                    unrealized_pnl=Decimal("0"),
+                    total_fees=Decimal("1"),
+                    candle_time=june_start - timedelta(days=1, hours=1),
+                    created_at=june_start - timedelta(days=1, hours=1),
                 ),
                 EquitySnapshotRecord(
                     trader_id="volume-breaker",
@@ -800,12 +852,13 @@ def test_leaderboard_fast_returns_utc_monthly_league_without_live_cache_pollutio
     assert monthly_data["summaries"][0]["traderId"] == "channel-rider"
     assert monthly_data["summaries"][0]["monthlyReturn"] == 12.0
     assert monthly_data["summaries"][0]["cumulativeReturn"] == 12.0
-    assert monthly_data["summaries"][0]["return24h"] == 12.0
-    assert monthly_data["summaries"][0]["return7d"] == 12.0
+    assert monthly_data["summaries"][0]["return24h"] == 0.9
+    assert monthly_data["summaries"][0]["return7d"] == 1.82
     assert monthly_data["summaries"][0]["return30d"] == 12.0
     assert monthly_data["summaries"][1]["monthlyReturn"] == 4.0
     assert monthly_data["summaries"][1]["cumulativeReturn"] == 4.0
-    assert monthly_data["summaries"][1]["return7d"] == 4.0
+    assert monthly_data["summaries"][1]["return24h"] == 0.48
+    assert monthly_data["summaries"][1]["return7d"] == 0.97
     assert monthly_data["summaries"][1]["return30d"] == 4.0
     assert monthly_data["positions"] == []
     assert monthly_data["orders"] == []
@@ -943,6 +996,7 @@ def test_monthly_leaderboard_reuses_position_rows_per_trader(monkeypatch):
     monkeypatch.setattr(main, "monthly_cycle_positions_by_trader", lambda *args, **kwargs: {trader.id: positions})
     monkeypatch.setattr(main, "all_time_biggest_wins_by_trader", lambda *args, **kwargs: {trader.id: 12.5}, raising=False)
     monkeypatch.setattr(main, "trade_events_by_position_id", lambda *args, **kwargs: {})
+    monkeypatch.setattr(main, "latest_equity_snapshots_at_or_before", lambda *args, **kwargs: {})
     monkeypatch.setattr(main, "trader_snapshot_summary", fake_live_summary)
 
     summaries = main.monthly_leaderboard_summaries(
@@ -1026,6 +1080,7 @@ def test_monthly_leaderboard_biggest_win_uses_all_time_value(monkeypatch):
         raising=False,
     )
     monkeypatch.setattr(main, "trade_events_by_position_id", lambda *args, **kwargs: events_by_position_id)
+    monkeypatch.setattr(main, "latest_equity_snapshots_at_or_before", lambda *args, **kwargs: {})
 
     summaries = main.monthly_leaderboard_summaries(
         object(),

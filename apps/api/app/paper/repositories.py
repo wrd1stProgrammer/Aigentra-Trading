@@ -83,6 +83,23 @@ def ensure_trader_state(
     return state
 
 
+def lock_trader_state(
+    db: Session,
+    trader_id: str,
+    initial_equity: Any = DEFAULT_INITIAL_EQUITY,
+) -> TraderStateRecord:
+    """Serialize paper-account mutations across API and worker processes."""
+    state = ensure_trader_state(db, trader_id, initial_equity)
+    statement = (
+        select(TraderStateRecord)
+        .where(TraderStateRecord.id == state.id)
+        .execution_options(populate_existing=True)
+    )
+    if db.get_bind().dialect.name != "sqlite":
+        statement = statement.with_for_update()
+    return db.execute(statement).scalar_one()
+
+
 def get_risk_settings(db: Session, trader_id: str, symbol: Optional[str] = None) -> Optional[RiskSettingsRecord]:
     clean_trader_id = normalize_trader_id(trader_id)
     clean_symbol = normalize_symbol(symbol) if symbol else None
@@ -214,6 +231,7 @@ def list_open_orders(db: Session, trader_id: str, symbol: str) -> list[PaperOrde
             PaperOrderRecord.symbol == normalize_symbol(symbol),
             PaperOrderRecord.status == "open",
         )
+        .execution_options(populate_existing=True)
         .order_by(PaperOrderRecord.id.asc())
     ).scalars().all()
 
@@ -226,6 +244,7 @@ def list_open_positions(db: Session, trader_id: str, symbol: str) -> list[PaperP
             PaperPositionRecord.symbol == normalize_symbol(symbol),
             PaperPositionRecord.status == "open",
         )
+        .execution_options(populate_existing=True)
         .order_by(PaperPositionRecord.id.asc())
     ).scalars().all()
 

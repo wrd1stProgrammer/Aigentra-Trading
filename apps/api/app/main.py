@@ -107,7 +107,7 @@ from app.paper.realtime_execution import (
 )
 from app.paper.plan_state import latest_active_trade_plan, list_active_trade_plans
 from app.paper.reduction_policy import build_reduction_decision
-from app.paper.repositories import ensure_trader_state
+from app.paper.repositories import lock_trader_state
 from app.paper.settings import sync_default_paper_settings
 from app.paper.sizing import final_trade_risk_percent
 from app.ops.trader_history_reset import RESET_CONFIRMATION_TEXT, reset_trader_history
@@ -1913,6 +1913,17 @@ def unique_strings(values: list[str]) -> list[str]:
     return items
 
 
+def locked_management_record(db: Session, model: Any, record_id: int) -> Any:
+    statement = (
+        select(model)
+        .where(model.id == record_id)
+        .execution_options(populate_existing=True)
+    )
+    if db.get_bind().dialect.name != "sqlite":
+        statement = statement.with_for_update()
+    return db.execute(statement).scalar_one_or_none()
+
+
 def apply_management_actions(
     db: Session,
     *,
@@ -1927,7 +1938,7 @@ def apply_management_actions(
     mark_price = current_snapshot_price(snapshot)
     candle = snapshot_to_engine_candle(snapshot)
     applied: list[dict[str, Any]] = []
-    state = ensure_trader_state(db, trader_id)
+    state = lock_trader_state(db, trader_id)
 
     for action in review.actions:
         action_type = action.type.upper()
@@ -1935,7 +1946,7 @@ def apply_management_actions(
         record = None
 
         if exposure.kind == "order":
-            order = db.get(PaperOrderRecord, exposure.id)
+            order = locked_management_record(db, PaperOrderRecord, exposure.id)
             if not order or order.status != "open":
                 applied.append({"type": action_type, "applied": False, "reason": "Paper order is no longer open."})
                 continue
@@ -1953,7 +1964,7 @@ def apply_management_actions(
                 continue
 
         elif exposure.kind == "position":
-            position = db.get(PaperPositionRecord, exposure.id)
+            position = locked_management_record(db, PaperPositionRecord, exposure.id)
             if not position or position.status != "open":
                 applied.append({"type": action_type, "applied": False, "reason": "Paper position is no longer open."})
                 continue
@@ -2014,7 +2025,7 @@ def apply_management_actions(
                         PaperOrderRecord.trader_id == trader_id,
                         PaperOrderRecord.symbol == symbol,
                         PaperOrderRecord.status == "open",
-                    )
+                    ).execution_options(populate_existing=True)
                 ).scalars().all()
                 for order in open_orders:
                     cancel_paper_order(db, order, reason, result)
@@ -2040,7 +2051,7 @@ def apply_management_actions(
         and review.decision == "CLOSE_POSITION"
         and not any(a.get("applied") for a in applied)
     ):
-        position = db.get(PaperPositionRecord, exposure.id)
+        position = locked_management_record(db, PaperPositionRecord, exposure.id)
         if position and position.status == "open":
             fallback_reason = review.rationale or event.reason or "AI decision: CLOSE_POSITION (fallback)"
             record = close_position_by_management(
@@ -3218,6 +3229,46 @@ def monthly_drawdown_percent(start_equity: float, snapshots: list[Any], end_equi
     return round(max_dd, 2)
 
 
+def return_from_equity_baseline(current_equity: float, baseline: float) -> float:
+    if baseline <= 0:
+        return 0.0
+    return round(((current_equity - baseline) / baseline) * 100, 2)
+
+
+def latest_equity_snapshots_at_or_before(
+    db: Session,
+    trader_ids: list[str],
+    symbol: str,
+    cutoff: datetime,
+) -> dict[str, EquitySnapshotRecord]:
+    if not trader_ids:
+        return {}
+    ranked = (
+        select(
+            EquitySnapshotRecord.id.label("id"),
+            EquitySnapshotRecord.trader_id.label("trader_id"),
+            func.row_number()
+            .over(
+                partition_by=EquitySnapshotRecord.trader_id,
+                order_by=(desc(EquitySnapshotRecord.created_at), desc(EquitySnapshotRecord.id)),
+            )
+            .label("snapshot_rank"),
+        )
+        .where(
+            EquitySnapshotRecord.trader_id.in_(trader_ids),
+            EquitySnapshotRecord.symbol == symbol,
+            EquitySnapshotRecord.created_at <= cutoff,
+        )
+        .subquery()
+    )
+    records = db.execute(
+        select(EquitySnapshotRecord)
+        .join(ranked, EquitySnapshotRecord.id == ranked.c.id)
+        .where(ranked.c.snapshot_rank == 1)
+    ).scalars().all()
+    return {record.trader_id: record for record in records}
+
+
 def monthly_leaderboard_summaries(
     db: Session,
     symbol: str,
@@ -3234,6 +3285,11 @@ def monthly_leaderboard_summaries(
     all_time_biggest_wins = all_time_biggest_wins_by_trader(db, trader_ids, symbol)
     all_cycle_positions = [position for positions in cycle_positions_by_trader.values() for position in positions]
     cycle_events_by_position_id = trade_events_by_position_id(db, all_cycle_positions, before=period_end)
+    rolling_as_of = min(period_end, datetime.now(timezone.utc))
+    rolling_baselines = {
+        days: latest_equity_snapshots_at_or_before(db, trader_ids, symbol, rolling_as_of - timedelta(days=days))
+        for days in (1, 7, 30)
+    }
     for trader in traders:
         start_snapshot, end_snapshot, snapshots = equity_points_by_trader.get(trader.id, (None, None, []))
         if start_snapshot is None or end_snapshot is None:
@@ -3250,6 +3306,18 @@ def monthly_leaderboard_summaries(
             total_fees = float(end_snapshot.total_fees) - float(start_snapshot.total_fees)
         total_pnl = end_equity - start_equity
         monthly_return = round((total_pnl / start_equity) * 100, 2) if start_equity > 0 else 0.0
+        rolling_return_24h = return_from_equity_baseline(
+            end_equity,
+            float(rolling_baselines[1].get(trader.id, start_snapshot).equity) if start_snapshot is not None else start_equity,
+        )
+        rolling_return_7d = return_from_equity_baseline(
+            end_equity,
+            float(rolling_baselines[7].get(trader.id, start_snapshot).equity) if start_snapshot is not None else start_equity,
+        )
+        rolling_return_30d = return_from_equity_baseline(
+            end_equity,
+            float(rolling_baselines[30].get(trader.id, start_snapshot).equity) if start_snapshot is not None else start_equity,
+        )
         monthly_positions = positions_by_trader.get(trader.id, [])
         cycle_positions = cycle_positions_by_trader.get(trader.id, [])
         closed_position_pnls = position_cycle_pnl_values(
@@ -3281,9 +3349,9 @@ def monthly_leaderboard_summaries(
                 "rankScore": monthly_return,
                 "cumulativeReturn": monthly_return,
                 "monthlyReturn": monthly_return,
-                "return24h": monthly_return,
-                "return7d": monthly_return,
-                "return30d": monthly_return,
+                "return24h": rolling_return_24h,
+                "return7d": rolling_return_7d,
+                "return30d": rolling_return_30d,
                 "winRate": win_rate,
                 "closedPositions": closed_positions,
                 "wins": wins,
@@ -3635,18 +3703,33 @@ def equity_return_for_period(
     current_equity: float,
     initial_equity: float,
     days: int,
+    *,
+    as_of: Optional[datetime] = None,
 ) -> float:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    period_end = as_of or datetime.now(timezone.utc)
+    cutoff = period_end - timedelta(days=days)
     snapshot = db.execute(
         select(EquitySnapshotRecord)
         .where(
             EquitySnapshotRecord.trader_id == trader_id,
             EquitySnapshotRecord.symbol == symbol,
-            EquitySnapshotRecord.created_at >= cutoff,
+            EquitySnapshotRecord.created_at <= cutoff,
         )
-        .order_by(EquitySnapshotRecord.created_at.asc(), EquitySnapshotRecord.id.asc())
+        .order_by(EquitySnapshotRecord.created_at.desc(), EquitySnapshotRecord.id.desc())
         .limit(1)
     ).scalar_one_or_none()
+    if snapshot is None:
+        snapshot = db.execute(
+            select(EquitySnapshotRecord)
+            .where(
+                EquitySnapshotRecord.trader_id == trader_id,
+                EquitySnapshotRecord.symbol == symbol,
+                EquitySnapshotRecord.created_at > cutoff,
+                EquitySnapshotRecord.created_at <= period_end,
+            )
+            .order_by(EquitySnapshotRecord.created_at.asc(), EquitySnapshotRecord.id.asc())
+            .limit(1)
+        ).scalar_one_or_none()
     baseline = float(snapshot.equity) if snapshot else initial_equity
     if baseline <= 0:
         return 0.0

@@ -4,7 +4,16 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
-from app.db import PaperPositionRecord, PositionManagementReviewRecord, init_db, reset_db_engine, session_scope
+from app.db import (
+    PaperPositionRecord,
+    PositionManagementReviewRecord,
+    SessionLocal,
+    TradeEventRecord,
+    TraderStateRecord,
+    init_db,
+    reset_db_engine,
+    session_scope,
+)
 from app.paper.engine import PaperEngineResult, place_paper_order, process_candle
 from app.paper.management import (
     management_review_cooldown_seconds,
@@ -403,3 +412,81 @@ def test_management_close_position_uses_short_db_reason(temp_db):
         assert applied[0]["reason"] == long_reason
         assert position.status == "closed"
         assert position.close_reason == "management_close"
+
+
+def test_stale_management_action_cannot_reduce_already_closed_position(temp_db):
+    from app.main import apply_management_actions
+
+    with session_scope() as db:
+        position_id = _create_open_position(db).id
+
+    stale_db = SessionLocal()
+    try:
+        stale_position = stale_db.get(PaperPositionRecord, position_id)
+        assert stale_position is not None and stale_position.status == "open"
+        stale_db.commit()
+
+        with session_scope() as execution_db:
+            process_candle(
+                execution_db,
+                "paper-trader",
+                "BTCUSDT",
+                {"open": 100, "high": 101, "low": 89, "close": 90},
+            )
+            closed_cash = execution_db.execute(select(TraderStateRecord.cash_balance)).scalar_one()
+
+        exposure = ManagedExposure(
+            kind="position",
+            id=position_id,
+            status="open",
+            side="LONG",
+            quantity=1,
+            entryPrice=100,
+            stopLoss=90,
+            takeProfit=120,
+            leverage=5,
+        )
+        event = ManagementEvent(
+            eventType="position_heartbeat",
+            phase="OPEN_POSITION",
+            severity="MEDIUM",
+            reason="Review the position.",
+            suggestedAction="REDUCE_SIZE",
+        )
+        review = PositionManagementResult(
+            decision="HOLD",
+            confidence=80,
+            riskLevel="MEDIUM",
+            actions=[ManagementAction(type="REDUCE_SIZE", quantityFraction=0.5, reason="Trim exposure.")],
+            riskChange="REDUCED",
+            nextReviewInSeconds=900,
+            rationale="Trim exposure.",
+            counterThesis="The stop may already have executed.",
+        )
+
+        applied = apply_management_actions(
+            stale_db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            event=event,
+            exposure=exposure,
+            review=review,
+            snapshot={"price": 90, "timeframes": {"1m": {"open": 90, "high": 90, "low": 90, "close": 90}}},
+            result=PaperEngineResult(),
+        )
+        stale_db.commit()
+    finally:
+        stale_db.close()
+
+    with session_scope() as db:
+        position = db.get(PaperPositionRecord, position_id)
+        state = db.execute(select(TraderStateRecord)).scalar_one()
+        reductions = db.execute(
+            select(TradeEventRecord).where(TradeEventRecord.event_type == "position_reduced_by_ai")
+        ).scalars().all()
+
+        assert applied[0]["applied"] is False
+        assert position is not None and position.status == "closed"
+        assert position.quantity == Decimal("1.0000000000")
+        assert state.cash_balance == closed_cash
+        assert reductions == []

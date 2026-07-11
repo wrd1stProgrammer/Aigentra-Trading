@@ -16,6 +16,7 @@ from app.paper.repositories import (
     create_trade_event,
     ensure_risk_settings,
     ensure_trader_state,
+    lock_trader_state,
     list_open_orders,
     list_open_positions,
     normalize_symbol,
@@ -386,7 +387,7 @@ def process_candle(db: Session, trader_id: str, symbol: str, candle: Union[Candl
     clean_trader_id = normalize_trader_id(trader_id)
     parsed_candle = candle if isinstance(candle, Candle) else Candle.from_mapping(symbol, candle)
     clean_symbol = normalize_symbol(parsed_candle.symbol)
-    state = ensure_trader_state(db, clean_trader_id)
+    state = lock_trader_state(db, clean_trader_id)
     result = PaperEngineResult()
     preexisting_position_ids = {
         position.id
@@ -1086,17 +1087,18 @@ def _mark_to_market(db: Session, state: TraderStateRecord, trader_id: str, symbo
             PaperPositionRecord.trader_id == trader_id,
             PaperPositionRecord.symbol == symbol,
             PaperPositionRecord.status == "open",
-        )
+        ).execution_options(populate_existing=True)
     ).scalars().all()
     for position in symbol_positions:
         position.unrealized_pnl = _position_gross_pnl(position, mark_price)
         position.updated_at = utc_now()
+    db.flush()
 
     all_positions = db.execute(
         select(PaperPositionRecord).where(
             PaperPositionRecord.trader_id == trader_id,
             PaperPositionRecord.status == "open",
-        )
+        ).execution_options(populate_existing=True)
     ).scalars().all()
     state.margin_used = sum((position.margin for position in all_positions), Decimal("0"))
     state.unrealized_pnl = sum((position.unrealized_pnl for position in all_positions), Decimal("0"))
