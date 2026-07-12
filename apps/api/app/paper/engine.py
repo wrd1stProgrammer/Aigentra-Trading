@@ -112,6 +112,7 @@ def cancel_paper_order(
     order: PaperOrderRecord,
     reason: str,
     result: Optional[PaperEngineResult] = None,
+    event_type: str = "order_canceled_by_ai",
 ) -> Any:
     if order.status != "open":
         return None
@@ -122,7 +123,7 @@ def cancel_paper_order(
         db,
         order.trader_id or "",
         order.symbol or "",
-        "order_canceled_by_ai",
+        event_type,
         order_id=order.id,
         price=order.limit_price or order.filled_price,
         quantity=order.quantity,
@@ -228,6 +229,8 @@ def reduce_position_by_management(
     candle: Union[Candle, dict[str, Any]],
     reason: str,
     result: Optional[PaperEngineResult] = None,
+    event_type: str = "position_reduced_by_ai",
+    event_payload: Optional[dict[str, Any]] = None,
 ) -> Any:
     if position.status != "open":
         return None
@@ -267,7 +270,7 @@ def reduce_position_by_management(
         db,
         position.trader_id or "",
         position.symbol or "",
-        "position_reduced_by_ai",
+        event_type,
         order_id=position.order_id,
         position_id=position.id,
         price=price,
@@ -288,6 +291,7 @@ def reduce_position_by_management(
             "grossPnl": gross_pnl,
             "quantityFraction": fraction,
             "source": "position_management_ai",
+            **(event_payload or {}),
         },
     )
     append_event(result, event)
@@ -373,13 +377,18 @@ def handle_take_profit_exit(
         fraction = close_qty / position.quantity
         reason = target.get("reason", f"Take Profit Target {target_idx + 1}")
         
-        event = reduce_position_by_management(db, state, position, price, fraction, parsed_candle, reason, result)
-        if event:
-            event.event_type = "take_partial_profit"
-            event_payload = from_json(event.payload_json) or {}
-            event_payload["source"] = "strategy_take_profit"
-            event_payload["takeProfitIndex"] = target_idx
-            event.payload_json = to_json(event_payload)
+        reduce_position_by_management(
+            db,
+            state,
+            position,
+            price,
+            fraction,
+            parsed_candle,
+            reason,
+            result,
+            event_type="take_partial_profit",
+            event_payload={"source": "strategy_take_profit", "takeProfitIndex": target_idx},
+        )
             
         next_tp = _next_take_profit_target(position, take_profits)
         if next_tp:
@@ -1145,7 +1154,13 @@ def _close_position(
                 order_payload = from_json(order.payload_json) if isinstance(order.payload_json, str) else order.payload_json
                 order_plan_id = trade_plan_id_from_payload(order_payload)
                 if order_plan_id == plan_id:
-                    cancel_paper_order(db, order, f"Position closed: {reason}", result)
+                    cancel_paper_order(
+                        db,
+                        order,
+                        f"Position closed: {reason}",
+                        result,
+                        event_type="order_canceled_after_position_close",
+                    )
     except Exception as e:
         # Avoid crashing core execution if order cleanup fails, but print it
         print(f"Failed to cancel remaining orders on position close: {e}")

@@ -295,7 +295,10 @@ const baseDictionaries = {
     "detail.executionLog": "실행 로그",
     "detail.managementJournal": "관리 일지",
     "detail.statusFeed": "트레이더 피드",
-    "detail.statusFeedThread": "실시간 데스크 노트",
+    "detail.statusFeedThread": "트레이더 노트",
+    "detail.statusFeedState.current": "현재 상태",
+    "detail.statusFeedState.stale": "이전 상태 기준",
+    "detail.statusFeedState.archived": "과거 기록",
     "detail.statusFeedWatch": "다음 확인",
     "detail.noStatusFeed": "아직 표시할 트레이더 피드가 없습니다.",
     "detail.basis": "근거",
@@ -1128,7 +1131,10 @@ const baseDictionaries = {
     "detail.executionLog": "Execution Log",
     "detail.managementJournal": "Management Journal",
     "detail.statusFeed": "Trader Feed",
-    "detail.statusFeedThread": "Live Desk Notes",
+    "detail.statusFeedThread": "Trader Notes",
+    "detail.statusFeedState.current": "Current state",
+    "detail.statusFeedState.stale": "Previous state",
+    "detail.statusFeedState.archived": "Archived",
     "detail.statusFeedWatch": "Next watch",
     "detail.noStatusFeed": "No trader feed to display yet.",
     "detail.basis": "Basis",
@@ -1686,6 +1692,10 @@ const baseDictionaries = {
 export type TranslationKey = keyof typeof baseDictionaries.ko;
 
 const ruOverrides: Partial<Record<TranslationKey, string>> = {
+  "detail.statusFeedThread": "Заметки трейдера",
+  "detail.statusFeedState.current": "Текущее состояние",
+  "detail.statusFeedState.stale": "Предыдущее состояние",
+  "detail.statusFeedState.archived": "Архив",
   "holdingHorizon.scalp": "Скальпинг",
   "holdingHorizon.intraday": "Внутри дня",
   "holdingHorizon.swing": "Свинг",
@@ -1824,6 +1834,10 @@ const ruOverrides: Partial<Record<TranslationKey, string>> = {
 };
 
 const ptBROverrides: Partial<Record<TranslationKey, string>> = {
+  "detail.statusFeedThread": "Notas do trader",
+  "detail.statusFeedState.current": "Estado atual",
+  "detail.statusFeedState.stale": "Estado anterior",
+  "detail.statusFeedState.archived": "Histórico",
   "holdingHorizon.scalp": "Scalping",
   "holdingHorizon.intraday": "Intradiário",
   "holdingHorizon.swing": "Swing",
@@ -1962,6 +1976,10 @@ const ptBROverrides: Partial<Record<TranslationKey, string>> = {
 };
 
 const trOverrides: Partial<Record<TranslationKey, string>> = {
+  "detail.statusFeedThread": "Trader notları",
+  "detail.statusFeedState.current": "Güncel durum",
+  "detail.statusFeedState.stale": "Önceki durum",
+  "detail.statusFeedState.archived": "Geçmiş kayıt",
   "holdingHorizon.scalp": "Skalping",
   "holdingHorizon.intraday": "Gün içi",
   "holdingHorizon.swing": "Swing",

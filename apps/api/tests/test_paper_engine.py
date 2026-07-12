@@ -465,6 +465,42 @@ def test_long_take_profit_uses_nearest_profitable_target_when_payload_is_unsorte
         assert payload["takeProfits"][0].get("status") != "filled"
 
 
+def test_partial_take_profit_notifies_with_final_event_identity(temp_db, monkeypatch):
+    notified_event_types = []
+    monkeypatch.setattr(
+        "app.subscribers.notify_subscribers_for_trade_event",
+        lambda _db, event: notified_event_types.append(event.event_type),
+    )
+    with session_scope() as db:
+        upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)
+        place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=100,
+            quantity=1,
+            leverage=5,
+            take_profit_price=110,
+            stop_loss_price=90,
+            payload={
+                "initialQuantity": 1,
+                "takeProfits": [
+                    {"price": 110, "weight": 0.4, "reason": "first target"},
+                    {"price": 120, "weight": 0.6, "reason": "runner target"},
+                ],
+            },
+        )
+        process_candle(db, "paper-trader", "BTCUSDT", {"open": 100, "high": 101, "low": 99, "close": 100})
+        notified_event_types.clear()
+
+        process_candle(db, "paper-trader", "BTCUSDT", {"open": 100, "high": 111, "low": 99, "close": 109})
+
+        assert "take_partial_profit" in notified_event_types
+        assert "position_reduced_by_ai" not in notified_event_types
+
+
 def test_short_take_profit_uses_nearest_profitable_target_when_payload_is_unsorted(temp_db):
     with session_scope() as db:
         upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)
@@ -1427,6 +1463,10 @@ def test_close_position_cancels_remaining_orders_for_same_plan(temp_db):
         db.refresh(order2)
         # Verify order2 has been automatically cancelled!
         assert order2.status == "canceled"
+        assert [event.event_type for event in second.events] == [
+            "position_closed",
+            "order_canceled_after_position_close",
+        ]
 
 
 def test_limit_order_requires_price_through_not_exact_touch(temp_db):

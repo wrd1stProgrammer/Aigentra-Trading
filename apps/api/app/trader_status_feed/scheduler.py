@@ -7,6 +7,13 @@ from app.db import TraderStatusFeedRecord
 from app.trader_status_feed.constants import SCHEDULED_REFRESH_STATUS_STATES
 from app.trader_status_feed.context import aware_utc
 from app.trader_status_feed.models import TraderStatusFeedGenerator
+from app.trader_status_feed.policy import (
+    NO_SETUP_HEARTBEAT_SECONDS,
+    material_status_snapshot,
+    status_feed_horizon,
+    status_feed_interval_seconds,
+)
+from app.repositories import from_json
 from app.trader_status_feed.records import latest_status_feed_record
 from app.trader_status_feed.service import create_status_feed_for_event
 from app.trader_status_feed.state import current_status_feed_candidate
@@ -23,7 +30,6 @@ async def regenerate_due_status_feeds(
     now: datetime | None = None,
 ) -> list[TraderStatusFeedRecord]:
     generated_at = aware_utc(now)
-    interval_seconds = max(60, int(settings.trader_status_feed_regeneration_seconds or 10_800))
     generated: list[TraderStatusFeedRecord] = []
     for trader_id in sorted(set(trader_ids or [trader.id for trader in list_traders()])):
         latest = latest_status_feed_record(db, trader_id=trader_id, symbol=symbol)
@@ -50,8 +56,15 @@ async def regenerate_due_status_feeds(
             continue
         if latest.state_key not in SCHEDULED_REFRESH_STATUS_STATES:
             continue
+        interval_seconds = (
+            NO_SETUP_HEARTBEAT_SECONDS
+            if latest.state_key == "no_setup"
+            else status_feed_interval_seconds(status_feed_horizon(trader_id, candidate["trigger"]))
+        )
         age_seconds = (generated_at - aware_utc(latest.created_at)).total_seconds()
         if age_seconds < interval_seconds:
+            continue
+        if latest.state_key != "no_setup" and not _material_status_changed(latest, candidate["trigger"]):
             continue
         generated.append(
             await create_status_feed_for_event(
@@ -79,6 +92,19 @@ async def regenerate_due_status_feeds(
             )
         )
     return generated
+
+
+def _material_status_changed(latest: TraderStatusFeedRecord, current_trigger: dict) -> bool:
+    raw = from_json(latest.raw_json)
+    request = raw.get("request") if isinstance(raw, dict) else None
+    previous_trigger = request.get("trigger") if isinstance(request, dict) else None
+    if not isinstance(previous_trigger, dict):
+        return True
+    while isinstance(previous_trigger.get("currentState"), dict):
+        previous_trigger = previous_trigger["currentState"]
+    previous = material_status_snapshot(previous_trigger)
+    current = material_status_snapshot(current_trigger)
+    return not previous or not current or previous != current
 
 
 async def create_status_feed_for_current_state(

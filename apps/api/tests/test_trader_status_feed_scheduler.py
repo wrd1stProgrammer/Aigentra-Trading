@@ -10,6 +10,7 @@ from app.trader_status_feed.models import StatusFeedResult
 from app.trader_status_feed.records import list_status_feed_records
 from app.trader_status_feed.scheduler import regenerate_due_status_feeds
 from app.trader_status_feed.service import create_status_feed_for_event
+from app.trader_status_feed.state import current_status_feed_candidate
 
 
 class FakeStatusFeedGenerator:
@@ -152,3 +153,90 @@ def test_status_feed_regenerates_when_current_state_changes(temp_db):
         records = list_status_feed_records(db, symbol="BTCUSDT", trader_id="atr-trail-commander", limit=10)
         assert records[0].id == due[0].id
         assert records[1].id == first.id
+
+
+def test_due_live_position_skips_unchanged_facts_then_emits_material_stop_change(temp_db):
+    settings = Settings(openai_api_key="test-key", ai_translation_enabled=False)
+    generator = FakeStatusFeedGenerator()
+    base_time = datetime(2026, 7, 12, 0, 0, tzinfo=timezone.utc)
+
+    with session_scope() as db:
+        position = PaperPositionRecord(
+            trader_id="trend-sentinel",
+            symbol="BTCUSDT",
+            status="open",
+            side="long",
+            quantity=0.15,
+            entry_price=64_000,
+            leverage=5,
+            notional=9_600,
+            margin=1_920,
+            entry_fee=1.92,
+            unrealized_pnl=120,
+            take_profit_price=66_000,
+            stop_loss_price=63_200,
+            opened_at=base_time,
+            created_at=base_time,
+            updated_at=base_time,
+            payload_json='{"managementPlan":{"holdingHorizon":"POSITION","strategyFamily":"TREND_FOLLOW"}}',
+        )
+        db.add(position)
+        db.flush()
+        candidate = current_status_feed_candidate(db, trader_id="trend-sentinel", symbol="BTCUSDT")
+        assert candidate is not None
+        first = asyncio.run(
+            create_status_feed_for_event(
+                db,
+                settings=settings,
+                trader_id="trend-sentinel",
+                symbol="BTCUSDT",
+                state_key=candidate["stateKey"],
+                event_type=candidate["eventType"],
+                source_type=candidate["sourceType"],
+                source_id=candidate["sourceId"],
+                trigger_payload=candidate["trigger"],
+                state_started_at=candidate["stateStartedAt"],
+                generator=generator,
+                now=base_time,
+            )
+        )
+        first.created_at = base_time
+
+        unchanged = asyncio.run(
+            regenerate_due_status_feeds(
+                db,
+                settings=settings,
+                symbol="BTCUSDT",
+                trader_ids=["trend-sentinel"],
+                generator=generator,
+                now=base_time + timedelta(hours=6),
+            )
+        )
+        position.stop_loss_price = 63_700
+        db.flush()
+        changed = asyncio.run(
+            regenerate_due_status_feeds(
+                db,
+                settings=settings,
+                symbol="BTCUSDT",
+                trader_ids=["trend-sentinel"],
+                generator=generator,
+                now=base_time + timedelta(hours=6, minutes=1),
+            )
+        )
+        unchanged_after_refresh = asyncio.run(
+            regenerate_due_status_feeds(
+                db,
+                settings=settings,
+                symbol="BTCUSDT",
+                trader_ids=["trend-sentinel"],
+                generator=generator,
+                now=base_time + timedelta(hours=12, minutes=2),
+            )
+        )
+
+        assert unchanged == []
+        assert len(changed) == 1
+        assert changed[0].refresh_reason == "scheduled"
+        assert unchanged_after_refresh == []
+        assert len(generator.calls) == 2

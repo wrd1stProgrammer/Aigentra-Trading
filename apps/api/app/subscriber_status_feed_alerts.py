@@ -30,7 +30,7 @@ class StatusFeedPreferences(Protocol):
 def notify_subscribers_for_status_feed(db: Session, feed: TraderStatusFeedRecord) -> None:
     if feed.id is None or feed.status != "ok":
         return
-    if feed.refresh_reason == "scheduled":
+    if feed.refresh_reason == "scheduled" or feed.event_type == "no_setup_heartbeat":
         return
 
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()

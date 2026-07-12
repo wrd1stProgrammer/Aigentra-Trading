@@ -13,6 +13,8 @@ class StatusFeedPersona(BaseModel):
     voice: str
     cadence: str
     avoid: str
+    holdingHorizon: str = "INTRADAY"
+    strategyFamily: str = "MEAN_REVERSION"
 
 
 class StatusFeedRequest(BaseModel):
@@ -24,6 +26,7 @@ class StatusFeedRequest(BaseModel):
     eventType: str
     generatedAt: datetime
     trigger: dict[str, Any] = Field(default_factory=dict)
+    semanticContext: dict[str, Any] = Field(default_factory=dict)
     context: dict[str, Any] = Field(default_factory=dict)
 
 

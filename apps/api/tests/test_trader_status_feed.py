@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -12,6 +12,7 @@ from app.db import (
     PaperOrderRecord,
     PaperPositionRecord,
     SessionLocal,
+    TradeEventRecord,
     TraderStatusFeedRecord,
     init_db,
     reset_db_engine,
@@ -26,9 +27,10 @@ from app.trader_status_feed.constants import (
     STATUS_FEED_STATE_POSITION_ENTRY,
     STATUS_FEED_STATE_REVIEW_REJECTED,
 )
-from app.trader_status_feed.context import management_summary, review_summary
+from app.trader_status_feed.context import management_summary, payload_from_record, review_summary
 from app.trader_status_feed.service import (
     create_status_feed_for_event,
+    create_status_feeds_for_trade_events,
 )
 from app.trader_status_feed.state import current_status_feed_candidate
 
@@ -208,7 +210,7 @@ def test_concurrent_duplicate_status_feed_reuses_committed_record(temp_db):
         assert db.query(TraderStatusFeedRecord).count() == 1
 
 
-def test_live_status_feed_reuses_recent_same_state_instead_of_duplicate_thread_posts(temp_db):
+def test_distinct_live_event_source_is_not_hidden_by_same_state_cooldown(temp_db):
     settings = Settings(openai_api_key="", ai_translation_enabled=False, trader_status_feed_regeneration_seconds=10_800)
     generator = FakeStatusFeedGenerator()
     base_time = datetime(2026, 6, 22, 17, 8, tzinfo=timezone.utc)
@@ -229,7 +231,7 @@ def test_live_status_feed_reuses_recent_same_state_instead_of_duplicate_thread_p
                 now=base_time,
             )
         )
-        duplicate_state = asyncio.run(
+        second_event = asyncio.run(
             create_status_feed_for_event(
                 db,
                 settings=settings,
@@ -245,9 +247,276 @@ def test_live_status_feed_reuses_recent_same_state_instead_of_duplicate_thread_p
             )
         )
 
-        assert duplicate_state.id == first.id
+        assert second_event.id != first.id
+        assert second_event.source_id == 1799
+        assert db.query(TraderStatusFeedRecord).count() == 2
+        assert len(generator.calls) == 2
+
+
+def test_repeated_review_reject_reuses_recent_semantic_reason(temp_db):
+    settings = Settings(openai_api_key="", ai_translation_enabled=False)
+    generator = FakeStatusFeedGenerator()
+    base_time = datetime(2026, 7, 12, 8, 0, tzinfo=timezone.utc)
+
+    with session_scope() as db:
+        first = asyncio.run(
+            create_status_feed_for_event(
+                db,
+                settings=settings,
+                trader_id="trend-sentinel",
+                symbol="BTCUSDT",
+                state_key=STATUS_FEED_STATE_REVIEW_REJECTED,
+                event_type="ai_review_rejected",
+                source_type="ai_review",
+                source_id=301,
+                trigger_payload={"review": {"reviewCode": "ACCOUNT_DRAWDOWN_HARD_ENTRY_LIMIT_REJECT"}},
+                generator=generator,
+                now=base_time,
+            )
+        )
+        repeated = asyncio.run(
+            create_status_feed_for_event(
+                db,
+                settings=settings,
+                trader_id="trend-sentinel",
+                symbol="BTCUSDT",
+                state_key=STATUS_FEED_STATE_REVIEW_REJECTED,
+                event_type="ai_review_rejected",
+                source_type="ai_review",
+                source_id=302,
+                trigger_payload={"review": {"reviewCode": "ACCOUNT_DRAWDOWN_HARD_ENTRY_LIMIT_REJECT"}},
+                generator=generator,
+                now=base_time.replace(hour=11),
+            )
+        )
+
+        assert repeated.id == first.id
         assert db.query(TraderStatusFeedRecord).count() == 1
         assert len(generator.calls) == 1
+
+
+def test_repeated_review_reject_emits_when_material_reason_changes(temp_db):
+    settings = Settings(openai_api_key="", ai_translation_enabled=False)
+    generator = FakeStatusFeedGenerator()
+    base_time = datetime(2026, 7, 12, 8, 0, tzinfo=timezone.utc)
+
+    with session_scope() as db:
+        first = asyncio.run(
+            create_status_feed_for_event(
+                db,
+                settings=settings,
+                trader_id="trend-sentinel",
+                symbol="BTCUSDT",
+                state_key=STATUS_FEED_STATE_REVIEW_REJECTED,
+                event_type="ai_review_rejected",
+                source_type="ai_review",
+                source_id=401,
+                trigger_payload={"review": {"reviewCode": "ACCOUNT_DRAWDOWN_HARD_ENTRY_LIMIT_REJECT"}},
+                generator=generator,
+                now=base_time,
+            )
+        )
+        changed = asyncio.run(
+            create_status_feed_for_event(
+                db,
+                settings=settings,
+                trader_id="trend-sentinel",
+                symbol="BTCUSDT",
+                state_key=STATUS_FEED_STATE_REVIEW_REJECTED,
+                event_type="ai_review_rejected",
+                source_type="ai_review",
+                source_id=402,
+                trigger_payload={"review": {"reviewCode": "FEE_AWARE_RR_BELOW_MINIMUM_REJECT"}},
+                generator=generator,
+                now=base_time.replace(hour=9),
+            )
+        )
+
+        assert changed.id != first.id
+        assert db.query(TraderStatusFeedRecord).count() == 2
+        assert len(generator.calls) == 2
+
+
+def test_same_reject_code_emits_again_after_an_intervening_state(temp_db):
+    settings = Settings(openai_api_key="", ai_translation_enabled=False)
+    generator = FakeStatusFeedGenerator()
+    base_time = datetime(2026, 7, 12, 8, 0, tzinfo=timezone.utc)
+
+    with session_scope() as db:
+        first = asyncio.run(
+            create_status_feed_for_event(
+                db,
+                settings=settings,
+                trader_id="trend-sentinel",
+                symbol="BTCUSDT",
+                state_key=STATUS_FEED_STATE_REVIEW_REJECTED,
+                event_type="ai_review_rejected",
+                source_type="ai_review",
+                source_id=501,
+                trigger_payload={"review": {"reviewCode": "ACCOUNT_DRAWDOWN_HARD_ENTRY_LIMIT_REJECT"}},
+                generator=generator,
+                now=base_time,
+            )
+        )
+        asyncio.run(
+            create_status_feed_for_event(
+                db,
+                settings=settings,
+                trader_id="trend-sentinel",
+                symbol="BTCUSDT",
+                state_key="no_setup",
+                event_type="order_expired_by_ai",
+                source_type="trade_event",
+                source_id=502,
+                trigger_payload={"reason": "expired"},
+                generator=generator,
+                now=base_time + timedelta(hours=1),
+            )
+        )
+        repeated_after_transition = asyncio.run(
+            create_status_feed_for_event(
+                db,
+                settings=settings,
+                trader_id="trend-sentinel",
+                symbol="BTCUSDT",
+                state_key=STATUS_FEED_STATE_REVIEW_REJECTED,
+                event_type="ai_review_rejected",
+                source_type="ai_review",
+                source_id=503,
+                trigger_payload={"review": {"reviewCode": "ACCOUNT_DRAWDOWN_HARD_ENTRY_LIMIT_REJECT"}},
+                generator=generator,
+                now=base_time + timedelta(hours=2),
+            )
+        )
+
+        assert repeated_after_transition.id != first.id
+        assert len(generator.calls) == 3
+
+
+@pytest.mark.parametrize(
+    ("event_type", "expected_state"),
+    [
+        ("order_adjusted_by_ai", "pending_entry"),
+        ("order_canceled_by_ai", "no_setup"),
+        ("order_expired_by_ai", "no_setup"),
+        ("position_add_order_created_by_ai", "position_entry"),
+        ("position_pyramid_order_created_by_ai", "position_entry"),
+        ("position_reduced_by_ai", "position_entry"),
+        ("take_partial_profit", "position_entry"),
+        ("stop_updated_by_ai", "position_entry"),
+        ("stop_moved_to_breakeven", "position_entry"),
+    ],
+)
+def test_management_and_order_lifecycle_events_are_routed(temp_db, event_type, expected_state):
+    settings = Settings(openai_api_key="", ai_translation_enabled=False)
+    generator = FakeStatusFeedGenerator()
+
+    with session_scope() as db:
+        event = TradeEventRecord(
+            trader_id="vwap-reclaimer",
+            symbol="BTCUSDT",
+            status="recorded",
+            event_type=event_type,
+            price=Decimal("64000"),
+            quantity=Decimal("0.01"),
+            payload_json=json.dumps({"managementAction": event_type}),
+        )
+        db.add(event)
+        db.flush()
+
+        records = asyncio.run(
+            create_status_feeds_for_trade_events(
+                db,
+                settings=settings,
+                events=[event],
+                generator=generator,
+            )
+        )
+
+        assert len(records) == 1
+        assert records[0].state_key == expected_state
+        assert records[0].event_type == event_type
+        assert records[0].source_id == event.id
+
+
+def test_compound_management_events_coalesce_into_one_material_feed(temp_db):
+    settings = Settings(openai_api_key="", ai_translation_enabled=False)
+    generator = FakeStatusFeedGenerator()
+
+    with session_scope() as db:
+        partial = TradeEventRecord(
+            trader_id="vwap-reclaimer",
+            symbol="BTCUSDT",
+            status="recorded",
+            event_type="take_partial_profit",
+            position_id=77,
+            price=Decimal("65000"),
+            quantity=Decimal("0.05"),
+        )
+        protected = TradeEventRecord(
+            trader_id="vwap-reclaimer",
+            symbol="BTCUSDT",
+            status="recorded",
+            event_type="stop_moved_to_breakeven",
+            position_id=77,
+            price=Decimal("64000"),
+            quantity=Decimal("0.10"),
+        )
+        db.add_all([partial, protected])
+        db.flush()
+
+        records = asyncio.run(
+            create_status_feeds_for_trade_events(
+                db,
+                settings=settings,
+                events=[partial, protected],
+                generator=generator,
+            )
+        )
+        raw = json.loads(records[0].raw_json)
+
+        assert len(records) == 1
+        assert records[0].event_type == "take_partial_profit"
+        assert raw["request"]["trigger"]["relatedEventTypes"] == ["stop_moved_to_breakeven"]
+
+
+def test_close_feed_suppresses_cleanup_cancel_feed_in_same_batch(temp_db):
+    settings = Settings(openai_api_key="", ai_translation_enabled=False)
+    generator = FakeStatusFeedGenerator()
+
+    with session_scope() as db:
+        closed = TradeEventRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="recorded",
+            event_type="position_closed",
+            position_id=91,
+            price=Decimal("65000"),
+            quantity=Decimal("0.10"),
+        )
+        canceled = TradeEventRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="recorded",
+            event_type="order_canceled_by_ai",
+            order_id=92,
+            price=Decimal("64000"),
+            quantity=Decimal("0.05"),
+        )
+        db.add_all([closed, canceled])
+        db.flush()
+
+        records = asyncio.run(
+            create_status_feeds_for_trade_events(
+                db,
+                settings=settings,
+                events=[closed, canceled],
+                generator=generator,
+            )
+        )
+
+        assert len(records) == 1
+        assert records[0].event_type == "position_closed"
 
 
 def test_current_status_prefers_open_position_over_open_orders(temp_db):
@@ -319,7 +588,7 @@ def test_status_feed_prompt_requires_event_specific_non_repetitive_message():
     assert "Name one concrete input fact that changed or still matters" in prompt
     assert "Make it feel like a live desk/SNS note from the AI trader" in prompt
     assert "not written by Aigentra about the trader" in prompt
-    assert "Use a different sentence shape for review_rejected, pending_entry, position_entry, and position_closed" in prompt
+    assert "Use a different sentence shape for review_rejected, no_setup, pending_entry, position_entry, and position_closed" in prompt
 
 
 def test_status_feed_context_keeps_structured_review_details_for_variation():
@@ -402,3 +671,128 @@ def test_mock_status_feed_generator_keeps_watch_empty_and_human_thread_like():
     assert "next" not in result.watch.lower()
     assert "I " in result.message or "I'm" in result.message
     assert "key signal" not in result.headline.lower()
+
+
+def test_generated_feed_persists_trade_semantics_in_payload_and_raw_request(temp_db):
+    settings = Settings(openai_api_key="", ai_translation_enabled=False)
+    generator = FakeStatusFeedGenerator()
+
+    with session_scope() as db:
+        record = asyncio.run(
+            create_status_feed_for_event(
+                db,
+                settings=settings,
+                trader_id="trend-sentinel",
+                symbol="BTCUSDT",
+                state_key=STATUS_FEED_STATE_POSITION_ENTRY,
+                event_type="position_reduced_by_ai",
+                source_type="trade_event",
+                source_id=8_801,
+                trigger_payload={
+                    "position": {
+                        "side": "short",
+                        "entryPrice": 64_000,
+                        "stopLossPrice": 65_000,
+                        "takeProfitPrice": 61_000,
+                        "payload": {
+                            "managementPlan": {
+                                "holdingHorizon": "POSITION",
+                                "strategyFamily": "TREND_FOLLOW",
+                            }
+                        },
+                    }
+                },
+                generator=generator,
+            )
+        )
+        payload = payload_from_record(record)
+        raw = json.loads(record.raw_json)
+
+        assert payload["semanticContext"] == raw["request"]["semanticContext"]
+        assert payload["semanticContext"]["side"] == "short"
+        assert payload["semanticContext"]["holdingHorizon"] == "POSITION"
+        assert payload["semanticContext"]["strategyFamily"] == "TREND_FOLLOW"
+        assert payload["semanticContext"]["lifecycleAction"] == "reduce"
+        assert payload["semanticContext"]["stopLossPrice"] == 65_000
+
+
+def test_trade_event_semantics_read_side_and_levels_from_event_payload(temp_db):
+    settings = Settings(openai_api_key="", ai_translation_enabled=False)
+    generator = FakeStatusFeedGenerator()
+
+    with session_scope() as db:
+        event = TradeEventRecord(
+            trader_id="trend-sentinel",
+            symbol="BTCUSDT",
+            status="recorded",
+            event_type="take_partial_profit",
+            position_id=101,
+            price=Decimal("61000"),
+            quantity=Decimal("0.05"),
+            payload_json=json.dumps(
+                {
+                    "side": "short",
+                    "entryPrice": 64_000,
+                    "stopLossPrice": 64_000,
+                    "takeProfitPrice": 60_000,
+                    "managementPlan": {
+                        "holdingHorizon": "POSITION",
+                        "strategyFamily": "TREND_FOLLOW",
+                    },
+                }
+            ),
+        )
+        db.add(event)
+        db.flush()
+
+        record = asyncio.run(
+            create_status_feeds_for_trade_events(db, settings=settings, events=[event], generator=generator)
+        )[0]
+        semantic = payload_from_record(record)["semanticContext"]
+
+        assert semantic["side"] == "short"
+        assert semantic["entryPrice"] == 64_000
+        assert semantic["lifecycleAction"] == "reduce"
+
+
+def test_fill_event_semantics_fall_back_to_linked_position(temp_db):
+    settings = Settings(openai_api_key="", ai_translation_enabled=False)
+    generator = FakeStatusFeedGenerator()
+
+    with session_scope() as db:
+        position = PaperPositionRecord(
+            trader_id="trend-sentinel",
+            symbol="BTCUSDT",
+            status="open",
+            side="short",
+            quantity=Decimal("0.15"),
+            entry_price=Decimal("64000"),
+            leverage=Decimal("5"),
+            notional=Decimal("9600"),
+            margin=Decimal("1920"),
+            entry_fee=Decimal("1.92"),
+            stop_loss_price=Decimal("65000"),
+            take_profit_price=Decimal("61000"),
+        )
+        db.add(position)
+        db.flush()
+        event = TradeEventRecord(
+            trader_id="trend-sentinel",
+            symbol="BTCUSDT",
+            status="recorded",
+            event_type="order_filled",
+            position_id=position.id,
+            price=Decimal("64000"),
+            quantity=Decimal("0.15"),
+        )
+        db.add(event)
+        db.flush()
+
+        record = asyncio.run(
+            create_status_feeds_for_trade_events(db, settings=settings, events=[event], generator=generator)
+        )[0]
+        semantic = payload_from_record(record)["semanticContext"]
+
+        assert semantic["side"] == "short"
+        assert semantic["entryPrice"] == 64_000
+        assert semantic["stopLossPrice"] == 65_000

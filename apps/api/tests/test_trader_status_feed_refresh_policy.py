@@ -50,7 +50,7 @@ def temp_db(tmp_path):
         init_db()
 
 
-def test_live_status_feed_regenerates_on_three_hour_boundary_without_chaining_event_type(temp_db):
+def test_intraday_status_feed_regenerates_on_one_hour_boundary_without_chaining_event_type(temp_db):
     settings = Settings(openai_api_key="test-key", ai_translation_enabled=False, trader_status_feed_regeneration_seconds=10_800)
     generator = FakeStatusFeedGenerator()
     base_time = datetime(2026, 6, 19, 0, 5, tzinfo=timezone.utc)
@@ -95,7 +95,7 @@ def test_live_status_feed_regenerates_on_three_hour_boundary_without_chaining_ev
                 symbol="BTCUSDT",
                 trader_ids=["volatility-squeezer"],
                 generator=generator,
-                now=base_time + timedelta(hours=2, minutes=59),
+                now=base_time + timedelta(minutes=59),
             )
         )
         due = asyncio.run(
@@ -105,7 +105,7 @@ def test_live_status_feed_regenerates_on_three_hour_boundary_without_chaining_ev
                 symbol="BTCUSDT",
                 trader_ids=["volatility-squeezer"],
                 generator=generator,
-                now=base_time + timedelta(hours=3),
+                now=base_time + timedelta(hours=1),
             )
         )
         again = asyncio.run(
@@ -115,7 +115,7 @@ def test_live_status_feed_regenerates_on_three_hour_boundary_without_chaining_ev
                 symbol="BTCUSDT",
                 trader_ids=["volatility-squeezer"],
                 generator=generator,
-                now=base_time + timedelta(hours=3, minutes=1),
+                now=base_time + timedelta(hours=1, minutes=1),
             )
         )
         records = list_status_feed_records(db, symbol="BTCUSDT", trader_id="volatility-squeezer", limit=10)

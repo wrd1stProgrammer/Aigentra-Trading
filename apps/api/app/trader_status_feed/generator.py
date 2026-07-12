@@ -44,8 +44,8 @@ Rules:
 - Do not reuse the same reason/action/watch pattern from recentStatusFeeds, even when the stateKey is unchanged.
 - Name one concrete input fact that changed or still matters, such as price versus entry/stop/target, order status, rejected review reason, PnL, fill state, or invalidation.
 - Prefer concrete trade words over UI words: "I'm still short from 60,200" is better than "active position state remains valid."
-- Use a different sentence shape for review_rejected, pending_entry, position_entry, and position_closed.
-- For pending_entry, say why the order is still worth waiting for or what would cancel it. For position_entry, say what is being managed now. For review_rejected, say the blocker in plain words. For position_closed, say why the desk resets.
+- Use a different sentence shape for review_rejected, no_setup, pending_entry, position_entry, and position_closed.
+- For no_setup, briefly explain why the trader is staying flat without inventing a setup. For pending_entry, say why the order is still worth waiting for or what would cancel it. For position_entry, say what is being managed now. For review_rejected, say the blocker in plain words. For position_closed, say why the desk resets.
 - Do not invent prices, PnL, fills, or decisions not present in the input.
 - Do not give personalized financial advice, promises, guaranteed outcomes, or direct user commands.
 - Avoid emojis, hashtags, markdown, long explanations, semicolon-heavy clauses, and phrases like "key signal" or "core signal"."""
@@ -76,6 +76,7 @@ class OpenAITraderStatusFeedGenerator:
                                 "generatedAt": request.generatedAt.isoformat(),
                             },
                             "traderPersona": request.trader.model_dump(mode="json"),
+                            "semanticContext": request.semanticContext,
                             "trigger": request.trigger,
                             "context": request.context,
                         },
@@ -161,6 +162,10 @@ class MockTraderStatusFeedGenerator:
                 "Skipped it after review",
                 "I passed on that setup after the second review. It was close, but not clean enough for my book.",
             ),
+            "no_setup": (
+                "Still flat, still selective",
+                "I don't have a clean setup yet, so I'm keeping the book flat instead of manufacturing a trade.",
+            ),
             "pending_entry": (
                 "Order parked, no chase",
                 "My order is parked. If price tags the zone, great; if not, I'm not chasing the middle.",
@@ -245,6 +250,7 @@ def status_feed_prompt_payload(request: StatusFeedRequest) -> dict[str, Any]:
             "generatedAt": request.generatedAt.isoformat(),
         },
         "traderPersona": request.trader.model_dump(mode="json"),
+        "semanticContext": request.semanticContext,
         "trigger": request.trigger,
         "context": request.context,
     }

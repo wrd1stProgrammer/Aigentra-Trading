@@ -142,4 +142,6 @@ def status_persona_for_profile(profile: TraderProfile) -> dict[str, str]:
         "voice": persona["voice"],
         "cadence": persona["cadence"],
         "avoid": persona["avoid"],
+        "holdingHorizon": profile.holdingHorizon.value,
+        "strategyFamily": profile.strategyFamily.value,
     }

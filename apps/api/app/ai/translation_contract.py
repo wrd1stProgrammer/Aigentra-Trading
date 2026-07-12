@@ -28,9 +28,18 @@ TRADER_STATUS_TRANSLATION_STYLE_CONTRACT: Final[dict[str, str | tuple[str, ...]]
     "tone": "casual_trader_thread",
     "voice": "short first-person trader briefing, not a product explainer",
     "languagePolicy": "korean_first_no_mixed_prose",
-    "preserveTokens": ("BTC", "USDT", "LONG", "SHORT", "TP", "SL", "PnL", "RSI", "EMA", "VWAP", "OI", "RR", "ADX", "ATR"),
+    "preserveTokens": ("BTC", "USDT", "TP", "SL", "PnL", "RSI", "EMA", "VWAP", "OI", "RR", "ADX", "ATR"),
     "forbiddenStyles": ("journalist_summary", "analyst_report", "formal_postmortem"),
     "forbiddenPhrases": ("next_watch_label", "next_confirmation_label", "what_to_watch"),
+    "koreanTermRules": (
+        "LONG prose -> 롱",
+        "SHORT prose -> 숏",
+        "I'm flat -> 포지션 없이 대기 중",
+        "close SHORT -> 숏 청산",
+        "adverse move against SHORT -> 반등 위험/손실 위험",
+        "never reverse entry, stop, target, reduce, or close direction",
+        "use restrained 해요체",
+    ),
     "avoidExamples": (
         "다음 확인",
         "핵심 신호",
@@ -146,6 +155,7 @@ def translation_style_contract_for_payload(payload: dict[str, Any], target_local
     return {
         **TRADER_STATUS_TRANSLATION_STYLE_CONTRACT,
         "languagePolicy": "target_locale_first_no_mixed_source_prose",
+        "koreanTermRules": (),
         "avoidExamples": ("Next watch", "key signal", "core signal", "Price remains"),
     }
 

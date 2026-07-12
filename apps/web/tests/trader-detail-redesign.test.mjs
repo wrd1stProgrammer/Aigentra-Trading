@@ -54,7 +54,10 @@ function t(key) {
   const labels = {
     "detail.noStatusFeed": "피드 없음",
     "detail.statusFeed": "트레이더 피드",
-    "detail.statusFeedThread": "최근 쓰레드",
+    "detail.statusFeedThread": "트레이더 노트",
+    "detail.statusFeedState.current": "현재 상태",
+    "detail.statusFeedState.stale": "이전 상태 기준",
+    "detail.statusFeedState.archived": "과거 기록",
     "leaderboard.latestStatusFeed": "최근 피드",
     "leaderboard.noStatusFeed": "아직 피드가 없습니다",
     "access.reviewInlineLocked": "AI 리뷰 잠김",
@@ -121,6 +124,28 @@ test("status feed render ignores legacy watch checklist content", () => {
     assert.doesNotMatch(html, /거래량 확인/, "legacy watch checklist details should stay hidden");
     assert.doesNotMatch(html, /15분 동안/, "legacy watch timing copy should stay hidden");
   }
+});
+
+test("status feed renders a neutral title and localized lifecycle badges", () => {
+  const feeds = [
+    { ...legacyWatchFeed, id: 11, displayState: "current" },
+    { ...legacyWatchFeed, id: 12, displayState: "stale" },
+    { ...legacyWatchFeed, id: 13, displayState: "archived" }
+  ];
+  const html = renderToStaticMarkup(
+    React.createElement(statusFeedModule.StatusFeedThread, {
+      feeds,
+      locale: "ko",
+      t
+    })
+  );
+
+  assert.match(html, /트레이더 노트/, "thread heading should be neutral rather than claiming every row is live");
+  assert.match(html, /현재 상태/, "current note should be explicitly labeled");
+  assert.match(html, /이전 상태 기준/, "stale latest note should be explicitly labeled");
+  assert.match(html, /과거 기록/, "older note should be explicitly labeled");
+  assert.match(html, /data-testid="status-feed-display-state"/, "badges should expose a stable QA and accessibility hook");
+  assert.match(source, /shrink-0 whitespace-nowrap/, "badge and timestamp metadata should stay on one line");
 });
 
 test("locked status feed previews do not render subscriber-only note text", () => {

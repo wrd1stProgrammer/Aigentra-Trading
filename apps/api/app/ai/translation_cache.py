@@ -12,6 +12,7 @@ from app.locales import (
     AI_TRANSLATION_SOURCE_AI_REVIEW,
     AI_TRANSLATION_SOURCE_LEAGUE_SENTIMENT,
     AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
+    AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED,
     CANONICAL_AI_LOCALE,
     NON_CANONICAL_AI_LOCALES,
     normalize_locale,
@@ -132,6 +133,21 @@ def localized_payload_for_source(
         cached_payload = from_json(record.payload_json)
         if isinstance(cached_payload, dict):
             localized_payload = merge_translation_overlay(payload, scrub_translation_payload_for_source(source_type, cached_payload))
+            try:
+                localized_payload = normalize_and_validate_status_feed_translation(
+                    source_type,
+                    payload,
+                    localized_payload,
+                    locale=requested_locale,
+                )
+            except TranslationShapeError:
+                return payload, {
+                    "status": "fallback",
+                    "locale": requested_locale,
+                    "fallbackLocale": source_locale,
+                    "sourceLocale": source_locale,
+                    "semanticValidationFailed": True,
+                }
             return localized_payload, {"status": "ok", "locale": requested_locale, "sourceLocale": source_locale, "sourceHash": source_hash}
     latest_record = get_latest_successful_translation_for_source(
         db,
@@ -331,6 +347,12 @@ async def fanout_ai_translations(
                 provider=active_provider,
             )
             safe_payload = merge_validated_translation(request_payload, translated)
+            safe_payload = normalize_and_validate_status_feed_translation(
+                source_type,
+                request_payload,
+                safe_payload,
+                locale=locale,
+            )
             safe_payload = scrub_translation_payload_for_source(source_type, safe_payload)
             upsert_translation_cache_record(
                 db,
@@ -499,7 +521,77 @@ def source_locale_for_payload(payload: dict[str, Any]) -> str:
 def is_protected_path(path: tuple[str, ...]) -> bool:
     if not path:
         return False
-    return path[-1] in PROTECTED_KEYS or any(part in {"reviewFacts", "riskFlags", "sourceCounts"} for part in path)
+    return path[-1] in PROTECTED_KEYS or any(
+        part in {"reviewFacts", "riskFlags", "sourceCounts", "semanticContext"}
+        for part in path
+    )
+
+
+def normalize_and_validate_status_feed_translation(
+    source_type: str,
+    original: dict[str, Any],
+    translated: dict[str, Any],
+    *,
+    locale: str,
+) -> dict[str, Any]:
+    if source_type != AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED:
+        return translated
+    normalized = normalize_status_feed_translation(original, translated, locale=locale)
+    validate_status_feed_translation_semantics(original, normalized, locale=locale)
+    return normalized
+
+
+def normalize_status_feed_translation(
+    original: dict[str, Any],
+    translated: dict[str, Any],
+    *,
+    locale: str,
+) -> dict[str, Any]:
+    if normalize_locale(locale) != "ko":
+        return translated
+    normalized = dict(translated)
+    source_text = " ".join(str(original.get(key) or "") for key in ("headline", "message", "watch"))
+    for key in ("headline", "message", "watch"):
+        value = normalized.get(key)
+        if not isinstance(value, str):
+            continue
+        value = re.sub(r"\bLONG\b", "롱", value, flags=re.IGNORECASE)
+        value = re.sub(r"\bSHORT\b", "숏", value, flags=re.IGNORECASE)
+        if "I'm flat" in source_text or "I am flat" in source_text:
+            value = value.replace("횡보 중", "포지션 없이 대기 중")
+        normalized[key] = value
+    return normalized
+
+
+def validate_status_feed_translation_semantics(
+    original: dict[str, Any],
+    translated: dict[str, Any],
+    *,
+    locale: str,
+) -> None:
+    if normalize_locale(locale) != "ko":
+        return
+    semantic_context = original.get("semanticContext")
+    if not isinstance(semantic_context, dict):
+        return
+    text = " ".join(str(translated.get(key) or "") for key in ("headline", "message", "watch"))
+    side = str(semantic_context.get("side") or "").lower()
+    if side == "short" and "롱" in text and "숏" not in text:
+        raise TranslationShapeError("Korean status feed reversed SHORT into LONG.")
+    if side == "long" and "숏" in text and "롱" not in text:
+        raise TranslationShapeError("Korean status feed reversed LONG into SHORT.")
+    lifecycle_action = str(semantic_context.get("lifecycleAction") or "").lower()
+    if side == "short" and any(term in text for term in ("롱 진입", "롱 포지션 오픈")):
+        raise TranslationShapeError("Korean status feed added an opposite LONG action to a SHORT episode.")
+    if side == "long" and any(term in text for term in ("숏 진입", "숏 포지션 오픈")):
+        raise TranslationShapeError("Korean status feed added an opposite SHORT action to a LONG episode.")
+    if lifecycle_action == "reduce" and any(term in text for term in ("추매", "추가 진입", "포지션 확대")):
+        raise TranslationShapeError("Korean status feed reversed reduction into an add action.")
+    if lifecycle_action == "close" and any(
+        term in text
+        for term in ("신규 진입", "포지션 오픈", "롱 진입", "숏 진입", "매수 진입", "매수")
+    ):
+        raise TranslationShapeError("Korean status feed reversed close into an open action.")
 
 
 def scrub_translation_payload_for_source(source_type: str, payload: dict[str, Any]) -> dict[str, Any]:

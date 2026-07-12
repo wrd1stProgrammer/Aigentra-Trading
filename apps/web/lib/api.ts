@@ -405,6 +405,8 @@ export type TraderStatusFeed = {
   event_type?: string | null;
   refreshReason?: string | null;
   refresh_reason?: string | null;
+  displayState?: "current" | "stale" | "archived" | null;
+  display_state?: "current" | "stale" | "archived" | null;
   headline?: string | null;
   message?: string | null;
   watch?: string | null;

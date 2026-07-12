@@ -2061,7 +2061,13 @@ def apply_management_actions(
                 applied.append({"type": action_type, "applied": False, "reason": "Paper order is no longer open."})
                 continue
             if action_type in {"CANCEL_PENDING_ORDER", "CANCEL_REMAINING_ORDERS", "EXPIRE_PLAN", "REDUCE_RISK"}:
-                record = cancel_paper_order(db, order, reason, result)
+                record = cancel_paper_order(
+                    db,
+                    order,
+                    reason,
+                    result,
+                    event_type="order_expired_by_ai" if action_type == "EXPIRE_PLAN" else "order_canceled_by_ai",
+                )
             elif action_type in {"ADJUST_PENDING_ORDER", "ADJUST_ENTRY"}:
                 new_limit = safe_management_limit(order, action.price, mark_price)
                 if new_limit is not None:
@@ -2150,7 +2156,13 @@ def apply_management_actions(
                     ).execution_options(populate_existing=True)
                 ).scalars().all()
                 for order in open_orders:
-                    cancel_paper_order(db, order, reason, result)
+                    cancel_paper_order(
+                        db,
+                        order,
+                        reason,
+                        result,
+                        event_type="order_expired_by_ai" if action_type == "EXPIRE_PLAN" else "order_canceled_by_ai",
+                    )
                 record = open_orders[0] if open_orders else None
             elif action_type in {"HOLD", "LET_PROFIT_RUN", "NEEDS_MORE_DATA"}:
                 applied.append({"type": action_type, "applied": False, "reason": "No paper state change requested."})

@@ -9,7 +9,11 @@ from app.ai.translation_cache import (
     fanout_ai_translations,
     localized_payload_for_source,
     merge_validated_translation,
+    merge_translation_overlay,
+    normalize_status_feed_translation,
     stable_source_hash,
+    validate_status_feed_translation_semantics,
+    TranslationShapeError,
 )
 from app.ai.translation_contract import translation_request_payload
 from app.ai.translation_provider import translation_style_contract_for_payload
@@ -1015,8 +1019,76 @@ def test_trader_status_feed_translation_contract_blocks_mixed_language_and_boile
     assert "시장 상황은 지지적" in contract["avoidExamples"]
     assert "무효 신호는 감지되지 않음" in contract["avoidExamples"]
     assert "Price remains" in contract["avoidExamples"]
-    assert "LONG" in contract["preserveTokens"]
-    assert "SHORT" in contract["preserveTokens"]
+    assert "LONG" not in contract["preserveTokens"]
+    assert "SHORT" not in contract["preserveTokens"]
+    assert "LONG prose -> 롱" in contract["koreanTermRules"]
+    assert "SHORT prose -> 숏" in contract["koreanTermRules"]
+    assert "I'm flat -> 포지션 없이 대기 중" in contract["koreanTermRules"]
+    assert "close SHORT -> 숏 청산" in contract["koreanTermRules"]
+
+
+def test_trader_status_feed_semantic_context_is_protected_as_a_whole():
+    original = {
+        "headline": "Short remains open",
+        "message": "I am protecting the short.",
+        "semanticContext": {
+            "side": "short",
+            "strategyFamily": "TREND_FOLLOW",
+            "holdingHorizon": "POSITION",
+            "lifecycleAction": "hold",
+            "entryPrice": 64_000,
+            "stopLossPrice": 65_000,
+        },
+    }
+    malicious = {
+        "headline": "롱 유지",
+        "message": "롱을 보호합니다.",
+        "semanticContext": {
+            "side": "long",
+            "strategyFamily": "MEAN_REVERSION",
+            "holdingHorizon": "SCALP",
+            "lifecycleAction": "open",
+            "entryPrice": 1,
+            "stopLossPrice": 2,
+        },
+    }
+
+    merged = merge_translation_overlay(original, malicious)
+
+    assert merged["semanticContext"] == original["semanticContext"]
+
+
+def test_korean_status_feed_translation_normalizes_direction_terms_and_rejects_reversal():
+    original = {
+        "feedType": AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED,
+        "headline": "SHORT still open",
+        "message": "I'm flat after closing the SHORT.",
+        "semanticContext": {"side": "short", "lifecycleAction": "close"},
+    }
+    normalized = normalize_status_feed_translation(
+        original,
+        {
+            **original,
+            "headline": "SHORT 유지 중이에요",
+            "message": "SHORT 청산 후 횡보 중이에요",
+        },
+        locale="ko",
+    )
+
+    assert normalized["headline"] == "숏 유지 중이에요"
+    assert normalized["message"] == "숏 청산 후 포지션 없이 대기 중이에요"
+    with pytest.raises(TranslationShapeError):
+        validate_status_feed_translation_semantics(
+            original,
+            {**normalized, "headline": "롱 유지 중이에요", "message": "롱을 더 들고 있어요"},
+            locale="ko",
+        )
+    with pytest.raises(TranslationShapeError):
+        validate_status_feed_translation_semantics(
+            original,
+            {**normalized, "headline": "롱 진입 후 숏 청산", "message": "매수로 숏을 닫았어요"},
+            locale="ko",
+        )
 
 
 def test_non_korean_status_feed_translation_does_not_inherit_korean_language_policy():
