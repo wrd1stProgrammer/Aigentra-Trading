@@ -15,6 +15,7 @@ from app.paper.review_payload import review_payload_fields
 from app.paper.settings import sync_default_paper_settings
 from app.paper.sizing import (
     SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT,
+    planned_entry_margin_budgets,
     target_margin_deployment_percent,
 )
 from app.repositories import serialize_record
@@ -201,6 +202,22 @@ def create_paper_orders_from_plan(
     hard_margin_budget = cash_budget_cap
     split_margin_floor = minimum_entry_margin
     target_margin_budget = min(max(target_margin_budget, split_margin_floor), hard_margin_budget)
+    eligible_entries = [entry for entry in plan.entries if entry.price > 0 and entry.weight > 0]
+    eligible_entry_indexes = [
+        index for index, entry in enumerate(plan.entries) if entry.price > 0 and entry.weight > 0
+    ]
+    entry_margin_budgets = dict(
+        zip(
+            eligible_entry_indexes,
+            planned_entry_margin_budgets(
+                entries=eligible_entries,
+                target_margin_budget=target_margin_budget,
+                total_weight=total_weight,
+                first_entry_floor_budget=minimum_entry_margin,
+            ),
+            strict=True,
+        )
+    )
     slippage_rate = Decimal(str(settings.paper_slippage_rate))
     created: list[dict] = []
     skipped: list[str] = []
@@ -256,7 +273,14 @@ def create_paper_orders_from_plan(
             allocated_risk = min(risk_budget, max(allocated_risk, minimum_margin_quantity * risk_per_unit))
         risk_sized_quantity = allocated_risk / risk_per_unit
         remaining_margin_budget = max(Decimal("0"), hard_margin_budget - actual_margin_used)
-        margin_cap = min(max(target_margin_budget * weight, rounded_minimum_margin), remaining_margin_budget)
+        remaining_target_margin_budget = max(Decimal("0"), target_margin_budget - actual_margin_used)
+        planned_entry_margin_budget = min(
+            entry_margin_budgets.get(index, Decimal("0")),
+            remaining_target_margin_budget,
+        )
+        if requires_minimum_margin:
+            planned_entry_margin_budget = max(planned_entry_margin_budget, rounded_minimum_margin)
+        margin_cap = min(planned_entry_margin_budget, remaining_margin_budget)
         margin_sized_quantity = (margin_cap * leverage) / expected_entry_fill
         quantity = quantize_quantity(min(risk_sized_quantity, margin_sized_quantity))
         planned_risk = quantity * risk_per_unit

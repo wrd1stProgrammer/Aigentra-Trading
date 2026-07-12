@@ -641,7 +641,7 @@ def build_sizing_settings(minimum: int = 10):
     )
 
 
-def test_paper_order_sizing_enforces_twelve_percent_floor_with_step_rounding(temp_db):
+def test_paper_order_sizing_enforces_fifteen_percent_floor_with_step_rounding(temp_db):
     with session_scope() as db:
         candidate = TradeCandidate(
             created=True,
@@ -653,7 +653,7 @@ def test_paper_order_sizing_enforces_twelve_percent_floor_with_step_rounding(tem
             ],
             stopLoss=66000,
             takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
-            riskPercent=2.0,
+            riskPercent=2.5,
         )
         plan = build_orderable_plan(candidate)
         settings = build_sizing_settings(minimum=1)
@@ -671,9 +671,9 @@ def test_paper_order_sizing_enforces_twelve_percent_floor_with_step_rounding(tem
 
         total_margin = sum(order["quantity"] * order["limitPrice"] / order["leverage"] for order in result["created"])
         assert result["created"]
-        assert result["marginDeploymentPercent"] == 12
+        assert result["marginDeploymentPercent"] == 15
         assert result["marginDeploymentPercent"] <= 100
-        assert result["targetMarginBudget"] == pytest.approx(1200)
+        assert result["targetMarginBudget"] == pytest.approx(1500)
         assert result["targetMarginBudget"] <= total_margin <= result["targetMarginBudget"] + 14
         assert result["created"][0]["payload"]["minimumEntryMarginSatisfied"] is True
         assert result["plannedRisk"] <= result["riskBudget"] * 1.05
@@ -739,7 +739,7 @@ def test_pending_market_order_reserves_cash_without_imposing_notional_cap(temp_d
             entries=[EntryPlan(price=68000, weight=1.0, reason="new symbol")],
             stopLoss=66000,
             takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
-            riskPercent=2.0,
+            riskPercent=2.5,
         )
 
         # When: a second symbol tries to reserve account capacity.
@@ -830,7 +830,7 @@ def test_pending_limit_order_reserves_cash_for_margin_and_entry_fee(temp_db):
             riskPercent=2.0,
         )
 
-        # When: a new order needs the 12% minimum margin.
+        # When: a new order needs the 15% minimum margin.
         result = create_paper_orders_from_plan(
             db,
             trader_id="channel-rider",
@@ -962,7 +962,7 @@ def test_paper_order_sizing_can_exceed_former_account_margin_cap_across_symbols(
             entries=[EntryPlan(price=68000, weight=1.0, reason="new symbol entry")],
             stopLoss=66000,
             takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
-            riskPercent=2.0,
+            riskPercent=2.5,
         )
 
         result = create_paper_orders_from_plan(
@@ -1017,8 +1017,8 @@ def test_paper_order_sizing_does_not_lift_margin_for_ai_confidence(temp_db):
         )
 
         assert result["created"]
-        assert result["marginDeploymentPercent"] == pytest.approx(47.2)
-        assert result["targetMarginBudget"] == pytest.approx(4720)
+        assert result["marginDeploymentPercent"] == pytest.approx(49)
+        assert result["targetMarginBudget"] == pytest.approx(4900)
         assert result["riskPercent"] == pytest.approx(1.0)
 
 
@@ -1032,7 +1032,7 @@ def test_paper_order_payload_preserves_ai_review_rationale(temp_db):
             entries=[EntryPlan(price=61416.2, weight=1.0, reason="15분 확인 캔들")],
             stopLoss=61985.1,
             takeProfits=[TakeProfitPlan(price=59080, weight=1.0, reason="채널 반대편")],
-            riskPercent=0.7,
+            riskPercent=0.8,
         )
         review = TradeReviewResult(
             decision="APPROVE",
@@ -1486,7 +1486,7 @@ async def test_run_cycle_persists_snapshot_candidate_review_and_plan(monkeypatch
     assert result.paper is not None
     assert result.recordIds["paperOrderIds"] == []
     assert result.paperOrders == []
-    assert "below the 12% entry margin floor" in result.paper["ordersCreated"]["skipped"][0]
+    assert "below the 15% entry margin floor" in result.paper["ordersCreated"]["skipped"][0]
     assert result.tradePlan.leverage is not None
     assert result.tradePlan.earlyExitRules
     assert provider_transaction_states == [False]

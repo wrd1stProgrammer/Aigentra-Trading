@@ -74,15 +74,15 @@ def test_split_entry_sizing_allocates_total_stop_risk_across_entries(temp_db):
             settings=sizing_settings(minimum=1),
         )
 
-        assert len(result["created"]) == 2
-        assert result["marginDeploymentPercent"] == 12
+        assert len(result["created"]) == 1
+        assert result["marginDeploymentPercent"] == 15
         assert result["plannedRisk"] <= result["riskBudget"] * 1.05
         assert result["riskBudgetUtilizationPercent"] <= 105
-        assert margin_used(result["created"][0]) >= 1200
-        assert 12 <= result["actualMarginDeploymentPercent"] <= 30
+        assert margin_used(result["created"][0]) >= 1500
+        assert 15 <= result["actualMarginDeploymentPercent"] <= 15.2
 
 
-def test_first_split_entry_uses_at_least_twelve_percent_account_margin(temp_db):
+def test_first_split_entry_uses_at_least_fifteen_percent_account_margin(temp_db):
     # Given: a strong two-stage setup with enough stop-risk budget for its first minimum entry.
     candidate = TradeCandidate(
         created=True,
@@ -111,18 +111,18 @@ def test_first_split_entry_uses_at_least_twelve_percent_account_margin(temp_db):
             settings=sizing_settings(minimum=20),
         )
 
-    # Then: the initial stage uses at least 12% margin while remaining within available cash.
+    # Then: the initial stage uses at least 15% margin while remaining within available cash.
     margins = [margin_used(order) for order in result["created"]]
     assert len(margins) == 2
-    assert margins[0] >= 1200
+    assert margins[0] >= 1500
     assert sum(margins) < 10000
-    assert all(order["payload"]["minimumEntryMarginPercent"] == 12 for order in result["created"])
+    assert all(order["payload"]["minimumEntryMarginPercent"] == 15 for order in result["created"])
     assert result["created"][0]["payload"]["minimumEntryMarginRequired"] is True
     assert result["created"][0]["payload"]["minimumEntryMarginSatisfied"] is True
     assert result["plannedRisk"] <= result["riskBudget"] * 1.05
 
 
-def test_first_entry_requires_twelve_percent_account_margin(temp_db):
+def test_first_entry_requires_fifteen_percent_account_margin(temp_db):
     candidate = TradeCandidate(
         created=True,
         side="LONG",
@@ -147,13 +147,87 @@ def test_first_entry_requires_twelve_percent_account_margin(temp_db):
         )
 
     assert len(result["created"]) == 1
-    assert margin_used(result["created"][0]) >= 1200
-    assert result["created"][0]["payload"]["minimumEntryMarginPercent"] == 12
+    assert margin_used(result["created"][0]) >= 1500
+    assert result["created"][0]["payload"]["minimumEntryMarginPercent"] == 15
     assert result["plannedRisk"] <= result["riskBudget"] * 1.05
 
 
-def test_split_entry_below_twelve_percent_is_skipped_instead_of_overriding_risk_budget(temp_db):
-    # Given: a split setup whose approved stop-risk budget cannot fund a 12% margin entry.
+def test_high_conviction_split_can_use_half_equity_first_and_full_equity_total(temp_db):
+    candidate = TradeCandidate(
+        created=True,
+        side="LONG",
+        setupType="TEST_HIGH_CONVICTION_DEPLOYMENT",
+        setupScore=100,
+        entries=[
+            EntryPlan(price=68000, weight=0.5, reason="first conviction entry"),
+            EntryPlan(price=67500, weight=0.5, reason="second conviction entry"),
+        ],
+        stopLoss=66000,
+        takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
+        riskPercent=20.0,
+    )
+
+    with session_scope() as db:
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="volume-breaker",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=orderable_plan(candidate, leverage=5),
+            settings=sizing_settings(minimum=15),
+        )
+
+    margins = [margin_used(order) for order in result["created"]]
+    assert len(margins) == 2
+    assert margins[0] >= 4900
+    assert result["created"][0]["payload"]["accountMarginPercent"] == pytest.approx(50, abs=0.3)
+    assert sum(margins) >= 9900
+    assert result["marginDeploymentPercent"] == 100
+    assert result["actualMarginDeploymentPercent"] <= 100
+    assert result["plannedRisk"] <= result["riskBudget"] * 1.05
+
+
+def test_split_floor_does_not_push_total_margin_above_score_target_when_cash_exceeds_equity(temp_db):
+    candidate = TradeCandidate(
+        created=True,
+        side="LONG",
+        setupType="TEST_SPLIT_TARGET_CEILING",
+        setupScore=99,
+        entries=[
+            EntryPlan(price=68000, weight=0.01, reason="starter"),
+            EntryPlan(price=67500, weight=0.99, reason="confirmation"),
+        ],
+        stopLoss=66000,
+        takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
+        riskPercent=100.0,
+    )
+
+    with session_scope() as db:
+        state = ensure_trader_state(db, "split-target-trader", Decimal("10000"))
+        state.equity = Decimal("9000")
+        state.cash_balance = Decimal("10000")
+        db.flush()
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="split-target-trader",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=orderable_plan(candidate, leverage=5),
+            settings=sizing_settings(minimum=15),
+        )
+
+    assert result["marginDeploymentPercent"] == pytest.approx(98.3)
+    assert result["created"][0]["payload"]["accountMarginPercent"] >= 15
+    assert result["actualMarginUsed"] <= result["targetMarginBudget"]
+    assert result["actualMarginDeploymentPercent"] <= 100
+
+
+def test_split_entry_below_fifteen_percent_is_skipped_instead_of_overriding_risk_budget(temp_db):
+    # Given: a split setup whose approved stop-risk budget cannot fund a 15% margin entry.
     candidate = TradeCandidate(
         created=True,
         side="LONG",
@@ -180,7 +254,7 @@ def test_split_entry_below_twelve_percent_is_skipped_instead_of_overriding_risk_
 
     # Then: no undersized or risk-amplified order is emitted.
     assert result["created"] == []
-    assert "below the 12% entry margin floor" in result["skipped"][0]
+    assert "below the 15% entry margin floor" in result["skipped"][0]
     assert result["plannedRisk"] == pytest.approx(0)
 
 
@@ -197,7 +271,7 @@ def test_zero_weight_split_stage_does_not_receive_minimum_margin(temp_db):
         ],
         stopLoss=66000,
         takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
-        riskPercent=2.0,
+        riskPercent=2.5,
     )
 
     # When: the planner evaluates the split stages.
@@ -233,7 +307,7 @@ def test_non_positive_expected_entry_fill_is_skipped_without_division_error(temp
         ],
         stopLoss=100,
         takeProfits=[TakeProfitPlan(price=1, weight=1.0, reason="target")],
-        riskPercent=8.0,
+        riskPercent=9.0,
     )
 
     # When: the planner validates the expected fill before quantity arithmetic.
@@ -252,7 +326,7 @@ def test_non_positive_expected_entry_fill_is_skipped_without_division_error(temp
     # Then: the malformed stage is skipped and the first actual order still receives the floor.
     assert len(result["created"]) == 1
     assert result["created"][0]["payload"]["entryIndex"] == 2
-    assert margin_used(result["created"][0]) >= 1000
+    assert margin_used(result["created"][0]) >= 1500
     assert any("entry price is not positive" in reason for reason in result["skipped"])
     assert any("stop distance is zero" in reason for reason in result["skipped"])
 
@@ -352,7 +426,7 @@ def test_funding_contrarian_cannot_retry_in_same_funding_interval(temp_db):
             entries=[EntryPlan(price=68000, weight=1.0, reason="funding unwind")],
             stopLoss=69000,
             takeProfits=[TakeProfitPlan(price=66000, weight=1.0, reason="normalization")],
-            riskPercent=1.0,
+            riskPercent=1.5,
         )
         settings = sizing_settings()
         first = create_paper_orders_from_plan(
