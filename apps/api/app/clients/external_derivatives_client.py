@@ -51,9 +51,6 @@ class ExternalDerivativesClient:
                 self._coinalyze_context(client),
                 self._deribit_context(client),
             )
-        spread = float(put["markIv"]) - float(call["markIv"])
-        now = datetime.now(timezone.utc)
-        skew_zscore, skew_sample_count = _skew_history_state(spread, now)
         return {
             "enabled": True,
             "symbol": clean_symbol,
@@ -146,6 +143,9 @@ class ExternalDerivativesClient:
         if not call or not put:
             return {"available": False, "reason": "missing_put_or_call_iv", "source": "deribit"}
 
+        spread = float(put["markIv"]) - float(call["markIv"])
+        now = datetime.now(timezone.utc)
+        skew_zscore, skew_sample_count = _skew_history_state(spread, now)
         call_volume = sum(float(row["volume"]) for row in call_rows)
         put_volume = sum(float(row["volume"]) for row in put_rows)
         iv_values = [float(row["markIv"]) for row in near_rows if row["markIv"] > 0]
