@@ -29,7 +29,7 @@ def test_pending_entry_event_carries_ai_review_payload(temp_db):
         entries=[EntryPlan(price=64862.2, weight=1.0, reason="Confirmed session break")],
         stopLoss=65120,
         takeProfits=[TakeProfitPlan(price=64537.9, weight=1.0, reason="TP1")],
-        riskPercent=0.35,
+        riskPercent=0.5,
     )
     plan = TradePlan(
         status="PAPER_TRADING_PENDING",
@@ -38,7 +38,7 @@ def test_pending_entry_event_carries_ai_review_payload(temp_db):
         entries=candidate.entries,
         stopLoss=65120,
         takeProfits=candidate.takeProfits,
-        riskPercent=0.35,
+        riskPercent=0.5,
         leverage=7,
     )
     review = TradeReviewResult(

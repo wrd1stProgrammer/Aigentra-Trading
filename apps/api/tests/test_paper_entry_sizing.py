@@ -75,14 +75,14 @@ def test_split_entry_sizing_allocates_total_stop_risk_across_entries(temp_db):
         )
 
         assert len(result["created"]) == 2
-        assert result["marginDeploymentPercent"] == 10
+        assert result["marginDeploymentPercent"] == 12
         assert result["plannedRisk"] <= result["riskBudget"] * 1.05
         assert result["riskBudgetUtilizationPercent"] <= 105
-        assert margin_used(result["created"][0]) >= 1000
-        assert 10 <= result["actualMarginDeploymentPercent"] <= 30
+        assert margin_used(result["created"][0]) >= 1200
+        assert 12 <= result["actualMarginDeploymentPercent"] <= 30
 
 
-def test_first_split_entry_uses_at_least_ten_percent_account_margin(temp_db):
+def test_first_split_entry_uses_at_least_twelve_percent_account_margin(temp_db):
     # Given: a strong two-stage setup with enough stop-risk budget for its first minimum entry.
     candidate = TradeCandidate(
         created=True,
@@ -111,19 +111,49 @@ def test_first_split_entry_uses_at_least_ten_percent_account_margin(temp_db):
             settings=sizing_settings(minimum=20),
         )
 
-    # Then: the initial stage uses at least 10% margin while remaining within available cash.
+    # Then: the initial stage uses at least 12% margin while remaining within available cash.
     margins = [margin_used(order) for order in result["created"]]
     assert len(margins) == 2
-    assert margins[0] >= 1000
+    assert margins[0] >= 1200
     assert sum(margins) < 10000
-    assert all(order["payload"]["minimumEntryMarginPercent"] == 10 for order in result["created"])
+    assert all(order["payload"]["minimumEntryMarginPercent"] == 12 for order in result["created"])
     assert result["created"][0]["payload"]["minimumEntryMarginRequired"] is True
     assert result["created"][0]["payload"]["minimumEntryMarginSatisfied"] is True
     assert result["plannedRisk"] <= result["riskBudget"] * 1.05
 
 
-def test_split_entry_below_ten_percent_is_skipped_instead_of_overriding_risk_budget(temp_db):
-    # Given: a split setup whose approved stop-risk budget cannot fund a 10% margin entry.
+def test_first_entry_requires_twelve_percent_account_margin(temp_db):
+    candidate = TradeCandidate(
+        created=True,
+        side="LONG",
+        setupType="TEST_MEANINGFUL_FIRST_ENTRY",
+        setupScore=45,
+        entries=[EntryPlan(price=68000, weight=1.0, reason="entry")],
+        stopLoss=66000,
+        takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
+        riskPercent=5.0,
+    )
+
+    with session_scope() as db:
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=orderable_plan(candidate, leverage=5),
+            settings=sizing_settings(minimum=10),
+        )
+
+    assert len(result["created"]) == 1
+    assert margin_used(result["created"][0]) >= 1200
+    assert result["created"][0]["payload"]["minimumEntryMarginPercent"] == 12
+    assert result["plannedRisk"] <= result["riskBudget"] * 1.05
+
+
+def test_split_entry_below_twelve_percent_is_skipped_instead_of_overriding_risk_budget(temp_db):
+    # Given: a split setup whose approved stop-risk budget cannot fund a 12% margin entry.
     candidate = TradeCandidate(
         created=True,
         side="LONG",
@@ -150,7 +180,7 @@ def test_split_entry_below_ten_percent_is_skipped_instead_of_overriding_risk_bud
 
     # Then: no undersized or risk-amplified order is emitted.
     assert result["created"] == []
-    assert "below the 10% entry margin floor" in result["skipped"][0]
+    assert "below the 12% entry margin floor" in result["skipped"][0]
     assert result["plannedRisk"] == pytest.approx(0)
 
 
@@ -203,7 +233,7 @@ def test_non_positive_expected_entry_fill_is_skipped_without_division_error(temp
         ],
         stopLoss=100,
         takeProfits=[TakeProfitPlan(price=1, weight=1.0, reason="target")],
-        riskPercent=6.0,
+        riskPercent=8.0,
     )
 
     # When: the planner validates the expected fill before quantity arithmetic.

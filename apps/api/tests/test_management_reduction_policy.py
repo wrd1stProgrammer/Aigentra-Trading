@@ -162,8 +162,9 @@ def test_reduction_does_not_leave_position_below_meaningful_runner_floor(temp_db
             reason="Trim again.",
         )
 
-        assert decision.should_apply is False
-        assert "minimum runner" in decision.reason
+        assert decision.should_apply is True
+        assert decision.quantity_fraction == Decimal("1")
+        assert "minimum runner quantity" in decision.reason
 
 
 def test_management_review_cooldown_uses_protective_minimums():
@@ -265,11 +266,12 @@ def test_legacy_position_floor_uses_filled_quantity_when_payload_lacks_initial_q
             reason="Trim legacy runner.",
         )
 
-        assert decision.should_apply is False
-        assert "minimum runner" in decision.reason
+        assert decision.should_apply is True
+        assert decision.quantity_fraction == Decimal("1")
+        assert "minimum runner quantity" in decision.reason
 
 
-def test_large_reduction_is_capped_to_meaningful_runner_floor(temp_db):
+def test_large_defensive_reduction_closes_at_meaningful_runner_floor(temp_db):
     with session_scope() as db:
         position = _create_open_position(db)
         position.quantity = Decimal("0.5000000000")
@@ -286,8 +288,135 @@ def test_large_reduction_is_capped_to_meaningful_runner_floor(temp_db):
         )
 
         assert decision.should_apply is True
+        assert decision.quantity_fraction == Decimal("1")
+        assert "minimum runner quantity" in decision.reason
+
+
+def test_defensive_reduction_closes_residual_below_five_percent_account_margin(temp_db):
+    with session_scope() as db:
+        position = _create_open_position(db)
+        position.quantity = Decimal("0.5000000000")
+        position.margin = Decimal("600")
+        position.payload_json = to_json({"initialQuantity": 1.0})
+        db.flush()
+
+        decision = build_reduction_decision(
+            db,
+            position=position,
+            action_type="REDUCE_RISK",
+            requested_fraction=0.25,
+            review_decision="REDUCE_RISK",
+            reason="Reduce an already small residual.",
+            account_equity=Decimal("10000"),
+        )
+
+        assert decision.should_apply is True
+        assert decision.quantity_fraction == Decimal("1")
+        assert "minimum account margin" in decision.reason
+
+
+def test_defensive_reduction_keeps_partial_size_at_exactly_five_percent_account_margin(temp_db):
+    with session_scope() as db:
+        position = _create_open_position(db)
+        position.margin = Decimal("625")
+        position.payload_json = to_json({"initialQuantity": 1.0})
+        db.flush()
+
+        decision = build_reduction_decision(
+            db,
+            position=position,
+            action_type="REDUCE_RISK",
+            requested_fraction=0.20,
+            review_decision="REDUCE_RISK",
+            reason="Keep a meaningful residual.",
+            account_equity=Decimal("10000"),
+        )
+
+        assert decision.should_apply is True
+        assert decision.quantity_fraction == Decimal("0.2")
+
+
+def test_partial_profit_preserves_runner_instead_of_forcing_defensive_close(temp_db):
+    with session_scope() as db:
+        position = _create_open_position(db)
+        position.quantity = Decimal("0.5000000000")
+        position.payload_json = to_json({"initialQuantity": 1.0})
+        db.flush()
+
+        decision = build_reduction_decision(
+            db,
+            position=position,
+            action_type="TAKE_PARTIAL_PROFIT",
+            requested_fraction=0.75,
+            review_decision="TAKE_PARTIAL_PROFIT",
+            reason="Take profit and retain a runner.",
+            account_equity=Decimal("10000"),
+        )
+
+        assert decision.should_apply is True
         assert decision.quantity_fraction == Decimal("0.5")
-        assert "capped" in decision.reason
+
+
+def test_management_action_closes_tiny_residual_with_short_database_reason(temp_db):
+    from app.main import apply_management_actions
+
+    with session_scope() as db:
+        position = _create_open_position(db)
+        state = db.execute(select(TraderStateRecord).where(TraderStateRecord.trader_id == "paper-trader")).scalar_one()
+        position.quantity = Decimal("0.5000000000")
+        position.notional = Decimal("3000")
+        position.margin = Decimal("600")
+        position.payload_json = to_json({"initialQuantity": 1.0})
+        state.cash_balance = Decimal("9400")
+        state.margin_used = Decimal("600")
+        db.flush()
+
+        applied = apply_management_actions(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            event=ManagementEvent(
+                eventType="near_stop_risk_reduction",
+                phase="OPEN_POSITION",
+                severity="HIGH",
+                reason="Position is close to the hard stop.",
+                suggestedAction="REDUCE_RISK",
+            ),
+            exposure=ManagedExposure(
+                kind="position",
+                id=position.id,
+                status="open",
+                side="LONG",
+                quantity=0.5,
+                entryPrice=100,
+                stopLoss=90,
+                takeProfit=120,
+                leverage=5,
+            ),
+            review=PositionManagementResult(
+                decision="REDUCE_RISK",
+                confidence=90,
+                riskLevel="HIGH",
+                actions=[ManagementAction(type="REDUCE_RISK", quantityFraction=0.25, reason="Reduce tiny residual.")],
+                riskChange="REDUCED",
+                nextReviewInSeconds=900,
+                rationale="Reduce tiny residual.",
+                counterThesis="Hard stop remains valid.",
+            ),
+            snapshot={"price": 101, "timeframes": {"1m": {"open": 101, "high": 101, "low": 101, "close": 101}}},
+            result=PaperEngineResult(),
+        )
+        db.refresh(position)
+        event_types = db.execute(
+            select(TradeEventRecord.event_type).where(TradeEventRecord.position_id == position.id)
+        ).scalars().all()
+
+        assert applied[0]["applied"] is True
+        assert "minimum account margin" in applied[0]["reason"]
+        assert position.status == "closed"
+        assert position.close_reason == "management_close"
+        assert event_types.count("position_closed") == 1
+        assert "position_reduced_by_ai" not in event_types
 
 
 def test_apply_management_actions_does_not_compound_unspecified_reductions(temp_db):
@@ -295,6 +424,12 @@ def test_apply_management_actions_does_not_compound_unspecified_reductions(temp_
 
     with session_scope() as db:
         position = _create_open_position(db)
+        state = db.execute(select(TraderStateRecord).where(TraderStateRecord.trader_id == "paper-trader")).scalar_one()
+        position.margin = Decimal("1000")
+        position.notional = Decimal("5000")
+        state.margin_used = Decimal("1000")
+        state.cash_balance = Decimal("9000")
+        db.flush()
         exposure = ManagedExposure(
             kind="position",
             id=position.id,

@@ -2094,21 +2094,33 @@ def apply_management_actions(
                     requested_fraction=action.quantityFraction,
                     review_decision=review.decision,
                     reason=reason,
+                    account_equity=state.equity,
                 )
                 reason = reduction.reason
                 if not reduction.should_apply or reduction.quantity_fraction is None:
                     applied.append({"type": action_type, "applied": False, "reason": reduction.reason, "guarded": True})
                     continue
-                record = reduce_position_by_management(
-                    db,
-                    state,
-                    position,
-                    mark_price,
-                    reduction.quantity_fraction,
-                    candle,
-                    reason,
-                    result,
-                )
+                if reduction.quantity_fraction >= Decimal("0.999"):
+                    record = close_position_by_management(
+                        db,
+                        state,
+                        position,
+                        mark_price,
+                        candle,
+                        MANAGEMENT_CLOSE_REASON,
+                        result,
+                    )
+                else:
+                    record = reduce_position_by_management(
+                        db,
+                        state,
+                        position,
+                        mark_price,
+                        reduction.quantity_fraction,
+                        candle,
+                        reason,
+                        result,
+                    )
             elif action_type in {"ADD_TO_POSITION", "PYRAMID_POSITION"}:
                 record = create_position_add_order(
                     db,

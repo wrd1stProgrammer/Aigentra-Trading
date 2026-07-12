@@ -641,7 +641,7 @@ def build_sizing_settings(minimum: int = 10):
     )
 
 
-def test_paper_order_sizing_enforces_ten_percent_floor_with_step_rounding(temp_db):
+def test_paper_order_sizing_enforces_twelve_percent_floor_with_step_rounding(temp_db):
     with session_scope() as db:
         candidate = TradeCandidate(
             created=True,
@@ -671,9 +671,9 @@ def test_paper_order_sizing_enforces_ten_percent_floor_with_step_rounding(temp_d
 
         total_margin = sum(order["quantity"] * order["limitPrice"] / order["leverage"] for order in result["created"])
         assert result["created"]
-        assert result["marginDeploymentPercent"] == 10
+        assert result["marginDeploymentPercent"] == 12
         assert result["marginDeploymentPercent"] <= 100
-        assert result["targetMarginBudget"] == pytest.approx(1000)
+        assert result["targetMarginBudget"] == pytest.approx(1200)
         assert result["targetMarginBudget"] <= total_margin <= result["targetMarginBudget"] + 14
         assert result["created"][0]["payload"]["minimumEntryMarginSatisfied"] is True
         assert result["plannedRisk"] <= result["riskBudget"] * 1.05
@@ -830,7 +830,7 @@ def test_pending_limit_order_reserves_cash_for_margin_and_entry_fee(temp_db):
             riskPercent=2.0,
         )
 
-        # When: a new order needs the 10% minimum margin.
+        # When: a new order needs the 12% minimum margin.
         result = create_paper_orders_from_plan(
             db,
             trader_id="channel-rider",
@@ -1017,8 +1017,8 @@ def test_paper_order_sizing_does_not_lift_margin_for_ai_confidence(temp_db):
         )
 
         assert result["created"]
-        assert result["marginDeploymentPercent"] == pytest.approx(46)
-        assert result["targetMarginBudget"] == pytest.approx(4600)
+        assert result["marginDeploymentPercent"] == pytest.approx(47.2)
+        assert result["targetMarginBudget"] == pytest.approx(4720)
         assert result["riskPercent"] == pytest.approx(1.0)
 
 
@@ -1476,16 +1476,17 @@ async def test_run_cycle_persists_snapshot_candidate_review_and_plan(monkeypatch
         assert len(list_records(db, AIReviewRecord, 10)) == 1
         assert len(list_records(db, TradePlanRecord, 10)) == 1
         saved_orders = list_records(db, PaperOrderRecord, 10)
-        assert len(saved_orders) >= 1
-        management_plan = saved_orders[0]["payload"]["managementPlan"]
+        assert saved_orders == []
+        management_plan = result.tradePlan.managementPlan.model_dump(mode="json")
         assert management_plan["holdingHorizon"] == "SWING"
         assert management_plan["strategyFamily"] == "PULLBACK"
         assert management_plan["calmReviewSeconds"] == 3600
         assert len(list_records(db, TraderStateRecord, 10)) == 1
 
     assert result.paper is not None
-    assert result.recordIds["paperOrderIds"]
-    assert result.paperOrders
+    assert result.recordIds["paperOrderIds"] == []
+    assert result.paperOrders == []
+    assert "below the 12% entry margin floor" in result.paper["ordersCreated"]["skipped"][0]
     assert result.tradePlan.leverage is not None
     assert result.tradePlan.earlyExitRules
     assert provider_transaction_states == [False]

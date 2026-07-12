@@ -197,6 +197,7 @@ def create_paper_orders_from_plan(
         else Decimal("0")
     )
     minimum_entry_margin = equity * SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT / Decimal("100")
+    minimum_entry_margin_label = SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT.normalize()
     hard_margin_budget = cash_budget_cap
     split_margin_floor = minimum_entry_margin
     target_margin_budget = min(max(target_margin_budget, split_margin_floor), hard_margin_budget)
@@ -265,14 +266,20 @@ def create_paper_orders_from_plan(
             quantity = min(quantity, quantize_quantity(remaining_risk / risk_per_unit))
             planned_risk = quantity * risk_per_unit
         if requires_minimum_margin and quantity < minimum_margin_quantity:
-            skipped.append(f"Entry {index + 1} skipped: risk-approved size is below the 10% entry margin floor.")
+            skipped.append(
+                f"Entry {index + 1} skipped: risk-approved size is below the "
+                f"{minimum_entry_margin_label}% entry margin floor."
+            )
             continue
         if quantity < MIN_PAPER_QUANTITY:
             skipped.append(f"Entry {index + 1} skipped: remaining risk budget is below paper minimum.")
             continue
         actual_margin = (quantity * expected_entry_fill) / leverage
         if actual_margin > remaining_margin_budget:
-            skipped.append(f"Entry {index + 1} skipped: remaining account capacity is below the 10% entry margin floor.")
+            skipped.append(
+                f"Entry {index + 1} skipped: remaining account capacity is below the "
+                f"{minimum_entry_margin_label}% entry margin floor."
+            )
             continue
         total_planned_risk += planned_risk
         actual_margin_used += actual_margin

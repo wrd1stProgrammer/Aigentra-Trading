@@ -34,6 +34,7 @@ FULL_CLOSE_PHRASES_EN: Final[tuple[str, ...]] = (
 )
 PROTECTIVE_REDUCTION_COOLDOWN: Final[timedelta] = timedelta(minutes=30)
 MIN_RUNNER_INITIAL_FRACTION: Final[Decimal] = Decimal("0.25")
+MIN_RUNNER_ACCOUNT_MARGIN_PERCENT: Final[Decimal] = Decimal("5")
 MIN_CAPPED_REDUCTION_FRACTION: Final[Decimal] = Decimal("0.05")
 DEFAULT_RISK_REDUCTION_FRACTION: Final[Decimal] = Decimal("0.10")
 DEFAULT_PARTIAL_PROFIT_FRACTION: Final[Decimal] = Decimal("0.25")
@@ -56,6 +57,7 @@ def build_reduction_decision(
     requested_fraction: DecimalLike | None,
     review_decision: str,
     reason: str,
+    account_equity: DecimalLike | None = None,
     now: datetime | None = None,
 ) -> ReductionDecision:
     clean_action = action_type.upper()
@@ -80,6 +82,16 @@ def build_reduction_decision(
     initial_quantity = _initial_quantity(db, position)
     remaining_quantity = position.quantity * (Decimal("1") - fraction)
     minimum_runner = initial_quantity * MIN_RUNNER_INITIAL_FRACTION
+    if clean_action in {"REDUCE_RISK", "REDUCE_SIZE"}:
+        quantity_floor_reached = remaining_quantity <= minimum_runner
+        margin_floor_breached = _below_account_margin_floor(position, fraction, account_equity)
+        if quantity_floor_reached or margin_floor_breached:
+            floor_name = "minimum runner quantity" if quantity_floor_reached else "minimum account margin"
+            return ReductionDecision(
+                True,
+                Decimal("1"),
+                f"{reason} Closing the residual because the reduction reached the {floor_name}.",
+            )
     if remaining_quantity < minimum_runner:
         maximum_allowed_fraction = (position.quantity - minimum_runner) / position.quantity
         if maximum_allowed_fraction >= MIN_CAPPED_REDUCTION_FRACTION:
@@ -98,6 +110,22 @@ def build_reduction_decision(
         )
 
     return ReductionDecision(True, fraction, reason)
+
+
+def _below_account_margin_floor(
+    position: PaperPositionRecord,
+    fraction: Decimal,
+    account_equity: DecimalLike | None,
+) -> bool:
+    if account_equity is None:
+        return False
+    try:
+        equity = _clamp_fractionless_decimal(account_equity)
+    except ValueError:
+        return False
+    projected_margin = position.margin * (Decimal("1") - fraction)
+    projected_percent = projected_margin / equity * Decimal("100")
+    return projected_percent < MIN_RUNNER_ACCOUNT_MARGIN_PERCENT
 
 
 def _requested_or_default_fraction(
