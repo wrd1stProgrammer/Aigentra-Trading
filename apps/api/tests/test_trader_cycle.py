@@ -1028,6 +1028,8 @@ def test_ai_prompts_include_context_and_non_conservative_management_options():
     assert "ADD_TO_POSITION" in management
     assert "PYRAMID_POSITION" in management
     assert "Never widen a stop, never increase leverage, never add to a position" not in management
+    assert "account deployment caps" not in management
+    assert "available cash and approved risk" in management
 
 
 def test_prompt_contracts_are_split_and_do_not_request_user_summary():

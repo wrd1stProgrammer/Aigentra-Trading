@@ -68,7 +68,6 @@ POSITION_MANAGEMENT_INTRADAY_HEARTBEAT_SECONDS=900
 POSITION_MANAGEMENT_SWING_HEARTBEAT_SECONDS=3600
 POSITION_MANAGEMENT_POSITION_HEARTBEAT_SECONDS=6000
 POSITION_MANAGEMENT_URGENT_COOLDOWN_SECONDS=60
-PAPER_MAX_MARGIN_DEPLOYMENT_PERCENT=60
 AI_PROVIDER=mock
 AI_MISSING_KEY_FALLBACK_TO_MOCK=true
 GEMINI_API_KEY=
@@ -679,12 +678,12 @@ Gemini 사용 시 주의사항:
 - 기본 maker fee는 `0.0002`, taker fee는 `0.0005`로 둡니다. 실제 Binance Futures 수수료는 계정 등급, 프로모션, 시장 정책에 따라 바뀔 수 있으므로 운영 전에는 최신 fee schedule에 맞춰 `.env` 값을 조정해야 합니다.
 - 후보마다 1차 전략이 `riskPercent`, `leveragePlan`, `orderIntent`, `earlyExitRules`를 생성합니다.
 - 2차 AI review는 승인/수정승인 시 leverage/risk/early exit 보정값과 거래별 보유기간·전략·이벤트·허용 관리 액션을 고정합니다.
-- paper order 수량은 `equity * riskPercent / stopDistance` 기반으로 산정하고, leverage 기반 최대 notional cap을 다시 적용합니다.
+- paper order 수량은 `equity * riskPercent / stopDistance` 기반으로 산정하고, 계좌 전체 마진·명목 노출 상한 없이 가용 현금과 수수료 범위에서 주문합니다.
 - `paper engine run-once`는 1분봉 OHLC로 limit/market fill, TP/SL, maker/taker fee, realized/unrealized PnL을 갱신합니다.
 - 열린 paper position은 1R 이상 유리하게 움직이면 stop을 본절로 이동합니다.
 - TP의 80% 근처까지 갔다가 강하게 되돌리면 조기익절(`early_profit_protect`)을 수행할 수 있습니다.
 - 손절가에 닿기 전이라도 현재 캔들 종가가 thesis failure 기준을 넘으면 조기종료(`early_thesis_failure`)를 수행할 수 있습니다.
-- Position Management AI는 hard risk engine 이후에 호출됩니다. 고정 계획에 없는 액션, stop 확대, 손실 포지션 물타기, 계좌 증거금 60% 또는 명목 노출 150%를 넘기는 추가 진입은 실행하지 않습니다. 계획이 허용한 경우에만 비손실 구간의 제한적 추가 진입·불타기를 제안할 수 있습니다.
+- Position Management AI는 hard risk engine 이후에 호출됩니다. 고정 계획에 없는 액션, stop 확대, 손실 포지션 물타기는 실행하지 않습니다. 계좌 전체 마진·명목 노출 상한은 두지 않으며, 계획이 허용한 경우에만 가용 현금 범위에서 비손실 구간의 제한적 추가 진입·불타기를 제안할 수 있습니다.
 - 관리 AI 액션은 `position_management_reviews`에 저장되고, 적용된 paper 이벤트는 `trade_events`에 남습니다.
 - agent의 현재 상태와 다음 리뷰 예정시각은 `trader_agent_states`에 저장됩니다.
 - 대기 주문과 오픈 포지션은 고정 보유기간에 따라 300/900/3600/6000초 heartbeat AI 리뷰를 수행합니다. HIGH severity 이벤트는 기본 60초 cooldown으로 더 빠르게 재검토할 수 있습니다.

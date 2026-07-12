@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -5,6 +6,7 @@ import pytest
 
 from app.db import init_db, reset_db_engine, session_scope
 from app.paper.planner import create_paper_orders_from_plan
+from app.paper.repositories import create_equity_snapshot, ensure_trader_state
 from app.traders.models import EntryPlan, TakeProfitPlan, TradeCandidate, TradePlan
 
 
@@ -17,7 +19,7 @@ def temp_db(tmp_path):
     reset_db_engine("sqlite:///:memory:")
 
 
-def sizing_settings(minimum: int = 10, maximum: int = 100):
+def sizing_settings(minimum: int = 10):
     return SimpleNamespace(
         paper_default_equity=10000,
         paper_max_leverage=10,
@@ -25,7 +27,6 @@ def sizing_settings(minimum: int = 10, maximum: int = 100):
         paper_taker_fee_rate=0.0005,
         paper_slippage_rate=0.0001,
         paper_min_margin_deployment_percent=minimum,
-        paper_max_margin_deployment_percent=maximum,
     )
 
 
@@ -59,7 +60,7 @@ def test_split_entry_sizing_allocates_total_stop_risk_across_entries(temp_db):
             ],
             stopLoss=66000,
             takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
-            riskPercent=0.7,
+            riskPercent=3.0,
         )
 
         result = create_paper_orders_from_plan(
@@ -70,14 +71,245 @@ def test_split_entry_sizing_allocates_total_stop_risk_across_entries(temp_db):
             trade_plan_id=1,
             candidate=candidate,
             plan=orderable_plan(candidate, leverage=5),
-            settings=sizing_settings(minimum=1, maximum=100),
+            settings=sizing_settings(minimum=1),
         )
 
         assert len(result["created"]) == 2
         assert result["marginDeploymentPercent"] == 10
         assert result["plannedRisk"] <= result["riskBudget"] * 1.05
         assert result["riskBudgetUtilizationPercent"] <= 105
-        assert result["actualMarginDeploymentPercent"] < 10
+        assert margin_used(result["created"][0]) >= 1000
+        assert 10 <= result["actualMarginDeploymentPercent"] <= 30
+
+
+def test_first_split_entry_uses_at_least_ten_percent_account_margin(temp_db):
+    # Given: a strong two-stage setup with enough stop-risk budget for its first minimum entry.
+    candidate = TradeCandidate(
+        created=True,
+        side="LONG",
+        setupType="TEST_MINIMUM_SPLIT_MARGIN",
+        setupScore=100,
+        entries=[
+            EntryPlan(price=68000, weight=0.4, reason="starter"),
+            EntryPlan(price=67500, weight=0.6, reason="confirmation"),
+        ],
+        stopLoss=66000,
+        takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
+        riskPercent=4.0,
+    )
+
+    # When: the planner creates independently fillable split orders.
+    with session_scope() as db:
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=orderable_plan(candidate, leverage=5),
+            settings=sizing_settings(minimum=20),
+        )
+
+    # Then: the initial stage uses at least 10% margin while remaining within available cash.
+    margins = [margin_used(order) for order in result["created"]]
+    assert len(margins) == 2
+    assert margins[0] >= 1000
+    assert sum(margins) < 10000
+    assert all(order["payload"]["minimumEntryMarginPercent"] == 10 for order in result["created"])
+    assert result["created"][0]["payload"]["minimumEntryMarginRequired"] is True
+    assert result["created"][0]["payload"]["minimumEntryMarginSatisfied"] is True
+    assert result["plannedRisk"] <= result["riskBudget"] * 1.05
+
+
+def test_split_entry_below_ten_percent_is_skipped_instead_of_overriding_risk_budget(temp_db):
+    # Given: a split setup whose approved stop-risk budget cannot fund a 10% margin entry.
+    candidate = TradeCandidate(
+        created=True,
+        side="LONG",
+        setupType="TEST_MINIMUM_RISK_GUARD",
+        setupScore=80,
+        entries=[EntryPlan(price=68000, weight=1.0, reason="starter")],
+        stopLoss=66000,
+        takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
+        riskPercent=0.1,
+    )
+
+    # When: deterministic sizing applies both the risk budget and deployment floor.
+    with session_scope() as db:
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=orderable_plan(candidate, leverage=5),
+            settings=sizing_settings(minimum=20),
+        )
+
+    # Then: no undersized or risk-amplified order is emitted.
+    assert result["created"] == []
+    assert "below the 10% entry margin floor" in result["skipped"][0]
+    assert result["plannedRisk"] == pytest.approx(0)
+
+
+def test_zero_weight_split_stage_does_not_receive_minimum_margin(temp_db):
+    # Given: one active stage and one explicitly disabled stage.
+    candidate = TradeCandidate(
+        created=True,
+        side="LONG",
+        setupType="TEST_ZERO_WEIGHT_STAGE",
+        setupScore=80,
+        entries=[
+            EntryPlan(price=68000, weight=1.0, reason="active"),
+            EntryPlan(price=67500, weight=0.0, reason="disabled"),
+        ],
+        stopLoss=66000,
+        takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
+        riskPercent=2.0,
+    )
+
+    # When: the planner evaluates the split stages.
+    with session_scope() as db:
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="range-maker",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=orderable_plan(candidate, leverage=5),
+            settings=sizing_settings(minimum=10),
+        )
+
+    # Then: only the positive-weight stage becomes an order.
+    assert len(result["created"]) == 1
+    assert result["created"][0]["payload"]["entryIndex"] == 0
+    assert any("weight is not positive" in reason for reason in result["skipped"])
+
+
+def test_non_positive_expected_entry_fill_is_skipped_without_division_error(temp_db):
+    # Given: malformed first-stage geometry followed by a valid fallback stage.
+    candidate = TradeCandidate(
+        created=True,
+        side="SHORT",
+        setupType="TEST_ZERO_ENTRY_PRICE",
+        setupScore=80,
+        entries=[
+            EntryPlan(price=0, weight=0.3, reason="invalid price"),
+            EntryPlan(price=100, weight=0.3, reason="invalid stop distance"),
+            EntryPlan(price=90, weight=0.4, reason="fallback"),
+        ],
+        stopLoss=100,
+        takeProfits=[TakeProfitPlan(price=1, weight=1.0, reason="target")],
+        riskPercent=6.0,
+    )
+
+    # When: the planner validates the expected fill before quantity arithmetic.
+    with session_scope() as db:
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="range-maker",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=orderable_plan(candidate, leverage=5),
+            settings=sizing_settings(),
+        )
+
+    # Then: the malformed stage is skipped and the first actual order still receives the floor.
+    assert len(result["created"]) == 1
+    assert result["created"][0]["payload"]["entryIndex"] == 2
+    assert margin_used(result["created"][0]) >= 1000
+    assert any("entry price is not positive" in reason for reason in result["skipped"])
+    assert any("stop distance is zero" in reason for reason in result["skipped"])
+
+
+def test_drawdown_guard_caps_review_risk_once_before_margin_floor(temp_db):
+    # Given: the review already halves candidate risk while the account is in the 0.5x drawdown band.
+    now = datetime.now(timezone.utc)
+    candidate = TradeCandidate(
+        created=True,
+        side="LONG",
+        setupType="TEST_SINGLE_DRAWDOWN_CAP",
+        setupScore=80,
+        entries=[EntryPlan(price=68000, weight=1.0, reason="entry")],
+        stopLoss=66500,
+        takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
+        riskPercent=0.52,
+    )
+    plan = orderable_plan(candidate, leverage=5)
+    plan.riskPercent = 0.26
+
+    with session_scope() as db:
+        state = ensure_trader_state(db, "drawdown-sized-trader", Decimal("10000"))
+        peak = create_equity_snapshot(db, state, "BTCUSDT")
+        peak.created_at = now - timedelta(days=2)
+        state.equity = Decimal("9000")
+        state.cash_balance = Decimal("9000")
+        baseline = create_equity_snapshot(db, state, "BTCUSDT")
+        baseline.created_at = now - timedelta(days=1)
+        db.flush()
+
+        # When: the approved plan reaches deterministic order sizing.
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="drawdown-sized-trader",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=plan,
+            settings=sizing_settings(minimum=20),
+        )
+
+    # Then: the current guard is enforced as a cap, not multiplied into the plan a second time.
+    assert result["entryGuardrails"]["riskMultiplier"] == 0.5
+    assert result["riskPercent"] == pytest.approx(0.26)
+
+
+def test_daily_loss_guard_uses_approved_plan_risk_not_larger_candidate_risk(temp_db):
+    # Given: a 0.26% approved plan and a 0.70% daily account loss.
+    now = datetime.now(timezone.utc)
+    candidate = TradeCandidate(
+        created=True,
+        side="LONG",
+        setupType="TEST_APPROVED_RISK_DAILY_GUARD",
+        setupScore=80,
+        entries=[EntryPlan(price=68000, weight=1.0, reason="entry")],
+        stopLoss=66500,
+        takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
+        riskPercent=0.52,
+    )
+    plan = orderable_plan(candidate, leverage=5)
+    plan.riskPercent = 0.26
+
+    with session_scope() as db:
+        state = ensure_trader_state(db, "daily-loss-sized-trader", Decimal("10000"))
+        baseline = create_equity_snapshot(db, state, "BTCUSDT")
+        baseline.created_at = now - timedelta(days=1)
+        state.equity = Decimal("9930")
+        state.cash_balance = Decimal("9930")
+        db.flush()
+
+        # When: the approved plan reaches account entry guardrails.
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="daily-loss-sized-trader",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=plan,
+            settings=sizing_settings(minimum=20),
+        )
+
+    # Then: the 2R daily limit is 0.52%, so the new entry is blocked.
+    assert result["created"] == []
+    assert result["entryGuardrails"]["dailyLossLimitPercent"] == pytest.approx(0.52)
+    assert "Daily loss" in result["skipped"][0]
 
 
 def test_funding_contrarian_cannot_retry_in_same_funding_interval(temp_db):
@@ -90,7 +322,7 @@ def test_funding_contrarian_cannot_retry_in_same_funding_interval(temp_db):
             entries=[EntryPlan(price=68000, weight=1.0, reason="funding unwind")],
             stopLoss=69000,
             takeProfits=[TakeProfitPlan(price=66000, weight=1.0, reason="normalization")],
-            riskPercent=0.4,
+            riskPercent=1.0,
         )
         settings = sizing_settings()
         first = create_paper_orders_from_plan(

@@ -4,11 +4,10 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
-from app.db import PaperOrderRecord, PaperPositionRecord, TraderStateRecord
+from app.db import PaperPositionRecord, TraderStateRecord
 from app.paper.engine import PaperEngineResult, append_event, place_paper_order
-from app.paper.repositories import create_trade_event
-from app.paper.sizing import SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT, SERVICE_MAX_NOTIONAL_EXPOSURE_PERCENT
+from app.paper.pending_exposure import pending_order_exposure
+from app.paper.repositories import create_trade_event, ensure_risk_settings
 from app.repositories import serialize_record
 from app.traders.models import ManagementAction
 
@@ -29,25 +28,6 @@ def _quantity_from_margin(price: Decimal, margin: Decimal, leverage: Decimal) ->
     if price <= 0 or margin <= 0 or leverage <= 0:
         return Decimal("0")
     return ((margin * leverage) / price).quantize(QUANTITY_STEP, rounding=ROUND_DOWN)
-
-
-def _pending_order_exposure(db: Session, *, trader_id: str, mark_price: Decimal) -> tuple[Decimal, Decimal]:
-    orders = db.execute(
-        select(PaperOrderRecord).where(
-            PaperOrderRecord.trader_id == trader_id,
-            PaperOrderRecord.status == "open",
-        )
-    ).scalars().all()
-    margin_total = Decimal("0")
-    notional_total = Decimal("0")
-    for order in orders:
-        price = order.limit_price or mark_price
-        if price <= 0 or order.leverage <= 0:
-            continue
-        notional = abs(order.quantity * price)
-        margin_total += notional / order.leverage
-        notional_total += notional
-    return margin_total, notional_total
 
 
 def _open_position_notional(db: Session, *, trader_id: str, mark_price: Decimal) -> Decimal:
@@ -96,33 +76,33 @@ def create_position_add_order(
 
     quantity_fraction = _clamp_fraction(action.quantityFraction)
     base_margin = max(position.margin, Decimal("1"))
-    available_cash = max(Decimal("0"), state.cash_balance)
-    add_margin = min(base_margin * quantity_fraction, available_cash * Decimal("0.70"))
     if state.equity <= 0:
         return None
-    configured_cap = Decimal(str(get_settings().paper_max_margin_deployment_percent))
-    margin_cap_percent = min(SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT, max(Decimal("0"), configured_cap))
-    pending_margin, pending_notional = _pending_order_exposure(
+    risk_settings = ensure_risk_settings(db, position.trader_id or "", position.symbol)
+    pending = pending_order_exposure(
         db,
-        trader_id=position.trader_id or "",
-        mark_price=mark_price,
+        position.trader_id or "",
+        risk_settings.maker_fee_rate,
+        risk_settings.taker_fee_rate,
     )
-    projected_margin = state.margin_used + pending_margin + add_margin
-    maximum_margin = state.equity * margin_cap_percent / Decimal("100")
-    if projected_margin > maximum_margin:
+    if pending.has_unpriced_order:
         return None
-    add_notional = add_margin * position.leverage
-    projected_notional = (
-        _open_position_notional(db, trader_id=position.trader_id or "", mark_price=mark_price)
-        + pending_notional
-        + add_notional
-    )
-    maximum_notional = state.equity * SERVICE_MAX_NOTIONAL_EXPOSURE_PERCENT / Decimal("100")
-    if projected_notional > maximum_notional:
-        return None
+    available_cash = max(Decimal("0"), state.cash_balance - pending.cash_required)
+    add_margin = min(base_margin * quantity_fraction, available_cash * Decimal("0.70"))
     quantity = _quantity_from_margin(price, add_margin, position.leverage)
     if quantity < MIN_ADD_QUANTITY:
         return None
+    actual_notional = quantity * price
+    actual_margin = actual_notional / position.leverage
+    estimated_entry_fee = actual_notional * risk_settings.maker_fee_rate
+    if actual_margin + estimated_entry_fee > available_cash:
+        return None
+    projected_margin = state.margin_used + pending.margin + actual_margin
+    projected_notional = (
+        _open_position_notional(db, trader_id=position.trader_id or "", mark_price=mark_price)
+        + pending.notional
+        + actual_notional
+    )
 
     order = place_paper_order(
         db,
@@ -142,11 +122,13 @@ def create_position_add_order(
             "managementAction": action_type,
             "parentPositionId": position.id,
             "quantityFraction": float(quantity_fraction),
-            "plannedMargin": float(add_margin),
-            "accountMarginPercent": float((add_margin / state.equity) * Decimal("100")) if state.equity > 0 else 0.0,
+            "plannedMargin": float(actual_margin),
+            "plannedNotional": float(actual_notional),
+            "estimatedEntryFee": float(estimated_entry_fee),
+            "accountMarginPercent": float((actual_margin / state.equity) * Decimal("100")) if state.equity > 0 else 0.0,
             "projectedAccountMarginPercent": float((projected_margin / state.equity) * Decimal("100")),
             "projectedAccountNotionalPercent": float((projected_notional / state.equity) * Decimal("100")),
-            "notionalExposurePercent": float(((add_margin * position.leverage) / state.equity) * Decimal("100")) if state.equity > 0 else 0.0,
+            "notionalExposurePercent": float((actual_notional / state.equity) * Decimal("100")) if state.equity > 0 else 0.0,
             "reason": reason,
         },
     )
@@ -165,7 +147,7 @@ def create_position_add_order(
             "managementAction": action_type,
             "reason": reason,
             "quantityFraction": quantity_fraction,
-            "plannedMargin": add_margin,
+            "plannedMargin": actual_margin,
             "parentPositionId": position.id,
         },
     )

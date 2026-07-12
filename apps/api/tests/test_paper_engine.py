@@ -190,6 +190,61 @@ def test_limit_short_uses_maker_fee_and_closes_stop_loss(temp_db):
         assert rounded(state.total_fees) == Decimal("0.0750")
 
 
+def test_market_gap_fill_can_exceed_former_account_notional_cap(temp_db):
+    # Given: a market order that will exceed the former 150% notional ceiling after a gap.
+    with session_scope() as db:
+        order = place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="market",
+            quantity=150,
+            leverage=10,
+        )
+
+        # When: the next candle gaps 10% above that planned price.
+        result = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 110, "high": 111, "low": 109, "close": 110},
+        )
+
+        # Then: execution allows the fill because the account notional ceiling is disabled.
+        assert result.filled_orders == [order]
+        assert result.rejected_orders == []
+        assert order.notional > Decimal("15000")
+
+
+def test_short_limit_price_improvement_can_exceed_former_account_margin_cap(temp_db):
+    # Given: a 1x short limit order that will exceed the former 60% margin ceiling.
+    with session_scope() as db:
+        order = place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="short",
+            order_type="limit",
+            limit_price=1,
+            quantity=6000,
+            leverage=1,
+        )
+
+        # When: the short receives a higher, price-improved fill.
+        result = process_candle(
+            db,
+            "paper-trader",
+            "BTCUSDT",
+            {"open": 1.1, "high": 1.2, "low": 1, "close": 1.1},
+        )
+
+        # Then: execution allows the fill because the aggregate margin ceiling is disabled.
+        assert result.filled_orders == [order]
+        assert result.rejected_orders == []
+        assert order.margin > Decimal("6000")
+
+
 def test_pending_limit_order_does_not_close_take_profit_before_entry(temp_db):
     with session_scope() as db:
         upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)

@@ -3,8 +3,6 @@ from typing import Any, Final
 
 
 SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT: Final = Decimal("10")
-SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT: Final = Decimal("60")
-SERVICE_MAX_NOTIONAL_EXPOSURE_PERCENT: Final = Decimal("150")
 SERVICE_MARGIN_SCORE_CURVE_MAX_PERCENT: Final = Decimal("100")
 
 
@@ -19,31 +17,17 @@ def final_trade_risk_percent(candidate: Any, review: Any) -> float:
     return max(0.0, min(requested, base_risk))
 
 
-def adjusted_margin_deployment_percent(base_deployment: Decimal, candidate: Any, settings: Any, review: Any | None) -> Decimal:
-    maximum = min(
-        SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT,
-        max(Decimal("0"), _as_decimal(getattr(settings, "paper_max_margin_deployment_percent", 60), Decimal("60"))),
-    )
-    # AI confidence must not expand account deployment either.
-    return min(maximum, base_deployment)
-
-
 def minimum_margin_deployment_percent(settings: Any) -> Decimal:
     configured_minimum = _as_decimal(getattr(settings, "paper_min_margin_deployment_percent", 10), Decimal("10"))
     return max(
         SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT,
-        _clamp_decimal(configured_minimum, Decimal("0"), SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT),
+        _clamp_decimal(configured_minimum, Decimal("0"), SERVICE_MARGIN_SCORE_CURVE_MAX_PERCENT),
     )
 
 
 def target_margin_deployment_percent(candidate: Any, settings: Any) -> Decimal:
     minimum = minimum_margin_deployment_percent(settings)
-    configured_max = _clamp_decimal(
-        _as_decimal(getattr(settings, "paper_max_margin_deployment_percent", 60), Decimal("60")),
-        Decimal("0"),
-        SERVICE_MAX_MARGIN_DEPLOYMENT_PERCENT,
-    )
-    maximum = max(minimum, configured_max)
+    maximum = SERVICE_MARGIN_SCORE_CURVE_MAX_PERCENT
     score = _clamp_decimal(_as_decimal(getattr(candidate, "setupScore", 0), Decimal("0")), Decimal("0"), Decimal("100"))
     if score <= Decimal("50"):
         target = minimum

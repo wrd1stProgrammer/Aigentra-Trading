@@ -71,7 +71,6 @@ def test_pending_entry_event_carries_ai_review_payload(temp_db):
                 paper_taker_fee_rate=0.0005,
                 paper_slippage_rate=0.0001,
                 paper_min_margin_deployment_percent=10,
-                paper_max_margin_deployment_percent=100,
             ),
         )
 

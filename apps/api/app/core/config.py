@@ -204,7 +204,6 @@ class Settings(BaseModel):
     paper_funding_interval_hours: int = Field(default_factory=lambda: env_int("PAPER_FUNDING_INTERVAL_HOURS", "8"))
     paper_max_leverage: float = Field(default_factory=lambda: env_float("PAPER_MAX_LEVERAGE", "10"))
     paper_min_margin_deployment_percent: float = Field(default_factory=lambda: env_float("PAPER_MIN_MARGIN_DEPLOYMENT_PERCENT", "10"))
-    paper_max_margin_deployment_percent: float = Field(default_factory=lambda: env_float("PAPER_MAX_MARGIN_DEPLOYMENT_PERCENT", "60"))
     paper_max_active_positions_per_trader: int = Field(default_factory=lambda: env_int("PAPER_MAX_ACTIVE_POSITIONS_PER_TRADER", "1"))
     enable_auto_scanner: bool = Field(default_factory=lambda: env_bool("ENABLE_AUTO_SCANNER", "false"))
     enable_worker_watchdog: bool = Field(default_factory=lambda: env_bool("ENABLE_WORKER_WATCHDOG", "true"))

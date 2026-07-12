@@ -34,10 +34,11 @@ from app.db import (
     session_scope,
 )
 from app.ops.trader_history_reset import RESET_CONFIRMATION_TEXT, reset_trader_history
-from app.paper.engine import process_candle, place_paper_order
+from app.paper.engine import process_candle, place_paper_order, update_paper_order_limit
 from app.paper.loss_discipline import latest_post_loss_cooldown, recent_loss_review_context
 from app.paper.management import order_management_events
 from app.paper.management_actions import create_position_add_order
+from app.paper.pending_exposure import pending_order_exposure
 from app.paper.planner import create_paper_orders_from_plan
 from app.paper.plan_state import latest_active_trade_plan, list_active_trade_plans
 from app.main import (
@@ -629,7 +630,7 @@ def build_orderable_plan(candidate: TradeCandidate, leverage: int = 5) -> TradeP
     )
 
 
-def build_sizing_settings(minimum: int = 10, maximum: int = 100):
+def build_sizing_settings(minimum: int = 10):
     return SimpleNamespace(
         paper_default_equity=10000,
         paper_max_leverage=10,
@@ -637,11 +638,10 @@ def build_sizing_settings(minimum: int = 10, maximum: int = 100):
         paper_taker_fee_rate=0.0005,
         paper_slippage_rate=0.0001,
         paper_min_margin_deployment_percent=minimum,
-        paper_max_margin_deployment_percent=maximum,
     )
 
 
-def test_paper_order_sizing_uses_margin_target_only_as_a_cap(temp_db):
+def test_paper_order_sizing_enforces_ten_percent_floor_with_step_rounding(temp_db):
     with session_scope() as db:
         candidate = TradeCandidate(
             created=True,
@@ -653,10 +653,10 @@ def test_paper_order_sizing_uses_margin_target_only_as_a_cap(temp_db):
             ],
             stopLoss=66000,
             takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
-            riskPercent=0.7,
+            riskPercent=2.0,
         )
         plan = build_orderable_plan(candidate)
-        settings = build_sizing_settings(minimum=1, maximum=100)
+        settings = build_sizing_settings(minimum=1)
 
         result = create_paper_orders_from_plan(
             db,
@@ -674,11 +674,12 @@ def test_paper_order_sizing_uses_margin_target_only_as_a_cap(temp_db):
         assert result["marginDeploymentPercent"] == 10
         assert result["marginDeploymentPercent"] <= 100
         assert result["targetMarginBudget"] == pytest.approx(1000)
-        assert total_margin < result["targetMarginBudget"]
+        assert result["targetMarginBudget"] <= total_margin <= result["targetMarginBudget"] + 14
+        assert result["created"][0]["payload"]["minimumEntryMarginSatisfied"] is True
         assert result["plannedRisk"] <= result["riskBudget"] * 1.05
 
 
-def test_paper_order_sizing_does_not_force_full_equity_for_high_score(temp_db):
+def test_paper_order_sizing_can_exceed_former_account_caps(temp_db):
     with session_scope() as db:
         candidate = TradeCandidate(
             created=True,
@@ -691,7 +692,7 @@ def test_paper_order_sizing_does_not_force_full_equity_for_high_score(temp_db):
             ],
             stopLoss=66000,
             takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
-            riskPercent=0.7,
+            riskPercent=20.0,
         )
         result = create_paper_orders_from_plan(
             db,
@@ -701,19 +702,229 @@ def test_paper_order_sizing_does_not_force_full_equity_for_high_score(temp_db):
             trade_plan_id=1,
             candidate=candidate,
             plan=build_orderable_plan(candidate, leverage=5),
-            settings=build_sizing_settings(minimum=10, maximum=100),
+            settings=build_sizing_settings(minimum=10),
         )
 
         total_margin = sum(order["quantity"] * order["limitPrice"] / order["leverage"] for order in result["created"])
         assert result["created"]
-        assert result["marginDeploymentPercent"] == 60
-        assert result["targetMarginBudget"] <= 6000
+        assert result["marginDeploymentPercent"] == 100
         assert total_margin <= result["targetMarginBudget"]
-        assert total_margin < result["targetMarginBudget"]
-        assert result["plannedRisk"] <= result["riskBudget"] * 1.05
+        assert total_margin > 6000
+        assert all(
+            order["quantity"] * order["limitPrice"] / order["leverage"] >= 1000
+            for order in result["created"]
+        )
+        assert total_margin * 5 > 15000
 
 
-def test_paper_order_sizing_respects_existing_account_margin_across_symbols(temp_db):
+def test_pending_market_order_reserves_cash_without_imposing_notional_cap(temp_db):
+    with session_scope() as db:
+        # Given: another symbol has an unfilled market order above the former notional cap.
+        place_paper_order(
+            db,
+            trader_id="volume-breaker",
+            symbol="ETHUSDT",
+            side="long",
+            order_type="market",
+            quantity=3,
+            leverage=5,
+            stop_loss_price=4800,
+            payload={"plannedNotional": 15000, "plannedMargin": 3000, "estimatedEntryFee": 7.5},
+        )
+        candidate = TradeCandidate(
+            created=True,
+            side="LONG",
+            setupType="TEST_PENDING_MARKET_CAP",
+            setupScore=100,
+            entries=[EntryPlan(price=68000, weight=1.0, reason="new symbol")],
+            stopLoss=66000,
+            takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
+            riskPercent=2.0,
+        )
+
+        # When: a second symbol tries to reserve account capacity.
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="volume-breaker",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=build_orderable_plan(candidate, leverage=5),
+            settings=build_sizing_settings(minimum=10),
+        )
+
+        # Then: cash is reserved, but the removed notional ceiling does not block a new order.
+        assert result["created"]
+        assert result["targetMarginBudget"] > 0
+        new_notional = sum(order["payload"]["plannedNotional"] for order in result["created"])
+        assert 15000 + new_notional > 15000
+
+
+def test_non_finite_pending_market_payload_blocks_capacity_safely(temp_db):
+    with session_scope() as db:
+        # Given: a legacy pending market order with non-finite sizing metadata.
+        place_paper_order(
+            db,
+            trader_id="volume-breaker",
+            symbol="ETHUSDT",
+            side="long",
+            order_type="market",
+            quantity=3,
+            leverage=5,
+            payload={"plannedNotional": "NaN", "expectedEntryFill": "Infinity"},
+        )
+        candidate = TradeCandidate(
+            created=True,
+            side="LONG",
+            setupType="TEST_NON_FINITE_PENDING_CAP",
+            setupScore=100,
+            entries=[EntryPlan(price=68000, weight=1.0, reason="new symbol")],
+            stopLoss=66000,
+            takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
+            riskPercent=2.0,
+        )
+
+        # When: the planner tries to calculate remaining account capacity.
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="volume-breaker",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=build_orderable_plan(candidate, leverage=5),
+            settings=build_sizing_settings(minimum=10),
+        )
+
+        # Then: it blocks conservatively instead of raising decimal errors.
+        assert result["created"] == []
+        assert result["skipped"] == ["Unpriced pending market order prevents safe capacity calculation."]
+
+
+def test_pending_limit_order_reserves_cash_for_margin_and_entry_fee(temp_db):
+    with session_scope() as db:
+        # Given: most available cash is already reserved by an unfilled limit order.
+        place_paper_order(
+            db,
+            trader_id="channel-rider",
+            symbol="ETHUSDT",
+            side="long",
+            order_type="limit",
+            quantity=1,
+            leverage=5,
+            limit_price=5000,
+            stop_loss_price=4800,
+        )
+        state = db.query(TraderStateRecord).filter_by(trader_id="channel-rider").one()
+        state.cash_balance = Decimal("1500")
+        db.flush()
+        candidate = TradeCandidate(
+            created=True,
+            side="LONG",
+            setupType="TEST_PENDING_CASH_CAP",
+            setupScore=80,
+            entries=[EntryPlan(price=68000, weight=1.0, reason="new symbol")],
+            stopLoss=66000,
+            takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
+            riskPercent=2.0,
+        )
+
+        # When: a new order needs the 10% minimum margin.
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=build_orderable_plan(candidate, leverage=5),
+            settings=build_sizing_settings(minimum=10),
+        )
+
+        # Then: reserved pending margin and fee keep the new order from overspending cash.
+        assert result["created"] == []
+        assert result["plannedRisk"] == pytest.approx(0)
+
+
+@pytest.mark.parametrize("new_limit_price", [4000, 6000])
+def test_adjusted_limit_order_reserves_cash_at_current_price(temp_db, new_limit_price):
+    with session_scope() as db:
+        # Given: a pending limit order whose original payload reflects a different price.
+        order = place_paper_order(
+            db,
+            trader_id="channel-rider",
+            symbol="ETHUSDT",
+            side="long",
+            order_type="limit",
+            quantity=1,
+            leverage=5,
+            limit_price=5000,
+            payload={"plannedNotional": 5000, "plannedMargin": 1000, "estimatedEntryFee": 1},
+        )
+
+        # When: management adjusts the persisted limit up or down.
+        update_paper_order_limit(db, order, new_limit_price, "test adjustment")
+        risk_settings = db.query(RiskSettingsRecord).filter_by(trader_id="channel-rider", symbol="ETHUSDT").one()
+        exposure = pending_order_exposure(
+            db,
+            "channel-rider",
+            risk_settings.maker_fee_rate,
+            risk_settings.taker_fee_rate,
+        )
+
+        # Then: current quantity and limit price are the canonical cash reservation.
+        expected_notional = Decimal(str(new_limit_price))
+        expected_margin = expected_notional / Decimal("5")
+        expected_fee = expected_notional * risk_settings.maker_fee_rate
+        assert exposure.notional == expected_notional
+        assert exposure.margin == expected_margin
+        assert exposure.cash_required == expected_margin + expected_fee
+
+
+def test_direct_planner_call_does_not_duplicate_same_symbol_exposure(temp_db):
+    with session_scope() as db:
+        # Given: the trader already has an open order for the same symbol.
+        place_paper_order(
+            db,
+            trader_id="range-maker",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            quantity=0.2,
+            leverage=5,
+            limit_price=67000,
+            stop_loss_price=65000,
+        )
+        candidate = TradeCandidate(
+            created=True,
+            side="LONG",
+            setupType="TEST_DUPLICATE_EXPOSURE",
+            setupScore=80,
+            entries=[EntryPlan(price=68000, weight=1.0, reason="duplicate")],
+            stopLoss=66000,
+            takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
+            riskPercent=2.0,
+        )
+
+        # When: the planner is called directly despite that active exposure.
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="range-maker",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=build_orderable_plan(candidate, leverage=5),
+            settings=build_sizing_settings(minimum=10),
+        )
+
+        # Then: the duplicate entry is rejected at the persistence boundary.
+        assert result["created"] == []
+        assert "active exposure" in result["skipped"][0]
+
+
+def test_paper_order_sizing_can_exceed_former_account_margin_cap_across_symbols(temp_db):
     with session_scope() as db:
         state_order = place_paper_order(
             db,
@@ -751,7 +962,7 @@ def test_paper_order_sizing_respects_existing_account_margin_across_symbols(temp
             entries=[EntryPlan(price=68000, weight=1.0, reason="new symbol entry")],
             stopLoss=66000,
             takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
-            riskPercent=0.7,
+            riskPercent=2.0,
         )
 
         result = create_paper_orders_from_plan(
@@ -762,11 +973,12 @@ def test_paper_order_sizing_respects_existing_account_margin_across_symbols(temp
             trade_plan_id=1,
             candidate=candidate,
             plan=build_orderable_plan(candidate, leverage=5),
-            settings=build_sizing_settings(minimum=10, maximum=100),
+            settings=build_sizing_settings(minimum=10),
         )
 
-        assert result["created"] == []
-        assert result["targetMarginBudget"] == pytest.approx(0)
+        assert result["created"]
+        new_margin = sum(order["payload"]["plannedMargin"] for order in result["created"])
+        assert state.margin_used + Decimal("200") + Decimal(str(new_margin)) > Decimal("6000")
 
 
 def test_paper_order_sizing_does_not_lift_margin_for_ai_confidence(temp_db):
@@ -779,7 +991,7 @@ def test_paper_order_sizing_does_not_lift_margin_for_ai_confidence(temp_db):
             entries=[
                 EntryPlan(price=68000, weight=1.0, reason="single starter"),
             ],
-            stopLoss=66000,
+            stopLoss=67500,
             takeProfits=[TakeProfitPlan(price=72400, weight=1.0, reason="target")],
             riskPercent=1.0,
         )
@@ -800,14 +1012,13 @@ def test_paper_order_sizing_does_not_lift_margin_for_ai_confidence(temp_db):
             trade_plan_id=1,
             candidate=candidate,
             plan=build_orderable_plan(candidate, leverage=6),
-            settings=build_sizing_settings(minimum=10, maximum=100),
+            settings=build_sizing_settings(minimum=10),
             review=review,
         )
 
         assert result["created"]
         assert result["marginDeploymentPercent"] == pytest.approx(46)
-        assert result["targetMarginBudget"] == pytest.approx(2500)
-        assert result["targetMarginBudget"] * 6 == pytest.approx(10000 * 1.50)
+        assert result["targetMarginBudget"] == pytest.approx(4600)
         assert result["riskPercent"] == pytest.approx(1.0)
 
 
@@ -848,7 +1059,7 @@ def test_paper_order_payload_preserves_ai_review_rationale(temp_db):
             trade_plan_id=1,
             candidate=candidate,
             plan=build_orderable_plan(candidate, leverage=5),
-            settings=build_sizing_settings(minimum=20, maximum=100),
+            settings=build_sizing_settings(minimum=20),
             review=review,
         )
 
@@ -900,7 +1111,7 @@ def test_position_add_order_clamps_ai_fraction_to_service_band(temp_db, raw_frac
         assert created["payload"]["quantityFraction"] == pytest.approx(expected_fraction)
 
 
-def test_position_add_order_allows_exact_aggregate_margin_cap(temp_db):
+def test_position_add_order_can_exceed_former_aggregate_margin_cap(temp_db):
     with session_scope() as db:
         order = place_paper_order(
             db,
@@ -917,8 +1128,8 @@ def test_position_add_order_allows_exact_aggregate_margin_cap(temp_db):
         state = db.query(TraderStateRecord).filter_by(trader_id="channel-rider").one()
         position = db.query(PaperPositionRecord).filter_by(order_id=order.id, status="open").one()
         state.equity = Decimal("10000")
-        state.cash_balance = Decimal("4500")
-        state.margin_used = Decimal("5500")
+        state.cash_balance = Decimal("4100")
+        state.margin_used = Decimal("5900")
         position.margin = Decimal("5000")
 
         created = create_position_add_order(
@@ -932,10 +1143,10 @@ def test_position_add_order_allows_exact_aggregate_margin_cap(temp_db):
         )
 
         assert created is not None
-        assert created["payload"]["projectedAccountMarginPercent"] == pytest.approx(60.0)
+        assert created["payload"]["projectedAccountMarginPercent"] > 60.0
 
 
-def test_position_add_order_rejects_when_pending_margin_exceeds_aggregate_margin_cap(temp_db):
+def test_position_add_order_allows_pending_margin_above_former_aggregate_cap(temp_db):
     with session_scope() as db:
         order = place_paper_order(
             db,
@@ -972,17 +1183,114 @@ def test_position_add_order_rejects_when_pending_margin_exceeds_aggregate_margin
             db,
             state=state,
             position=position,
-            action=ManagementAction(type="ADD_TO_POSITION", price=68000, quantityFraction=0.10, reason="average down"),
+            action=ManagementAction(
+                type="ADD_TO_POSITION",
+                price=float(position.entry_price),
+                quantityFraction=0.10,
+                reason="confirmed add",
+            ),
             mark_price=position.entry_price,
-            reason="average down",
+            reason="confirmed add",
             result=None,
         )
 
+        assert created is not None
+        assert created["payload"]["projectedAccountMarginPercent"] > 60.0
+
+
+def test_position_add_order_reserves_pending_entry_fee_from_available_cash(temp_db):
+    with session_scope() as db:
+        # Given: pending margin leaves enough for one quantity step only if its entry fee is ignored.
+        order = place_paper_order(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="market",
+            quantity=0.05,
+            leverage=5,
+        )
+        process_candle(db, "channel-rider", "BTCUSDT", {"open": 68000, "high": 68100, "low": 67900, "close": 68000})
+        state = db.query(TraderStateRecord).filter_by(trader_id="channel-rider").one()
+        position = db.query(PaperPositionRecord).filter_by(order_id=order.id, status="open").one()
+        state.equity = Decimal("10000")
+        state.cash_balance = Decimal("631.5")
+        state.margin_used = Decimal("5000")
+        position.margin = Decimal("5000")
+        place_paper_order(
+            db,
+            trader_id="channel-rider",
+            symbol="ETHUSDT",
+            side="long",
+            order_type="limit",
+            quantity=Decimal("0.045"),
+            leverage=5,
+            limit_price=68000,
+        )
+
+        # When: management tries to add another minimum-size order.
+        created = create_position_add_order(
+            db,
+            state=state,
+            position=position,
+            action=ManagementAction(
+                type="ADD_TO_POSITION",
+                price=float(position.entry_price),
+                quantityFraction=0.10,
+                reason="confirmed add",
+            ),
+            mark_price=position.entry_price,
+            reason="confirmed add",
+            result=None,
+        )
+
+        # Then: pending margin plus fee leaves insufficient cash, so no order is created.
         assert created is None
 
 
-@pytest.mark.parametrize(("current_notional", "should_create"), [("13500", True), ("14000", False)])
-def test_position_add_order_enforces_aggregate_notional_cap(temp_db, current_notional, should_create):
+def test_position_add_order_payload_uses_step_rounded_actual_margin(temp_db):
+    with session_scope() as db:
+        # Given: a requested add margin that does not map exactly to the quantity step.
+        order = place_paper_order(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="market",
+            quantity=0.05,
+            leverage=5,
+        )
+        process_candle(db, "channel-rider", "BTCUSDT", {"open": 68000, "high": 68100, "low": 67900, "close": 68000})
+        state = db.query(TraderStateRecord).filter_by(trader_id="channel-rider").one()
+        position = db.query(PaperPositionRecord).filter_by(order_id=order.id, status="open").one()
+        state.equity = Decimal("10000")
+        state.cash_balance = Decimal("5000")
+        state.margin_used = Decimal("5000")
+        position.margin = Decimal("1234.56")
+
+        # When: management creates the quantity-stepped add order.
+        created = create_position_add_order(
+            db,
+            state=state,
+            position=position,
+            action=ManagementAction(
+                type="PYRAMID_POSITION",
+                price=float(position.entry_price),
+                quantityFraction=0.10,
+                reason="confirmed add",
+            ),
+            mark_price=position.entry_price,
+            reason="confirmed add",
+            result=None,
+        )
+
+        # Then: payload margin matches the persisted quantity, not the pre-rounding request.
+        assert created is not None
+        actual_margin = created["quantity"] * created["limitPrice"] / created["leverage"]
+        assert created["payload"]["plannedMargin"] == pytest.approx(actual_margin)
+
+
+def test_position_add_order_can_exceed_former_aggregate_notional_cap(temp_db):
     with session_scope() as db:
         order = place_paper_order(
             db,
@@ -1002,7 +1310,7 @@ def test_position_add_order_enforces_aggregate_notional_cap(temp_db, current_not
         state.cash_balance = Decimal("7000")
         state.margin_used = Decimal("3000")
         position.margin = Decimal("3000")
-        position.notional = Decimal(current_notional)
+        position.notional = Decimal("14000")
 
         created = create_position_add_order(
             db,
@@ -1014,9 +1322,8 @@ def test_position_add_order_enforces_aggregate_notional_cap(temp_db, current_not
             result=None,
         )
 
-        assert (created is not None) is should_create
-        if created is not None:
-            assert created["payload"]["projectedAccountNotionalPercent"] == pytest.approx(150.0)
+        assert created is not None
+        assert created["payload"]["projectedAccountNotionalPercent"] > 150.0
 
 
 def test_position_add_order_rejects_averaging_a_losing_position(temp_db):
