@@ -1,4 +1,5 @@
 import asyncio
+import time
 from typing import Any, Dict
 
 from app.clients.binance_client import BinanceClient, Candle
@@ -29,6 +30,19 @@ INTERVAL_LIMITS = {
     "4h": 180,
     "1d": 180,
 }
+
+
+def prior_completed_range(candles: list[Candle], signal_close_time: int, lookback: int = 20) -> Dict[str, Any] | None:
+    sample = [candle for candle in candles if candle.closeTime < signal_close_time][-lookback:]
+    if len(sample) != lookback:
+        return None
+    return {
+        "high": max(candle.high for candle in sample),
+        "low": min(candle.low for candle in sample),
+        "candles": len(sample),
+        "firstOpenTime": sample[0].openTime,
+        "lastCloseTime": sample[-1].closeTime,
+    }
 
 async def build_market_snapshot(client: BinanceClient, symbol: str) -> Dict[str, Any]:
     interval_items = list(INTERVAL_LIMITS.items())
@@ -65,6 +79,7 @@ async def build_market_snapshot(client: BinanceClient, symbol: str) -> Dict[str,
         cached_external_derivatives(symbol),
     )
 
+    snapshot_time_ms = int(time.time() * 1000)
     timeframes: Dict[str, Any] = {}
     for interval, candles in candles_by_interval.items():
         closes = [candle.close for candle in candles]
@@ -95,6 +110,10 @@ async def build_market_snapshot(client: BinanceClient, symbol: str) -> Dict[str,
             },
             "latestCandle": latest.model_dump(),
         }
+        completed_candles = [candle for candle in candles if candle.closeTime <= snapshot_time_ms]
+        if completed_candles:
+            frame["completedCandle"] = completed_candles[-1].model_dump()
+            frame["completedVolumeZscore"] = volume_zscore(completed_candles, 20)
         prior_sample = candles[-21:-1]
         if prior_sample:
             frame["priorRange"] = {
@@ -107,6 +126,15 @@ async def build_market_snapshot(client: BinanceClient, symbol: str) -> Dict[str,
         if interval in {"1h", "4h", "1d"}:
             frame["channel"] = channel_state(candles)
         timeframes[interval] = frame
+
+    completed_signal = timeframes.get("15m", {}).get("completedCandle")
+    if isinstance(completed_signal, dict):
+        frozen_range = prior_completed_range(
+            candles_by_interval.get("1h", []),
+            int(completed_signal.get("closeTime") or 0),
+        )
+        if frozen_range is not None:
+            timeframes["1h"]["priorCompletedRange"] = frozen_range
 
     price = premium_index["markPrice"] or timeframes["1m"]["close"]
     derivatives = derivative_context(

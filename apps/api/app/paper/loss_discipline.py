@@ -6,16 +6,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.db import PaperPositionRecord
-
-
-LOSS_CLOSE_REASONS = {
-    "stop_loss",
-    "stop-loss",
-    "early_thesis_failure",
-    "thesis_failure",
-    "close_position",
-    "reduce_risk",
-}
+from app.repositories import from_json
 
 
 def latest_loss_discipline_context(
@@ -123,10 +114,7 @@ def latest_post_loss_cooldown_map(
 
 def is_loss_discipline_position(position: PaperPositionRecord) -> bool:
     realized_pnl = Decimal(position.realized_pnl or 0)
-    if realized_pnl >= 0:
-        return False
-    close_reason = str(position.close_reason or "").strip().lower()
-    return close_reason in LOSS_CLOSE_REASONS or "stop" in close_reason or "loss" in close_reason
+    return realized_pnl < 0
 
 
 def close_review_context(
@@ -140,6 +128,10 @@ def close_review_context(
     if opened_at is not None and closed_at is not None:
         duration_minutes = max(0, int((closed_at - opened_at).total_seconds() // 60))
     realized_pnl = Decimal(position.realized_pnl or 0)
+    payload = from_json(position.payload_json) or {}
+    payload = payload if isinstance(payload, dict) else {}
+    donchian_context = payload.get("donchianContext")
+    donchian_context = donchian_context if isinstance(donchian_context, dict) else {}
     return {
         "positionId": position.id,
         "side": position.side,
@@ -153,6 +145,7 @@ def close_review_context(
         "outcome": "loss" if realized_pnl < 0 else "profit" if realized_pnl > 0 else "flat",
         "closedAt": closed_at.isoformat() if closed_at else None,
         "durationMinutes": duration_minutes,
+        "boundaryFingerprint": donchian_context.get("boundaryFingerprint"),
     }
 
 

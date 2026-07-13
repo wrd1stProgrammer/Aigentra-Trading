@@ -6,7 +6,7 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db import PaperOrderRecord, PaperPositionRecord
+from app.db import PaperOrderRecord, PaperPositionRecord, TradePlanRecord
 from app.paper.engine import place_paper_order
 from app.paper.entry_guardrails import entry_guardrail_context
 from app.paper.pending_exposure import pending_order_exposure
@@ -18,7 +18,7 @@ from app.paper.sizing import (
     planned_entry_margin_budgets,
     target_margin_deployment_percent,
 )
-from app.repositories import serialize_record
+from app.repositories import from_json, serialize_record, to_json
 from app.traders.models import TradeCandidate, TradePlan, TradeReviewResult
 
 
@@ -28,6 +28,28 @@ QUANTITY_STEP = Decimal("0.001")
 
 def quantize_quantity(quantity: Decimal) -> Decimal:
     return quantity.quantize(QUANTITY_STEP, rounding=ROUND_DOWN)
+
+
+def mark_order_creation_skipped(
+    db: Session,
+    trade_plan_id: int,
+    reasons: list[str],
+) -> None:
+    plan_record = db.get(TradePlanRecord, trade_plan_id)
+    if plan_record is None or plan_record.status != "PAPER_TRADING_PENDING":
+        return
+    plan_payload = from_json(plan_record.payload_json) or {}
+    if not isinstance(plan_payload, dict):
+        plan_payload = {}
+    plan_record.status = "ORDER_CREATION_SKIPPED"
+    plan_record.payload_json = to_json(
+        {
+            **plan_payload,
+            "status": "ORDER_CREATION_SKIPPED",
+            "orderCreationSkippedReasons": reasons,
+        }
+    )
+    db.flush()
 
 
 def list_active_paper_exposure(db: Session, trader_id: str, symbol: str) -> dict:
@@ -117,8 +139,12 @@ def create_paper_orders_from_plan(
     review: Optional[TradeReviewResult] = None,
     ai_review_id: Optional[int] = None,
 ) -> dict:
+    is_donchian = trader_id == "donchian-breakout" and str(candidate.setupType or "").startswith("DONCHIAN_")
     if plan.status != "PAPER_TRADING_PENDING" or not plan.side or not plan.entries or plan.stopLoss is None:
-        return {"created": [], "skipped": ["Trade plan is not orderable."]}
+        reasons = ["Trade plan is not orderable."]
+        if is_donchian:
+            mark_order_creation_skipped(db, trade_plan_id, reasons)
+        return {"created": [], "skipped": reasons}
 
     if trader_id == "funding-contrarian":
         now = datetime.now(timezone.utc)
@@ -148,13 +174,19 @@ def create_paper_orders_from_plan(
     state, risk_settings = sync_default_paper_settings(db, trader_id, symbol, settings)
     state = lock_trader_state(db, trader_id, risk_settings.initial_equity)
     if list_active_paper_exposure(db, trader_id, symbol)["hasExposure"]:
-        return {"created": [], "skipped": ["Trader already has active exposure for this symbol."]}
+        reasons = ["Trader already has active exposure for this symbol."]
+        if is_donchian:
+            mark_order_creation_skipped(db, trade_plan_id, reasons)
+        return {"created": [], "skipped": reasons}
     side = plan.side.lower()
     stop_loss = Decimal(str(plan.stopLoss))
     candidate_risk_percent = Decimal(str(candidate.riskPercent or 0))
     planned_risk_percent = min(Decimal(str(plan.riskPercent or candidate.riskPercent or 0)), candidate_risk_percent)
     if planned_risk_percent <= 0:
-        return {"created": [], "skipped": ["Risk percent is not positive."]}
+        reasons = ["Risk percent is not positive."]
+        if is_donchian:
+            mark_order_creation_skipped(db, trade_plan_id, reasons)
+        return {"created": [], "skipped": reasons}
 
     leverage = Decimal(str(plan.leverage or 1))
     leverage = max(Decimal("1"), min(leverage, risk_settings.max_leverage))
@@ -163,7 +195,10 @@ def create_paper_orders_from_plan(
         Decimal("0"),
     )
     if total_weight <= 0:
-        return {"created": [], "skipped": ["Entry weights are not positive."]}
+        reasons = ["Entry weights are not positive."]
+        if is_donchian:
+            mark_order_creation_skipped(db, trade_plan_id, reasons)
+        return {"created": [], "skipped": reasons}
 
     equity = Decimal(str(state.equity))
     available_cash = max(Decimal("0"), Decimal(str(state.cash_balance)))
@@ -175,6 +210,8 @@ def create_paper_orders_from_plan(
     )
     if guardrails["blocked"]:
         reasons = guardrails.get("blockReasons") or ["Account entry guardrail is active."]
+        if is_donchian:
+            mark_order_creation_skipped(db, trade_plan_id, reasons)
         return {"created": [], "skipped": reasons, "entryGuardrails": guardrails}
     guardrail_risk_cap = candidate_risk_percent * Decimal(str(guardrails.get("riskMultiplier", 1.0)))
     risk_percent = min(planned_risk_percent, guardrail_risk_cap)
@@ -189,7 +226,10 @@ def create_paper_orders_from_plan(
         risk_settings.taker_fee_rate,
     )
     if pending.has_unpriced_order:
-        return {"created": [], "skipped": ["Unpriced pending market order prevents safe capacity calculation."]}
+        reasons = ["Unpriced pending market order prevents safe capacity calculation."]
+        if is_donchian:
+            mark_order_creation_skipped(db, trade_plan_id, reasons)
+        return {"created": [], "skipped": reasons}
     available_cash = max(Decimal("0"), available_cash - pending.cash_required)
     fee_reserve_rate = max(risk_settings.maker_fee_rate, risk_settings.taker_fee_rate)
     cash_budget_cap = (
@@ -225,15 +265,18 @@ def create_paper_orders_from_plan(
     total_planned_risk = Decimal("0")
 
     for index, entry in enumerate(plan.entries):
+        if is_donchian and index > 0:
+            continue
+        entry_label = "Donchian confirmation" if is_donchian else f"Entry {index + 1}"
         entry_price = Decimal(str(entry.price))
         if entry.weight <= 0:
-            skipped.append(f"Entry {index + 1} skipped: weight is not positive.")
+            skipped.append(f"{entry_label} skipped: weight is not positive.")
             continue
         if entry_price <= 0:
-            skipped.append(f"Entry {index + 1} skipped: entry price is not positive.")
+            skipped.append(f"{entry_label} skipped: entry price is not positive.")
             continue
         if abs(entry_price - stop_loss) <= 0:
-            skipped.append(f"Entry {index + 1} skipped: stop distance is zero.")
+            skipped.append(f"{entry_label} skipped: stop distance is zero.")
             continue
 
         weight = Decimal(str(max(entry.weight, 0.0))) / total_weight
@@ -258,7 +301,7 @@ def create_paper_orders_from_plan(
         )
         risk_per_unit = loss_distance + expected_entry_fill * entry_fee_rate + expected_stop_fill * risk_settings.taker_fee_rate
         if risk_per_unit <= 0:
-            skipped.append(f"Entry {index + 1} skipped: fee/slippage-adjusted risk is not positive.")
+            skipped.append(f"{entry_label} skipped: fee/slippage-adjusted risk is not positive.")
             continue
         requires_minimum_margin = not created
         minimum_margin_quantity = Decimal("0")
@@ -291,17 +334,17 @@ def create_paper_orders_from_plan(
             planned_risk = quantity * risk_per_unit
         if requires_minimum_margin and quantity < minimum_margin_quantity:
             skipped.append(
-                f"Entry {index + 1} skipped: risk-approved size is below the "
+                f"{entry_label} skipped: risk-approved size is below the "
                 f"{minimum_entry_margin_label}% entry margin floor."
             )
             continue
         if quantity < MIN_PAPER_QUANTITY:
-            skipped.append(f"Entry {index + 1} skipped: remaining risk budget is below paper minimum.")
+            skipped.append(f"{entry_label} skipped: remaining risk budget is below paper minimum.")
             continue
         actual_margin = (quantity * expected_entry_fill) / leverage
         if actual_margin > remaining_margin_budget:
             skipped.append(
-                f"Entry {index + 1} skipped: remaining account capacity is below the "
+                f"{entry_label} skipped: remaining account capacity is below the "
                 f"{minimum_entry_margin_label}% entry margin floor."
             )
             continue
@@ -343,6 +386,20 @@ def create_paper_orders_from_plan(
             "slippageRate": float(slippage_rate),
             "estimatedEntryFee": float(estimated_entry_fee),
             "candidateSetupType": candidate.setupType,
+            "donchianContext": candidate.audit.get("donchianContext") if is_donchian else None,
+            "dormantRetest": (
+                {
+                    "status": "DORMANT",
+                    "entryIndex": 1,
+                    "price": plan.entries[1].price,
+                    "weight": plan.entries[1].weight,
+                    "reason": plan.entries[1].reason,
+                    "activationTtlSeconds": 1800,
+                    "createdFromConfirmationOrder": True,
+                }
+                if is_donchian and len(plan.entries) > 1
+                else None
+            ),
             "holdingHorizon": plan.managementPlan.holdingHorizon.value if plan.managementPlan else None,
             "strategyFamily": plan.managementPlan.strategyFamily.value if plan.managementPlan else None,
             "managementPlan": plan.managementPlan.model_dump(mode="json") if plan.managementPlan else None,
@@ -386,6 +443,7 @@ def create_paper_orders_from_plan(
                 "limitPrice": limit_price,
                 "reason": entry.reason,
                 "source": "trade_plan",
+                "donchianContext": candidate.audit.get("donchianContext") if is_donchian else None,
                 "aiReviewId": ai_review_id,
                 "holdingHorizon": plan.managementPlan.holdingHorizon.value if plan.managementPlan else None,
                 "strategyFamily": plan.managementPlan.strategyFamily.value if plan.managementPlan else None,
@@ -394,6 +452,9 @@ def create_paper_orders_from_plan(
             },
         )
         created.append(serialize_record(order))
+
+    if is_donchian and not created:
+        mark_order_creation_skipped(db, trade_plan_id, skipped)
 
     return {
         "created": created,

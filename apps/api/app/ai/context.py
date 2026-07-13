@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import desc, select
@@ -171,6 +172,8 @@ def build_trade_review_context(
     trader_id: str,
     symbol: str,
     candidate_risk_percent: float | None = None,
+    candidate_side: str | None = None,
+    boundary_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     ai_reviews = db.execute(
         select(AIReviewRecord)
@@ -191,12 +194,19 @@ def build_trade_review_context(
         symbol,
         cooldown_seconds=max(0, int(settings.paper_reentry_cooldown_seconds or 0)),
     )
+    streak_context = candidate_loss_streak_context(
+        db,
+        trader_id,
+        symbol,
+        candidate_side=candidate_side,
+        boundary_fingerprint=boundary_fingerprint,
+    )
     return {
         "recentAiReviews": [_review_summary(record) for record in ai_reviews],
         "recentManagementReviews": [_management_summary(record) for record in management_reviews],
         "activeExposure": active_exposure_context(db, trader_id, symbol),
         "recentTradeEvents": recent_trade_events_context(db, trader_id, symbol, limit=8),
-        "lossDiscipline": loss_discipline or {},
+        "lossDiscipline": {**(loss_discipline or {}), **streak_context},
         "recentLossReviews": recent_loss_review_context(db, trader_id, symbol, limit=3),
         "accountState": account_state_context(db, trader_id),
         "entryGuardrails": entry_guardrail_context(
@@ -206,6 +216,43 @@ def build_trade_review_context(
             settings=settings,
         ),
     }
+
+
+def candidate_loss_streak_context(
+    db: Session,
+    trader_id: str,
+    symbol: str,
+    *,
+    candidate_side: str | None,
+    boundary_fingerprint: str | None,
+) -> dict[str, int]:
+    side = str(candidate_side or "").strip().lower()
+    if side not in {"long", "short"}:
+        return {"sameSideLossStreak": 0, "sameBoundaryLossStreak": 0}
+    records = db.execute(
+        select(PaperPositionRecord)
+        .where(
+            PaperPositionRecord.trader_id == trader_id,
+            PaperPositionRecord.symbol == symbol,
+            PaperPositionRecord.status == "closed",
+        )
+        .order_by(desc(PaperPositionRecord.closed_at), desc(PaperPositionRecord.id))
+        .limit(20)
+    ).scalars().all()
+    same_side = 0
+    same_boundary = 0
+    boundary_chain_open = bool(boundary_fingerprint)
+    for position in records:
+        if Decimal(str(position.realized_pnl or 0)) >= 0 or str(position.side or "").lower() != side:
+            break
+        same_side += 1
+        payload = _payload(position)
+        context = payload.get("donchianContext") if isinstance(payload.get("donchianContext"), dict) else {}
+        if boundary_chain_open and context.get("boundaryFingerprint") == boundary_fingerprint:
+            same_boundary += 1
+        else:
+            boundary_chain_open = False
+    return {"sameSideLossStreak": same_side, "sameBoundaryLossStreak": same_boundary}
 
 
 def build_management_review_context(db: Session, trader_id: str, symbol: str) -> dict[str, Any]:

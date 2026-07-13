@@ -116,7 +116,7 @@ TRADER_MANAGEMENT_PROFILES: dict[str, dict[str, Any]] = {
         },
     },
     "donchian-breakout": {
-        "order_stale_seconds": 720,
+        "order_stale_seconds": 1800,
         "cooldown_seconds": 300,
         "events": {
             "pending_invalid": "donchian_range_reentry_cancel",
@@ -257,6 +257,17 @@ def taker_buy_ratio(snapshot: dict) -> float:
     return max(0.0, min(taker_buy / volume, 1.0))
 
 
+def completed_taker_buy_ratio(snapshot: dict) -> float:
+    candle = snapshot.get("timeframes", {}).get("15m", {}).get("completedCandle")
+    if not isinstance(candle, dict):
+        return 0.5
+    volume = as_float(candle.get("volume"), 0.0)
+    taker_buy = as_float(candle.get("takerBuyBaseVolume"), 0.0)
+    if volume <= 0:
+        return 0.5
+    return max(0.0, min(taker_buy / volume, 1.0))
+
+
 def managed_exposure_from_order(order: PaperOrderRecord) -> ManagedExposure:
     payload = payload_dict(order)
     return ManagedExposure(
@@ -376,6 +387,7 @@ def order_management_events(trader_id: str, order: PaperOrderRecord, snapshot: d
     derivatives = snapshot.get("derivatives", {})
     channel = one_hour.get("channel", {})
     close_15m = as_float(latest_candle(snapshot, "15m").get("close"), price)
+    completed_close_15m = as_float(fifteen.get("completedCandle", {}).get("close"), close_15m)
     ema50 = as_float(one_hour.get("ema50"), price)
     funding = as_float(derivatives.get("fundingRate"), 0.0)
     volume_z = as_float(fifteen.get("volumeZscore"), 0.0)
@@ -383,6 +395,8 @@ def order_management_events(trader_id: str, order: PaperOrderRecord, snapshot: d
     age_seconds = int((datetime.now(timezone.utc) - aware_datetime(order.submitted_at)).total_seconds())
     distance_percent = abs(price - limit_price) / price * 100 if price > 0 else 0.0
     events: list[ManagementEvent] = []
+    order_payload = from_json(order.payload_json) or {}
+    order_payload = order_payload if isinstance(order_payload, dict) else {}
 
     def base_metrics(extra: dict[str, Any] = None) -> dict[str, Any]:
         return {
@@ -494,6 +508,21 @@ def order_management_events(trader_id: str, order: PaperOrderRecord, snapshot: d
             events.append(ManagementEvent(eventType=event_names["pending_invalid"], phase="PENDING_ORDER", severity="HIGH", reason="Session breakout re-entered the range before the retest order filled.", suggestedAction="CANCEL_PENDING_ORDER", metrics=base_metrics({"rangeLower": lower, "rangeUpper": upper})))
         elif age_seconds >= profile["order_stale_seconds"] or distance_percent > 0.45:
             events.append(ManagementEvent(eventType=event_names["pending_stale"], phase="PENDING_ORDER", severity="MEDIUM", reason="Session ORB retest is stale or too far from current price.", suggestedAction="CANCEL_PENDING_ORDER", metrics=base_metrics({"rangeLower": lower, "rangeUpper": upper})))
+    elif trader_id == "donchian-breakout":
+        context = order_payload.get("donchianContext")
+        context = context if isinstance(context, dict) else {}
+        upper = as_float(context.get("upperBoundary"), 0.0)
+        lower = as_float(context.get("lowerBoundary"), 0.0)
+        completed_candle = fifteen.get("completedCandle")
+        has_completed_candle = isinstance(completed_candle, dict) and completed_candle.get("close") is not None
+        range_reentry = has_completed_candle and bool(upper > lower > 0) and (
+            (side == "long" and completed_close_15m <= upper)
+            or (side == "short" and completed_close_15m >= lower)
+        )
+        if range_reentry:
+            events.append(ManagementEvent(eventType=event_names["pending_invalid"], phase="PENDING_ORDER", severity="HIGH", reason="Completed 15m candle closed back inside the frozen Donchian range.", suggestedAction="CANCEL_PENDING_ORDER", metrics=base_metrics({"donchianUpper": upper, "donchianLower": lower, "hardInvalidation": True})))
+        elif age_seconds >= profile["order_stale_seconds"]:
+            events.append(ManagementEvent(eventType=event_names["pending_stale"], phase="PENDING_ORDER", severity="MEDIUM", reason="Donchian confirmation or retest stayed pending beyond the activation window.", suggestedAction="CANCEL_PENDING_ORDER", metrics=base_metrics({"donchianUpper": upper, "donchianLower": lower})))
     return events[:2]
 
 
@@ -516,6 +545,7 @@ def position_management_events(trader_id: str, position: PaperPositionRecord, sn
     derivatives = snapshot.get("derivatives", {})
     channel = one_hour.get("channel", {})
     close_15m = as_float(latest_candle(snapshot, "15m").get("close"), price)
+    completed_close_15m = as_float(fifteen.get("completedCandle", {}).get("close"), close_15m)
     ema50 = as_float(one_hour.get("ema50"), price)
     funding = as_float(derivatives.get("fundingRate"), 0.0)
     volume_z = as_float(fifteen.get("volumeZscore"), 0.0)
@@ -645,6 +675,39 @@ def position_management_events(trader_id: str, position: PaperPositionRecord, sn
             events.append(ManagementEvent(eventType=event_names["position_fail"], phase="OPEN_POSITION", severity="HIGH", reason="Session breakout failed back into the range after entry.", suggestedAction="CLOSE_POSITION", metrics=base_metrics({"rangeLower": lower, "rangeUpper": upper})))
         elif progress_r >= float(holding_policy.breakeven_progress_r) or target_progress >= float(holding_policy.profit_protect_target_progress):
             events.append(ManagementEvent(eventType=event_names["protect"], phase="OPEN_POSITION", severity="MEDIUM", reason="Session breakout reached protection zone outside the range.", suggestedAction="MOVE_STOP_TO_BREAKEVEN", metrics=base_metrics({"rangeLower": lower, "rangeUpper": upper})))
+    elif trader_id == "donchian-breakout":
+        context = position_payload.get("donchianContext")
+        context = context if isinstance(context, dict) else {}
+        upper = as_float(context.get("upperBoundary"), 0.0)
+        lower = as_float(context.get("lowerBoundary"), 0.0)
+        completed_candle = fifteen.get("completedCandle")
+        has_completed_candle = isinstance(completed_candle, dict) and completed_candle.get("close") is not None
+        range_reentry = has_completed_candle and bool(upper > lower > 0) and (
+            (side == "long" and completed_close_15m <= upper)
+            or (side == "short" and completed_close_15m >= lower)
+        )
+        oi_change = as_float(derivatives.get("openInterestStats", {}).get("changePercent30m"), 0.0)
+        completed_ratio = completed_taker_buy_ratio(snapshot)
+        current_confirmations = (
+            sum(
+                (
+                    as_float(fifteen.get("completedVolumeZscore"), 0.0) >= 0.35,
+                    oi_change >= 0.12,
+                    completed_ratio >= 0.55 if side == "long" else completed_ratio <= 0.45,
+                )
+            )
+            if has_completed_candle
+            else int(as_float(context.get("participationCount"), 0.0))
+        )
+        original_confirmations = int(as_float(context.get("participationCount"), 0.0))
+        if range_reentry:
+            events.append(ManagementEvent(eventType=event_names["position_fail"], phase="OPEN_POSITION", severity="HIGH", reason="Completed 15m candle accepted back inside the frozen Donchian range.", suggestedAction="CLOSE_POSITION", metrics=base_metrics({"donchianUpper": upper, "donchianLower": lower, "hardInvalidation": True})))
+        elif original_confirmations >= 2 and current_confirmations <= original_confirmations - 2 and progress_r < 0.5:
+            events.append(ManagementEvent(eventType="donchian_participation_lost", phase="OPEN_POSITION", severity="HIGH", reason="At least two original breakout participation confirmations have faded before expansion.", suggestedAction="REDUCE_RISK", metrics=base_metrics({"originalParticipationCount": original_confirmations, "currentParticipationCount": current_confirmations})))
+        elif progress_r >= float(holding_policy.trail_review_progress_r):
+            events.append(ManagementEvent(eventType=event_names["protect"], phase="OPEN_POSITION", severity="MEDIUM", reason="Donchian expansion reached the ATR trail review threshold.", suggestedAction="TRAIL_STOP", metrics=base_metrics({"donchianUpper": upper, "donchianLower": lower})))
+        elif progress_r >= float(holding_policy.breakeven_progress_r):
+            events.append(ManagementEvent(eventType=event_names["protect"], phase="OPEN_POSITION", severity="MEDIUM", reason="Donchian expansion reached the breakeven review threshold.", suggestedAction="MOVE_STOP_TO_BREAKEVEN", metrics=base_metrics({"donchianUpper": upper, "donchianLower": lower})))
     elif trader_id == "imbalance-hunter":
         failure_line = stop
         midpoint = entry

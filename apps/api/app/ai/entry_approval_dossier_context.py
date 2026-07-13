@@ -109,9 +109,9 @@ def active_exposure(value: dict[str, Any]) -> dict[str, Any]:
 
 def loss_context(payload: TradeReviewPayload) -> dict[str, Any]:
     return {
-        "lossDiscipline": compact_mapping(payload.lossDiscipline, ("active", "remainingSeconds", "closeReason", "realizedPnl", "closedAt")),
+        "lossDiscipline": compact_mapping(payload.lossDiscipline, ("active", "remainingSeconds", "closeReason", "realizedPnl", "closedAt", "sameSideLossStreak", "sameBoundaryLossStreak")),
         "recentLossReviews": [
-            compact_mapping(item, ("createdAt", "side", "closeReason", "realizedPnl", "summary", "counterThesis"))
+            compact_mapping(item, ("createdAt", "side", "closeReason", "realizedPnl", "summary", "counterThesis", "boundaryFingerprint"))
             for item in payload.recentLossReviews[:3]
             if isinstance(item, dict)
         ],
@@ -168,7 +168,7 @@ def recent_trade_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def audit_signals(audit: dict[str, Any]) -> dict[str, Any]:
     return {
         key: audit[key]
-        for key in ("reasonCode", "gateScores", "executionProfile")
+        for key in ("reasonCode", "gateScores", "executionProfile", "donchianContext")
         if audit.get(key) not in (None, "", [], {})
     }
 

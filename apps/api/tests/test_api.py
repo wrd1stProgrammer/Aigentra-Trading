@@ -1185,6 +1185,7 @@ def test_trader_detail_rebuilds_expired_cache_before_returning(monkeypatch):
     monkeypatch.setattr(main, "trader_snapshot_summary", lambda *args, **kwargs: None)
     monkeypatch.setattr(main, "trader_detail_translations_ready", lambda *args, **kwargs: True)
     monkeypatch.setattr(main, "build_trader_detail_payload", fresh_payload)
+    monkeypatch.setattr(main, "schedule_thread_refresh", lambda *args: None)
 
     response = client.get("/api/league/traders/channel-rider?symbol=BTCUSDT")
 
@@ -1194,6 +1195,75 @@ def test_trader_detail_rebuilds_expired_cache_before_returning(monkeypatch):
     assert data["cacheHit"] is False
     assert data["stale"] is False
     assert data["scheduledRefresh"] is False
+
+
+def test_trader_detail_rebuilds_fresh_cache_after_pending_order_cleanup(temp_api_db, monkeypatch):
+    cache_key = ("channel-rider", "BTCUSDT", 20, 20, "en", main.TRADER_DETAIL_CACHE_VERSION)
+    cached_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    stale_payload = {
+        "symbol": "BTCUSDT",
+        "trader": {"id": "channel-rider", "name": "Channel Cartographer"},
+        "summaries": [
+            {
+                "traderId": "channel-rider",
+                "symbol": "BTCUSDT",
+                "openOrders": 1,
+                "openPositions": 0,
+                "latestPlanStatus": "PAPER_TRADING_PENDING",
+                "agentPhase": "PENDING_ORDER",
+                "updatedAt": cached_at.isoformat(),
+            }
+        ],
+        "positions": [],
+        "orders": [],
+        "managementReviews": [],
+        "events": [],
+    }
+    with session_scope() as db:
+        pending_order = PaperOrderRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="pending",
+            side="long",
+            order_type="limit",
+            fee_type="maker",
+            quantity=Decimal("0.1"),
+            leverage=Decimal("5"),
+            limit_price=Decimal("64000"),
+        )
+        snapshot = TraderLeaderboardSnapshotRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="active",
+            trader_name="Channel Cartographer",
+            open_orders=1,
+            open_positions=0,
+            latest_plan_status="PAPER_TRADING_PENDING",
+            agent_phase="PENDING_ORDER",
+            updated_at=cached_at,
+        )
+        db.add_all([pending_order, snapshot])
+        db.flush()
+        db.delete(pending_order)
+        snapshot.open_orders = 0
+        snapshot.latest_plan_status = None
+        snapshot.agent_phase = "IDLE"
+        snapshot.updated_at = datetime.now(timezone.utc)
+
+    main.TRADER_DETAIL_CACHE.clear()
+    main.TRADER_DETAIL_CACHE[cache_key] = (time.monotonic() + 60, stale_payload)
+    monkeypatch.setattr(main, "trader_detail_translations_ready", lambda *args, **kwargs: True)
+    try:
+        response = client.get("/api/league/traders/channel-rider?symbol=BTCUSDT")
+    finally:
+        main.TRADER_DETAIL_CACHE.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["cacheHit"] is False
+    assert data["summaries"][0]["openOrders"] == 0
+    assert data["summaries"][0]["latestPlanStatus"] is None
+    assert data["summaries"][0]["agentPhase"] == "IDLE"
 
 
 def test_trader_detail_uses_snapshot_summary_without_full_recompute(monkeypatch):

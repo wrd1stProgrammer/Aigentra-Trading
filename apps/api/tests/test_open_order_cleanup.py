@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -15,14 +16,22 @@ from app.db import (
     TelegramAlertDeliveryRecord,
     TradeEventRecord,
     TradePlanRecord,
+    TraderAgentStateRecord,
+    TraderLeaderboardSnapshotRecord,
     TraderRunLogRecord,
     TraderStatusFeedRecord,
     init_db,
     reset_db_engine,
     session_scope,
 )
-from app.ops.open_order_cleanup import cleanup_open_pending_orders
+from app.ops.open_order_cleanup import cleanup_open_pending_orders as _cleanup_open_pending_orders
 from app.subscribers import TelegramSettingsInput, upsert_subscriber_preferences
+
+
+def cleanup_open_pending_orders(*args, **kwargs):
+    kwargs.setdefault("delete_linked_history", True)
+    kwargs.setdefault("writers_paused", True)
+    return _cleanup_open_pending_orders(*args, **kwargs)
 
 
 @pytest.fixture()
@@ -117,6 +126,313 @@ def test_cleanup_dry_run_is_immutable_and_destructive_run_requires_exact_token(t
                 expected_order_ids=preview["targetOrderIds"],
             )
         assert db.get(PaperOrderRecord, order.id) is not None
+
+
+def test_default_cleanup_removes_pending_order_but_preserves_history(temp_db):
+    with session_scope() as db:
+        run, candidate, review, plan = _lineage(db, "history-preserving")
+        order = _order(status="open", run_id=run.id, plan_id=plan.id, review_id=review.id)
+        db.add(order)
+        db.flush()
+        event = TradeEventRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="recorded",
+            event_type="paper_order_created",
+            order_id=order.id,
+            price=Decimal("64000"),
+            quantity=Decimal("0.10"),
+        )
+        db.add(event)
+        db.flush()
+        preview = _cleanup_open_pending_orders(db, dry_run=True, writers_paused=True)
+
+        _cleanup_open_pending_orders(
+            db,
+            dry_run=False,
+            confirmation_token=preview["confirmationToken"],
+            expected_order_ids=preview["targetOrderIds"],
+            writers_paused=True,
+        )
+
+        assert db.get(PaperOrderRecord, order.id) is None
+        assert db.get(TradeEventRecord, event.id) is not None
+        assert db.get(TradeEventRecord, event.id).order_id is None
+        assert db.get(TraderRunLogRecord, run.id) is not None
+        assert db.get(CandidateTradeRecord, candidate.id) is not None
+        assert db.get(AIReviewRecord, review.id) is not None
+        assert db.get(TradePlanRecord, plan.id) is not None
+
+
+def test_history_preserving_confirmation_cannot_authorize_history_deletion(temp_db):
+    with session_scope() as db:
+        run, _candidate, review, plan = _lineage(db, "scope-bound-token")
+        order = _order(status="open", run_id=run.id, plan_id=plan.id, review_id=review.id)
+        db.add(order)
+        db.flush()
+        preview = _cleanup_open_pending_orders(db, dry_run=True, writers_paused=True)
+
+        with pytest.raises(ValueError, match="OPEN_ORDER_CLEANUP_CONFIRMATION_REQUIRED"):
+            _cleanup_open_pending_orders(
+                db,
+                dry_run=False,
+                confirmation_token=preview["confirmationToken"],
+                expected_order_ids=preview["targetOrderIds"],
+                delete_linked_history=True,
+                writers_paused=True,
+            )
+
+        assert db.get(PaperOrderRecord, order.id) is not None
+        assert db.get(TraderRunLogRecord, run.id) is not None
+
+
+def test_cleanup_requires_paused_writers_and_repreview_when_graph_changes(temp_db):
+    with session_scope() as db:
+        run, _candidate, review, plan = _lineage(db, "graph-bound-token")
+        order = _order(status="open", run_id=run.id, plan_id=plan.id, review_id=review.id)
+        db.add(order)
+        db.flush()
+        unpaused_preview = _cleanup_open_pending_orders(db, dry_run=True)
+        with pytest.raises(ValueError, match="OPEN_ORDER_CLEANUP_WRITERS_MUST_BE_PAUSED"):
+            _cleanup_open_pending_orders(
+                db,
+                dry_run=False,
+                confirmation_token=unpaused_preview["confirmationToken"],
+                expected_order_ids=unpaused_preview["targetOrderIds"],
+            )
+
+        paused_preview = _cleanup_open_pending_orders(db, dry_run=True, writers_paused=True)
+        event = TradeEventRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="recorded",
+            event_type="paper_order_created",
+            order_id=order.id,
+            price=Decimal("64000"),
+            quantity=Decimal("0.10"),
+        )
+        db.add(event)
+        db.flush()
+        with pytest.raises(ValueError, match="OPEN_ORDER_CLEANUP_CONFIRMATION_REQUIRED"):
+            _cleanup_open_pending_orders(
+                db,
+                dry_run=False,
+                confirmation_token=paused_preview["confirmationToken"],
+                expected_order_ids=paused_preview["targetOrderIds"],
+                writers_paused=True,
+            )
+
+        assert db.get(PaperOrderRecord, order.id) is not None
+        assert db.get(TradeEventRecord, event.id) is not None
+
+
+def test_cleanup_resets_stale_pending_agent_state_when_no_exposure_survives(temp_db):
+    with session_scope() as db:
+        run, _candidate, review, plan = _lineage(db, "agent-state")
+        order = _order(status="open", run_id=run.id, plan_id=plan.id, review_id=review.id)
+        state = TraderAgentStateRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="active",
+            phase="PENDING_ORDER",
+            mode="MONITORING",
+            last_event_type="pending_heartbeat",
+            last_decision="HOLD",
+            last_action_type="HOLD",
+            payload_json=json.dumps({"orderId": 999, "phase": "PENDING_ORDER"}),
+        )
+        snapshot = TraderLeaderboardSnapshotRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="active",
+            trader_name="Channel Rider",
+            open_orders=1,
+            open_positions=0,
+            open_order_notional=Decimal("6400"),
+            pending_entry_weight=0.35,
+            latest_plan_status="PAPER_TRADING_PENDING",
+            agent_mode="MONITORING",
+            agent_phase="PENDING_ORDER",
+            last_decision="HOLD",
+            last_action="HOLD",
+            payload_json=json.dumps(
+                {
+                    "currentPlanKo": "대기 중인 paper 주문 1개가 있습니다.",
+                    "agentState": {"phase": "PENDING_ORDER"},
+                }
+            ),
+        )
+        db.add_all([order, state, snapshot])
+        db.flush()
+        preview = cleanup_open_pending_orders(db, dry_run=True)
+
+        cleanup_open_pending_orders(
+            db,
+            dry_run=False,
+            confirmation_token=preview["confirmationToken"],
+            expected_order_ids=preview["targetOrderIds"],
+        )
+        db.refresh(state)
+
+        assert state.status == "idle"
+        assert state.phase == "IDLE"
+        assert state.mode == "WATCHING"
+        assert state.next_review_at is None
+        assert state.last_review_id is None
+        assert state.last_event_type is None
+        assert state.last_decision is None
+        assert state.last_action_type is None
+        assert json.loads(state.payload_json)["reason"] == "No active paper exposure after pending-order cleanup."
+        db.refresh(snapshot)
+        assert snapshot.open_orders == 0
+        assert snapshot.open_order_notional == 0
+        assert snapshot.pending_entry_weight is None
+        assert snapshot.latest_plan_status is None
+        assert snapshot.agent_mode == "WATCHING"
+        assert snapshot.agent_phase == "IDLE"
+        assert snapshot.last_decision is None
+        assert snapshot.last_action is None
+        assert json.loads(snapshot.payload_json)["agentState"]["phase"] == "IDLE"
+
+
+def test_cleanup_preserves_management_state_when_position_survives(temp_db):
+    with session_scope() as db:
+        run, _candidate, review, plan = _lineage(db, "preserved-agent-state")
+        target = _order(status="open", run_id=run.id, plan_id=plan.id, review_id=review.id)
+        filled = _order(status="filled", run_id=run.id, plan_id=plan.id, review_id=review.id)
+        db.add_all([target, filled])
+        db.flush()
+        position = PaperPositionRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="open",
+            order_id=filled.id,
+            side="long",
+            quantity=Decimal("0.10"),
+            entry_price=Decimal("64000"),
+            leverage=Decimal("5"),
+            notional=Decimal("6400"),
+            margin=Decimal("1280"),
+            entry_fee=Decimal("1.28"),
+            payload_json=filled.payload_json,
+        )
+        db.add(position)
+        db.flush()
+        management_review = PositionManagementReviewRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="ok",
+            order_id=filled.id,
+            position_id=position.id,
+            event_type="position_heartbeat",
+            phase="OPEN_POSITION",
+            decision="HOLD",
+            action_type="HOLD",
+            fallback=False,
+        )
+        db.add(management_review)
+        db.flush()
+        next_review_at = datetime.now(timezone.utc)
+        state = TraderAgentStateRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="active",
+            phase="OPEN_POSITION",
+            mode="MONITORING",
+            next_review_at=next_review_at,
+            last_review_id=management_review.id,
+            last_event_type="position_heartbeat",
+            last_decision="HOLD",
+            last_action_type="HOLD",
+            provider="openai",
+            model="test-model",
+            payload_json=json.dumps({"positionId": 123, "management": "preserve"}),
+            raw_json=json.dumps({"private": "audit"}),
+        )
+        db.add(state)
+        db.flush()
+        preview = cleanup_open_pending_orders(db, dry_run=True)
+
+        cleanup_open_pending_orders(
+            db,
+            dry_run=False,
+            confirmation_token=preview["confirmationToken"],
+            expected_order_ids=preview["targetOrderIds"],
+        )
+        db.refresh(state)
+
+        assert state.status == "active"
+        assert state.phase == "OPEN_POSITION"
+        assert state.mode == "MONITORING"
+        assert state.next_review_at.replace(tzinfo=timezone.utc) == next_review_at
+        assert state.last_review_id == management_review.id
+        assert state.last_event_type == "position_heartbeat"
+        assert state.last_decision == "HOLD"
+        assert state.last_action_type == "HOLD"
+        assert state.provider == "openai"
+        assert state.model == "test-model"
+        assert json.loads(state.payload_json) == {"positionId": 123, "management": "preserve"}
+        assert json.loads(state.raw_json) == {"private": "audit"}
+
+
+def test_cleanup_snapshot_tracks_surviving_position_without_agent_state(temp_db):
+    with session_scope() as db:
+        run, _candidate, review, plan = _lineage(db, "snapshot-position")
+        target = _order(status="open", run_id=run.id, plan_id=plan.id, review_id=review.id)
+        filled = _order(status="filled", run_id=run.id, plan_id=plan.id, review_id=review.id)
+        db.add_all([target, filled])
+        db.flush()
+        position = PaperPositionRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="open",
+            order_id=filled.id,
+            side="long",
+            quantity=Decimal("0.10"),
+            entry_price=Decimal("64000"),
+            leverage=Decimal("5"),
+            notional=Decimal("6400"),
+            margin=Decimal("1280"),
+            entry_fee=Decimal("1.28"),
+            payload_json=filled.payload_json,
+        )
+        snapshot = TraderLeaderboardSnapshotRecord(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="empty",
+            trader_name="Channel Rider",
+            open_orders=1,
+            open_positions=0,
+            latest_plan_status="PAPER_TRADING_PENDING",
+            agent_mode="MONITORING",
+            agent_phase="PENDING_ORDER",
+        )
+        db.add_all([position, snapshot])
+        db.flush()
+        preview = cleanup_open_pending_orders(db, dry_run=True)
+
+        cleanup_open_pending_orders(
+            db,
+            dry_run=False,
+            confirmation_token=preview["confirmationToken"],
+            expected_order_ids=preview["targetOrderIds"],
+        )
+        db.refresh(snapshot)
+
+        assert snapshot.open_orders == 0
+        assert snapshot.open_positions == 1
+        assert snapshot.has_live_paper_data is True
+        assert snapshot.status == "active"
+        assert snapshot.agent_phase == "OPEN_POSITION"
+        assert snapshot.agent_mode == "MONITORING"
+        assert snapshot.latest_plan_status == "ACTIVE_PAPER_EXPOSURE"
+        assert snapshot.current_plan_ko == "오픈 paper 포지션 1개를 관리 중입니다."
+        assert snapshot.current_plan_en == "Managing 1 open paper position(s)."
+        assert json.loads(snapshot.payload_json)["agentState"] == {
+            "phase": "OPEN_POSITION",
+            "mode": "MONITORING",
+            "status": "active",
+        }
 
 
 def test_cleanup_removes_direct_graph_but_preserves_shared_lineage_and_positions(temp_db):
@@ -351,8 +667,8 @@ def test_cleanup_rolls_back_nested_mutations_when_execution_fails(temp_db, monke
         preview = cleanup_open_pending_orders(db, dry_run=True)
         real_execute = open_order_cleanup._execute_cleanup_graph
 
-        def fail_after_execute(session, graph):
-            real_execute(session, graph)
+        def fail_after_execute(session, graph, **kwargs):
+            real_execute(session, graph, **kwargs)
             raise RuntimeError("injected cleanup failure")
 
         monkeypatch.setattr(open_order_cleanup, "_execute_cleanup_graph", fail_after_execute)

@@ -84,6 +84,7 @@ from app.paper.engine import (
     update_position_stop,
 )
 from app.paper.management_actions import create_position_add_order
+from app.paper.donchian_lifecycle import enforce_donchian_lifecycle
 from app.paper.management import (
     managed_exposure_from_order,
     managed_exposure_from_position,
@@ -353,6 +354,30 @@ def cached_trader_detail_payload_outdated(
     symbol: str,
     payload: dict[str, Any],
 ) -> bool:
+    cached_summary_updated_at = max(
+        (
+            parsed
+            for summary in payload.get("summaries", [])
+            if isinstance(summary, dict)
+            and summary.get("traderId") == trader_id
+            and summary.get("symbol") == symbol
+            and (parsed := datetime_or_none(summary.get("updatedAt"))) is not None
+        ),
+        default=None,
+    )
+    snapshot_updated_at = db.scalar(
+        select(TraderLeaderboardSnapshotRecord.updated_at).where(
+            TraderLeaderboardSnapshotRecord.trader_id == trader_id,
+            TraderLeaderboardSnapshotRecord.symbol == symbol,
+        )
+    )
+    if snapshot_updated_at and (
+        cached_summary_updated_at is None
+        or ensure_aware_utc_datetime(snapshot_updated_at)
+        > ensure_aware_utc_datetime(cached_summary_updated_at)
+    ):
+        return True
+
     cached_position_ids = {
         str(record.get("id"))
         for record in payload.get("positions", [])
@@ -1134,6 +1159,15 @@ def engine_result_payload(result) -> dict:
         "events": [serialize_record(event) for event in result.events],
         "equitySnapshot": serialize_record(result.snapshot) if result.snapshot else None,
     }
+
+
+def merge_paper_engine_results(target: PaperEngineResult, source: PaperEngineResult) -> None:
+    target.filled_orders.extend(source.filled_orders)
+    target.closed_positions.extend(source.closed_positions)
+    target.rejected_orders.extend(source.rejected_orders)
+    target.events.extend(source.events)
+    if source.snapshot is not None:
+        target.snapshot = source.snapshot
 
 
 def current_snapshot_price(snapshot: dict) -> Decimal:
@@ -2608,7 +2642,16 @@ async def process_existing_paper_exposure(
         before = list_active_paper_exposure(db, trader_id, symbol)
         if before["hasExposure"]:
             sync_default_paper_settings(db, trader_id, symbol, settings)
-            result = process_candle(db, trader_id, symbol, snapshot_to_engine_candle(snapshot))
+            result = PaperEngineResult()
+            enforce_donchian_lifecycle(
+                db,
+                trader_id=trader_id,
+                symbol=symbol,
+                snapshot=snapshot,
+                result=result,
+            )
+            candle_result = process_candle(db, trader_id, symbol, snapshot_to_engine_candle(snapshot))
+            merge_paper_engine_results(result, candle_result)
         db.commit()
     if before["hasExposure"]:
         management_reviews = await run_management_reviews(
@@ -5976,7 +6019,14 @@ async def run_trader_cycle(
                         marketSnapshot=snapshot,
                         candidate=candidate,
                         locale=clean_locale,
-                        **build_trade_review_context(db, strategy.profile.id, clean_symbol, candidate.riskPercent),
+                        **build_trade_review_context(
+                            db,
+                            strategy.profile.id,
+                            clean_symbol,
+                            candidate.riskPercent,
+                            candidate_side=candidate.side,
+                            boundary_fingerprint=(candidate.audit.get("donchianContext") or {}).get("boundaryFingerprint"),
+                        ),
                     )
                     # Do not keep an RDS read transaction open while Codex is
                     # producing the second-stage approval.
@@ -7029,7 +7079,14 @@ async def ai_review_demo(request: RunCycleRequest, provider: Optional[str] = Que
             marketSnapshot=snapshot,
             candidate=candidate,
             locale=clean_locale,
-            **build_trade_review_context(db, strategy.profile.id, clean_symbol, candidate.riskPercent),
+            **build_trade_review_context(
+                db,
+                strategy.profile.id,
+                clean_symbol,
+                candidate.riskPercent,
+                candidate_side=candidate.side,
+                boundary_fingerprint=(candidate.audit.get("donchianContext") or {}).get("boundaryFingerprint"),
+            ),
         )
         review = await run_review_with_logging(db, review_payload, requested_provider, settings=settings)
         review.sourceLocale = CANONICAL_AI_LOCALE
@@ -7405,7 +7462,10 @@ async def paper_risk_settings(
 @app.post("/api/paper/engine/run-once")
 @app.post("/api/paper-trading/engine/run-once")
 @app.post("/api/engine/run-once")
-async def paper_engine_run_once(request: PaperEngineRunRequest):
+async def paper_engine_run_once(
+    request: PaperEngineRunRequest,
+    _: None = Depends(require_ops_api_token),
+):
     clean_symbol = normalize_symbol(request.symbol)
     target_trader_id = request.traderId or request.trader_id
     valid_trader_ids = {trader.id for trader in list_traders()}
@@ -7429,8 +7489,17 @@ async def paper_engine_run_once(request: PaperEngineRunRequest):
             management_reviews: list[dict[str, Any]] = []
             if before["hasExposure"]:
                 sync_default_paper_settings(db, trader_id, clean_symbol, settings)
-                result = process_candle(db, trader_id, clean_symbol, candle)
                 snapshot = await build_market_snapshot(binance_client(), clean_symbol)
+                result = PaperEngineResult()
+                enforce_donchian_lifecycle(
+                    db,
+                    trader_id=trader_id,
+                    symbol=clean_symbol,
+                    snapshot=snapshot,
+                    result=result,
+                )
+                candle_result = process_candle(db, trader_id, clean_symbol, candle)
+                merge_paper_engine_results(result, candle_result)
                 management_reviews = await run_management_reviews(
                     db,
                     trader_id=trader_id,

@@ -11,11 +11,12 @@ from app.traders.strategy_base import (
 )
 
 
-def build_data_checks(payload: TradeReviewPayload, geometry: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str], list[str]]:
+def build_data_checks(payload: TradeReviewPayload, geometry: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str], list[str], list[str]]:
     candidate = payload.candidate
     data_checks: list[dict[str, Any]] = []
     hard_blockers: list[str] = []
     warnings: list[str] = []
+    forced_defers: list[str] = []
 
     append_check(data_checks, "candidate_created", "pass" if candidate.created else "fail", "Candidate exists.")
     if not candidate.created:
@@ -99,7 +100,32 @@ def build_data_checks(payload: TradeReviewPayload, geometry: dict[str, Any]) -> 
         append_check(data_checks, "recent_loss_context", "warn", detail)
         warnings.append(detail)
 
-    return data_checks, hard_blockers, warnings
+    if str(candidate.setupType or "").startswith("DONCHIAN_"):
+        context = candidate.audit.get("donchianContext") if isinstance(candidate.audit, dict) else None
+        context = context if isinstance(context, dict) else {}
+        participation_count = int(safe_float(context.get("participationCount")))
+        if participation_count < 2:
+            detail = "Donchian candidate lacks two frozen participation confirmations."
+            append_check(data_checks, "donchian_participation", "fail", detail, str(participation_count))
+            hard_blockers.append(detail)
+        same_side_streak = int(safe_float(payload.lossDiscipline.get("sameSideLossStreak")))
+        same_boundary_streak = int(safe_float(payload.lossDiscipline.get("sameBoundaryLossStreak")))
+        if same_boundary_streak >= 2:
+            detail = "Two consecutive same-side losses reused this frozen Donchian boundary."
+            append_check(data_checks, "donchian_repeat_boundary", "fail", detail, str(same_boundary_streak))
+            forced_defers.append(detail)
+        regime_data = payload.marketSnapshot.get("marketRegime") or {}
+        regime = str(regime_data.get("primary") or "").lower()
+        adx_1h = safe_float(regime_data.get("adx1h"))
+        oi_change = safe_float(
+            (payload.marketSnapshot.get("derivatives") or {}).get("openInterestStats", {}).get("changePercent30m")
+        )
+        if same_side_streak >= 2 and oi_change < 0.12 and adx_1h < 18 and regime in {"range", "shock"}:
+            detail = "Repeated same-side Donchian losses are followed by weak OI, low ADX, and a non-trending regime."
+            append_check(data_checks, "donchian_weak_repeat", "fail", detail)
+            forced_defers.append(detail)
+
+    return data_checks, hard_blockers, warnings, forced_defers
 
 
 def geometry_summary(payload: TradeReviewPayload) -> dict[str, Any]:
@@ -124,13 +150,20 @@ def geometry_summary(payload: TradeReviewPayload) -> dict[str, Any]:
     }
 
 
-def decision_gate(hard_blockers: list[str], warnings: list[str]) -> dict[str, Any]:
+def decision_gate(hard_blockers: list[str], warnings: list[str], forced_defers: list[str] | None = None) -> dict[str, Any]:
     if hard_blockers:
         return {
             "severity": "hard_fail",
             "allowedDecisions": ["REJECT", "NEEDS_MORE_DATA"],
             "blockedDecisions": ["APPROVE", "ADJUST_AND_APPROVE", "DEFER"],
             "mustExplain": hard_blockers[:4],
+        }
+    if forced_defers:
+        return {
+            "severity": "hard_defer",
+            "allowedDecisions": ["DEFER"],
+            "blockedDecisions": ["APPROVE", "ADJUST_AND_APPROVE", "REJECT", "NEEDS_MORE_DATA"],
+            "mustExplain": forced_defers[:4],
         }
     if warnings:
         return {

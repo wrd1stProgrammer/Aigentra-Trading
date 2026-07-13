@@ -27,6 +27,7 @@ from app.clients.binance_client import ALLOWED_SYMBOLS, Candle as MarketCandle
 from app.clients.market_data_client import MarketDataClient
 from app.core.config import get_settings
 from app.db import PaperExecutionCursorRecord, PaperOrderRecord, PaperPositionRecord, session_scope, utc_now
+from app.paper.donchian_lifecycle import enforce_donchian_lifecycle
 from app.paper.engine import PaperEngineResult, process_candle
 from app.paper.planner import list_active_paper_exposure
 from app.paper.settings import sync_default_paper_settings
@@ -346,6 +347,51 @@ async def fetch_execution_candles(
     return price, market_candles
 
 
+async def fetch_completed_donchian_snapshots(
+    symbol: str,
+    market_client: MarketDataClient,
+    *,
+    since: Optional[datetime] = None,
+) -> Optional[list[dict[str, Any]]]:
+    settings = get_settings()
+    backfill_minutes = max(1, int(settings.realtime_paper_execution_backfill_minutes or 1))
+    page_limit = max(3, min(500, (backfill_minutes // 15) + 3))
+    try:
+        candles = list(await market_client.get_klines(normalize_execution_symbol(symbol), "15m", page_limit))
+        if since is not None:
+            since_ms = int(_aware_utc(since).timestamp() * 1000)
+            pages_read = 1
+            while candles and min(int(candle.openTime) for candle in candles) > since_ms and pages_read < 30:
+                before = min(int(candle.openTime) for candle in candles) - 1
+                previous_page = await market_client.get_klines(
+                    normalize_execution_symbol(symbol),
+                    "15m",
+                    page_limit,
+                    before=before,
+                )
+                if not previous_page:
+                    break
+                candles.extend(previous_page)
+                pages_read += 1
+    except (httpx.HTTPError, KeyError, RuntimeError, TypeError, ValueError):
+        return None
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    lower_bound_ms = int(_aware_utc(since).timestamp() * 1000) - 900_000 if since is not None else 0
+    completed_by_close = {
+        int(candle.closeTime): candle
+        for candle in candles
+        if lower_bound_ms <= int(candle.closeTime) <= now_ms
+    }
+    return [
+        {
+            "symbol": normalize_execution_symbol(symbol),
+            "price": float(candle.close),
+            "timeframes": {"15m": {"completedCandle": candle.model_dump()}},
+        }
+        for _, candle in sorted(completed_by_close.items())
+    ]
+
+
 async def fetch_execution_candle(
     symbol: str,
     market_client: Optional[MarketDataClient] = None,
@@ -554,17 +600,28 @@ async def run_realtime_execution_once(
                 _mark_symbol_candles_processed(symbol, cursor_open_time_ms)
                 try:
                     previous_price = _LAST_PRICE_BY_SYMBOL.get(symbol)
+                    execution_client = market_client_factory()
+                    since = _execution_backfill_since(symbol, oldest_active_at, started_at, cursor_open_time_ms)
                     if price_by_symbol and symbol in price_by_symbol:
                         price = to_positive_execution_price(Decimal(str(price_by_symbol[symbol])))
                         candles = [execution_tick_candle(symbol, price, previous_price)]
                     else:
-                        since = _execution_backfill_since(symbol, oldest_active_at, started_at, cursor_open_time_ms)
                         price, candles = await fetch_execution_candles(
                             symbol,
-                            market_client_factory(),
+                            execution_client,
                             previous_price=previous_price,
                             since=since,
                         )
+                    donchian_snapshots = (
+                        await fetch_completed_donchian_snapshots(symbol, execution_client, since=since)
+                        if "donchian-breakout" in active_traders
+                        else None
+                    )
+                    if donchian_snapshots:
+                        donchian_snapshots[-1] = {
+                            **donchian_snapshots[-1],
+                            "price": float(price),
+                        }
                 except Exception as exc:
                     counts["errors"] += 1
                     results.append(
@@ -594,9 +651,45 @@ async def run_realtime_execution_once(
                             before = list_active_paper_exposure(db, trader_id, symbol)
                             sync_default_paper_settings(db, trader_id, symbol, settings)
                             result = PaperEngineResult()
+                            if trader_id == "donchian-breakout":
+                                if not donchian_snapshots:
+                                    raise RuntimeError("Completed 15m Donchian validation data is unavailable.")
+                            ordered_lifecycle_snapshots = donchian_snapshots or []
+                            lifecycle_index = 0
                             for execution_candle in candles:
+                                execution_open_time = _candle_open_time_ms(execution_candle)
+                                while (
+                                    trader_id == "donchian-breakout"
+                                    and lifecycle_index < len(ordered_lifecycle_snapshots)
+                                ):
+                                    lifecycle_snapshot = ordered_lifecycle_snapshots[lifecycle_index]
+                                    lifecycle_close_time = int(
+                                        lifecycle_snapshot["timeframes"]["15m"]["completedCandle"]["closeTime"]
+                                    )
+                                    if execution_open_time is not None and lifecycle_close_time >= execution_open_time:
+                                        break
+                                    enforce_donchian_lifecycle(
+                                        db,
+                                        trader_id=trader_id,
+                                        symbol=symbol,
+                                        snapshot=lifecycle_snapshot,
+                                        result=result,
+                                    )
+                                    lifecycle_index += 1
                                 candle_result = process_candle(db, trader_id, symbol, execution_candle)
                                 _merge_paper_engine_result(result, candle_result)
+                            while (
+                                trader_id == "donchian-breakout"
+                                and lifecycle_index < len(ordered_lifecycle_snapshots)
+                            ):
+                                enforce_donchian_lifecycle(
+                                    db,
+                                    trader_id=trader_id,
+                                    symbol=symbol,
+                                    snapshot=ordered_lifecycle_snapshots[lifecycle_index],
+                                    result=result,
+                                )
+                                lifecycle_index += 1
                             after = list_active_paper_exposure(db, trader_id, symbol)
                             before_counts = {
                                 "openOrders": len(before.get("openOrders") or []),

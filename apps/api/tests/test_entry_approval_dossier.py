@@ -2,9 +2,10 @@ import json
 
 from app.ai.base import entry_approval_prompt
 from app.ai.entry_approval_dossier import build_entry_approval_dossier
-from app.traders.models import TradeReviewPayload
+from app.ai.review_logging import enforce_entry_review_decision
+from app.traders.models import TradeReviewPayload, TradeReviewResult
 from app.traders.registry import get_strategy
-from tests.test_trader_cycle import prompt_payload, sample_snapshot
+from tests.test_trader_cycle import donchian_breakout_snapshot, prompt_payload, sample_snapshot
 
 
 def test_entry_approval_prompt_uses_compact_data_dossier_instead_of_raw_payload_dump():
@@ -91,3 +92,36 @@ def test_entry_approval_dossier_hard_gate_blocks_approval_for_invalid_geometry()
     failed_checks = [check for check in dossier["dataChecks"] if check["status"] == "fail"]
     assert failed_checks
     assert any("entry" in check["detail"].lower() or "stop" in check["detail"].lower() for check in failed_checks)
+
+
+def test_repeated_same_boundary_donchian_losses_force_server_side_defer():
+    snapshot = donchian_breakout_snapshot(side="LONG")
+    strategy = get_strategy("donchian-breakout")
+    candidate = strategy.evaluate(snapshot)
+    assert candidate.created
+    payload = TradeReviewPayload(
+        trader=strategy.profile,
+        symbol="BTCUSDT",
+        marketSnapshot=snapshot,
+        candidate=candidate,
+        lossDiscipline={"sameSideLossStreak": 2, "sameBoundaryLossStreak": 2},
+    )
+
+    dossier = build_entry_approval_dossier(payload)
+    provider_review = TradeReviewResult(
+        decision="APPROVE",
+        confidence=90,
+        riskLevel="MEDIUM",
+        approvalReason="Provider approved the repeated boundary.",
+        counterThesis="The breakout could fail.",
+    )
+    enforced = enforce_entry_review_decision(payload, provider_review)
+
+    assert dossier["decisionGate"]["severity"] == "hard_defer"
+    assert dossier["decisionGate"]["allowedDecisions"] == ["DEFER"]
+    assert enforced.decision == "DEFER"
+    assert "server_entry_decision_gate_enforced" in enforced.riskFlags
+    assert enforced.structuredReview is not None
+    assert enforced.structuredReview.verdict == "DEFER"
+    assert "Do not create" in enforced.structuredReview.action
+    assert enforced.translations == {}

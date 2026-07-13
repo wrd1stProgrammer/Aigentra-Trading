@@ -4,9 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.db import init_db, reset_db_engine, session_scope
+from app.db import PaperOrderRecord, TradeEventRecord, TradePlanRecord, init_db, reset_db_engine, session_scope
 from app.paper.planner import create_paper_orders_from_plan
 from app.paper.repositories import create_equity_snapshot, ensure_trader_state
+from app.repositories import from_json, to_json
 from app.traders.models import EntryPlan, TakeProfitPlan, TradeCandidate, TradePlan
 
 
@@ -256,6 +257,105 @@ def test_split_entry_below_fifteen_percent_is_skipped_instead_of_overriding_risk
     assert result["created"] == []
     assert "below the 15% entry margin floor" in result["skipped"][0]
     assert result["plannedRisk"] == pytest.approx(0)
+
+
+def test_donchian_confirmation_failure_cannot_fall_through_to_retest_only_order(temp_db):
+    candidate = TradeCandidate(
+        created=True,
+        side="LONG",
+        setupType="DONCHIAN_RANGE_EXPANSION_LONG",
+        setupScore=80,
+        audit={"donchianContext": {"upperBoundary": 67500.0, "lowerBoundary": 65000.0}},
+        entries=[
+            EntryPlan(price=68000, weight=0.35, reason="confirmation"),
+            EntryPlan(price=67100, weight=0.65, reason="retest"),
+        ],
+        stopLoss=67000,
+        takeProfits=[TakeProfitPlan(price=71000, weight=1.0, reason="target")],
+        riskPercent=1.0,
+    )
+
+    with session_scope() as db:
+        plan_record = TradePlanRecord(
+            id=77,
+            run_id=1,
+            trader_id="donchian-breakout",
+            symbol="BTCUSDT",
+            status="PAPER_TRADING_PENDING",
+            side="LONG",
+            risk_percent=1.0,
+            payload_json=to_json({"status": "PAPER_TRADING_PENDING"}),
+        )
+        db.add(plan_record)
+        db.flush()
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="donchian-breakout",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=77,
+            candidate=candidate,
+            plan=orderable_plan(candidate, leverage=6),
+            settings=sizing_settings(),
+        )
+        order_count = db.query(PaperOrderRecord).count()
+        event_count = db.query(TradeEventRecord).filter(TradeEventRecord.event_type == "paper_order_created").count()
+        db.refresh(plan_record)
+        plan_payload = from_json(plan_record.payload_json)
+
+    assert result["created"] == []
+    assert "confirmation" in result["skipped"][0].lower()
+    assert order_count == 0
+    assert event_count == 0
+    assert plan_record.status == "ORDER_CREATION_SKIPPED"
+    assert plan_payload["status"] == "ORDER_CREATION_SKIPPED"
+    assert plan_payload["orderCreationSkippedReasons"] == result["skipped"]
+
+
+def test_donchian_initial_planning_creates_only_confirmation_and_freezes_dormant_retest(temp_db):
+    context = {
+        "lookback": 20,
+        "upperBoundary": 67500.0,
+        "lowerBoundary": 65000.0,
+        "brokenBoundary": 67500.0,
+        "boundaryFingerprint": "1h:20:67500.00000000:65000.00000000",
+    }
+    candidate = TradeCandidate(
+        created=True,
+        side="LONG",
+        setupType="DONCHIAN_RANGE_EXPANSION_LONG",
+        setupScore=90,
+        audit={"donchianContext": context},
+        entries=[
+            EntryPlan(price=68000, weight=0.35, reason="confirmation"),
+            EntryPlan(price=67600, weight=0.65, reason="retest"),
+        ],
+        stopLoss=66500,
+        takeProfits=[TakeProfitPlan(price=71000, weight=1.0, reason="target")],
+        riskPercent=4.0,
+    )
+
+    with session_scope() as db:
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="donchian-breakout",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=78,
+            candidate=candidate,
+            plan=orderable_plan(candidate, leverage=6),
+            settings=sizing_settings(),
+        )
+        orders = db.query(PaperOrderRecord).all()
+
+    assert len(result["created"]) == 1
+    assert len(orders) == 1
+    payload = result["created"][0]["payload"]
+    assert payload["entryIndex"] == 0
+    assert payload["donchianContext"] == context
+    assert payload["dormantRetest"]["entryIndex"] == 1
+    assert payload["dormantRetest"]["status"] == "DORMANT"
+    assert payload["dormantRetest"]["activationTtlSeconds"] == 1800
 
 
 def test_zero_weight_split_stage_does_not_receive_minimum_margin(temp_db):

@@ -3,6 +3,7 @@ import json
 import pytest
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 
 import app.main as main_module
 from pydantic import ValidationError
@@ -15,16 +16,17 @@ from app.ai.base import (
     review_prompt,
     trader_review_policy,
 )
-from app.db import PaperPositionRecord
+from app.db import PaperOrderRecord, PaperPositionRecord
 from app.locales import SUPPORTED_LOCALES
 from app.market.snapshot import classify_market_regime, derivative_context
+from app.market.snapshot import prior_completed_range
 from app.main import (
     enforce_pending_order_cancel_event,
     heartbeat_event_for_position,
     refresh_stale_position_management_review,
     trade_plan_from_review,
 )
-from app.paper.management import position_management_events
+from app.paper.management import order_management_events, position_management_events
 from app.paper.holding_policy import trader_execution_profile_payload
 from app.traders.models import (
     ManagedExposure,
@@ -177,6 +179,154 @@ def neutral_internal_derivatives(snapshot: dict) -> dict:
         if isinstance(candle, dict):
             candle["takerBuyBaseVolume"] = 0.0
     return prepared
+
+
+def donchian_breakout_snapshot(*, side: str = "LONG") -> dict:
+    snapshot = sample_snapshot()
+    boundary = {"high": 69000.0, "low": 67000.0, "candles": 20}
+    close = 69100.0 if side == "LONG" else 66900.0
+    open_price = 68700.0 if side == "LONG" else 67300.0
+    snapshot["price"] = close
+    snapshot["timeframes"]["1h"]["priorCompletedRange"] = boundary
+    snapshot["timeframes"]["15m"]["completedCandle"] = {
+        "openTime": 1_000,
+        "closeTime": 2_000,
+        "open": open_price,
+        "high": max(open_price, close) + 100.0,
+        "low": min(open_price, close) - 100.0,
+        "close": close,
+        "volume": 1600.0,
+    }
+    snapshot["timeframes"]["15m"]["volumeZscore"] = 0.4
+    snapshot["timeframes"]["15m"]["completedVolumeZscore"] = 0.4
+    snapshot["derivatives"]["openInterestStats"]["changePercent30m"] = 0.2
+    snapshot["derivatives"]["takerBuySell"]["buyShare"] = 0.56 if side == "LONG" else 0.44
+    snapshot["timeframes"]["4h"]["trend"] = "bullish" if side == "LONG" else "bearish"
+    return snapshot
+
+
+def test_donchian_boundary_excludes_hourly_candle_that_closes_with_signal():
+    candles = [
+        SimpleNamespace(openTime=index, closeTime=index + 1, high=100.0 + index, low=50.0 - index)
+        for index in range(21)
+    ]
+
+    boundary = prior_completed_range(candles, signal_close_time=21, lookback=20)
+
+    assert boundary is not None
+    assert boundary["lastCloseTime"] == 20
+    assert boundary["high"] == 119.0
+    assert boundary["low"] == 31.0
+
+
+def test_donchian_requires_completed_close_through_frozen_prior_range():
+    snapshot = donchian_breakout_snapshot(side="LONG")
+
+    candidate = get_strategy("donchian-breakout").evaluate(snapshot)
+
+    assert candidate.created
+    assert candidate.side == "LONG"
+    context = candidate.audit["donchianContext"]
+    assert context["upperBoundary"] == 69000.0
+    assert context["lowerBoundary"] == 67000.0
+    assert context["signalCandleCloseTime"] == 2_000
+    assert context["participationCount"] == 3
+    assert context["boundaryFingerprint"].startswith("1h:20:")
+
+
+def test_donchian_rejects_ema_proxy_when_completed_close_is_inside_range():
+    snapshot = donchian_breakout_snapshot(side="LONG")
+    snapshot["price"] = 70000.0
+    snapshot["timeframes"]["15m"]["completedCandle"]["close"] = 68990.0
+
+    candidate = get_strategy("donchian-breakout").evaluate(snapshot)
+
+    assert not candidate.created
+    assert candidate.audit["reasonCode"] == "donchian_no_breakout"
+
+
+def test_donchian_requires_two_directional_participation_signals_and_rejects_falling_oi():
+    snapshot = donchian_breakout_snapshot(side="LONG")
+    snapshot["timeframes"]["15m"]["volumeZscore"] = 0.1
+    snapshot["timeframes"]["15m"]["completedVolumeZscore"] = 0.1
+    snapshot["derivatives"]["openInterestStats"]["changePercent30m"] = -0.8
+    snapshot["derivatives"]["takerBuySell"]["buyShare"] = 0.56
+
+    candidate = get_strategy("donchian-breakout").evaluate(snapshot)
+
+    assert not candidate.created
+    assert candidate.audit["gateScores"]["donchianParticipationCount"] == 1
+
+
+def test_donchian_short_uses_lower_boundary_and_directional_taker_flow():
+    snapshot = donchian_breakout_snapshot(side="SHORT")
+
+    candidate = get_strategy("donchian-breakout").evaluate(snapshot)
+
+    assert candidate.created
+    assert candidate.side == "SHORT"
+    assert candidate.audit["donchianContext"]["brokenBoundary"] == 67000.0
+
+
+def test_donchian_pending_management_uses_completed_close_and_frozen_boundary():
+    snapshot = donchian_breakout_snapshot(side="LONG")
+    snapshot["timeframes"]["15m"]["completedCandle"]["close"] = 68950.0
+    order = PaperOrderRecord(
+        trader_id="donchian-breakout",
+        symbol="BTCUSDT",
+        status="open",
+        side="long",
+        quantity=Decimal("0.1"),
+        leverage=Decimal("6"),
+        order_type="limit",
+        limit_price=Decimal("69100"),
+        take_profit_price=Decimal("72000"),
+        stop_loss_price=Decimal("68000"),
+        payload_json=json.dumps(
+            {"donchianContext": {"upperBoundary": 69000.0, "lowerBoundary": 67000.0}}
+        ),
+    )
+
+    events = order_management_events("donchian-breakout", order, snapshot)
+
+    assert events[0].eventType == "donchian_range_reentry_cancel"
+    assert events[0].suggestedAction == "CANCEL_PENDING_ORDER"
+    assert events[0].metrics["hardInvalidation"] is True
+
+
+def test_donchian_position_management_forces_close_on_completed_range_reentry():
+    snapshot = donchian_breakout_snapshot(side="SHORT")
+    snapshot["price"] = 66900.0
+    snapshot["timeframes"]["15m"]["completedCandle"]["close"] = 67050.0
+    position = PaperPositionRecord(
+        trader_id="donchian-breakout",
+        symbol="BTCUSDT",
+        status="open",
+        side="short",
+        quantity=Decimal("0.1"),
+        entry_price=Decimal("66900"),
+        leverage=Decimal("6"),
+        notional=Decimal("6690"),
+        margin=Decimal("1115"),
+        unrealized_pnl=Decimal("0"),
+        take_profit_price=Decimal("64000"),
+        stop_loss_price=Decimal("68000"),
+        payload_json=json.dumps(
+            {
+                "donchianContext": {
+                    "upperBoundary": 69000.0,
+                    "lowerBoundary": 67000.0,
+                    "participationCount": 3,
+                }
+            }
+        ),
+    )
+
+    events = position_management_events("donchian-breakout", position, snapshot)
+
+    assert events[0].eventType == "donchian_breakout_failed"
+    assert events[0].suggestedAction == "CLOSE_POSITION"
+    assert events[0].metrics["hardInvalidation"] is True
 
 
 def session_orb_breakout_snapshot() -> dict:

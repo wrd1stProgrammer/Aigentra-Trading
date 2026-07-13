@@ -17,15 +17,17 @@ from app.db import (
     TradeEventRecord,
     TradePlanRecord,
     TraderAgentStateRecord,
+    TraderLeaderboardSnapshotRecord,
     TraderRunLogRecord,
     TraderStatusFeedRecord,
+    utc_now,
 )
 from app.locales import (
     AI_TRANSLATION_SOURCE_AI_REVIEW,
     AI_TRANSLATION_SOURCE_POSITION_MANAGEMENT,
     AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED,
 )
-from app.repositories import from_json
+from app.repositories import from_json, to_json
 
 
 OPEN_ORDER_STATUSES = ("open", "pending")
@@ -37,30 +39,65 @@ def cleanup_open_pending_orders(
     dry_run: bool = True,
     confirmation_token: str | None = None,
     expected_order_ids: Iterable[int] | None = None,
+    delete_linked_history: bool = False,
+    writers_paused: bool = False,
 ) -> dict[str, Any]:
     if dry_run:
-        graph = collect_open_order_cleanup_graph(db)
+        confirmation_graph = collect_open_order_cleanup_graph(db)
+        graph = confirmation_graph
+        if not delete_linked_history:
+            graph = _orders_only_graph(graph)
         order_ids = graph[PaperOrderRecord.__tablename__]
-        return _cleanup_result(graph, dry_run=True, executed=False)
+        return _cleanup_result(
+            graph,
+            dry_run=True,
+            executed=False,
+            delete_linked_history=delete_linked_history,
+            writers_paused=writers_paused,
+            confirmation_graph=confirmation_graph,
+        )
     if expected_order_ids is None:
         raise ValueError("OPEN_ORDER_CLEANUP_EXPECTED_IDS_REQUIRED")
+    if not writers_paused:
+        raise ValueError("OPEN_ORDER_CLEANUP_WRITERS_MUST_BE_PAUSED")
     expected = sorted({int(value) for value in expected_order_ids})
-    required_token = cleanup_confirmation_token(expected)
-    if confirmation_token != required_token:
-        raise ValueError("OPEN_ORDER_CLEANUP_CONFIRMATION_REQUIRED")
 
     with db.begin_nested():
         locked_order_ids = _open_pending_order_ids(db, lock=True)
         if locked_order_ids != expected:
             raise ValueError("OPEN_ORDER_CLEANUP_TARGETS_CHANGED")
-        graph = collect_open_order_cleanup_graph(db)
+        confirmation_graph = collect_open_order_cleanup_graph(db)
+        graph = confirmation_graph
+        if not delete_linked_history:
+            graph = _orders_only_graph(graph)
         if graph[PaperOrderRecord.__tablename__] != expected:
             raise ValueError("OPEN_ORDER_CLEANUP_TARGETS_CHANGED")
-        _execute_cleanup_graph(db, graph)
+        required_token = cleanup_confirmation_token(
+            confirmation_graph,
+            delete_linked_history=delete_linked_history,
+            writers_paused=writers_paused,
+        )
+        if confirmation_token != required_token:
+            raise ValueError("OPEN_ORDER_CLEANUP_CONFIRMATION_REQUIRED")
+        _execute_cleanup_graph(db, graph, delete_linked_history=delete_linked_history)
         remaining = _open_pending_order_ids(db)
         if remaining:
             raise RuntimeError(f"OPEN_ORDER_CLEANUP_INCOMPLETE:{remaining}")
-    return _cleanup_result(graph, dry_run=False, executed=True)
+    return _cleanup_result(
+        graph,
+        dry_run=False,
+        executed=True,
+        delete_linked_history=delete_linked_history,
+        writers_paused=writers_paused,
+        confirmation_graph=confirmation_graph,
+    )
+
+
+def _orders_only_graph(graph: dict[str, list[int]]) -> dict[str, list[int]]:
+    return {
+        table: list(ids) if table == PaperOrderRecord.__tablename__ else []
+        for table, ids in graph.items()
+    }
 
 
 def _cleanup_result(
@@ -68,20 +105,45 @@ def _cleanup_result(
     *,
     dry_run: bool,
     executed: bool,
+    delete_linked_history: bool,
+    writers_paused: bool,
+    confirmation_graph: dict[str, list[int]],
 ) -> dict[str, Any]:
     order_ids = graph[PaperOrderRecord.__tablename__]
     result = {
         "dryRun": dry_run,
         "executed": executed,
         "targetOrderIds": order_ids,
-        "confirmationToken": cleanup_confirmation_token(order_ids),
+        "confirmationToken": cleanup_confirmation_token(
+            confirmation_graph,
+            delete_linked_history=delete_linked_history,
+            writers_paused=writers_paused,
+        ),
+        "deleteLinkedHistory": delete_linked_history,
+        "writersPaused": writers_paused,
+        "confirmationCounts": {table: len(ids) for table, ids in confirmation_graph.items()},
         "counts": {table: len(ids) for table, ids in graph.items()},
     }
     return result
 
 
-def cleanup_confirmation_token(order_ids: list[int]) -> str:
-    digest = hashlib.sha256(json.dumps(order_ids, separators=(",", ":")).encode("utf-8")).hexdigest()[:20]
+def cleanup_confirmation_token(
+    graph_or_order_ids: dict[str, list[int]] | list[int],
+    *,
+    delete_linked_history: bool = False,
+    writers_paused: bool = False,
+) -> str:
+    graph = (
+        {table: sorted(int(value) for value in ids) for table, ids in sorted(graph_or_order_ids.items())}
+        if isinstance(graph_or_order_ids, dict)
+        else {PaperOrderRecord.__tablename__: sorted(int(value) for value in graph_or_order_ids)}
+    )
+    scope = {
+        "deleteLinkedHistory": delete_linked_history,
+        "graph": graph,
+        "writersPaused": writers_paused,
+    }
+    digest = hashlib.sha256(json.dumps(scope, separators=(",", ":")).encode("utf-8")).hexdigest()[:20]
     return f"DELETE_OPEN_PENDING_ORDERS:{digest}"
 
 
@@ -295,8 +357,19 @@ def _translation_ids(
     return sorted(int(value) for value in db.scalars(select(AITranslationCacheRecord.id).where(or_(*clauses))).all())
 
 
-def _execute_cleanup_graph(db: Session, graph: dict[str, list[int]]) -> None:
+def _execute_cleanup_graph(
+    db: Session,
+    graph: dict[str, list[int]],
+    *,
+    delete_linked_history: bool = True,
+) -> None:
     order_ids = graph[PaperOrderRecord.__tablename__]
+    target_orders = _records_by_ids(db, PaperOrderRecord, order_ids)
+    target_pairs = {
+        (str(order.trader_id), str(order.symbol))
+        for order in target_orders
+        if order.trader_id and order.symbol
+    }
     review_ids = graph[PositionManagementReviewRecord.__tablename__]
     run_ids = graph[TraderRunLogRecord.__tablename__]
     if order_ids:
@@ -318,6 +391,17 @@ def _execute_cleanup_graph(db: Session, graph: dict[str, list[int]]) -> None:
             )
             .values(order_id=None)
         )
+        if not delete_linked_history:
+            db.execute(
+                update(TradeEventRecord)
+                .where(TradeEventRecord.order_id.in_(order_ids))
+                .values(order_id=None)
+            )
+            db.execute(
+                update(PositionManagementReviewRecord)
+                .where(PositionManagementReviewRecord.order_id.in_(order_ids))
+                .values(order_id=None)
+            )
     if review_ids:
         db.execute(
             update(TraderAgentStateRecord)
@@ -343,8 +427,127 @@ def _execute_cleanup_graph(db: Session, graph: dict[str, list[int]]) -> None:
         CandidateTradeRecord,
         TraderRunLogRecord,
     )
+    if not delete_linked_history:
+        delete_order = (PaperOrderRecord,)
     for model in delete_order:
         ids = graph[model.__tablename__]
         if ids:
             db.execute(delete(model).where(model.id.in_(ids)))
+    _reconcile_agent_states(db, target_pairs)
+    _reconcile_leaderboard_snapshots(db, target_pairs)
     db.flush()
+
+
+def _reconcile_agent_states(db: Session, target_pairs: set[tuple[str, str]]) -> None:
+    for trader_id, symbol in sorted(target_pairs):
+        state_statement = select(TraderAgentStateRecord).where(
+            TraderAgentStateRecord.trader_id == trader_id,
+            TraderAgentStateRecord.symbol == symbol,
+        )
+        if db.get_bind().dialect.name != "sqlite":
+            state_statement = state_statement.with_for_update()
+        state = db.execute(state_statement).scalar_one_or_none()
+        if state is None:
+            continue
+        position = db.execute(
+            select(PaperPositionRecord)
+            .where(
+                PaperPositionRecord.trader_id == trader_id,
+                PaperPositionRecord.symbol == symbol,
+                PaperPositionRecord.status == "open",
+            )
+            .order_by(PaperPositionRecord.id.asc())
+            .limit(1)
+        ).scalar_one_or_none()
+        state.updated_at = utc_now()
+        if position is not None:
+            state.status = "active"
+            state.phase = "OPEN_POSITION"
+            state.mode = "MONITORING"
+        else:
+            state.status = "idle"
+            state.phase = "IDLE"
+            state.mode = "WATCHING"
+            state.next_review_at = None
+            state.last_review_id = None
+            state.last_event_type = None
+            state.last_decision = None
+            state.last_action_type = None
+            state.provider = None
+            state.model = None
+            state.payload_json = to_json(
+                {"reason": "No active paper exposure after pending-order cleanup."}
+            )
+            state.raw_json = None
+
+
+def _reconcile_leaderboard_snapshots(db: Session, target_pairs: set[tuple[str, str]]) -> None:
+    for trader_id, symbol in sorted(target_pairs):
+        snapshot_statement = select(TraderLeaderboardSnapshotRecord).where(
+            TraderLeaderboardSnapshotRecord.trader_id == trader_id,
+            TraderLeaderboardSnapshotRecord.symbol == symbol,
+        )
+        if db.get_bind().dialect.name != "sqlite":
+            snapshot_statement = snapshot_statement.with_for_update()
+        snapshot = db.execute(snapshot_statement).scalar_one_or_none()
+        if snapshot is None:
+            continue
+        open_positions = int(
+            db.scalar(
+                select(func.count())
+                .select_from(PaperPositionRecord)
+                .where(
+                    PaperPositionRecord.trader_id == trader_id,
+                    PaperPositionRecord.symbol == symbol,
+                    PaperPositionRecord.status == "open",
+                )
+            )
+            or 0
+        )
+        agent_state = db.scalar(
+            select(TraderAgentStateRecord).where(
+                TraderAgentStateRecord.trader_id == trader_id,
+                TraderAgentStateRecord.symbol == symbol,
+            )
+        )
+        snapshot.open_orders = 0
+        snapshot.open_positions = open_positions
+        snapshot.open_order_notional = 0.0
+        snapshot.pending_entry_weight = None
+        if open_positions:
+            snapshot.has_live_paper_data = True
+            snapshot.status = "active"
+        if agent_state:
+            snapshot.agent_mode = agent_state.mode
+            snapshot.agent_phase = agent_state.phase
+            snapshot_agent_status = agent_state.status
+        elif open_positions:
+            snapshot.agent_mode = "MONITORING"
+            snapshot.agent_phase = "OPEN_POSITION"
+            snapshot_agent_status = "active"
+        else:
+            snapshot.agent_mode = "WATCHING"
+            snapshot.agent_phase = "IDLE"
+            snapshot_agent_status = "idle"
+        snapshot.next_review_at = agent_state.next_review_at if agent_state else None
+        snapshot.last_decision = agent_state.last_decision if agent_state else None
+        snapshot.last_action = agent_state.last_action_type if agent_state else None
+        if open_positions:
+            snapshot.latest_plan_status = "ACTIVE_PAPER_EXPOSURE"
+            snapshot.current_plan_ko = f"오픈 paper 포지션 {open_positions}개를 관리 중입니다."
+            snapshot.current_plan_en = f"Managing {open_positions} open paper position(s)."
+        else:
+            snapshot.latest_plan_status = None
+            snapshot.current_plan_ko = "현재 활성 paper 주문/포지션이 없습니다."
+            snapshot.current_plan_en = "No active paper orders or positions."
+        payload = from_json(snapshot.payload_json)
+        payload = payload if isinstance(payload, dict) else {}
+        payload["currentPlanKo"] = snapshot.current_plan_ko
+        payload["currentPlanEn"] = snapshot.current_plan_en
+        payload["agentState"] = {
+            "phase": snapshot.agent_phase,
+            "mode": snapshot.agent_mode,
+            "status": snapshot_agent_status,
+        }
+        snapshot.payload_json = to_json(payload)
+        snapshot.updated_at = utc_now()

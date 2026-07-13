@@ -7,7 +7,7 @@ from app.traders.models import TradeReviewPayload
 
 def build_entry_approval_dossier(payload: TradeReviewPayload, reviewer_policy: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     geometry = geometry_summary(payload)
-    data_checks, hard_blockers, warnings = build_data_checks(payload, geometry)
+    data_checks, hard_blockers, warnings, forced_defers = build_data_checks(payload, geometry)
     dossier = {
         "trader": trader_summary(payload),
         "market": market_summary(payload),
@@ -15,8 +15,8 @@ def build_entry_approval_dossier(payload: TradeReviewPayload, reviewer_policy: O
         "geometry": geometry,
         "context": context_summary(payload),
         "dataChecks": data_checks,
-        "decisionGate": decision_gate(hard_blockers, warnings),
-        "reviewFocus": review_focus(hard_blockers, warnings),
+        "decisionGate": decision_gate(hard_blockers, warnings, forced_defers),
+        "reviewFocus": review_focus(hard_blockers + forced_defers, warnings),
     }
     if reviewer_policy:
         dossier["strategyReviewerPolicy"] = reviewer_policy

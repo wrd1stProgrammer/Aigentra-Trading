@@ -217,6 +217,7 @@ def close_position_by_management(
     parsed_candle = candle if isinstance(candle, Candle) else Candle.from_mapping(position.symbol or "", candle)
     local_result = result or PaperEngineResult()
     _close_position(db, state, position, to_decimal(exit_price, "exit_price"), reason, parsed_candle, local_result)
+    _mark_to_market(db, state, position.trader_id or "", position.symbol or parsed_candle.symbol, parsed_candle.close)
     return local_result.events[-1] if local_result.events else None
 
 
@@ -619,6 +620,16 @@ def _fill_order(
         pos_payload["initialQuantity"] = float(new_qty)
         if "takeProfits" in order_payload:
             pos_payload["takeProfits"] = order_payload["takeProfits"]
+        if order_payload.get("entryIndex") == 1 and isinstance(order_payload.get("donchianContext"), dict):
+            retest = pos_payload.get("dormantRetest")
+            retest = retest if isinstance(retest, dict) else {}
+            filled_at = candle.timestamp or utc_now()
+            pos_payload["dormantRetest"] = {
+                **retest,
+                "status": "FILLED",
+                "filledOrderId": order.id,
+                "filledAt": filled_at.isoformat(),
+            }
         existing_position.payload_json = to_json(pos_payload)
         
         # Update take_profit_price and stop_loss_price
@@ -646,6 +657,16 @@ def _fill_order(
             first_tp = order_payload["takeProfits"][0] if order_payload["takeProfits"] else None
             if first_tp:
                 order.take_profit_price = Decimal(str(first_tp["price"]))
+        if order_payload.get("entryIndex") == 1 and isinstance(order_payload.get("donchianContext"), dict):
+            retest = pos_payload.get("dormantRetest")
+            retest = retest if isinstance(retest, dict) else {}
+            filled_at = candle.timestamp or utc_now()
+            pos_payload["dormantRetest"] = {
+                **retest,
+                "status": "FILLED",
+                "filledOrderId": order.id,
+                "filledAt": filled_at.isoformat(),
+            }
                 
         position = PaperPositionRecord(
             order_id=order.id,

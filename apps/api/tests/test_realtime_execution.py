@@ -14,7 +14,7 @@ from app.db import (
     reset_db_engine,
     session_scope,
 )
-from app.paper.engine import place_paper_order
+from app.paper.engine import place_paper_order, process_candle
 from app.paper.realtime_execution import (
     EXECUTION_EVENT_HUB,
     _LAST_CANDLE_OPEN_TIME_BY_SYMBOL,
@@ -43,6 +43,160 @@ class FakeMarketClient:
                 takerBuyBaseVolume=0,
                 takerBuyQuoteVolume=0,
             )
+        ]
+
+
+class DonchianInvalidationMarketClient:
+    async def get_premium_index(self, symbol):
+        return {"symbol": symbol, "markPrice": 68000, "indexPrice": 68000}
+
+    async def get_klines(self, symbol, interval="1m", limit=20, before=None):
+        if before is not None:
+            return []
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        if interval == "15m":
+            open_time = now_ms - 1_800_000
+            return [
+                Candle(
+                    openTime=open_time,
+                    open=67800,
+                    high=67900,
+                    low=67200,
+                    close=67400,
+                    volume=100,
+                    closeTime=open_time + 899_999,
+                    quoteVolume=6_740_000,
+                    trades=100,
+                    takerBuyBaseVolume=45,
+                    takerBuyQuoteVolume=3_033_000,
+                )
+            ]
+        return [
+            Candle(
+                openTime=now_ms - 60_000,
+                open=67900,
+                high=68100,
+                low=67800,
+                close=68000,
+                volume=10,
+                closeTime=now_ms - 1,
+                quoteVolume=680_000,
+                trades=10,
+                takerBuyBaseVolume=6,
+                takerBuyQuoteVolume=408_000,
+            )
+        ]
+
+
+class DonchianReentryThenRecoveryMarketClient:
+    async def get_premium_index(self, symbol):
+        return {"symbol": symbol, "markPrice": 68000, "indexPrice": 68000}
+
+    async def get_klines(self, symbol, interval="1m", limit=20, before=None):
+        if before is not None:
+            return []
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        if interval == "15m":
+            first_open = now_ms - 2_100_000
+            second_open = now_ms - 1_200_000
+            return [
+                Candle(
+                    openTime=first_open,
+                    open=67800,
+                    high=67900,
+                    low=67200,
+                    close=67400,
+                    volume=100,
+                    closeTime=first_open + 899_999,
+                    quoteVolume=6_740_000,
+                    trades=100,
+                    takerBuyBaseVolume=45,
+                    takerBuyQuoteVolume=3_033_000,
+                ),
+                Candle(
+                    openTime=second_open,
+                    open=67400,
+                    high=68100,
+                    low=67300,
+                    close=68000,
+                    volume=100,
+                    closeTime=second_open + 899_999,
+                    quoteVolume=6_800_000,
+                    trades=100,
+                    takerBuyBaseVolume=60,
+                    takerBuyQuoteVolume=4_080_000,
+                ),
+            ]
+        return [
+            Candle(
+                openTime=now_ms - 60_000,
+                open=67900,
+                high=68100,
+                low=67800,
+                close=68000,
+                volume=10,
+                closeTime=now_ms - 1,
+                quoteVolume=680_000,
+                trades=10,
+                takerBuyBaseVolume=6,
+                takerBuyQuoteVolume=408_000,
+            )
+        ]
+
+
+class DonchianTakeProfitBeforeReentryMarketClient:
+    async def get_premium_index(self, symbol):
+        return {"symbol": symbol, "markPrice": 67400, "indexPrice": 67400}
+
+    async def get_klines(self, symbol, interval="1m", limit=20, before=None):
+        if before is not None:
+            return []
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        if interval == "15m":
+            open_time = now_ms - 1_200_000
+            return [
+                Candle(
+                    openTime=open_time,
+                    open=68000,
+                    high=68100,
+                    low=67200,
+                    close=67400,
+                    volume=100,
+                    closeTime=open_time + 899_999,
+                    quoteVolume=6_740_000,
+                    trades=100,
+                    takerBuyBaseVolume=45,
+                    takerBuyQuoteVolume=3_033_000,
+                )
+            ]
+        first_open = now_ms - 1_500_000
+        return [
+            Candle(
+                openTime=first_open,
+                open=68000,
+                high=71100,
+                low=67900,
+                close=71000,
+                volume=10,
+                closeTime=first_open + 59_999,
+                quoteVolume=710_000,
+                trades=10,
+                takerBuyBaseVolume=6,
+                takerBuyQuoteVolume=426_000,
+            ),
+            Candle(
+                openTime=now_ms - 60_000,
+                open=67500,
+                high=67600,
+                low=67300,
+                close=67400,
+                volume=10,
+                closeTime=now_ms - 1,
+                quoteVolume=674_000,
+                trades=10,
+                takerBuyBaseVolume=4,
+                takerBuyQuoteVolume=269_600,
+            ),
         ]
 
 
@@ -256,6 +410,200 @@ async def test_realtime_execution_fills_order_and_streams_committed_event(temp_d
         position = db.execute(select(PaperPositionRecord)).scalar_one()
         assert order.status == "filled"
         assert position.status == "open"
+
+
+@pytest.mark.asyncio
+async def test_realtime_donchian_invalidation_cancels_before_marketable_fill(temp_db):
+    signal_close_time = int((datetime.now(timezone.utc) - timedelta(minutes=30)).timestamp() * 1000)
+    with session_scope() as db:
+        upsert_risk_settings(db, "donchian-breakout", "BTCUSDT", max_leverage=10)
+        order = place_paper_order(
+            db,
+            trader_id="donchian-breakout",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=68000,
+            quantity=1,
+            leverage=5,
+            take_profit_price=71000,
+            stop_loss_price=66500,
+            payload={
+                "tradePlanId": 501,
+                "entryIndex": 0,
+                "donchianContext": {
+                    "upperBoundary": 67500,
+                    "lowerBoundary": 65000,
+                    "brokenBoundary": 67500,
+                    "signalCandleCloseTime": signal_close_time,
+                },
+            },
+        )
+        order_id = order.id
+
+    result = await run_realtime_execution_once(
+        symbols=["BTCUSDT"],
+        market_client_factory=DonchianInvalidationMarketClient,
+    )
+
+    assert result["counts"]["fills"] == 0
+    with session_scope() as db:
+        order = db.get(PaperOrderRecord, order_id)
+        assert order.status == "canceled"
+        assert db.query(PaperPositionRecord).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_realtime_latest_reentry_uses_current_mark_for_forced_exit(temp_db):
+    now = datetime.now(timezone.utc)
+    with session_scope() as db:
+        upsert_risk_settings(db, "donchian-breakout", "BTCUSDT", max_leverage=10)
+        order = place_paper_order(
+            db,
+            trader_id="donchian-breakout",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=68000,
+            quantity=0.2,
+            leverage=5,
+            take_profit_price=71000,
+            stop_loss_price=66500,
+            payload={
+                "tradePlanId": 504,
+                "entryIndex": 0,
+                "dormantRetest": {"status": "DORMANT", "activationTtlSeconds": 1800},
+                "donchianContext": {
+                    "upperBoundary": 67500,
+                    "lowerBoundary": 65000,
+                    "brokenBoundary": 67500,
+                    "signalCandleCloseTime": int((now - timedelta(minutes=50)).timestamp() * 1000),
+                },
+            },
+        )
+        order.submitted_at = now - timedelta(minutes=46)
+        db.flush()
+        process_candle(
+            db,
+            "donchian-breakout",
+            "BTCUSDT",
+            {
+                "open": 68000,
+                "high": 68100,
+                "low": 67900,
+                "close": 68000,
+                "timestamp": now - timedelta(minutes=45),
+            },
+        )
+        position_id = db.query(PaperPositionRecord).filter_by(status="open").one().id
+
+    await run_realtime_execution_once(
+        symbols=["BTCUSDT"],
+        market_client_factory=DonchianInvalidationMarketClient,
+    )
+
+    with session_scope() as db:
+        position = db.get(PaperPositionRecord, position_id)
+        assert position.status == "closed"
+        assert position.close_reason == "donchian_range_reentry"
+        assert float(position.exit_price) == pytest.approx(68000 * (1 - 0.0001))
+
+
+@pytest.mark.asyncio
+async def test_realtime_replays_intermediate_reentry_before_latest_recovery(temp_db):
+    now = datetime.now(timezone.utc)
+    with session_scope() as db:
+        upsert_risk_settings(db, "donchian-breakout", "BTCUSDT", max_leverage=10)
+        order = place_paper_order(
+            db,
+            trader_id="donchian-breakout",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=68000,
+            quantity=1,
+            leverage=5,
+            take_profit_price=71000,
+            stop_loss_price=66500,
+            payload={
+                "tradePlanId": 502,
+                "entryIndex": 0,
+                "donchianContext": {
+                    "upperBoundary": 67500,
+                    "lowerBoundary": 65000,
+                    "brokenBoundary": 67500,
+                    "signalCandleCloseTime": int((now - timedelta(minutes=45)).timestamp() * 1000),
+                },
+            },
+        )
+        order.submitted_at = now - timedelta(minutes=40)
+        order_id = order.id
+
+    result = await run_realtime_execution_once(
+        symbols=["BTCUSDT"],
+        market_client_factory=DonchianReentryThenRecoveryMarketClient,
+    )
+
+    assert result["counts"]["fills"] == 0
+    with session_scope() as db:
+        assert db.get(PaperOrderRecord, order_id).status == "canceled"
+        assert db.query(PaperPositionRecord).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_realtime_backfill_applies_take_profit_before_later_range_reentry(temp_db):
+    now = datetime.now(timezone.utc)
+    with session_scope() as db:
+        upsert_risk_settings(db, "donchian-breakout", "BTCUSDT", max_leverage=10)
+        order = place_paper_order(
+            db,
+            trader_id="donchian-breakout",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=68000,
+            quantity=0.2,
+            leverage=5,
+            take_profit_price=71000,
+            stop_loss_price=66500,
+            payload={
+                "tradePlanId": 503,
+                "entryIndex": 0,
+                "takeProfits": [{"price": 71000, "weight": 1.0}],
+                "dormantRetest": {"status": "DORMANT", "activationTtlSeconds": 1800},
+                "donchianContext": {
+                    "upperBoundary": 67500,
+                    "lowerBoundary": 65000,
+                    "brokenBoundary": 67500,
+                    "signalCandleCloseTime": int((now - timedelta(minutes=50)).timestamp() * 1000),
+                },
+            },
+        )
+        order.submitted_at = now - timedelta(minutes=46)
+        db.flush()
+        process_candle(
+            db,
+            "donchian-breakout",
+            "BTCUSDT",
+            {
+                "open": 68000,
+                "high": 68100,
+                "low": 67900,
+                "close": 68000,
+                "timestamp": now - timedelta(minutes=45),
+            },
+        )
+        position_id = db.query(PaperPositionRecord).filter_by(status="open").one().id
+
+    await run_realtime_execution_once(
+        symbols=["BTCUSDT"],
+        market_client_factory=DonchianTakeProfitBeforeReentryMarketClient,
+    )
+
+    with session_scope() as db:
+        position = db.get(PaperPositionRecord, position_id)
+        assert position.status == "closed"
+        assert position.close_reason == "take_profit"
 
 
 @pytest.mark.asyncio

@@ -69,7 +69,7 @@ def entry_guardrail_context(
     for position in recent_closed:
         if position.closed_at is None or _aware(position.closed_at) < day_start:
             break
-        if Decimal(str(position.realized_pnl)) >= 0 or position.close_reason != "stop_loss":
+        if Decimal(str(position.realized_pnl)) >= 0:
             break
         consecutive_losses += 1
 
