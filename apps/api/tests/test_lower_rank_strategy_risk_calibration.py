@@ -24,6 +24,9 @@ def pullback_late_confirmation_snapshot() -> dict:
     )
     snapshot["derivatives"]["openInterestStats"]["changePercent30m"] = 1.9
     snapshot["marketRegime"].update({"primary": "trend", "priceChange1h": 0.001})
+    snapshot["timeframes"]["15m"]["completedCandle"] = _latest_candle(
+        67_650.0, 67_980.0, 67_500.0, 67_920.0
+    )
     return snapshot
 
 
@@ -62,6 +65,7 @@ def positive_funding_stall_with_squeeze_pressure_snapshot() -> dict:
             "open": 68100.0,
             "close": price,
             "latestCandle": _latest_candle(68100.0, 68200.0, 67950.0, price, 1600.0),
+            "completedCandle": _latest_candle(68100.0, 68200.0, 67950.0, price, 1600.0),
         }
     )
     snapshot["timeframes"]["1h"].update(
@@ -77,7 +81,9 @@ def positive_funding_stall_with_squeeze_pressure_snapshot() -> dict:
         {"fundingRate": 0.00009, "markPrice": 68040.0, "indexPrice": 68000.0, "openInterest": 123456.7}
     )
     snapshot["derivatives"]["fundingStats"].update({"absPercentile": 93.0, "latest": 0.00009})
-    snapshot["derivatives"]["openInterestStats"]["changePercent30m"] = 1.4
+    snapshot["derivatives"]["openInterestStats"].update(
+        {"available": True, "historyAvailable": True, "changePercent30m": 1.4}
+    )
     snapshot["derivatives"]["crowding"].update({"crowdedSide": "LONG", "longCrowded": True, "shortCrowded": False})
     snapshot["derivatives"]["takerBuySell"].update({"buySellRatio": 1.35, "buyShare": 1.35 / 2.35})
     return snapshot
@@ -92,10 +98,17 @@ def range_upper_edge_breakout_pressure_snapshot() -> dict:
             "open": 69030.0,
             "close": price,
             "volumeZscore": 1.2,
+            "completedVolumeZscore": 0.2,
             "latestCandle": _latest_candle(69030.0, 69200.0, 68980.0, price, 1600.0),
+            "completedCandle": _latest_candle(69030.0, 69200.0, 68980.0, price, 1600.0),
         }
     )
-    snapshot["timeframes"]["1h"].update({"atr14": 520.0})
+    snapshot["timeframes"]["1h"].update(
+        {
+            "atr14": 520.0,
+            "priorCompletedRange": {"high": 69_200.0, "low": 66_800.0, "candles": 20},
+        }
+    )
     snapshot["timeframes"]["4h"].update(
         {
             "trend": "sideways",
@@ -123,7 +136,8 @@ def atr_continuation_after_extended_move_snapshot() -> dict:
 
 def session_raider_breakout_snapshot() -> dict:
     snapshot = session_orb_breakout_snapshot()
-    snapshot["timeframes"]["15m"]["latestCandle"]["openTime"] = 1767272400000
+    snapshot["timeframes"]["15m"]["latestCandle"]["openTime"] = 1767276000000
+    snapshot["timeframes"]["15m"]["completedCandle"]["openTime"] = 1767276000000
     return snapshot
 
 
@@ -155,7 +169,7 @@ def test_pullback_architect_keeps_trade_but_makes_late_pullback_a_probe_first() 
     candidate = get_strategy("pullback-architect").evaluate(pullback_late_confirmation_snapshot())
 
     assert candidate.created is True
-    assert candidate.setupType == "THREE_STAGE_PULLBACK_LONG"
+    assert candidate.setupType == "TWO_STAGE_PULLBACK_LONG"
     assert candidate.riskPercent is not None
     assert candidate.riskPercent <= 0.55
     assert candidate.setupScore <= 70
@@ -203,7 +217,10 @@ def test_range_maker_still_requires_rejection_candle_in_clean_range() -> None:
 
 
 def test_session_raider_rejects_breakout_without_completed_prior_range() -> None:
-    candidate = get_strategy("session-raider").evaluate(session_raider_breakout_snapshot())
+    snapshot = session_raider_breakout_snapshot()
+    snapshot["timeframes"]["15m"].pop("priorCompletedRange", None)
+
+    candidate = get_strategy("session-raider").evaluate(snapshot)
 
     assert candidate.created is False
     assert "session window or impulse confirmation" in candidate.reason.lower()
@@ -211,7 +228,17 @@ def test_session_raider_rejects_breakout_without_completed_prior_range() -> None
 
 def test_session_raider_uses_completed_prior_range_for_breakout() -> None:
     snapshot = session_raider_breakout_snapshot()
-    snapshot["timeframes"]["15m"]["priorRange"] = {"high": 69000.0, "low": 68000.0, "candles": 20}
+    snapshot["timeframes"]["15m"]["completedLatestCandle"] = dict(
+        snapshot["timeframes"]["15m"]["latestCandle"]
+    )
+    signal_open_time = snapshot["timeframes"]["15m"]["completedLatestCandle"]["openTime"]
+    snapshot["timeframes"]["15m"]["priorCompletedRange"] = {
+        "high": 69000.0,
+        "low": 68000.0,
+        "candles": 4,
+        "firstOpenTime": signal_open_time - 3_600_000,
+        "lastCloseTime": signal_open_time - 1,
+    }
 
     candidate = get_strategy("session-raider").evaluate(snapshot)
 

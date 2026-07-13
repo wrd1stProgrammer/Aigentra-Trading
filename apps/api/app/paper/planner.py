@@ -9,6 +9,12 @@ from sqlalchemy.orm import Session
 from app.db import PaperOrderRecord, PaperPositionRecord, TradePlanRecord
 from app.paper.engine import place_paper_order
 from app.paper.entry_guardrails import entry_guardrail_context
+from app.paper.execution_cost_planning import (
+    ExecutionCostPlanningRequest,
+    assess_planned_execution_costs,
+    persist_execution_cost_assessment,
+)
+from app.paper.execution_costs import ExecutionCostRates
 from app.paper.pending_exposure import pending_order_exposure
 from app.paper.repositories import create_trade_event, lock_trader_state
 from app.paper.review_payload import review_payload_fields
@@ -200,6 +206,31 @@ def create_paper_orders_from_plan(
             mark_order_creation_skipped(db, trade_plan_id, reasons)
         return {"created": [], "skipped": reasons}
 
+    post_only = candidate.orderIntent.postOnly if candidate.orderIntent else True
+    execution_cost_decision = assess_planned_execution_costs(
+        ExecutionCostPlanningRequest(
+            candidate=candidate,
+            plan=plan,
+            rates=ExecutionCostRates(
+                maker_fee_rate=risk_settings.maker_fee_rate,
+                taker_fee_rate=risk_settings.taker_fee_rate,
+                slippage_rate=Decimal(str(settings.paper_slippage_rate)),
+            ),
+            confirmation_only=is_donchian,
+        )
+    )
+    execution_cost_payload = execution_cost_decision.payload
+    if execution_cost_payload is not None:
+        persist_execution_cost_assessment(db, trade_plan_id, execution_cost_payload)
+    if execution_cost_decision.rejection_reasons:
+        reasons = list(execution_cost_decision.rejection_reasons)
+        mark_order_creation_skipped(db, trade_plan_id, reasons)
+        return {
+            "created": [],
+            "skipped": reasons,
+            "executionCostAssessment": execution_cost_payload,
+        }
+
     equity = Decimal(str(state.equity))
     available_cash = max(Decimal("0"), Decimal(str(state.cash_balance)))
     guardrails = entry_guardrail_context(
@@ -281,7 +312,6 @@ def create_paper_orders_from_plan(
 
         weight = Decimal(str(max(entry.weight, 0.0))) / total_weight
         target = plan.takeProfits[min(index, len(plan.takeProfits) - 1)] if plan.takeProfits else None
-        post_only = candidate.orderIntent.postOnly if candidate.orderIntent else True
         use_market = not post_only and index == 0
         order_type = "market" if use_market else "limit"
         entry_fee_rate = risk_settings.taker_fee_rate if use_market else risk_settings.maker_fee_rate
@@ -385,6 +415,11 @@ def create_paper_orders_from_plan(
             "entryGuardrails": guardrails,
             "slippageRate": float(slippage_rate),
             "estimatedEntryFee": float(estimated_entry_fee),
+            **(
+                {"executionCostAssessment": execution_cost_payload}
+                if execution_cost_payload is not None
+                else {}
+            ),
             "candidateSetupType": candidate.setupType,
             "donchianContext": candidate.audit.get("donchianContext") if is_donchian else None,
             "dormantRetest": (
@@ -476,4 +511,9 @@ def create_paper_orders_from_plan(
             "maker": float(risk_settings.maker_fee_rate),
             "taker": float(risk_settings.taker_fee_rate),
         },
+        **(
+            {"executionCostAssessment": execution_cost_payload}
+            if execution_cost_payload is not None
+            else {}
+        ),
     }

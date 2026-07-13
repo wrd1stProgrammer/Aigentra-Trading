@@ -1,5 +1,6 @@
 import asyncio
 import time
+from dataclasses import asdict
 from typing import Any, Dict
 
 from app.clients.binance_client import BinanceClient, Candle
@@ -20,6 +21,7 @@ from app.market.indicators import (
     taker_buy_ratio,
     volume_zscore,
 )
+from app.market.strategy_signals import bar_vwap_proxy, confirmed_rsi_pivot_divergence, ichimoku_state
 
 
 INTERVAL_LIMITS = {
@@ -35,6 +37,8 @@ INTERVAL_LIMITS = {
 def prior_completed_range(candles: list[Candle], signal_close_time: int, lookback: int = 20) -> Dict[str, Any] | None:
     sample = [candle for candle in candles if candle.closeTime < signal_close_time][-lookback:]
     if len(sample) != lookback:
+        return None
+    if any(current.openTime != previous.closeTime + 1 for previous, current in zip(sample, sample[1:])):
         return None
     return {
         "high": max(candle.high for candle in sample),
@@ -82,7 +86,9 @@ async def build_market_snapshot(client: BinanceClient, symbol: str) -> Dict[str,
     snapshot_time_ms = int(time.time() * 1000)
     timeframes: Dict[str, Any] = {}
     for interval, candles in candles_by_interval.items():
-        closes = [candle.close for candle in candles]
+        completed_candles = [candle for candle in candles if candle.closeTime <= snapshot_time_ms]
+        signal_candles = completed_candles
+        closes = [candle.close for candle in signal_candles]
         latest = candles[-1]
         ema20_value = ema(closes, 20)
         ema50_value = ema(closes, 50)
@@ -95,25 +101,36 @@ async def build_market_snapshot(client: BinanceClient, symbol: str) -> Dict[str,
             "ema20": ema20_value,
             "ema50": ema50_value,
             "rsi14": rsi(closes, 14),
-            "atr14": atr(candles, 14),
-            "adx14": adx(candles, 14),
-            "volumeZscore": volume_zscore(candles, 20),
-            "takerBuyRatio": taker_buy_ratio(candles, 20),
+            "atr14": atr(signal_candles, 14),
+            "adx14": adx(signal_candles, 14),
+            "volumeZscore": volume_zscore(signal_candles, 20),
+            "takerBuyRatio": taker_buy_ratio(signal_candles, 20),
             "bollinger": bollinger_state(closes, 20),
-            "keltner": keltner_state(candles, 20),
+            "keltner": keltner_state(signal_candles, 20),
             "realizedVolatility20": realized_volatility(closes, 20),
-            "swings": recent_swings(candles, 3),
+            "swings": recent_swings(signal_candles, 3),
             "priceChange": {
                 "1": pct_change(closes, 1),
                 "4": pct_change(closes, 4),
                 "12": pct_change(closes, 12),
             },
             "latestCandle": latest.model_dump(),
+            "barVwapProxy20": bar_vwap_proxy(signal_candles, 20),
+            "completedSignalsAvailable": bool(completed_candles),
         }
-        completed_candles = [candle for candle in candles if candle.closeTime <= snapshot_time_ms]
         if completed_candles:
             frame["completedCandle"] = completed_candles[-1].model_dump()
             frame["completedVolumeZscore"] = volume_zscore(completed_candles, 20)
+            frozen_range = prior_completed_range(candles, completed_candles[-1].closeTime, lookback=4)
+            if frozen_range is not None:
+                frame["priorCompletedRange"] = frozen_range
+            frozen_range_20 = prior_completed_range(candles, completed_candles[-1].closeTime, lookback=20)
+            if frozen_range_20 is not None:
+                frame["priorCompletedRange20"] = frozen_range_20
+        if interval == "1h":
+            frame["confirmedRsiPivotDivergence"] = asdict(confirmed_rsi_pivot_divergence(signal_candles))
+        if interval in {"1h", "4h"}:
+            frame["ichimoku"] = asdict(ichimoku_state(signal_candles))
         prior_sample = candles[-21:-1]
         if prior_sample:
             frame["priorRange"] = {
@@ -124,7 +141,7 @@ async def build_market_snapshot(client: BinanceClient, symbol: str) -> Dict[str,
         if interval in {"1h", "4h", "1d"}:
             frame["trend"] = basic_trend(closes, ema20_value, ema50_value)
         if interval in {"1h", "4h", "1d"}:
-            frame["channel"] = channel_state(candles)
+            frame["channel"] = channel_state(signal_candles)
         timeframes[interval] = frame
 
     completed_signal = timeframes.get("15m", {}).get("completedCandle")

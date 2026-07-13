@@ -138,9 +138,27 @@ def open_interest_change(snapshot: Dict[str, Any], key: str = "changePercent30m"
     return fvalue(stats.get(key), 0.0)
 
 
+def open_interest_available(snapshot: Dict[str, Any]) -> bool:
+    stats = derivatives(snapshot).get("openInterestStats") or {}
+    return bool(stats.get("available", stats.get("historyAvailable", False)))
+
+
+def open_interest_change_available(snapshot: Dict[str, Any], key: str = "changePercent30m") -> bool:
+    stats = derivatives(snapshot).get("openInterestStats") or {}
+    availability_key = "changeAvailable30m" if key == "changePercent30m" else "changeAvailable5m"
+    if availability_key in stats:
+        return bool(stats.get(availability_key))
+    return bool(stats.get("historyAvailable")) and stats.get(key) is not None
+
+
 def taker_buy_share(snapshot: Dict[str, Any]) -> float:
     flow = derivatives(snapshot).get("takerBuySell") or {}
     return fvalue(flow.get("buyShare"), 0.5)
+
+
+def taker_flow_available(snapshot: Dict[str, Any]) -> bool:
+    flow = derivatives(snapshot).get("takerBuySell") or {}
+    return bool(flow.get("available", False))
 
 
 def taker_buy_sell_ratio(snapshot: Dict[str, Any]) -> float:
@@ -207,13 +225,13 @@ def estimate_risk_reward(
         return 0.0
     average_entry = weighted_average_entry(entries)
     average_target = weighted_average_take_profit(take_profits)
-    fee_buffer = average_entry * (fee_buffer_percent / 100)
+    round_trip_cost = average_entry * (fee_buffer_percent / 100)
     if side == "LONG":
-        risk = average_entry - stop_loss + fee_buffer
-        reward = average_target - average_entry
+        risk = average_entry - stop_loss + round_trip_cost
+        reward = average_target - average_entry - round_trip_cost
     else:
-        risk = stop_loss - average_entry + fee_buffer
-        reward = average_entry - average_target
+        risk = stop_loss - average_entry + round_trip_cost
+        reward = average_entry - average_target - round_trip_cost
     if risk <= 0:
         return 0.0
     return round(max(reward, 0.0) / risk, 2)
@@ -258,6 +276,12 @@ def candidate_geometry_errors(
     )
     if risk_reward < min_risk_reward:
         errors.append(f"Estimated RR {risk_reward:.2f} is below minimum {min_risk_reward:.2f}.")
+    if entries and take_profits:
+        average_entry = weighted_average_entry(entries)
+        round_trip_cost = average_entry * (fee_buffer_percent / 100)
+        first_target_distance = abs(take_profits[0].price - average_entry)
+        if first_target_distance < round_trip_cost * 2.5:
+            errors.append("net_cost_hurdle_failed")
     return errors
 
 
@@ -268,6 +292,24 @@ def trend_conflicts_with_side(snapshot: Dict[str, Any], side: str) -> bool:
     if side == "SHORT":
         return trend == "bullish"
     return True
+
+
+def completed_signal_execution_valid(
+    side: str,
+    *,
+    live_price: float,
+    signal_price: float,
+    invalidation_level: float,
+    atr: float,
+    maximum_atr_deviation: float = 0.75,
+) -> bool:
+    if side not in {"LONG", "SHORT"}:
+        return False
+    if min(live_price, signal_price, invalidation_level, atr) <= 0:
+        return False
+    if abs(live_price - signal_price) > atr * maximum_atr_deviation:
+        return False
+    return live_price > invalidation_level if side == "LONG" else live_price < invalidation_level
 
 
 def default_order_intent(execution: str = "PENDING_ENTRY", post_only: bool = True) -> OrderIntent:

@@ -4,6 +4,7 @@ from app.traders.models import EntryPlan, TakeProfitPlan, TradeCandidate, Trader
 from app.traders.strategy_base import (
     TraderStrategy,
     candidate_geometry_errors,
+    completed_signal_execution_valid,
     default_leverage_plan,
     default_order_intent,
     default_risk_plan,
@@ -40,7 +41,7 @@ class RangeMaker(TraderStrategy):
             "Funding and OI do not show strong directional crowding",
             "15m candle shows rejection from the upper edge",
         ],
-        entryRules=["70% at range edge", "30% on reclaim/failure confirmation"],
+        entryRules=["70/30 edge and confirmation in clean ranges", "52/48 when breakout pressure requires a smaller first slice"],
         takeProfitRules=["TP1 at range mid", "TP2 before opposite edge"],
         stopLossRules=["Outside range edge with ATR buffer", "Immediate exit on accepted breakout"],
         aiReviewChecklist=[
@@ -64,39 +65,62 @@ class RangeMaker(TraderStrategy):
         one_hour = timeframe(snapshot, "1h")
         four_hour = timeframe(snapshot, "4h")
         fifteen = timeframe(snapshot, "15m")
-        prior_range = one_hour.get("priorRange") or {}
-        fallback_channel = four_hour.get("channel") or one_hour.get("channel") or {}
-        lower = fvalue(prior_range.get("low"), fvalue(fallback_channel.get("lower"), price * 0.985))
-        upper = fvalue(prior_range.get("high"), fvalue(fallback_channel.get("upper"), price * 1.015))
+        prior_range = one_hour.get("priorCompletedRange") or {}
+        completed_candle = (
+            fifteen.get("completedCandle")
+            or fifteen.get("latestCompletedCandle")
+            or fifteen.get("completedLatestCandle")
+            or {}
+        )
+        if not prior_range or int(fvalue(prior_range.get("candles"), 0)) < 20:
+            return make_rejection("A frozen 20-candle 1H range is required before fading an edge.", 40)
+        if not completed_candle:
+            return make_rejection("A completed 15m rejection candle is required before fading a range edge.", 40)
+        lower = fvalue(prior_range.get("low"), 0.0)
+        upper = fvalue(prior_range.get("high"), 0.0)
+        if lower <= 0 or upper <= lower:
+            return make_rejection("The frozen 1H range is invalid and cannot define an edge.", 40)
         mid = lower + (upper - lower) * 0.5
         width = max(upper - lower, price * 0.004)
-        position = min(max((price - lower) / width, 0.0), 1.0)
+        signal_close = fvalue(completed_candle.get("close"), price)
+        position = min(max((signal_close - lower) / width, 0.0), 1.0)
         trend = trend_for(snapshot, "4h")
         adx_4h = fvalue(four_hour.get("adx14"), 18.0)
         funding = fvalue(snapshot.get("derivatives", {}).get("fundingRate"), 0.0)
         funding_percentile = funding_abs_percentile(snapshot)
         oi_change_30m = open_interest_change(snapshot)
         regime = market_regime(snapshot)
-        volume_z = fvalue(fifteen.get("volumeZscore"), 0.0)
+        if fifteen.get("completedVolumeZscore") is None:
+            return make_rejection("Completed 15m volume is required before fading a range edge.", 40)
+        volume_z = fvalue(fifteen.get("completedVolumeZscore"))
         atr_1h = fvalue(one_hour.get("atr14"), price * 0.007)
-        candle = fifteen.get("latestCandle") or {}
-        candle_open = fvalue(candle.get("open"), price)
-        candle_close = fvalue(candle.get("close"), price)
-        candle_high = fvalue(candle.get("high"), price)
-        candle_low = fvalue(candle.get("low"), price)
+        candle_open = fvalue(completed_candle.get("open"), signal_close)
+        candle_close = signal_close
+        candle_high = fvalue(completed_candle.get("high"), signal_close)
+        candle_low = fvalue(completed_candle.get("low"), signal_close)
         candle_range = max(candle_high - candle_low, price * 0.0001)
-        lower_rejection = candle_close > candle_open and (min(candle_open, candle_close) - candle_low) / candle_range >= 0.25
-        upper_rejection = candle_close < candle_open and (candle_high - max(candle_open, candle_close)) / candle_range >= 0.25
+        lower_rejection = (
+            candle_low <= lower
+            and candle_close > candle_open
+            and candle_close > lower
+            and (min(candle_open, candle_close) - candle_low) / candle_range >= 0.30
+        )
+        upper_rejection = (
+            candle_high >= upper
+            and candle_close < candle_open
+            and candle_close < upper
+            and (candle_high - max(candle_open, candle_close)) / candle_range >= 0.30
+        )
 
-        if regime in {"shock", "trend"} and adx_4h >= 22:
-            return make_rejection("Range gate failed because 4H trend strength is too high.", 42)
+        if regime not in {"range", "mixed"} or adx_4h >= 22:
+            return make_rejection("Range gate failed because regime or 4H trend strength does not support mean reversion.", 42)
         if abs(funding) > 0.00008 or funding_percentile >= 85:
             return make_rejection("Funding is too directional for range mean reversion.", 44)
         if abs(oi_change_30m) >= 1.2:
             return make_rejection("OI expansion is too strong for a range-edge fade.", 46)
         if 0.22 < position < 0.78:
             return make_rejection("Price is too close to range midpoint for an edge fade.", 46)
-        if volume_z > 1.4:
+        if volume_z > 1.0:
             return make_rejection("Volume expansion suggests breakout risk, not range fading.", 48)
 
         side = "LONG" if position <= 0.22 else "SHORT"
@@ -104,8 +128,17 @@ class RangeMaker(TraderStrategy):
             return make_rejection("Lower range edge was touched without a confirmed 15m rejection candle.", 50)
         if side == "SHORT" and not upper_rejection:
             return make_rejection("Upper range edge was touched without a confirmed 15m rejection candle.", 50)
+        invalidation = lower if side == "LONG" else upper
+        if not completed_signal_execution_valid(
+            side,
+            live_price=price,
+            signal_price=signal_close,
+            invalidation_level=invalidation,
+            atr=atr_1h,
+        ):
+            return make_rejection("Completed range rejection is stale at the live execution price.", 50)
         score = 62 + (10 if trend == "sideways" else 0) + (8 if adx_4h <= 18 else 0)
-        breakout_pressure = volume_z >= 1.0 or position <= 0.08 or position >= 0.92
+        breakout_pressure = volume_z >= 0.8 or position <= 0.08 or position >= 0.92
         if breakout_pressure:
             score -= 10
         notes: List[str] = [

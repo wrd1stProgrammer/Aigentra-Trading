@@ -4,6 +4,7 @@ from app.traders.models import EntryPlan, TakeProfitPlan, TradeCandidate, Trader
 from app.traders.strategy_base import (
     TraderStrategy,
     candidate_geometry_errors,
+    completed_signal_execution_valid,
     default_leverage_plan,
     default_order_intent,
     default_risk_plan,
@@ -21,8 +22,8 @@ class PullbackArchitect(TraderStrategy):
     profile = TraderProfile(
         id="pullback-architect",
         name="Pullback Architect",
-        description="Builds staged entries inside healthy trend pullbacks where moving averages, fair-value zones, and structure overlap.",
-        concept="It tries to avoid buying the top: first prove the larger trend, then split entries around the pullback zone with a clear invalidation.",
+        description="Builds one- or two-slice entries after a completed 15m recovery confirms a healthy 1H EMA-zone pullback.",
+        concept="Completed-candle trend continuation with a 40% confirmation slice and 60% controlled retest; late or OI-expanded signals use one reduced probe.",
         baseRiskPercent=0.7,
         riskLevel="MEDIUM",
         longConditions=[
@@ -39,7 +40,7 @@ class PullbackArchitect(TraderStrategy):
             "Rebound volume is weak",
             "Funding is not overheated",
         ],
-        entryRules=["Entry 1 40%", "Entry 2 35%", "Entry 3 25%"],
+        entryRules=["40% after a completed EMA20 recovery or rejection", "60% on a controlled EMA-zone retest"],
         takeProfitRules=["TP1 at prior swing", "TP2 at next major level"],
         stopLossRules=["Beyond final scale entry", "Beyond recent structure extreme"],
         aiReviewChecklist=[
@@ -55,13 +56,23 @@ class PullbackArchitect(TraderStrategy):
             "maxDrawdown": 0.0,
             "currentEquity": 10000.0,
         },
-        currentPlan="Preparing staged continuation entries near 1H moving average zones.",
+        currentPlan="Waiting for a completed 15m EMA-zone recovery before using an adaptive one- or two-slice entry.",
     )
 
     def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
-        price = float(snapshot["price"])
+        live_price = float(snapshot["price"])
+        fifteen = snapshot["timeframes"]["15m"]
         one_hour = snapshot["timeframes"]["1h"]
         four_hour = snapshot["timeframes"]["4h"]
+        signal_candle = (
+            fifteen.get("completedCandle")
+            or fifteen.get("latestCompletedCandle")
+            or fifteen.get("completedLatestCandle")
+            or {}
+        )
+        if not signal_candle:
+            return make_rejection("A completed 15m pullback trigger is required.", 0)
+        price = float(signal_candle.get("close") or live_price)
         funding = float(snapshot["derivatives"].get("fundingRate") or 0.0)
         funding_percentile = funding_abs_percentile(snapshot)
         oi_change_30m = open_interest_change(snapshot)
@@ -83,6 +94,15 @@ class PullbackArchitect(TraderStrategy):
             return make_rejection("4H trend and EMA alignment do not agree for a pullback setup.", 40)
         if not in_zone:
             return make_rejection("Price is outside the 1H EMA20-EMA50 pullback decision zone.", 48)
+        signal_low = float(signal_candle.get("low") or price)
+        signal_high = float(signal_candle.get("high") or price)
+        signal_close = float(signal_candle.get("close") or price)
+        bullish_recovery = signal_low <= upper_zone * 1.002 and signal_close >= ema20
+        bearish_recovery = signal_high >= lower_zone * 0.998 and signal_close <= ema20
+        if bullish_alignment and not bullish_recovery:
+            return make_rejection("Completed 15m candle has not recovered EMA20 after the pullback reaction.", 50)
+        if bearish_alignment and not bearish_recovery:
+            return make_rejection("Completed 15m candle has not rejected EMA20 after the rebound reaction.", 50)
         if abs(funding) >= 0.001 or funding_percentile >= 92:
             return make_rejection("Funding is too overheated for a continuation pullback.", 52)
         if regime == "shock":
@@ -98,33 +118,30 @@ class PullbackArchitect(TraderStrategy):
             score += 7
 
         side = "SHORT" if bearish_alignment else "LONG"
+        invalidation = upper_zone if side == "SHORT" else lower_zone
+        if not completed_signal_execution_valid(
+            side,
+            live_price=live_price,
+            signal_price=signal_close,
+            invalidation_level=invalidation,
+            atr=atr_1h,
+        ):
+            return make_rejection("Completed pullback trigger is stale at the live execution price.", 50)
+        price = live_price
         rsi_value = one_hour.get("rsi14") or 50.0
-        scale_count = 3
-        if 44 <= rsi_value <= 56 and abs(funding) < 0.00005 and abs(oi_change_30m) < 1.2:
-            scale_count = 4
-        elif rsi_value < 34 or rsi_value > 66 or abs(oi_change_30m) >= 1.8:
-            scale_count = 2
-        late_pullback = scale_count == 2
+        late_pullback = rsi_value < 34 or rsi_value > 66 or abs(oi_change_30m) >= 1.8
         if late_pullback:
             score -= 6
             notes.append("Pullback confirmation is late or OI is expanding, so the first fill is treated as a probe.")
 
         if side == "LONG":
             entries = [
-                EntryPlan(price=round_price(price * 0.998), weight=0.4, reason="First pullback scale"),
-                EntryPlan(price=round_price(price * 0.992), weight=0.35, reason="EMA/Fib overlap"),
-                EntryPlan(price=round_price(price * 0.986), weight=0.25, reason="Final structure scale"),
+                EntryPlan(price=round_price(price), weight=0.4, reason="Completed EMA20 recovery"),
+                EntryPlan(price=round_price(max(lower_zone, price - atr_1h * 0.45)), weight=0.6, reason="Controlled EMA-zone retest"),
             ]
-            if scale_count == 4:
+            if late_pullback:
                 entries = [
-                    EntryPlan(price=round_price(price * 0.999), weight=0.3, reason="Small confirmation starter"),
-                    EntryPlan(price=round_price(price * 0.995), weight=0.3, reason="EMA20 pullback scale"),
-                    EntryPlan(price=round_price(price * 0.990), weight=0.25, reason="EMA/Fib overlap"),
-                    EntryPlan(price=round_price(price * 0.984), weight=0.15, reason="Final structure scale"),
-                ]
-            elif scale_count == 2:
-                entries = [
-                    EntryPlan(price=round_price(price * 0.997), weight=1.0, reason="Single probe after late pullback confirmation"),
+                    EntryPlan(price=round_price(price), weight=1.0, reason="Single probe after late pullback confirmation"),
                 ]
             structural_low = min(swings_1h.get("lows", []) or [lower_zone])
             stop = round_price(min(structural_low - atr_1h * 0.35, min(entry.price for entry in entries) - atr_1h * 0.45))
@@ -132,23 +149,15 @@ class PullbackArchitect(TraderStrategy):
                 TakeProfitPlan(price=round_price(max(price * 1.014, price + (price - stop) * 1.45)), weight=0.5, reason="Prior swing high or 1.45R"),
                 TakeProfitPlan(price=round_price(max(price * 1.032, price + (price - stop) * 2.6)), weight=0.5, reason="Next resistance zone or 2.6R"),
             ]
-            setup = "THREE_STAGE_PULLBACK_LONG"
+            setup = "TWO_STAGE_PULLBACK_LONG"
         else:
             entries = [
-                EntryPlan(price=round_price(price * 1.002), weight=0.4, reason="First rebound scale"),
-                EntryPlan(price=round_price(price * 1.008), weight=0.35, reason="EMA/Fib overlap"),
-                EntryPlan(price=round_price(price * 1.014), weight=0.25, reason="Final structure scale"),
+                EntryPlan(price=round_price(price), weight=0.4, reason="Completed EMA20 rejection"),
+                EntryPlan(price=round_price(min(upper_zone, price + atr_1h * 0.45)), weight=0.6, reason="Controlled EMA-zone retest"),
             ]
-            if scale_count == 4:
+            if late_pullback:
                 entries = [
-                    EntryPlan(price=round_price(price * 1.001), weight=0.3, reason="Small confirmation starter"),
-                    EntryPlan(price=round_price(price * 1.005), weight=0.3, reason="EMA20 rebound scale"),
-                    EntryPlan(price=round_price(price * 1.010), weight=0.25, reason="EMA/Fib overlap"),
-                    EntryPlan(price=round_price(price * 1.016), weight=0.15, reason="Final structure scale"),
-                ]
-            elif scale_count == 2:
-                entries = [
-                    EntryPlan(price=round_price(price * 1.003), weight=1.0, reason="Single probe after late rebound confirmation"),
+                    EntryPlan(price=round_price(price), weight=1.0, reason="Single probe after late rebound confirmation"),
                 ]
             structural_high = max(swings_1h.get("highs", []) or [upper_zone])
             stop = round_price(max(structural_high + atr_1h * 0.35, max(entry.price for entry in entries) + atr_1h * 0.45))
@@ -156,14 +165,14 @@ class PullbackArchitect(TraderStrategy):
                 TakeProfitPlan(price=round_price(min(price * 0.986, price - (stop - price) * 1.45)), weight=0.5, reason="Prior swing low or 1.45R"),
                 TakeProfitPlan(price=round_price(min(price * 0.968, price - (stop - price) * 2.6)), weight=0.5, reason="Next support zone or 2.6R"),
             ]
-            setup = "THREE_STAGE_PULLBACK_SHORT"
+            setup = "TWO_STAGE_PULLBACK_SHORT"
 
         entries = normalize_entries_for_side(side, price, entries)
         risk_reward = estimate_risk_reward(side, entries, stop, tps)
         errors = candidate_geometry_errors(side, price, entries, stop, tps, min_risk_reward=1.3)
         if errors:
             return make_rejection("Pullback architect risk gates failed: " + "; ".join(errors), score)
-        notes.append(f"Dynamic scale plan selected {scale_count} entries based on RSI, funding, OI, and regime state.")
+        notes.append(f"Completed 15m recovery selected {'one probe' if late_pullback else 'two 40/60 slices'} based on RSI and optional OI state.")
         risk_percent = 0.5 if late_pullback else self.profile.baseRiskPercent
 
         return TradeCandidate(
@@ -177,7 +186,7 @@ class PullbackArchitect(TraderStrategy):
             riskPercent=risk_percent,
             orderIntent=default_order_intent("SCALED_LIMIT_PULLBACK"),
             leveragePlan=default_leverage_plan(
-                suggested=6 if score >= 80 and scale_count <= 3 else 5,
+                suggested=6 if score >= 80 and not late_pullback else 5,
                 maximum=7,
                 reason="Staged pullback entries use 5-7x because sizing is split and invalidation is structure-based.",
             ),

@@ -249,21 +249,27 @@ def latest_candle(snapshot: dict, interval: str = "15m") -> dict:
 
 
 def taker_buy_ratio(snapshot: dict) -> float:
+    derivative_flow = snapshot.get("derivatives", {}).get("takerBuySell", {})
+    if derivative_flow.get("available") and derivative_flow.get("buyShare") is not None:
+        return max(0.0, min(as_float(derivative_flow.get("buyShare"), 0.5), 1.0))
     candle = latest_candle(snapshot, "15m")
     volume = as_float(candle.get("volume"), as_float(snapshot.get("timeframes", {}).get("15m", {}).get("volume"), 0.0))
     taker_buy = as_float(candle.get("takerBuyBaseVolume"), 0.0)
-    if volume <= 0:
+    if volume <= 0 or taker_buy <= 0:
         return 0.5
     return max(0.0, min(taker_buy / volume, 1.0))
 
 
 def completed_taker_buy_ratio(snapshot: dict) -> float:
+    derivative_flow = snapshot.get("derivatives", {}).get("takerBuySell", {})
+    if derivative_flow.get("available") and derivative_flow.get("buyShare") is not None:
+        return max(0.0, min(as_float(derivative_flow.get("buyShare"), 0.5), 1.0))
     candle = snapshot.get("timeframes", {}).get("15m", {}).get("completedCandle")
     if not isinstance(candle, dict):
         return 0.5
     volume = as_float(candle.get("volume"), 0.0)
     taker_buy = as_float(candle.get("takerBuyBaseVolume"), 0.0)
-    if volume <= 0:
+    if volume <= 0 or taker_buy <= 0:
         return 0.5
     return max(0.0, min(taker_buy / volume, 1.0))
 
@@ -545,7 +551,13 @@ def position_management_events(trader_id: str, position: PaperPositionRecord, sn
     derivatives = snapshot.get("derivatives", {})
     channel = one_hour.get("channel", {})
     close_15m = as_float(latest_candle(snapshot, "15m").get("close"), price)
-    completed_close_15m = as_float(fifteen.get("completedCandle", {}).get("close"), close_15m)
+    completed_15m_candle = fifteen.get("completedCandle")
+    has_completed_15m = isinstance(completed_15m_candle, dict) and completed_15m_candle.get("close") is not None
+    completed_close_15m = as_float(completed_15m_candle.get("close"), close_15m) if has_completed_15m else close_15m
+    four_hour = snapshot.get("timeframes", {}).get("4h", {})
+    completed_4h_candle = four_hour.get("completedCandle")
+    has_completed_4h = isinstance(completed_4h_candle, dict) and completed_4h_candle.get("close") is not None
+    completed_close_4h = as_float(completed_4h_candle.get("close"), price) if has_completed_4h else price
     ema50 = as_float(one_hour.get("ema50"), price)
     funding = as_float(derivatives.get("fundingRate"), 0.0)
     volume_z = as_float(fifteen.get("volumeZscore"), 0.0)
@@ -602,9 +614,9 @@ def position_management_events(trader_id: str, position: PaperPositionRecord, sn
         lower = as_float(channel.get("lower"), price * 0.99)
         mid = as_float(channel.get("mid"), price)
         upper = as_float(channel.get("upper"), price * 1.01)
-        failed = (side == "long" and close_15m < lower) or (side == "short" and close_15m > upper)
+        failed = has_completed_15m and ((side == "long" and completed_close_15m < lower) or (side == "short" and completed_close_15m > upper))
         if failed:
-            events.append(ManagementEvent(eventType=event_names["position_fail"], phase="OPEN_POSITION", severity="HIGH", reason="Channel thesis failed after entry.", suggestedAction="CLOSE_POSITION", metrics=base_metrics({"channelLower": lower, "channelMid": mid, "channelUpper": upper})))
+            events.append(ManagementEvent(eventType=event_names["position_fail"], phase="OPEN_POSITION", severity="HIGH", reason="Completed 15m close invalidated the channel thesis.", suggestedAction="CLOSE_POSITION", metrics=base_metrics({"channelLower": lower, "channelMid": mid, "channelUpper": upper, "hardInvalidation": True})))
         elif progress_r >= float(holding_policy.breakeven_progress_r) or (
             target_progress >= float(holding_policy.profit_protect_target_progress)
             and ((side == "long" and price >= mid) or (side == "short" and price <= mid))
@@ -630,9 +642,9 @@ def position_management_events(trader_id: str, position: PaperPositionRecord, sn
         elif adverse or abs(funding) >= 0.00008:
             events.append(ManagementEvent(eventType=event_names["protect"], phase="OPEN_POSITION", severity="HIGH", reason="Leverage setup is near squeeze-risk reduction zone.", suggestedAction="REDUCE_RISK", metrics=base_metrics()))
     elif trader_id == "liquidity-reaper":
-        sweep_failed = (side == "short" and close_15m > stop * 0.995) or (side == "long" and close_15m < stop * 1.005)
+        sweep_failed = has_completed_15m and ((side == "short" and completed_close_15m > stop * 0.995) or (side == "long" and completed_close_15m < stop * 1.005))
         if sweep_failed:
-            events.append(ManagementEvent(eventType=event_names["position_fail"], phase="OPEN_POSITION", severity="HIGH", reason="Sweep level accepted against the reversal thesis.", suggestedAction="CLOSE_POSITION", metrics=base_metrics()))
+            events.append(ManagementEvent(eventType=event_names["position_fail"], phase="OPEN_POSITION", severity="HIGH", reason="Completed 15m close accepted beyond the sweep invalidation.", suggestedAction="CLOSE_POSITION", metrics=base_metrics({"hardInvalidation": True})))
         elif volume_z > 0.75 and distance_to_stop_r <= 0.5:
             events.append(ManagementEvent(eventType=event_names["protect"], phase="OPEN_POSITION", severity="HIGH", reason="Wick extreme is being defended aggressively against the position.", suggestedAction="REDUCE_RISK", metrics=base_metrics()))
     elif trader_id == "volatility-squeezer":
@@ -644,12 +656,19 @@ def position_management_events(trader_id: str, position: PaperPositionRecord, sn
             events.append(ManagementEvent(eventType=event_names["protect"], phase="OPEN_POSITION", severity="MEDIUM", reason="Squeeze momentum is decaying after initial progress.", suggestedAction="MOVE_STOP_TO_BREAKEVEN", metrics=base_metrics({"ema20": ema20})))
     elif trader_id == "trend-sentinel":
         trend = one_hour.get("trend", "sideways")
-        ema50_4h = as_float(snapshot.get("timeframes", {}).get("4h", {}).get("ema50"), price)
-        failed = (side == "long" and (trend == "bearish" or price < ema50_4h)) or (side == "short" and (trend == "bullish" or price > ema50_4h))
+        ema50_4h = as_float(four_hour.get("ema50"), price)
+        failed = has_completed_4h and ((side == "long" and completed_close_4h < ema50_4h) or (side == "short" and completed_close_4h > ema50_4h))
         if failed:
-            events.append(ManagementEvent(eventType=event_names["position_fail"], phase="OPEN_POSITION", severity="HIGH", reason="High timeframe continuation structure broke against the position.", suggestedAction="CLOSE_POSITION", metrics=base_metrics({"oneHourTrend": trend, "ema50_4h": ema50_4h})))
+            events.append(ManagementEvent(eventType=event_names["position_fail"], phase="OPEN_POSITION", severity="HIGH", reason="Completed 4H close broke the trend continuation structure.", suggestedAction="CLOSE_POSITION", metrics=base_metrics({"oneHourTrend": trend, "ema50_4h": ema50_4h, "hardInvalidation": True})))
         elif progress_r >= float(holding_policy.trail_review_progress_r):
             events.append(ManagementEvent(eventType=event_names["protect"], phase="OPEN_POSITION", severity="MEDIUM", reason="Trend position reached profit zone where trailing stop should be reviewed.", suggestedAction="TRAIL_STOP", metrics=base_metrics({"oneHourTrend": trend})))
+    elif trader_id == "atr-trail-commander":
+        ema50_4h = as_float(four_hour.get("ema50"), price)
+        failed = has_completed_4h and ((side == "long" and completed_close_4h < ema50_4h) or (side == "short" and completed_close_4h > ema50_4h))
+        if failed:
+            events.append(ManagementEvent(eventType=event_names["position_fail"], phase="OPEN_POSITION", severity="HIGH", reason="Completed 4H close invalidated the ATR trend structure.", suggestedAction="CLOSE_POSITION", metrics=base_metrics({"ema50_4h": ema50_4h, "hardInvalidation": True})))
+        elif progress_r >= float(holding_policy.trail_review_progress_r):
+            events.append(ManagementEvent(eventType=event_names["protect"], phase="OPEN_POSITION", severity="MEDIUM", reason="ATR trend reached its trailing review zone.", suggestedAction="TRAIL_STOP", metrics=base_metrics({"ema50_4h": ema50_4h})))
     elif trader_id == "range-maker":
         lower = as_float(channel.get("lower"), price * 0.99)
         mid = as_float(channel.get("mid"), price)

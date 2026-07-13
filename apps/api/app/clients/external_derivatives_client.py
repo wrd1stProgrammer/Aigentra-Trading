@@ -1,30 +1,113 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import time
 from statistics import mean, pstdev
 from typing import Any, Dict, Iterable, Optional
 
 import httpx
 
+try:
+    import redis.asyncio as redis
+    from redis.exceptions import RedisError
+except ImportError:
+    redis = None
+
+    class RedisError(Exception):
+        pass
+
 from app.core.config import get_settings
 
 
 COINALYZE_BTC_SYMBOLS = ("BTCUSDT_PERP.A", "BTCUSDT.6", "BTCUSDT_PERP.3")
-_DERIBIT_SKEW_HISTORY: dict[int, float] = {}
+_DERIBIT_SKEW_HISTORY: dict[str, dict[int, float]] = {}
 
 
-def _skew_history_state(spread: float, now: datetime) -> tuple[float, int]:
+def _skew_history_state(spread: float, now: datetime, expiry_key: str) -> tuple[float, int, int]:
     bucket = int(now.timestamp() // (15 * 60))
-    _DERIBIT_SKEW_HISTORY[bucket] = spread
+    expiry_history = _DERIBIT_SKEW_HISTORY.setdefault(expiry_key, {})
+    expiry_history[bucket] = spread
     minimum_bucket = bucket - (7 * 24 * 4)
-    for stale_bucket in [key for key in _DERIBIT_SKEW_HISTORY if key < minimum_bucket]:
-        _DERIBIT_SKEW_HISTORY.pop(stale_bucket, None)
-    history = [value for key, value in sorted(_DERIBIT_SKEW_HISTORY.items()) if key < bucket]
-    if len(history) < 8:
-        return 0.0, len(history) + 1
-    deviation = pstdev(history)
-    return ((spread - mean(history)) / deviation if deviation > 0 else 0.0), len(history) + 1
+    for history in _DERIBIT_SKEW_HISTORY.values():
+        for stale_bucket in [key for key in history if key < minimum_bucket]:
+            history.pop(stale_bucket, None)
+    records = [(key, value) for key, value in sorted(expiry_history.items()) if key <= bucket]
+    observations = [value for _, value in records]
+    zscores: list[float] = []
+    for index, value in enumerate(observations):
+        prior = observations[:index]
+        if len(prior) < 8:
+            zscores.append(0.0)
+            continue
+        deviation = pstdev(prior)
+        zscores.append((value - mean(prior)) / deviation if deviation > 0 else 0.0)
+    current_zscore = zscores[-1] if zscores else 0.0
+    direction = 1 if current_zscore >= 1.25 else -1 if current_zscore <= -1.25 else 0
+    persistence = 0
+    previous_bucket: Optional[int] = None
+    for (observation_bucket, _), zscore in zip(reversed(records), reversed(zscores)):
+        if previous_bucket is not None and previous_bucket - observation_bucket != 1:
+            break
+        zscore_direction = 1 if zscore >= 1.25 else -1 if zscore <= -1.25 else 0
+        if direction == 0 or zscore_direction != direction:
+            break
+        persistence += 1
+        previous_bucket = observation_bucket
+    return current_zscore, len(observations), persistence
+
+
+def _serialize_skew_history() -> dict[str, dict[str, float]]:
+    return {
+        expiry_key: {str(bucket): spread for bucket, spread in history.items()}
+        for expiry_key, history in _DERIBIT_SKEW_HISTORY.items()
+    }
+
+
+def _restore_skew_history(payload: Any) -> None:
+    if not isinstance(payload, dict):
+        return
+    restored: dict[str, dict[int, float]] = {}
+    for expiry_key, history in payload.items():
+        if not isinstance(history, dict):
+            continue
+        clean_history: dict[int, float] = {}
+        for bucket, spread in history.items():
+            try:
+                clean_history[int(bucket)] = float(spread)
+            except (TypeError, ValueError):
+                continue
+        if clean_history:
+            restored[str(expiry_key)] = clean_history
+    _DERIBIT_SKEW_HISTORY.update(restored)
+
+
+async def _persistent_skew_history_state(
+    spread: float,
+    now: datetime,
+    expiry_key: str,
+) -> tuple[float, int, int]:
+    settings = get_settings()
+    if redis is None or not settings.redis_url or not settings.redis_market_cache_enabled:
+        return _skew_history_state(spread, now, expiry_key)
+    client = redis.from_url(
+        settings.redis_url,
+        decode_responses=True,
+        socket_timeout=settings.redis_socket_timeout_seconds,
+        socket_connect_timeout=settings.redis_socket_timeout_seconds,
+    )
+    cache_key = f"{settings.redis_key_prefix.strip() or 'aigentra'}:market:deribit_skew_history:v2"
+    try:
+        raw = await client.get(cache_key)
+        if raw:
+            _restore_skew_history(json.loads(raw))
+        result = _skew_history_state(spread, now, expiry_key)
+        await client.set(cache_key, json.dumps(_serialize_skew_history()), ex=8 * 24 * 60 * 60)
+        return result
+    except (RedisError, json.JSONDecodeError, TypeError, ValueError):
+        return _skew_history_state(spread, now, expiry_key)
+    finally:
+        await client.aclose()
 
 
 class ExternalDerivativesClient:
@@ -134,18 +217,37 @@ class ExternalDerivativesClient:
         if not option_rows:
             return {"available": False, "reason": "unparsed_options", "source": "deribit"}
 
-        near_rows = [row for row in option_rows if row["daysToExpiry"] is None or 7 <= row["daysToExpiry"] <= 45] or option_rows
+        near_rows = [row for row in option_rows if row["daysToExpiry"] is not None and 7 <= row["daysToExpiry"] <= 45]
+        if not near_rows:
+            return {"available": False, "reason": "missing_target_expiry", "source": "deribit"}
         target_underlying = underlying or _median([row["strike"] for row in near_rows])
-        call_rows = [row for row in near_rows if row["type"] == "C" and row["markIv"] > 0]
-        put_rows = [row for row in near_rows if row["type"] == "P" and row["markIv"] > 0]
-        call = _closest_option(call_rows, target_underlying * 1.05)
-        put = _closest_option(put_rows, target_underlying * 0.95)
+        call, put, expiry_days = _same_expiry_option_pair(near_rows, target_underlying)
         if not call or not put:
             return {"available": False, "reason": "missing_put_or_call_iv", "source": "deribit"}
+        expiry_key = str(call["expiryKey"])
+        expiry_rows = [row for row in near_rows if row.get("expiryKey") == expiry_key]
+        call_rows = [row for row in expiry_rows if row["type"] == "C" and row["markIv"] > 0]
+        put_rows = [row for row in expiry_rows if row["type"] == "P" and row["markIv"] > 0]
+
+        call_source = _source_datetime(call.get("sourceTimestamp"))
+        put_source = _source_datetime(put.get("sourceTimestamp"))
+        if call_source is None or put_source is None:
+            return {"available": False, "reason": "missing_source_timestamp", "source": "deribit"}
+        if abs((call_source - put_source).total_seconds()) > 60:
+            return {"available": False, "reason": "noncontemporaneous_option_pair", "source": "deribit"}
 
         spread = float(put["markIv"]) - float(call["markIv"])
         now = datetime.now(timezone.utc)
-        skew_zscore, skew_sample_count = _skew_history_state(spread, now)
+        source_updated_at = min(call_source, put_source)
+        if (source_updated_at - now).total_seconds() > 60:
+            return {"available": False, "reason": "future_source_timestamp", "source": "deribit"}
+        if (now - source_updated_at).total_seconds() > 600:
+            return {"available": False, "reason": "stale_source_timestamp", "source": "deribit"}
+        skew_zscore, skew_sample_count, skew_persistence = await _persistent_skew_history_state(
+            spread,
+            source_updated_at,
+            expiry_key,
+        )
         call_volume = sum(float(row["volume"]) for row in call_rows)
         put_volume = sum(float(row["volume"]) for row in put_rows)
         iv_values = [float(row["markIv"]) for row in near_rows if row["markIv"] > 0]
@@ -163,11 +265,16 @@ class ExternalDerivativesClient:
             "putCallIvSpread": round(spread, 4),
             "putCallIvSpreadZscore": round(skew_zscore, 4),
             "skewSampleCount": skew_sample_count,
+            "skewPersistence": skew_persistence,
+            "sameExpiry": True,
+            "expiryDays": expiry_days,
+            "expiryKey": expiry_key,
             "callPutVolumeRatio": round(call_volume / put_volume, 4) if put_volume > 0 else round(call_volume, 4),
             "ivPercentile": round(_percentile_rank(iv_values, current_iv), 4),
             "realizedVolatility30d": round(realized_vol, 4),
             "sampleOptions": len(near_rows),
-            "updatedAt": now.isoformat(),
+            "updatedAt": source_updated_at.isoformat(),
+            "retrievedAt": now.isoformat(),
         }
 
     async def _deribit_get(self, client: httpx.AsyncClient, path: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -269,6 +376,7 @@ def _parse_option_row(row: dict[str, Any], underlying: float) -> Optional[dict[s
         return None
     return {
         "name": name,
+        "expiryKey": parts[1].upper(),
         "type": option_type,
         "strike": strike,
         "daysToExpiry": days_to_expiry,
@@ -276,6 +384,7 @@ def _parse_option_row(row: dict[str, Any], underlying: float) -> Optional[dict[s
         "volume": _float(row.get("volume")),
         "openInterest": _float(row.get("open_interest")),
         "distance": abs(strike - underlying) if underlying > 0 else 0.0,
+        "sourceTimestamp": int(_float(row.get("creation_timestamp") or row.get("timestamp"))),
     }
 
 
@@ -283,6 +392,44 @@ def _closest_option(rows: list[dict[str, Any]], target: float) -> Optional[dict[
     if not rows:
         return None
     return min(rows, key=lambda row: abs(float(row["strike"]) - target))
+
+
+def _same_expiry_option_pair(
+    rows: list[dict[str, Any]],
+    underlying: float,
+) -> tuple[Optional[dict[str, Any]], Optional[dict[str, Any]], Optional[int]]:
+    expiry_groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        days = row.get("daysToExpiry")
+        if days is None or not 7 <= int(days) <= 45:
+            continue
+        key = str(row.get("expiryKey") or f"DTE:{int(days)}")
+        expiry_groups.setdefault(key, []).append(row)
+    ordered_groups = sorted(
+        expiry_groups.values(),
+        key=lambda group: abs(int(group[0]["daysToExpiry"]) - 21),
+    )
+    for expiry_rows in ordered_groups:
+        expiry_days = int(expiry_rows[0]["daysToExpiry"])
+        call_rows = [row for row in expiry_rows if row.get("type") == "C" and float(row.get("markIv") or 0) > 0]
+        put_rows = [row for row in expiry_rows if row.get("type") == "P" and float(row.get("markIv") or 0) > 0]
+        call = _closest_option(call_rows, underlying * 1.05)
+        put = _closest_option(put_rows, underlying * 0.95)
+        if call is not None and put is not None:
+            return call, put, expiry_days
+    return None, None, None
+
+
+def _source_datetime(value: Any) -> Optional[datetime]:
+    timestamp = _float(value)
+    if timestamp <= 0:
+        return None
+    if timestamp > 10_000_000_000:
+        timestamp /= 1000
+    try:
+        return datetime.fromtimestamp(timestamp, timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _percentile_rank(values: list[float], value: float) -> float:

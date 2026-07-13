@@ -3,7 +3,9 @@ from typing import Any, Dict, List
 from app.traders.models import EntryPlan, TakeProfitPlan, TradeCandidate, TraderProfile
 from app.traders.strategy_base import (
     TraderStrategy,
+    candle_body_ratio,
     candidate_geometry_errors,
+    completed_signal_execution_valid,
     crowded_side,
     default_leverage_plan,
     default_order_intent,
@@ -16,6 +18,14 @@ from app.traders.strategy_base import (
     round_price,
     taker_buy_share,
 )
+
+
+def _completed_candle(frame: Dict[str, Any]) -> Dict[str, Any]:
+    for key in ("completedCandle", "completedLatestCandle"):
+        candle = frame.get(key)
+        if isinstance(candle, dict) and candle:
+            return candle
+    return {}
 
 
 class VolumeBreaker(TraderStrategy):
@@ -40,7 +50,7 @@ class VolumeBreaker(TraderStrategy):
             "Retest rejects below the old support",
             "15m bearish candle appears",
         ],
-        entryRules=["60% on retest", "40% after confirmation candle"],
+        entryRules=["60/40 retest and confirmation under normal participation", "100% completed confirmation only when volume and taker flow are both strong"],
         takeProfitRules=["TP1 at next short-term level", "TP2 at next 1H/4H level"],
         stopLossRules=["Below breakout level for long", "Above breakdown level for short"],
         aiReviewChecklist=[
@@ -63,26 +73,35 @@ class VolumeBreaker(TraderStrategy):
         price = float(snapshot["price"])
         one_hour = snapshot["timeframes"]["1h"]
         fifteen = snapshot["timeframes"]["15m"]
-        volume_z = fifteen.get("volumeZscore") or 0.0
+        volume_z = fifteen.get("completedVolumeZscore")
+        if volume_z is None:
+            return make_rejection("Completed breakout volume is unavailable.", 0)
         funding_percentile = funding_abs_percentile(snapshot)
         oi_change_30m = open_interest_change(snapshot)
         crowding = crowded_side(snapshot)
         external_taker_share = taker_buy_share(snapshot)
         atr_value = one_hour.get("atr14") or price * 0.01
-        candle = fifteen.get("latestCandle", fifteen)
-        swings = one_hour.get("swings", {})
-        highs = swings.get("highs", [])
-        lows = swings.get("lows", [])
-        resistance = max(highs) if highs else one_hour.get("high", price * 1.006)
-        support = min(lows) if lows else one_hour.get("low", price * 0.994)
+        candle = _completed_candle(fifteen)
+        if not candle:
+            return make_rejection("Completed 15m breakout candle is unavailable.", 0)
+        frozen_range = one_hour.get("priorCompletedRange") or {}
+        if (
+            float(frozen_range.get("high") or 0.0) > float(frozen_range.get("low") or 0.0)
+            and int(float(frozen_range.get("candles") or 0.0)) >= 20
+        ):
+            resistance = float(frozen_range["high"])
+            support = float(frozen_range["low"])
+        else:
+            return make_rejection("Frozen completed 1H range is unavailable.", 0)
         retest_tolerance = max(atr_value * 0.12, price * 0.0015)
+        body_ok = candle_body_ratio(candle) >= 0.30
 
         breakout_long = candle["close"] > resistance and candle["high"] > resistance
         retest_long = candle["low"] <= resistance + retest_tolerance and candle["close"] > resistance
         breakout_short = candle["close"] < support and candle["low"] < support
         retest_short = candle["high"] >= support - retest_tolerance and candle["close"] < support
-        confirmed_long = breakout_long and retest_long and candle["close"] > candle["open"]
-        confirmed_short = breakout_short and retest_short and candle["close"] < candle["open"]
+        confirmed_long = breakout_long and retest_long and candle["close"] > candle["open"] and body_ok
+        confirmed_short = breakout_short and retest_short and candle["close"] < candle["open"] and body_ok
 
         if volume_z < 1.0:
             return make_rejection("Volume expansion gate failed for breakout/retest setup.", 35)
@@ -95,6 +114,15 @@ class VolumeBreaker(TraderStrategy):
         notes.append("15m volume z-score cleared the breakout participation gate.")
 
         side = "LONG" if confirmed_long else "SHORT"
+        boundary = resistance if side == "LONG" else support
+        if not completed_signal_execution_valid(
+            side,
+            live_price=price,
+            signal_price=float(candle["close"]),
+            invalidation_level=boundary,
+            atr=atr_value,
+        ):
+            return make_rejection("Completed volume breakout is stale at the live execution price.", 50)
         if side == crowding and funding_percentile >= 85 and oi_change_30m >= 1.0:
             return make_rejection("Breakout direction is already crowded by funding/OI, raising fakeout risk.", 54)
         if side == "LONG":
@@ -103,8 +131,8 @@ class VolumeBreaker(TraderStrategy):
             stop = min(resistance - atr_value * 0.45, candle["low"] - atr_value * 0.08)
             risk_distance = max(entry_level - stop, price * 0.004)
             tps = [
-                TakeProfitPlan(price=round_price(entry_level + risk_distance * 1.4), weight=0.45, reason="1.4R continuation"),
-                TakeProfitPlan(price=round_price(entry_level + risk_distance * 2.4), weight=0.55, reason="Next higher timeframe extension"),
+                TakeProfitPlan(price=round_price(entry_level + risk_distance * 1.65), weight=0.45, reason="1.65R continuation"),
+                TakeProfitPlan(price=round_price(entry_level + risk_distance * 3.0), weight=0.55, reason="Next higher timeframe extension"),
             ]
             setup = "VOLUME_BREAKOUT_RETEST_LONG"
         else:
@@ -113,8 +141,8 @@ class VolumeBreaker(TraderStrategy):
             stop = max(support + atr_value * 0.45, candle["high"] + atr_value * 0.08)
             risk_distance = max(stop - entry_level, price * 0.004)
             tps = [
-                TakeProfitPlan(price=round_price(entry_level - risk_distance * 1.4), weight=0.45, reason="1.4R continuation"),
-                TakeProfitPlan(price=round_price(entry_level - risk_distance * 2.4), weight=0.55, reason="Next higher timeframe extension"),
+                TakeProfitPlan(price=round_price(entry_level - risk_distance * 1.65), weight=0.45, reason="1.65R continuation"),
+                TakeProfitPlan(price=round_price(entry_level - risk_distance * 3.0), weight=0.55, reason="Next higher timeframe extension"),
             ]
             setup = "VOLUME_BREAKDOWN_RETEST_SHORT"
 

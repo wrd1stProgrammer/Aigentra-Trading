@@ -4,6 +4,7 @@ from app.traders.models import EntryPlan, TakeProfitPlan, TradeCandidate, Trader
 from app.traders.strategy_base import (
     TraderStrategy,
     candidate_geometry_errors,
+    completed_signal_execution_valid,
     crowded_side,
     default_leverage_plan,
     default_order_intent,
@@ -11,12 +12,13 @@ from app.traders.strategy_base import (
     estimate_risk_reward,
     fvalue,
     funding_abs_percentile,
-    latest_candle,
     make_rejection,
     normalize_entries_for_side,
+    open_interest_change_available,
     open_interest_change,
     round_price,
     taker_buy_sell_ratio,
+    taker_flow_available,
     timeframe,
 )
 
@@ -41,7 +43,7 @@ class FundingContrarian(TraderStrategy):
             "15m closes back below a micro support",
             "Risk/reward allows fast partial at funding normalization",
         ],
-        entryRules=["65% after structure trigger", "35% on retest if funding remains stretched"],
+        entryRules=["65/35 trigger and retest after a clean stall", "45/55 probe and retest while squeeze pressure remains"],
         takeProfitRules=["TP1 at 1.3R or funding normalization", "TP2 at 2.2R or opposite intraday level"],
         stopLossRules=["Beyond failed structure", "No stop widening when funding remains extreme"],
         aiReviewChecklist=[
@@ -61,20 +63,32 @@ class FundingContrarian(TraderStrategy):
     )
 
     def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
-        price = float(snapshot["price"])
+        live_price = float(snapshot["price"])
         fifteen = timeframe(snapshot, "15m")
         one_hour = timeframe(snapshot, "1h")
         four_hour = timeframe(snapshot, "4h")
-        candle = latest_candle(fifteen)
+        candle = (
+            fifteen.get("completedCandle")
+            or fifteen.get("latestCompletedCandle")
+            or fifteen.get("completedLatestCandle")
+            or {}
+        )
+        if not candle:
+            return make_rejection("A completed 15m funding-reversal trigger is required.", 0)
+        price = fvalue(candle.get("close"), live_price)
         funding = fvalue(snapshot.get("derivatives", {}).get("fundingRate"), 0.0)
+        funding_stats = snapshot.get("derivatives", {}).get("fundingStats", {}) or {}
+        if not bool(funding_stats.get("available", funding_stats.get("historyAvailable", False))):
+            return make_rejection("Funding data is unavailable for a funding-contrarian setup.", 0)
         mark_price = fvalue(snapshot.get("derivatives", {}).get("markPrice"), price)
         index_price = fvalue(snapshot.get("derivatives", {}).get("indexPrice"), price)
         premium = ((mark_price - index_price) / index_price) if index_price else 0.0
-        oi = fvalue(snapshot.get("derivatives", {}).get("openInterest"), 0.0)
         funding_percentile = funding_abs_percentile(snapshot)
         oi_change_30m = open_interest_change(snapshot)
         crowding = crowded_side(snapshot)
         taker_ratio = taker_buy_sell_ratio(snapshot)
+        oi_available = open_interest_change_available(snapshot)
+        taker_available = taker_flow_available(snapshot)
         atr_1h = fvalue(one_hour.get("atr14"), price * 0.008)
         price_change_1h = fvalue(one_hour.get("priceChange", {}).get("1"), 0.0)
         swings = one_hour.get("swings", {})
@@ -83,12 +97,8 @@ class FundingContrarian(TraderStrategy):
         close = fvalue(candle.get("close"), price)
         open_ = fvalue(candle.get("open"), close)
 
-        if oi <= 0:
-            return make_rejection("Open interest is unavailable, so funding crowding cannot be trusted.", 34)
         if abs(funding) < 0.000045 and abs(premium) < 0.00035 and funding_percentile < 80:
             return make_rejection("Funding/premium is not extreme enough for contrarian setup.", 40)
-        if abs(oi_change_30m) < 0.3 and funding_percentile < 85:
-            return make_rejection("Funding is stretched, but OI change is too weak to prove active crowding.", 44)
 
         side = None
         if funding > 0 and premium >= -0.0005 and price_change_1h <= 0.0025 and close < open_:
@@ -102,15 +112,25 @@ class FundingContrarian(TraderStrategy):
         if side == "LONG" and crowding == "LONG":
             return make_rejection("Contrarian long rejected because current crowding is already long-sided.", 48)
         trend_4h = str(four_hour.get("trend") or "sideways")
-        positioning_unwinding = oi_change_30m <= 0.15
+        positioning_unwinding = not oi_available or oi_change_30m <= 0.15
         flow_confirmed = (side == "SHORT" and taker_ratio <= 0.95) or (side == "LONG" and taker_ratio >= 1.05)
         trend_allows = (side == "SHORT" and trend_4h != "bullish") or (side == "LONG" and trend_4h != "bearish")
-        if not positioning_unwinding:
+        if oi_available and not positioning_unwinding:
             return make_rejection("Funding is extreme, but open interest is still expanding with the crowded trade.", 50)
-        if not flow_confirmed:
+        if taker_available and not flow_confirmed:
             return make_rejection("Funding fade lacks taker-flow confirmation from the unwinding side.", 50)
         if not trend_allows:
             return make_rejection("Funding fade is blocked by the opposing 4H trend.", 50)
+        signal_invalidation = fvalue(candle.get("high")) if side == "SHORT" else fvalue(candle.get("low"))
+        if not completed_signal_execution_valid(
+            side,
+            live_price=live_price,
+            signal_price=close,
+            invalidation_level=signal_invalidation,
+            atr=atr_1h,
+        ):
+            return make_rejection("Completed funding-reversal trigger is stale at the live execution price.", 50)
+        price = live_price
 
         score = 60 + min(16, int(abs(funding) / 0.00001)) + (6 if abs(price_change_1h) < 0.0015 else 0)
         if funding_percentile >= 80:
@@ -127,6 +147,8 @@ class FundingContrarian(TraderStrategy):
             f"30m OI change is {oi_change_30m:.2f}% and taker buy/sell ratio is {taker_ratio:.2f}.",
             f"4H trend is {trend_4h}; crowding must be unwinding before entry.",
         ]
+        if not oi_available or not taker_available:
+            notes.append("Optional OI/taker confirmation is unavailable, so the price-confirmed setup uses reduced risk.")
         if squeeze_pressure:
             notes.append("Crowded-side pressure is still active, so this remains a smaller probe-and-retest fade.")
         risk_distance = max(atr_1h * 0.75, price * 0.005)
@@ -162,7 +184,7 @@ class FundingContrarian(TraderStrategy):
         errors = candidate_geometry_errors(side, price, entries, stop, take_profits, min_risk_reward=1.25, fee_buffer_percent=0.1)
         if errors:
             return make_rejection("Funding contrarian risk gates failed: " + "; ".join(errors), score)
-        risk_percent = 0.3 if squeeze_pressure else self.profile.baseRiskPercent
+        risk_percent = 0.3 if squeeze_pressure or not oi_available or not taker_available else self.profile.baseRiskPercent
 
         return TradeCandidate(
             created=True,

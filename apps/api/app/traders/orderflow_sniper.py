@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from app.traders.models import EntryPlan, TakeProfitPlan, TradeCandidate, TraderProfile
@@ -6,12 +7,14 @@ from app.traders.strategy_base import (
     candidate_geometry_errors,
     candidate_with_audit,
     candle_body_ratio,
+    completed_signal_execution_valid,
     default_leverage_plan,
     default_order_intent,
     default_risk_plan,
     estimate_risk_reward,
     fvalue,
     latest_candle,
+    make_rejection,
     market_regime,
     normalize_entries_for_side,
     open_interest_change,
@@ -21,6 +24,14 @@ from app.traders.strategy_base import (
     trend_for,
     wick_ratios,
 )
+
+
+def _completed_candle(frame: Dict[str, Any]) -> Dict[str, Any]:
+    for key in ("completedCandle", "completedLatestCandle"):
+        candle = frame.get(key)
+        if isinstance(candle, dict) and candle:
+            return candle
+    return {}
 
 
 class OrderflowSniper(TraderStrategy):
@@ -64,56 +75,45 @@ class OrderflowSniper(TraderStrategy):
 
     def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
         price = fvalue(snapshot.get("price"))
-        one_min = timeframe(snapshot, "1m")
-        five_min = timeframe(snapshot, "5m")
         fifteen = timeframe(snapshot, "15m")
         one_hour = timeframe(snapshot, "1h")
         four_hour = timeframe(snapshot, "4h")
-        candle_15m = latest_candle(fifteen)
+        candle_15m = _completed_candle(fifteen)
+        if not candle_15m:
+            return make_rejection("Completed 15m breakout candle is unavailable.", 0)
+        open_time = int(fvalue(candle_15m.get("openTime")))
+        if open_time <= 0:
+            return make_rejection("Completed session anchor timestamp is unavailable.", 0)
+        opened_at = datetime.fromtimestamp(open_time / 1000, timezone.utc)
+        if opened_at.hour not in {1, 8, 14} or opened_at.minute != 0:
+            return make_rejection("Completed candle is outside a configured UTC session handoff.", 0)
         close_15m = fvalue(candle_15m.get("close"), price)
         open_15m = fvalue(candle_15m.get("open"), price)
         high_15m = fvalue(candle_15m.get("high"), price)
         low_15m = fvalue(candle_15m.get("low"), price)
         body_15m = candle_body_ratio(candle_15m)
         upper_wick, lower_wick = wick_ratios(candle_15m)
-        volume_z = max(
-            fvalue(one_min.get("volumeZscore"), 0.0),
-            fvalue(five_min.get("volumeZscore"), 0.0),
-            fvalue(fifteen.get("volumeZscore"), 0.0),
-            fvalue(snapshot.get("marketRegime", {}).get("volumeZscore15m"), 0.0),
-        )
+        completed_volume_z = fvalue(fifteen.get("completedVolumeZscore"), -99.0)
+        volume_z = completed_volume_z
         external_taker_share = taker_buy_share(snapshot)
         oi_change_30m = open_interest_change(snapshot)
         atr_15m = max(fvalue(fifteen.get("atr14"), price * 0.004), price * 0.0025)
         atr_1h = max(fvalue(one_hour.get("atr14"), price * 0.008), price * 0.004)
-        one_hour_swings = one_hour.get("swings") or {}
-        four_hour_swings = four_hour.get("swings") or {}
-        channel = one_hour.get("channel") or four_hour.get("channel") or {}
-        highs = [
-            fvalue(value)
-            for value in [
-                *(one_hour_swings.get("highs") or []),
-                *(four_hour_swings.get("highs") or [])[-2:],
-                one_hour.get("high"),
-                channel.get("upper"),
-            ]
-            if fvalue(value) > 0
-        ]
-        lows = [
-            fvalue(value)
-            for value in [
-                *(one_hour_swings.get("lows") or []),
-                *(four_hour_swings.get("lows") or [])[-2:],
-                one_hour.get("low"),
-                channel.get("lower"),
-            ]
-            if fvalue(value) > 0
-        ]
-        session_high = max(highs) if highs else high_15m
-        session_low = min(lows) if lows else low_15m
+        frozen_range = fifteen.get("priorCompletedRange") or {}
+        if not (
+            fvalue(frozen_range.get("high")) > fvalue(frozen_range.get("low"))
+            and int(fvalue(frozen_range.get("candles"))) == 4
+            and int(fvalue(frozen_range.get("firstOpenTime"))) == open_time - 3_600_000
+            and int(fvalue(frozen_range.get("lastCloseTime"))) == open_time - 1
+        ):
+            return make_rejection("Frozen completed opening range is unavailable.", 0)
+        session_high = fvalue(frozen_range.get("high"))
+        session_low = fvalue(frozen_range.get("low"))
+        range_source = "15m_prior_completed_4"
         buffer = max(atr_15m * 0.12, price * 0.001)
-        broke_up = close_15m > session_high and (close_15m - session_high) >= buffer * 0.2
-        broke_down = close_15m < session_low and (session_low - close_15m) >= buffer * 0.2
+        acceptance_distance = max(atr_15m * 0.10, price * 0.0005)
+        broke_up = close_15m > session_high and (close_15m - session_high) >= acceptance_distance
+        broke_down = close_15m < session_low and (session_low - close_15m) >= acceptance_distance
         trend_1h = trend_for(snapshot, "1h")
         trend_4h = trend_for(snapshot, "4h")
         long_ready = broke_up and close_15m > open_15m and trend_4h != "bearish"
@@ -124,7 +124,7 @@ class OrderflowSniper(TraderStrategy):
             or (short_ready and lower_wick <= 0.36)
             or (not long_ready and not short_ready)
         )
-        participation_ok = real_body_ok and wick_acceptance_ok and volume_z >= -0.05
+        participation_ok = real_body_ok and wick_acceptance_ok and volume_z >= 0.0
         score = 48
         score += 18 if long_ready or short_ready else 0
         score += 9 if participation_ok else -5
@@ -139,6 +139,9 @@ class OrderflowSniper(TraderStrategy):
         gate_scores = {
             "sessionHigh": round(session_high, 4),
             "sessionLow": round(session_low, 4),
+            "rangeSource": range_source,
+            "sessionHourUtc": opened_at.hour,
+            "acceptanceDistance": round(acceptance_distance, 4),
             "close15m": round(close_15m, 4),
             "open15m": round(open_15m, 4),
             "body15m": round(body_15m, 4),
@@ -168,6 +171,15 @@ class OrderflowSniper(TraderStrategy):
 
         side = "LONG" if long_ready else "SHORT"
         setup = "SESSION_ORB_BREAKOUT_LONG" if side == "LONG" else "SESSION_ORB_BREAKOUT_SHORT"
+        boundary = session_high if side == "LONG" else session_low
+        if not completed_signal_execution_valid(
+            side,
+            live_price=price,
+            signal_price=close_15m,
+            invalidation_level=boundary,
+            atr=atr_1h,
+        ):
+            return make_rejection("Completed session breakout is stale at the live execution price.", score)
         risk_distance = max(atr_15m * 1.15, atr_1h * 0.55, price * 0.0045)
         notes: List[str] = [
             "15m close accepted outside the recent session range.",

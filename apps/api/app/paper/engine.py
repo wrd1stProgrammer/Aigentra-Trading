@@ -874,10 +874,11 @@ def _first_take_profit_breakeven_trigger(position: PaperPositionRecord) -> Optio
     target_distance = abs(take_profit_price - position.entry_price)
     if target_distance <= 0:
         return None
+    progress = trader_holding_policy(position.trader_id or "").first_take_profit_breakeven_progress
     if position.side == "long" and take_profit_price > position.entry_price:
-        return position.entry_price + target_distance * FIRST_TAKE_PROFIT_BREAKEVEN_PROGRESS
+        return position.entry_price + target_distance * progress
     if position.side == "short" and take_profit_price < position.entry_price:
-        return position.entry_price - target_distance * FIRST_TAKE_PROFIT_BREAKEVEN_PROGRESS
+        return position.entry_price - target_distance * progress
     return None
 
 
@@ -925,6 +926,10 @@ def _maybe_move_stop_to_breakeven(
     move_reason: Optional[str] = None
     first_take_profit_trigger = _first_take_profit_breakeven_trigger(position)
     first_take_profit_price = _next_take_profit_price(position)
+    strategy_breakeven_allowed = (
+        first_take_profit_trigger is None
+        or policy.first_take_profit_breakeven_progress <= FIRST_TAKE_PROFIT_BREAKEVEN_PROGRESS
+    )
     payload_extra: dict[str, Any] = {"holdingPolicy": policy.as_prompt_dict()}
     if position.side == "long":
         if (
@@ -937,10 +942,14 @@ def _maybe_move_stop_to_breakeven(
                 {
                     "firstTakeProfitPrice": first_take_profit_price,
                     "breakevenTriggerPrice": first_take_profit_trigger,
-                    "progressToFirstTakeProfit": FIRST_TAKE_PROFIT_BREAKEVEN_PROGRESS,
+                    "progressToFirstTakeProfit": policy.first_take_profit_breakeven_progress,
                 }
             )
-        elif candle.high >= position.entry_price + risk_distance * policy.breakeven_progress_r and position.stop_loss_price < position.entry_price:
+        elif (
+            strategy_breakeven_allowed
+            and candle.high >= position.entry_price + risk_distance * policy.breakeven_progress_r
+            and position.stop_loss_price < position.entry_price
+        ):
             move_reason = "strategy_holding_policy_breakeven"
     if position.side == "short":
         if (
@@ -953,10 +962,14 @@ def _maybe_move_stop_to_breakeven(
                 {
                     "firstTakeProfitPrice": first_take_profit_price,
                     "breakevenTriggerPrice": first_take_profit_trigger,
-                    "progressToFirstTakeProfit": FIRST_TAKE_PROFIT_BREAKEVEN_PROGRESS,
+                    "progressToFirstTakeProfit": policy.first_take_profit_breakeven_progress,
                 }
             )
-        elif candle.low <= position.entry_price - risk_distance * policy.breakeven_progress_r and position.stop_loss_price > position.entry_price:
+        elif (
+            strategy_breakeven_allowed
+            and candle.low <= position.entry_price - risk_distance * policy.breakeven_progress_r
+            and position.stop_loss_price > position.entry_price
+        ):
             move_reason = "strategy_holding_policy_breakeven"
     if move_reason is None and _held_profitably_for_breakeven_window(position, candle):
         move_reason = "profitable_after_60h_breakeven"

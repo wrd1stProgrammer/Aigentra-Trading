@@ -21,6 +21,7 @@ class HoldingPolicy:
     order_ttl_seconds: int = 900
     target_profile: str = "balanced"
     risk_uplift_multiplier: Decimal = Decimal("1.0")
+    first_take_profit_breakeven_progress: Decimal = Decimal("0.50")
 
     def as_prompt_dict(self) -> Dict[str, Union[float, str]]:
         data = asdict(self)
@@ -168,6 +169,7 @@ TRADER_HOLDING_POLICIES: dict[str, HoldingPolicy] = {
         order_ttl_seconds=720,
         target_profile="sweep_reversal",
         risk_uplift_multiplier=Decimal("0.95"),
+        first_take_profit_breakeven_progress=Decimal("0.60"),
     ),
     "volatility-squeezer": HoldingPolicy(
         name="expansion_follow",
@@ -243,6 +245,7 @@ TRADER_HOLDING_POLICIES: dict[str, HoldingPolicy] = {
         order_ttl_seconds=1800,
         target_profile="channel_swing",
         risk_uplift_multiplier=Decimal("1.15"),
+        first_take_profit_breakeven_progress=Decimal("0.80"),
     ),
     "pullback-architect": HoldingPolicy(
         name="staged_pullback",
@@ -273,6 +276,7 @@ TRADER_HOLDING_POLICIES: dict[str, HoldingPolicy] = {
         order_ttl_seconds=2700,
         target_profile="durable_trend",
         risk_uplift_multiplier=Decimal("1.20"),
+        first_take_profit_breakeven_progress=Decimal("0.90"),
     ),
     "donchian-breakout": HoldingPolicy(
         name="donchian_expansion",
@@ -288,6 +292,7 @@ TRADER_HOLDING_POLICIES: dict[str, HoldingPolicy] = {
         order_ttl_seconds=1800,
         target_profile="range_expansion",
         risk_uplift_multiplier=Decimal("1.12"),
+        first_take_profit_breakeven_progress=Decimal("0.75"),
     ),
     "ichimoku-cloud-pilot": HoldingPolicy(
         name="cloud_continuation",
@@ -423,6 +428,7 @@ TRADER_HOLDING_POLICIES: dict[str, HoldingPolicy] = {
         order_ttl_seconds=2700,
         target_profile="atr_trend",
         risk_uplift_multiplier=Decimal("1.22"),
+        first_take_profit_breakeven_progress=Decimal("0.90"),
     ),
 }
 

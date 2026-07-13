@@ -39,6 +39,12 @@ TRADER_RETIRED_FROM_MONTH = {
 }
 
 
+class UnknownTraderError(KeyError):
+    def __init__(self, trader_id: str) -> None:
+        self.trader_id = trader_id
+        super().__init__(f"Unknown trader id: {trader_id}")
+
+
 def _month_key(value: Optional[datetime] = None) -> str:
     current = value or datetime.now(timezone.utc)
     if current.tzinfo is None:
@@ -88,7 +94,7 @@ def _with_execution_profile(strategy: TraderStrategy) -> TraderStrategy:
             return candidate
         return candidate_with_audit(candidate, trader_id=strategy.profile.id)
 
-    strategy.evaluate = evaluate_with_execution_profile  # type: ignore[method-assign]
+    setattr(strategy, "evaluate", evaluate_with_execution_profile)
     return strategy
 
 
@@ -155,7 +161,7 @@ def list_scanner_traders(started_at: Optional[datetime] = None) -> List[TraderPr
 
 def get_strategy(trader_id: str) -> TraderStrategy:
     if trader_id not in TRADER_STRATEGIES:
-        raise KeyError(f"Unknown trader id: {trader_id}")
+        raise UnknownTraderError(trader_id)
     return TRADER_STRATEGIES[trader_id]
 
 

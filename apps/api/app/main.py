@@ -1826,6 +1826,43 @@ def enforce_pending_order_cancel_event(
     )
 
 
+def is_hard_invalidation_close(event: ManagementEvent, exposure: ManagedExposure) -> bool:
+    return (
+        exposure.kind == "position"
+        and (event.suggestedAction or "").upper() == "CLOSE_POSITION"
+        and event.metrics.get("hardInvalidation") is True
+    )
+
+
+def management_events_with_shock_priority(
+    deterministic_events: list[ManagementEvent],
+    shock_event: Optional[ManagementEvent],
+) -> list[ManagementEvent]:
+    if shock_event is None:
+        return deterministic_events
+    hard_events = [event for event in deterministic_events if event.metrics.get("hardInvalidation") is True]
+    return [*hard_events, shock_event]
+
+
+def enforce_hard_invalidation_close(
+    review: PositionManagementResult,
+    *,
+    event: ManagementEvent,
+    exposure: ManagedExposure,
+) -> PositionManagementResult:
+    if not is_hard_invalidation_close(event, exposure):
+        return review
+    return review.model_copy(
+        update={
+            "decision": "CLOSE_POSITION",
+            "actions": [ManagementAction(type="CLOSE_POSITION", reason=event.reason)],
+            "riskChange": "REDUCED",
+            "riskFlags": unique_strings([*review.riskFlags, "HARD_INVALIDATION_CLOSE_ENFORCED"]),
+            "translations": {},
+        }
+    )
+
+
 def structured_review_has_stale_current_price(
     structured_review: Optional[StructuredReview],
     rationale: Optional[str],
@@ -2076,7 +2113,11 @@ def apply_management_actions(
 
     for action in review.actions:
         action_type = action.type.upper()
-        if allowed_actions is not None and action_type not in allowed_actions:
+        hard_invalidation_action = (
+            action_type == "CLOSE_POSITION"
+            and is_hard_invalidation_close(event, exposure)
+        )
+        if allowed_actions is not None and action_type not in allowed_actions and not hard_invalidation_action:
             applied.append(
                 {
                     "type": action_type,
@@ -2253,20 +2294,19 @@ async def run_management_reviews(
     locale: str,
     result: Optional[PaperEngineResult],
 ) -> list[dict[str, Any]]:
-    if not settings.enable_position_management_ai:
-        return []
+    ai_management_enabled = bool(settings.enable_position_management_ai)
 
     strategy = get_strategy(trader_id)
     clean_provider = normalize_provider(
-        provider_name or settings.position_management_provider or settings.ai_provider or "mock"
+        (provider_name or settings.position_management_provider or settings.ai_provider or "mock")
+        if ai_management_enabled
+        else "mock"
     )
     review_locale = normalize_locale(locale)
     profile = trader_management_profile(trader_id)
     cooldown_seconds = max(int(settings.position_management_cooldown_seconds or 0), 0)
     urgent_cooldown_seconds = max(int(settings.position_management_urgent_cooldown_seconds or 0), 0)
     configured_max_reviews = max(0, int(settings.position_management_max_reviews_per_cycle or 0))
-    if configured_max_reviews <= 0:
-        return []
 
     all_orders = db.execute(
         select(PaperOrderRecord)
@@ -2311,13 +2351,16 @@ async def run_management_reviews(
     async def handle_event(event: ManagementEvent, exposure: ManagedExposure, *, force: bool = False) -> None:
         if len(review_records) >= max_reviews:
             return
+        hard_invalidation_close = is_hard_invalidation_close(event, exposure)
+        if not ai_management_enabled and not hard_invalidation_close:
+            return
         event_cooldown_seconds = management_review_cooldown_seconds(
             event,
             profile=profile,
             base_cooldown_seconds=cooldown_seconds,
             urgent_cooldown_seconds=urgent_cooldown_seconds,
         )
-        if not force and recent_management_review_exists(
+        if not force and not hard_invalidation_close and recent_management_review_exists(
             db,
             trader_id=trader_id,
             symbol=symbol,
@@ -2350,6 +2393,7 @@ async def run_management_reviews(
             review.sourceLocale = CANONICAL_AI_LOCALE
             review = refresh_stale_position_management_review(review, event=event, exposure=exposure)
             review = enforce_pending_order_cancel_event(review, event=event, exposure=exposure)
+            review = enforce_hard_invalidation_close(review, event=event, exposure=exposure)
             if event.eventType == PRICE_SHOCK_EVENT_TYPE:
                 review.nextReviewInSeconds = max(60, int(settings.price_shock_review_seconds or 120))
             async with PAPER_EXECUTION_LOCK:
@@ -2404,19 +2448,46 @@ async def run_management_reviews(
                 sourceLocale=CANONICAL_AI_LOCALE,
                 fallback=False,
             )
-            record = create_position_management_review(
-                db,
-                symbol=symbol,
-                trader_id=trader_id,
-                event=event,
-                exposure=exposure,
-                review=review,
-                status="error",
-                error_message=sanitize_error_message(str(exc)),
-                applied_actions=[],
-                notify=False,
-            )
-            db.commit()
+            review = enforce_hard_invalidation_close(review, event=event, exposure=exposure)
+            if hard_invalidation_close:
+                async with PAPER_EXECUTION_LOCK:
+                    applied_actions = apply_management_actions(
+                        db,
+                        trader_id=trader_id,
+                        symbol=symbol,
+                        event=event,
+                        exposure=exposure,
+                        review=review,
+                        snapshot=snapshot,
+                        result=result,
+                    )
+                    record = create_position_management_review(
+                        db,
+                        symbol=symbol,
+                        trader_id=trader_id,
+                        event=event,
+                        exposure=exposure,
+                        review=review,
+                        status="error",
+                        error_message=sanitize_error_message(str(exc)),
+                        applied_actions=applied_actions,
+                        notify=False,
+                    )
+                    db.commit()
+            else:
+                record = create_position_management_review(
+                    db,
+                    symbol=symbol,
+                    trader_id=trader_id,
+                    event=event,
+                    exposure=exposure,
+                    review=review,
+                    status="error",
+                    error_message=sanitize_error_message(str(exc)),
+                    applied_actions=[],
+                    notify=False,
+                )
+                db.commit()
         if record.status == "ok":
             await fanout_ai_translations(
                 db,
@@ -2531,7 +2602,8 @@ async def run_management_reviews(
             )
             else None
         )
-        events = [shock_event] if shock_event else order_management_events(trader_id, order, snapshot)
+        deterministic_events = order_management_events(trader_id, order, snapshot)
+        events = management_events_with_shock_priority(deterministic_events, shock_event)
         await handle_exposure_events(
             events=events,
             exposure=exposure,
@@ -2567,7 +2639,8 @@ async def run_management_reviews(
                 )
                 else None
             )
-            events = [shock_event] if shock_event else position_management_events(trader_id, position, snapshot)
+            deterministic_events = position_management_events(trader_id, position, snapshot)
+            events = management_events_with_shock_priority(deterministic_events, shock_event)
             await handle_exposure_events(
                 events=events,
                 exposure=exposure,

@@ -1,11 +1,71 @@
+from math import isfinite
 from typing import Any, Dict, Optional
+
+
+def _positive_number(value: Any) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if isfinite(number) and number > 0 else None
+
+
+def _finite_number(value: Any, default: float = 0.0) -> float:
+    if isinstance(value, bool):
+        return default
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if isfinite(number) else default
+
+
+def _finite_number_or_none(value: Any) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if isfinite(number) else None
+
+
+def _valid_timestamp(row: Dict[str, Any]) -> bool:
+    return _positive_number(row.get("timestamp", row.get("time"))) is not None
+
+
+def _valid_open_interest_rows(rows: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    return [
+        row
+        for row in rows
+        if _valid_timestamp(row) and _positive_number(row.get("sumOpenInterest")) is not None
+    ]
+
+
+def _valid_taker_rows(rows: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    valid: list[Dict[str, Any]] = []
+    for row in rows:
+        ratio = _positive_number(row.get("buySellRatio"))
+        buy = _positive_number(row.get("buyVol"))
+        sell = _positive_number(row.get("sellVol"))
+        expected_ratio = buy / sell if buy is not None and sell is not None else None
+        ratio_consistent = (
+            ratio is not None
+            and expected_ratio is not None
+            and abs(ratio - expected_ratio) <= max(0.05, expected_ratio * 0.10)
+        )
+        if _valid_timestamp(row) and ratio_consistent:
+            valid.append(row)
+    return valid
 
 
 def latest_number(rows: list[Dict[str, Any]], field: str, default: float = 0.0) -> float:
     if not rows:
         return default
     try:
-        return float(rows[-1].get(field, default))
+        return _finite_number(rows[-1].get(field, default), default)
     except (TypeError, ValueError):
         return default
 
@@ -50,47 +110,80 @@ def derivative_context(
     top_position_ratio: list[Dict[str, Any]],
     taker_buy_sell: list[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    funding_rate = float(premium_index["lastFundingRate"])
-    funding_values = [abs(float(row.get("fundingRate", 0.0))) for row in funding_history]
+    valid_oi_history = _valid_open_interest_rows(open_interest_history)
+    valid_taker_history = _valid_taker_rows(taker_buy_sell)
+    raw_funding_rate = premium_index.get("lastFundingRate")
+    parsed_funding_rate = _finite_number_or_none(raw_funding_rate)
+    funding_rate = parsed_funding_rate if parsed_funding_rate is not None else 0.0
+    funding_values = [
+        abs(value)
+        for row in funding_history
+        if (value := _finite_number_or_none(row.get("fundingRate"))) is not None
+    ]
     funding_abs_percentile = percentile_rank(funding_values, abs(funding_rate))
-    taker_ratio = latest_number(taker_buy_sell, "buySellRatio", 1.0)
-    taker_buy_volume = latest_number(taker_buy_sell, "buyVol")
-    taker_sell_volume = latest_number(taker_buy_sell, "sellVol")
-    oi_5m = change_percent(open_interest_history, "sumOpenInterest", 1)
-    oi_30m = change_percent(open_interest_history, "sumOpenInterest", 6)
+    funding_available = (
+        _positive_number(premium_index.get("markPrice")) is not None
+        and _positive_number(premium_index.get("indexPrice")) is not None
+        and _positive_number(premium_index.get("nextFundingTime")) is not None
+        and parsed_funding_rate is not None
+    )
+    taker_ratio = latest_number(valid_taker_history, "buySellRatio", 1.0)
+    taker_buy_volume = latest_number(valid_taker_history, "buyVol")
+    taker_sell_volume = latest_number(valid_taker_history, "sellVol")
+    current_open_interest_available = (
+        _positive_number(open_interest.get("openInterest")) is not None
+        and _valid_timestamp(open_interest)
+    )
+    current_open_interest = _positive_number(open_interest.get("openInterest"))
+    current_open_interest_time = _positive_number(open_interest.get("timestamp", open_interest.get("time")))
+    mark_price = _positive_number(premium_index.get("markPrice")) or 0.0
+    index_price = _positive_number(premium_index.get("indexPrice")) or 0.0
+    next_funding_time = _positive_number(premium_index.get("nextFundingTime")) or 0.0
+    open_interest_available = current_open_interest_available or bool(valid_oi_history)
+    taker_flow_available = bool(valid_taker_history)
+    oi_5m = change_percent(valid_oi_history, "sumOpenInterest", 1)
+    oi_30m = change_percent(valid_oi_history, "sumOpenInterest", 6)
     global_ratio = ratio_stats(global_long_short)
     top_account = ratio_stats(top_account_ratio)
     top_position = ratio_stats(top_position_ratio)
     long_crowded = (
-        funding_rate > 0
+        taker_flow_available
+        and open_interest_available
+        and funding_rate > 0
         and (global_ratio["longShortRatio"] >= 1.08 or top_position["longShortRatio"] >= 1.12)
         and taker_ratio >= 1.05
     )
     short_crowded = (
-        funding_rate < 0
+        taker_flow_available
+        and open_interest_available
+        and funding_rate < 0
         and (global_ratio["longShortRatio"] <= 0.92 or top_position["longShortRatio"] <= 0.88)
         and taker_ratio <= 0.95
     )
     return {
-        "openInterest": open_interest["openInterest"],
-        "openInterestTime": open_interest["time"],
+        "openInterest": current_open_interest or latest_number(valid_oi_history, "sumOpenInterest"),
+        "openInterestTime": current_open_interest_time or 0.0,
         "openInterestStats": {
-            "historyAvailable": bool(open_interest_history),
-            "sumOpenInterest": latest_number(open_interest_history, "sumOpenInterest", open_interest["openInterest"]),
-            "sumOpenInterestValue": latest_number(open_interest_history, "sumOpenInterestValue"),
+            "available": open_interest_available,
+            "historyAvailable": bool(valid_oi_history),
+            "changeAvailable5m": oi_5m is not None,
+            "changeAvailable30m": oi_30m is not None,
+            "sumOpenInterest": latest_number(valid_oi_history, "sumOpenInterest", current_open_interest or 0.0),
+            "sumOpenInterestValue": latest_number(valid_oi_history, "sumOpenInterestValue"),
             "changePercent5m": oi_5m,
             "changePercent30m": oi_30m,
         },
-        "markPrice": premium_index["markPrice"],
-        "indexPrice": premium_index["indexPrice"],
+        "markPrice": mark_price,
+        "indexPrice": index_price,
         "premiumPercent": (
-            (premium_index["markPrice"] - premium_index["indexPrice"]) / premium_index["indexPrice"] * 100
-            if premium_index["indexPrice"]
+            (mark_price - index_price) / index_price * 100
+            if index_price
             else 0.0
         ),
         "fundingRate": funding_rate,
-        "nextFundingTime": premium_index["nextFundingTime"],
+        "nextFundingTime": next_funding_time,
         "fundingStats": {
+            "available": funding_available,
             "historyAvailable": bool(funding_history),
             "absPercentile": funding_abs_percentile,
             "latest": funding_rate,
@@ -102,10 +195,11 @@ def derivative_context(
             "topPosition": top_position,
         },
         "takerBuySell": {
+            "available": taker_flow_available,
             "buySellRatio": taker_ratio,
             "buyVol": taker_buy_volume,
             "sellVol": taker_sell_volume,
-            "buyShare": taker_ratio / (1 + taker_ratio) if taker_ratio > 0 else None,
+            "buyShare": taker_ratio / (1 + taker_ratio) if taker_flow_available else None,
         },
         "crowding": {
             "longCrowded": long_crowded,

@@ -206,15 +206,22 @@ def donchian_breakout_snapshot(*, side: str = "LONG") -> dict:
 
 
 def test_donchian_boundary_excludes_hourly_candle_that_closes_with_signal():
+    base_time = 1_700_000_000_000
+    interval_ms = 3_600_000
     candles = [
-        SimpleNamespace(openTime=index, closeTime=index + 1, high=100.0 + index, low=50.0 - index)
+        SimpleNamespace(
+            openTime=base_time + index * interval_ms,
+            closeTime=base_time + (index + 1) * interval_ms - 1,
+            high=100.0 + index,
+            low=50.0 - index,
+        )
         for index in range(21)
     ]
 
-    boundary = prior_completed_range(candles, signal_close_time=21, lookback=20)
+    boundary = prior_completed_range(candles, signal_close_time=candles[-1].closeTime, lookback=20)
 
     assert boundary is not None
-    assert boundary["lastCloseTime"] == 20
+    assert boundary["lastCloseTime"] == candles[-2].closeTime
     assert boundary["high"] == 119.0
     assert boundary["low"] == 31.0
 
@@ -349,7 +356,25 @@ def session_orb_breakout_snapshot() -> dict:
             "rsi14": 61.0,
             "atr14": 430.0,
             "volumeZscore": 0.9,
+            "completedVolumeZscore": 0.9,
+            "priorCompletedRange": {
+                "high": 69000.0,
+                "low": 68000.0,
+                "candles": 4,
+                "firstOpenTime": 1767225600000,
+                "lastCloseTime": 1767229199999,
+            },
             "latestCandle": {
+                "openTime": 1767229200000,
+                "open": 68420.0,
+                "high": 69300.0,
+                "low": 68260.0,
+                "close": price,
+                "volume": 2800.0,
+                "takerBuyBaseVolume": 0.0,
+            },
+            "completedCandle": {
+                "openTime": 1767229200000,
                 "open": 68420.0,
                 "high": 69300.0,
                 "low": 68260.0,
@@ -400,7 +425,17 @@ def compression_breakout_snapshot() -> dict:
             "rsi14": 63.0,
             "atr14": 390.0,
             "volumeZscore": 1.05,
+            "completedVolumeZscore": 1.05,
+            "priorCompletedRange20": {"high": 69000.0, "low": 67400.0, "candles": 20},
             "latestCandle": {
+                "open": 68320.0,
+                "high": 69200.0,
+                "low": 68180.0,
+                "close": price,
+                "volume": 2600.0,
+                "takerBuyBaseVolume": 0.0,
+            },
+            "completedCandle": {
                 "open": 68320.0,
                 "high": 69200.0,
                 "low": 68180.0,
@@ -496,13 +531,13 @@ def test_derivative_context_and_regime_contract():
             "nextFundingTime": 1770003600000,
         },
         open_interest_history=[
-            {"sumOpenInterest": 120000.0, "sumOpenInterestValue": 8000000000.0},
-            {"sumOpenInterest": 121000.0, "sumOpenInterestValue": 8100000000.0},
-            {"sumOpenInterest": 123000.0, "sumOpenInterestValue": 8300000000.0},
-            {"sumOpenInterest": 124500.0, "sumOpenInterestValue": 8400000000.0},
-            {"sumOpenInterest": 125000.0, "sumOpenInterestValue": 8450000000.0},
-            {"sumOpenInterest": 126000.0, "sumOpenInterestValue": 8500000000.0},
-            {"sumOpenInterest": 127000.0, "sumOpenInterestValue": 8550000000.0},
+            {"sumOpenInterest": 120000.0, "sumOpenInterestValue": 8000000000.0, "timestamp": 1},
+            {"sumOpenInterest": 121000.0, "sumOpenInterestValue": 8100000000.0, "timestamp": 2},
+            {"sumOpenInterest": 123000.0, "sumOpenInterestValue": 8300000000.0, "timestamp": 3},
+            {"sumOpenInterest": 124500.0, "sumOpenInterestValue": 8400000000.0, "timestamp": 4},
+            {"sumOpenInterest": 125000.0, "sumOpenInterestValue": 8450000000.0, "timestamp": 5},
+            {"sumOpenInterest": 126000.0, "sumOpenInterestValue": 8500000000.0, "timestamp": 6},
+            {"sumOpenInterest": 127000.0, "sumOpenInterestValue": 8550000000.0, "timestamp": 7},
         ],
         funding_history=[
             {"fundingRate": 0.00001},
@@ -512,7 +547,7 @@ def test_derivative_context_and_regime_contract():
         global_long_short=[{"longAccount": 0.52, "shortAccount": 0.48, "longShortRatio": 1.08}],
         top_account_ratio=[{"longAccount": 0.53, "shortAccount": 0.47, "longShortRatio": 1.12}],
         top_position_ratio=[{"longAccount": 0.56, "shortAccount": 0.44, "longShortRatio": 1.27}],
-        taker_buy_sell=[{"buySellRatio": 1.2, "buyVol": 1200.0, "sellVol": 1000.0}],
+        taker_buy_sell=[{"buySellRatio": 1.2, "buyVol": 1200.0, "sellVol": 1000.0, "timestamp": 7}],
     )
 
     assert derivatives["openInterestStats"]["historyAvailable"] is True
@@ -574,6 +609,7 @@ def test_session_orb_rejects_wick_only_range_probe_even_with_short_term_volume()
             "low": 69210.0,
             "close": 69220.0,
             "latestCandle": {
+                "openTime": 1767229200000,
                 "open": 69214.0,
                 "high": 70050.0,
                 "low": 69210.0,
@@ -581,6 +617,16 @@ def test_session_orb_rejects_wick_only_range_probe_even_with_short_term_volume()
                 "volume": 2600.0,
                 "takerBuyBaseVolume": 0.0,
             },
+            "completedCandle": {
+                "openTime": 1767229200000,
+                "open": 69214.0,
+                "high": 70050.0,
+                "low": 69210.0,
+                "close": 69220.0,
+                "volume": 2600.0,
+                "takerBuyBaseVolume": 0.0,
+            },
+            "completedVolumeZscore": -0.2,
         }
     )
 
@@ -600,7 +646,7 @@ def test_momentum_ignition_uses_volatility_compression_without_taker_or_oi():
     assert candidate.created is True
     assert candidate.side == "LONG"
     assert candidate.setupType == "VOLATILITY_COMPRESSION_IGNITION_LONG"
-    assert candidate.audit["reasonCode"] == "volatility_compression_ignition"
+    assert candidate.audit["reasonCode"] == "completed_volatility_compression_ignition"
     assert candidate.audit["gateScores"]["compressionReady"] == pytest.approx(1.0)
     assert candidate.audit["gateScores"]["takerBuyShare"] == pytest.approx(0.5)
     assert candidate.audit["gateScores"]["oi30m"] == pytest.approx(0.0)
