@@ -1151,6 +1151,9 @@ def compact_management_entry_thesis(exposure: ManagedExposure) -> dict[str, Any]
         ("entryIndex", "entryIndex"),
         ("entryWeight", "entryWeight"),
         ("effectiveEntryWeight", "effectiveEntryWeight"),
+        ("accountMarginPercent", "accountMarginPercent"),
+        ("minimumEntryMarginPercent", "minimumEntryMarginPercent"),
+        ("initialQuantity", "initialQuantity"),
     ):
         value = source.get(source_key)
         if value is not None:
@@ -1456,8 +1459,8 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         "the added order does not turn a winner into an overleveraged chase, and accountState has spare cash. "
         "Use strategyManagementPolicy to match the trader's style. You should actively intervene when the event shows thesis decay, "
         "profit protection, stale pending entries, or volatility/funding/orderflow regime change. "
-        "The nested holdingPolicy is mandatory: do not move stops to breakeven, take partial profit, or trail earlier than that policy "
-        "unless the event is a hard invalidation or fast-market risk event. Slow trend/channel/pullback traders should be allowed to hold "
+        "The nested holdingPolicy is mandatory: do not move stops to breakeven, take partial profit, reduce risk/size on a HOLD event, or trail earlier than that policy "
+        "unless the event itself confirms hard invalidation, fast-market risk, or adverse progress beyond early_failure_adverse_r. Slow trend/channel/pullback traders should be allowed to hold "
         "through normal pullbacks; scalp/orderflow traders can protect faster. "
         "holdingPolicy.early_failure_adverse_r is a review-warning signal only, not a standalone close rule; prefer the original hard stop unless "
         "current market evidence clearly invalidates the thesis or your action explicitly closes/reduces with a concrete reason. "

@@ -1721,6 +1721,9 @@ def test_position_management_prompt_sends_slim_exposure_and_entry_thesis_context
                 "plannedEntryPrice": 60347.5,
                 "plannedStopLoss": 61337.8,
                 "riskPercent": 0.8,
+                "accountMarginPercent": 13.95,
+                "minimumEntryMarginPercent": 15,
+                "initialQuantity": 0.107,
                 "plannedMargin": 1200.0,
                 "notionalExposurePercent": 41.2,
                 "orderIntent": {"type": "scale_limit", "verbose": "not needed now"},
@@ -1750,7 +1753,9 @@ def test_position_management_prompt_sends_slim_exposure_and_entry_thesis_context
         locale="en",
     )
 
-    data = prompt_payload(position_management_review_prompt(payload))
+    prompt = position_management_review_prompt(payload)
+    contract, _ = prompt.split("Payload:", 1)
+    data = prompt_payload(prompt)
     prompt_json = json.dumps(data, ensure_ascii=False)
 
     assert "entryThesis" in data
@@ -1759,6 +1764,10 @@ def test_position_management_prompt_sends_slim_exposure_and_entry_thesis_context
     assert data["entryThesis"]["takeProfits"][0]["status"] == "filled"
     assert data["entryThesis"]["managementPlan"]["allowedActions"] == ["HOLD", "MOVE_STOP", "CLOSE_POSITION"]
     assert data["entryThesis"]["managementPlan"]["holdingHorizon"] == "POSITION"
+    assert data["entryThesis"]["accountMarginPercent"] == 13.95
+    assert data["entryThesis"]["minimumEntryMarginPercent"] == 15
+    assert data["entryThesis"]["initialQuantity"] == 0.107
+    assert "reduce risk/size on a HOLD event" in contract
     assert data["exposure"]["entryPrice"] == 60347.5
     assert "payload" not in data["exposure"]
     assert previous_entry_review not in prompt_json

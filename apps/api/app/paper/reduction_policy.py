@@ -1,12 +1,14 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Final
+from typing import Any, Final
 
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.db import PaperPositionRecord, TradeEventRecord, utc_now
+from app.paper.holding_policy import trader_holding_policy
+from app.paper.sizing import SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT
 from app.repositories import from_json
 
 
@@ -58,6 +60,9 @@ def build_reduction_decision(
     review_decision: str,
     reason: str,
     account_equity: DecimalLike | None = None,
+    event_suggested_action: str | None = None,
+    event_severity: str | None = None,
+    event_metrics: dict[str, Any] | None = None,
     now: datetime | None = None,
 ) -> ReductionDecision:
     clean_action = action_type.upper()
@@ -69,6 +74,17 @@ def build_reduction_decision(
         return ReductionDecision(False, None, "Skipped size reduction because quantity fraction was zero.")
     if fraction >= Decimal("0.999"):
         return ReductionDecision(True, Decimal("1"), reason)
+
+    premature_reason = _premature_small_deployment_reduction_reason(
+        db,
+        position=position,
+        account_equity=account_equity,
+        event_suggested_action=event_suggested_action,
+        event_severity=event_severity,
+        event_metrics=event_metrics,
+    )
+    if premature_reason is not None:
+        return ReductionDecision(False, None, premature_reason)
 
     checked_at = now or utc_now()
     recent_event = _latest_protective_size_event(db, position)
@@ -110,6 +126,66 @@ def build_reduction_decision(
         )
 
     return ReductionDecision(True, fraction, reason)
+
+
+def _premature_small_deployment_reduction_reason(
+    db: Session,
+    *,
+    position: PaperPositionRecord,
+    account_equity: DecimalLike | None,
+    event_suggested_action: str | None,
+    event_severity: str | None,
+    event_metrics: dict[str, Any] | None,
+) -> str | None:
+    if str(event_suggested_action or "").upper() not in {"HOLD", "LET_PROFIT_RUN", "NEEDS_MORE_DATA"}:
+        return None
+    metrics = event_metrics if isinstance(event_metrics, dict) else {}
+    if str(event_severity or "").upper() == "HIGH" or metrics.get("hardInvalidation") or metrics.get("fastMarket"):
+        return None
+    initial_margin_percent = _initial_account_margin_percent(db, position, account_equity)
+    if initial_margin_percent is None or initial_margin_percent > SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT:
+        return None
+
+    policy = trader_holding_policy(position.trader_id or "")
+    progress_r = _optional_decimal(metrics.get("progressR"))
+    target_progress = _optional_decimal(metrics.get("targetProgress"))
+    profit_threshold = _optional_decimal(metrics.get("profitProtectTargetProgress"))
+    if profit_threshold is None:
+        profit_threshold = policy.profit_protect_target_progress
+    if target_progress is not None and target_progress >= profit_threshold:
+        return None
+    if progress_r is not None and progress_r <= -policy.early_failure_adverse_r:
+        return None
+
+    return (
+        "Skipped early size reduction because the management event called for HOLD, "
+        f"the position began as a small initial deployment ({initial_margin_percent:.2f}% account margin), "
+        "and it has not reached the trader's profit-protection or adverse-risk threshold."
+    )
+
+
+def _initial_account_margin_percent(
+    db: Session,
+    position: PaperPositionRecord,
+    account_equity: DecimalLike | None,
+) -> Decimal | None:
+    if account_equity is None or position.quantity <= 0:
+        return None
+    equity = _optional_decimal(account_equity)
+    if equity is None or equity <= 0:
+        return None
+    initial_margin = position.margin * _initial_quantity(db, position) / position.quantity
+    return initial_margin / equity * Decimal("100")
+
+
+def _optional_decimal(value: DecimalLike | None) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        decimal = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    return decimal if decimal.is_finite() else None
 
 
 def _below_account_margin_floor(

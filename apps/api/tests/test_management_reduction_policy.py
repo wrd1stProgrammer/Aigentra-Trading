@@ -84,6 +84,97 @@ def test_explicit_small_reduction_fraction_is_not_silently_raised(temp_db):
         assert decision.quantity_fraction == Decimal("0.01")
 
 
+def test_vwap_small_entry_rejects_premature_reduce_risk_from_hold_heartbeat(temp_db):
+    from app.main import apply_management_actions
+
+    with session_scope() as db:
+        upsert_risk_settings(db, "vwap-reclaimer", "BTCUSDT", max_leverage=7)
+        place_paper_order(
+            db,
+            trader_id="vwap-reclaimer",
+            symbol="BTCUSDT",
+            side="short",
+            order_type="limit",
+            limit_price=Decimal("62599.1"),
+            quantity=Decimal("0.107"),
+            leverage=5,
+            take_profit_price=Decimal("62204.4"),
+            stop_loss_price=Decimal("62848.4"),
+            payload={"initialQuantity": 0.107},
+        )
+        process_candle(
+            db,
+            "vwap-reclaimer",
+            "BTCUSDT",
+            {"open": 62599.1, "high": 62600, "low": 62590, "close": 62599.1},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        original_quantity = position.quantity
+
+        applied = apply_management_actions(
+            db,
+            trader_id="vwap-reclaimer",
+            symbol="BTCUSDT",
+            event=ManagementEvent(
+                eventType="vwap_reclaimer_position_heartbeat",
+                phase="OPEN_POSITION",
+                severity="MEDIUM",
+                reason="Protect fair-value reclaim trades when price stalls around the mean.",
+                suggestedAction="HOLD",
+                metrics={
+                    "progressR": 0.1809,
+                    "targetProgress": 0.1143,
+                    "profitProtectTargetProgress": 0.76,
+                },
+            ),
+            exposure=ManagedExposure(
+                kind="position",
+                id=position.id,
+                status="open",
+                side="SHORT",
+                quantity=float(position.quantity),
+                entryPrice=float(position.entry_price),
+                stopLoss=float(position.stop_loss_price),
+                takeProfit=float(position.take_profit_price),
+                leverage=float(position.leverage),
+            ),
+            review=PositionManagementResult(
+                decision="REDUCE_RISK",
+                confidence=68,
+                riskLevel="MEDIUM",
+                actions=[
+                    ManagementAction(
+                        type="REDUCE_RISK",
+                        quantityFraction=0.25,
+                        reason="Trim because the fade is only early in the move.",
+                    )
+                ],
+                riskChange="SLIGHTLY LOWER EXPOSURE",
+                nextReviewInSeconds=900,
+                rationale="The position is ahead, but progress remains early.",
+                counterThesis="A completed close above fair value invalidates the short.",
+            ),
+            snapshot={
+                "price": 62554,
+                "timeframes": {"1m": {"open": 62554, "high": 62554, "low": 62554, "close": 62554}},
+            },
+            result=PaperEngineResult(),
+        )
+        db.refresh(position)
+        reductions = db.execute(
+            select(TradeEventRecord).where(
+                TradeEventRecord.position_id == position.id,
+                TradeEventRecord.event_type == "position_reduced_by_ai",
+            )
+        ).scalars().all()
+
+        assert applied[0]["applied"] is False
+        assert applied[0]["guarded"] is True
+        assert "small initial deployment" in applied[0]["reason"]
+        assert position.quantity == original_quantity
+        assert reductions == []
+
+
 @pytest.mark.parametrize("reason", ["Make a small risk reduction.", "Rally failed.", "Falling momentum."])
 def test_full_close_intent_does_not_match_embedded_all_substrings(temp_db, reason):
     with session_scope() as db:

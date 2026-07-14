@@ -2182,6 +2182,9 @@ def apply_management_actions(
                     review_decision=review.decision,
                     reason=reason,
                     account_equity=state.equity,
+                    event_suggested_action=event.suggestedAction,
+                    event_severity=event.severity,
+                    event_metrics=event.metrics,
                 )
                 reason = reduction.reason
                 if not reduction.should_apply or reduction.quantity_fraction is None:
