@@ -12,6 +12,7 @@ from app.locales import AI_TRANSLATION_SOURCE_TRADER_STATUS_FEED
 from app.repositories import create_provider_call_log, from_json, sanitize_error_message, serialize_record, to_json
 from app.subscriber_status_feed_alerts import notify_subscribers_for_status_feed
 from app.trader_status_feed.constants import (
+    ACTIVE_HEARTBEAT_EVENT_TYPES,
     QUALIFYING_STATUS_STATES,
     SCHEDULED_REFRESH_STATUS_STATES,
     STATUS_FEED_STATE_NO_SETUP,
@@ -34,7 +35,6 @@ from app.traders.registry import get_strategy
 
 
 REVIEW_REJECT_REPEAT_WINDOW_SECONDS: Final = 21_600
-ACTIVE_HEARTBEAT_EVENT_TYPES: Final = frozenset({"pending_entry_active", "position_entry_active"})
 TRADE_EVENT_STATUS_STATES: Final = {
     "order_filled": STATUS_FEED_STATE_POSITION_ENTRY,
     "position_closed": STATUS_FEED_STATE_POSITION_CLOSED,
@@ -48,6 +48,7 @@ TRADE_EVENT_STATUS_STATES: Final = {
     "stop_updated_by_ai": STATUS_FEED_STATE_POSITION_ENTRY,
     "stop_moved_to_breakeven": STATUS_FEED_STATE_POSITION_ENTRY,
 }
+ORDER_CLEANUP_EVENT_TYPES: Final = frozenset({"order_canceled_by_ai", "order_expired_by_ai"})
 TRADE_EVENT_FEED_PRIORITY: Final = {
     "position_closed": 100,
     "take_partial_profit": 95,
@@ -384,6 +385,18 @@ def _coalesced_trade_feed_events(
         episode = f"position:{event.position_id}" if event.position_id is not None else "orders"
         key = (event.trader_id or "", event.symbol or "", episode)
         groups.setdefault(key, []).append(event)
+    for trader_id, symbol in {(event.trader_id or "", event.symbol or "") for event in filtered}:
+        order_key = (trader_id, symbol, "orders")
+        order_events = groups.get(order_key)
+        if not order_events or any((event.event_type or "") not in ORDER_CLEANUP_EVENT_TYPES for event in order_events):
+            continue
+        position_keys = [
+            key
+            for key in groups
+            if key[:2] == (trader_id, symbol) and key[2].startswith("position:")
+        ]
+        if len(position_keys) == 1:
+            groups[position_keys[0]].extend(groups.pop(order_key))
     coalesced: list[tuple[TradeEventRecord, list[TradeEventRecord]]] = []
     for group in groups.values():
         primary = max(group, key=lambda item: (TRADE_EVENT_FEED_PRIORITY.get(item.event_type or "", 0), -(item.id or 0)))

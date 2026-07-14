@@ -4,7 +4,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.db import TraderStatusFeedRecord
-from app.trader_status_feed.constants import SCHEDULED_REFRESH_STATUS_STATES
+from app.trader_status_feed.constants import (
+    ACTIVE_HEARTBEAT_EVENT_TYPES,
+    SCHEDULED_REFRESH_STATUS_STATES,
+    SHORT_STATUS_FEED_TRANSITION_SECONDS,
+)
 from app.trader_status_feed.context import aware_utc
 from app.trader_status_feed.models import TraderStatusFeedGenerator
 from app.trader_status_feed.policy import (
@@ -37,6 +41,12 @@ async def regenerate_due_status_feeds(
         if candidate is None:
             continue
         if latest is None or candidate.get("stateKey") != latest.state_key:
+            if (
+                latest is not None
+                and candidate.get("eventType") in ACTIVE_HEARTBEAT_EVENT_TYPES
+                and (generated_at - aware_utc(latest.created_at)).total_seconds() < SHORT_STATUS_FEED_TRANSITION_SECONDS
+            ):
+                continue
             generated.append(
                 await create_status_feed_for_event(
                     db,

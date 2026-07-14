@@ -155,6 +155,63 @@ def test_status_feed_regenerates_when_current_state_changes(temp_db):
         assert records[1].id == first.id
 
 
+def test_active_state_feed_waits_for_short_transition_window(temp_db):
+    settings = Settings(openai_api_key="test-key", ai_translation_enabled=False)
+    generator = FakeStatusFeedGenerator()
+    base_time = datetime(2026, 7, 14, 12, 47, tzinfo=timezone.utc)
+
+    with session_scope() as db:
+        first = asyncio.run(
+            create_status_feed_for_event(
+                db,
+                settings=settings,
+                trader_id="vwap-reclaimer",
+                symbol="BTCUSDT",
+                state_key=STATUS_FEED_STATE_PENDING_ENTRY,
+                event_type="pending_entry_created",
+                source_type="trade_plan",
+                source_id=1133,
+                trigger_payload={"order": "created"},
+                generator=generator,
+                now=base_time,
+            )
+        )
+        position = PaperPositionRecord(
+            trader_id="vwap-reclaimer",
+            symbol="BTCUSDT",
+            status="open",
+            side="long",
+            quantity=0.151,
+            entry_price=63528.6,
+            leverage=5,
+            notional=9592.8186,
+            margin=1918.56372,
+            entry_fee=1.91856372,
+            take_profit_price=63983.9,
+            stop_loss_price=63088.3,
+            opened_at=base_time + timedelta(seconds=5),
+            created_at=base_time + timedelta(seconds=5),
+            updated_at=base_time + timedelta(seconds=5),
+        )
+        db.add(position)
+        db.flush()
+
+        due = asyncio.run(
+            regenerate_due_status_feeds(
+                db,
+                settings=settings,
+                symbol="BTCUSDT",
+                trader_ids=["vwap-reclaimer"],
+                generator=generator,
+                now=base_time + timedelta(minutes=2),
+            )
+        )
+
+        assert due == []
+        assert list_status_feed_records(db, symbol="BTCUSDT", trader_id="vwap-reclaimer", limit=10) == [first]
+        assert len(generator.calls) == 1
+
+
 def test_due_live_position_skips_unchanged_facts_then_emits_material_stop_change(temp_db):
     settings = Settings(openai_api_key="test-key", ai_translation_enabled=False)
     generator = FakeStatusFeedGenerator()

@@ -480,6 +480,47 @@ def test_compound_management_events_coalesce_into_one_material_feed(temp_db):
         assert raw["request"]["trigger"]["relatedEventTypes"] == ["stop_moved_to_breakeven"]
 
 
+def test_residual_order_cleanup_coalesces_with_position_management_event(temp_db):
+    settings = Settings(openai_api_key="", ai_translation_enabled=False)
+    generator = FakeStatusFeedGenerator()
+
+    with session_scope() as db:
+        partial = TradeEventRecord(
+            trader_id="vwap-reclaimer",
+            symbol="BTCUSDT",
+            status="recorded",
+            event_type="position_reduced_by_ai",
+            position_id=803,
+            price=Decimal("63911.5"),
+            quantity=Decimal("0.0604"),
+        )
+        canceled_retest = TradeEventRecord(
+            trader_id="vwap-reclaimer",
+            symbol="BTCUSDT",
+            status="recorded",
+            event_type="order_canceled_by_ai",
+            order_id=1748,
+            price=Decimal("63516.5"),
+            quantity=Decimal("0.01"),
+        )
+        db.add_all([partial, canceled_retest])
+        db.flush()
+
+        records = asyncio.run(
+            create_status_feeds_for_trade_events(
+                db,
+                settings=settings,
+                events=[partial, canceled_retest],
+                generator=generator,
+            )
+        )
+        raw = json.loads(records[0].raw_json)
+
+        assert len(records) == 1
+        assert records[0].event_type == "position_reduced_by_ai"
+        assert raw["request"]["trigger"]["relatedEventTypes"] == ["order_canceled_by_ai"]
+
+
 def test_close_feed_suppresses_cleanup_cancel_feed_in_same_batch(temp_db):
     settings = Settings(openai_api_key="", ai_translation_enabled=False)
     generator = FakeStatusFeedGenerator()
