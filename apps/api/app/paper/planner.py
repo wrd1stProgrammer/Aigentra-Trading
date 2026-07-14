@@ -148,8 +148,7 @@ def create_paper_orders_from_plan(
     is_donchian = trader_id == "donchian-breakout" and str(candidate.setupType or "").startswith("DONCHIAN_")
     if plan.status != "PAPER_TRADING_PENDING" or not plan.side or not plan.entries or plan.stopLoss is None:
         reasons = ["Trade plan is not orderable."]
-        if is_donchian:
-            mark_order_creation_skipped(db, trade_plan_id, reasons)
+        mark_order_creation_skipped(db, trade_plan_id, reasons)
         return {"created": [], "skipped": reasons}
 
     if trader_id == "funding-contrarian":
@@ -171,9 +170,11 @@ def create_paper_orders_from_plan(
             .limit(1)
         ).scalar_one_or_none()
         if prior_attempt is not None:
+            reasons = ["Funding Contrarian already attempted this funding interval."]
+            mark_order_creation_skipped(db, trade_plan_id, reasons)
             return {
                 "created": [],
-                "skipped": ["Funding Contrarian already attempted this funding interval."],
+                "skipped": reasons,
                 "fundingInterval": funding_bucket.isoformat(),
             }
 
@@ -181,8 +182,7 @@ def create_paper_orders_from_plan(
     state = lock_trader_state(db, trader_id, risk_settings.initial_equity)
     if list_active_paper_exposure(db, trader_id, symbol)["hasExposure"]:
         reasons = ["Trader already has active exposure for this symbol."]
-        if is_donchian:
-            mark_order_creation_skipped(db, trade_plan_id, reasons)
+        mark_order_creation_skipped(db, trade_plan_id, reasons)
         return {"created": [], "skipped": reasons}
     side = plan.side.lower()
     stop_loss = Decimal(str(plan.stopLoss))
@@ -190,8 +190,7 @@ def create_paper_orders_from_plan(
     planned_risk_percent = min(Decimal(str(plan.riskPercent or candidate.riskPercent or 0)), candidate_risk_percent)
     if planned_risk_percent <= 0:
         reasons = ["Risk percent is not positive."]
-        if is_donchian:
-            mark_order_creation_skipped(db, trade_plan_id, reasons)
+        mark_order_creation_skipped(db, trade_plan_id, reasons)
         return {"created": [], "skipped": reasons}
 
     leverage = Decimal(str(plan.leverage or 1))
@@ -202,8 +201,7 @@ def create_paper_orders_from_plan(
     )
     if total_weight <= 0:
         reasons = ["Entry weights are not positive."]
-        if is_donchian:
-            mark_order_creation_skipped(db, trade_plan_id, reasons)
+        mark_order_creation_skipped(db, trade_plan_id, reasons)
         return {"created": [], "skipped": reasons}
 
     post_only = candidate.orderIntent.postOnly if candidate.orderIntent else True
@@ -241,8 +239,7 @@ def create_paper_orders_from_plan(
     )
     if guardrails["blocked"]:
         reasons = guardrails.get("blockReasons") or ["Account entry guardrail is active."]
-        if is_donchian:
-            mark_order_creation_skipped(db, trade_plan_id, reasons)
+        mark_order_creation_skipped(db, trade_plan_id, reasons)
         return {"created": [], "skipped": reasons, "entryGuardrails": guardrails}
     guardrail_risk_cap = candidate_risk_percent * Decimal(str(guardrails.get("riskMultiplier", 1.0)))
     risk_percent = min(planned_risk_percent, guardrail_risk_cap)
@@ -258,8 +255,7 @@ def create_paper_orders_from_plan(
     )
     if pending.has_unpriced_order:
         reasons = ["Unpriced pending market order prevents safe capacity calculation."]
-        if is_donchian:
-            mark_order_creation_skipped(db, trade_plan_id, reasons)
+        mark_order_creation_skipped(db, trade_plan_id, reasons)
         return {"created": [], "skipped": reasons}
     available_cash = max(Decimal("0"), available_cash - pending.cash_required)
     fee_reserve_rate = max(risk_settings.maker_fee_rate, risk_settings.taker_fee_rate)
@@ -347,6 +343,12 @@ def create_paper_orders_from_plan(
         risk_sized_quantity = allocated_risk / risk_per_unit
         remaining_margin_budget = max(Decimal("0"), hard_margin_budget - actual_margin_used)
         remaining_target_margin_budget = max(Decimal("0"), target_margin_budget - actual_margin_used)
+        if requires_minimum_margin and remaining_margin_budget < rounded_minimum_margin:
+            skipped.append(
+                f"{entry_label} skipped: remaining account capacity is below the "
+                f"{minimum_entry_margin_label}% entry margin floor."
+            )
+            continue
         planned_entry_margin_budget = min(
             entry_margin_budgets.get(index, Decimal("0")),
             remaining_target_margin_budget,
@@ -362,7 +364,8 @@ def create_paper_orders_from_plan(
         if planned_risk > remaining_risk:
             quantity = min(quantity, quantize_quantity(remaining_risk / risk_per_unit))
             planned_risk = quantity * risk_per_unit
-        if requires_minimum_margin and quantity < minimum_margin_quantity:
+        minimum_margin_waived_for_risk_cap = requires_minimum_margin and quantity < minimum_margin_quantity
+        if is_donchian and minimum_margin_waived_for_risk_cap:
             skipped.append(
                 f"{entry_label} skipped: risk-approved size is below the "
                 f"{minimum_entry_margin_label}% entry margin floor."
@@ -401,6 +404,7 @@ def create_paper_orders_from_plan(
             "minimumEntryMarginPercent": float(SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT),
             "minimumEntryMarginRequired": requires_minimum_margin,
             "minimumEntryMarginSatisfied": not requires_minimum_margin or actual_margin >= minimum_entry_margin,
+            "minimumEntryMarginWaivedForRiskCap": minimum_margin_waived_for_risk_cap,
             "plannedMargin": float(planned_margin),
             "plannedNotional": float(planned_notional),
             "actualPlannedMargin": float(actual_margin),
@@ -488,7 +492,7 @@ def create_paper_orders_from_plan(
         )
         created.append(serialize_record(order))
 
-    if is_donchian and not created:
+    if not created:
         mark_order_creation_skipped(db, trade_plan_id, skipped)
 
     return {

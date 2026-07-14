@@ -227,7 +227,7 @@ def test_split_floor_does_not_push_total_margin_above_score_target_when_cash_exc
     assert result["actualMarginDeploymentPercent"] <= 100
 
 
-def test_split_entry_below_fifteen_percent_is_skipped_instead_of_overriding_risk_budget(temp_db):
+def test_split_entry_below_fifteen_percent_uses_risk_safe_size_instead_of_skipping(temp_db):
     # Given: a split setup whose approved stop-risk budget cannot fund a 15% margin entry.
     candidate = TradeCandidate(
         created=True,
@@ -253,10 +253,58 @@ def test_split_entry_below_fifteen_percent_is_skipped_instead_of_overriding_risk
             settings=sizing_settings(minimum=20),
         )
 
-    # Then: no undersized or risk-amplified order is emitted.
+    assert len(result["created"]) == 1
+    order = result["created"][0]
+    assert margin_used(order) < 1500
+    assert order["payload"]["minimumEntryMarginRequired"] is True
+    assert order["payload"]["minimumEntryMarginSatisfied"] is False
+    assert order["payload"]["minimumEntryMarginWaivedForRiskCap"] is True
+    assert result["plannedRisk"] <= result["riskBudget"] * 1.05
+
+
+def test_non_donchian_zero_order_plan_is_persisted_as_skipped(temp_db):
+    candidate = TradeCandidate(
+        created=True,
+        side="LONG",
+        setupType="TEST_UNEXECUTABLE_RISK",
+        setupScore=80,
+        entries=[EntryPlan(price=68000, weight=1.0, reason="starter")],
+        stopLoss=66000,
+        takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
+        riskPercent=0.000001,
+    )
+
+    with session_scope() as db:
+        plan_record = TradePlanRecord(
+            id=76,
+            run_id=1,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            status="PAPER_TRADING_PENDING",
+            side="LONG",
+            risk_percent=candidate.riskPercent,
+            payload_json=to_json({"status": "PAPER_TRADING_PENDING"}),
+        )
+        db.add(plan_record)
+        db.flush()
+
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=plan_record.id,
+            candidate=candidate,
+            plan=orderable_plan(candidate, leverage=5),
+            settings=sizing_settings(minimum=20),
+        )
+        db.refresh(plan_record)
+        plan_payload = from_json(plan_record.payload_json)
+
     assert result["created"] == []
-    assert "below the 15% entry margin floor" in result["skipped"][0]
-    assert result["plannedRisk"] == pytest.approx(0)
+    assert plan_record.status == "ORDER_CREATION_SKIPPED"
+    assert plan_payload["status"] == "ORDER_CREATION_SKIPPED"
+    assert plan_payload["orderCreationSkippedReasons"] == result["skipped"]
 
 
 def test_donchian_confirmation_failure_cannot_fall_through_to_retest_only_order(temp_db):

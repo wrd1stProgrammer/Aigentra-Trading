@@ -34,7 +34,7 @@ from app.db import (
     session_scope,
 )
 from app.ops.trader_history_reset import RESET_CONFIRMATION_TEXT, reset_trader_history
-from app.paper.engine import process_candle, place_paper_order, update_paper_order_limit
+from app.paper.engine import PaperEngineResult, process_candle, place_paper_order, update_paper_order_limit
 from app.paper.loss_discipline import latest_post_loss_cooldown, recent_loss_review_context
 from app.paper.management import order_management_events
 from app.paper.management_actions import create_position_add_order
@@ -42,6 +42,7 @@ from app.paper.pending_exposure import pending_order_exposure
 from app.paper.planner import create_paper_orders_from_plan
 from app.paper.plan_state import latest_active_trade_plan, list_active_trade_plans
 from app.main import (
+    handle_realtime_paper_execution_result,
     process_existing_paper_exposure,
     run_scanner_once,
     run_trader_cycle,
@@ -1476,7 +1477,7 @@ async def test_run_cycle_persists_snapshot_candidate_review_and_plan(monkeypatch
         assert len(list_records(db, AIReviewRecord, 10)) == 1
         assert len(list_records(db, TradePlanRecord, 10)) == 1
         saved_orders = list_records(db, PaperOrderRecord, 10)
-        assert saved_orders == []
+        assert saved_orders
         management_plan = result.tradePlan.managementPlan.model_dump(mode="json")
         assert management_plan["holdingHorizon"] == "SWING"
         assert management_plan["strategyFamily"] == "PULLBACK"
@@ -1484,13 +1485,54 @@ async def test_run_cycle_persists_snapshot_candidate_review_and_plan(monkeypatch
         assert len(list_records(db, TraderStateRecord, 10)) == 1
 
     assert result.paper is not None
-    assert result.recordIds["paperOrderIds"] == []
-    assert result.paperOrders == []
-    assert "below the 15% entry margin floor" in result.paper["ordersCreated"]["skipped"][0]
+    assert result.recordIds["paperOrderIds"]
+    assert result.paperOrders
+    assert result.paper["ordersCreated"]["plannedRisk"] <= result.paper["ordersCreated"]["riskBudget"] * 1.05
     assert result.tradePlan.leverage is not None
     assert result.tradePlan.earlyExitRules
     assert provider_transaction_states == [False]
     assert orders_visible_before_status_feed == [True]
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_reviews_each_completed_signal_only_once(monkeypatch, temp_db):
+    snapshot = sample_snapshot()
+    snapshot["timeframes"]["15m"]["completedCandle"] = {
+        "open": 67900.0,
+        "high": 68100.0,
+        "low": 67800.0,
+        "close": 68000.0,
+        "volume": 1600.0,
+        "openTime": 1_000,
+        "closeTime": 2_000,
+    }
+    review_calls = 0
+
+    async def fake_snapshot(client, symbol):
+        return snapshot
+
+    async def fake_review(review_db, payload, provider_name, *, settings):
+        nonlocal review_calls
+        review_calls += 1
+        return await MockAIProvider().review_trade_candidate(payload)
+
+    def fake_order_creation(*args, **kwargs):
+        return {"created": [], "skipped": ["No executable paper quantity."]}
+
+    monkeypatch.setattr("app.main.build_market_snapshot", fake_snapshot)
+    monkeypatch.setattr("app.main.run_review_with_logging", fake_review)
+    monkeypatch.setattr("app.main.create_paper_orders_from_plan", fake_order_creation)
+
+    first = await run_trader_cycle("channel-rider", "BTCUSDT", provider_override="mock")
+    repeated = await run_trader_cycle("channel-rider", "BTCUSDT", provider_override="mock")
+    snapshot["timeframes"]["15m"]["completedCandle"]["closeTime"] = 3_000
+    next_candle = await run_trader_cycle("channel-rider", "BTCUSDT", provider_override="mock")
+
+    assert first.recordIds["aiReviewId"] is not None
+    assert repeated.recordIds["aiReviewId"] is None
+    assert repeated.tradePlan.status == "ALREADY_REVIEWED_SIGNAL"
+    assert next_candle.recordIds["aiReviewId"] is not None
+    assert review_calls == 2
 
 
 @pytest.mark.asyncio
@@ -1560,8 +1602,9 @@ async def test_run_cycle_manages_existing_pending_order_and_persists_review(monk
         assert reviews[0].decision in {"CANCEL_PENDING_ORDER", "HOLD"}
         assert reviews[0].provider == "mock"
         agent_state = db.query(TraderAgentStateRecord).filter_by(trader_id="channel-rider", symbol="BTCUSDT").one()
-        assert agent_state.phase == "PENDING_ORDER"
-        assert agent_state.next_review_at is not None
+        assert agent_state.phase == "IDLE"
+        assert agent_state.status == "idle"
+        assert agent_state.next_review_at is None
         assert agent_state.last_review_id == reviews[0].id
 
 
@@ -1591,6 +1634,39 @@ def test_order_management_flags_target_missed_before_pending_entry_fill(temp_db)
     assert events[0].severity == "HIGH"
     assert events[0].suggestedAction == "CANCEL_PENDING_ORDER"
     assert events[0].metrics["takeProfit"] == 70000.0
+
+
+@pytest.mark.asyncio
+async def test_realtime_close_reconciles_agent_state_before_snapshot_refresh(temp_db):
+    with session_scope() as db:
+        upsert_trader_agent_state(
+            db,
+            symbol="BTCUSDT",
+            trader_id="channel-rider",
+            phase="OPEN_POSITION",
+            mode="MONITORING",
+            next_review_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+        await handle_realtime_paper_execution_result(
+            db,
+            "channel-rider",
+            "BTCUSDT",
+            PaperEngineResult(closed_positions=[SimpleNamespace(id=1)]),
+        )
+        state = db.query(TraderAgentStateRecord).filter_by(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+        ).one()
+        leaderboard = db.query(TraderLeaderboardSnapshotRecord).filter_by(
+            trader_id="channel-rider",
+            symbol="BTCUSDT",
+        ).one()
+
+    assert state.phase == "IDLE"
+    assert state.status == "idle"
+    assert state.next_review_at is None
+    assert leaderboard.open_positions == 0
+    assert leaderboard.agent_phase == "IDLE"
 
 
 @pytest.mark.asyncio

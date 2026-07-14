@@ -40,6 +40,7 @@ def channel_upper_edge_without_reaction_snapshot() -> dict:
             "close": price,
             "volumeZscore": 1.25,
             "latestCandle": _latest_candle(68950.0, 69100.0, 68800.0, price),
+            "completedCandle": _latest_candle(68950.0, 69100.0, 68800.0, price),
         }
     )
     snapshot["timeframes"]["1h"].update(
@@ -203,6 +204,17 @@ def test_channel_rider_reduces_all_valid_edges_without_reaction_confirmation() -
     assert candidate.riskPercent <= 0.55
     assert candidate.setupScore <= 80
     assert candidate.entries[0].weight <= 0.35
+
+
+def test_channel_rider_confirmation_uses_completed_candle_not_live_candle() -> None:
+    snapshot = channel_upper_edge_without_reaction_snapshot()
+    snapshot["timeframes"]["15m"].update({"open": 69100.0, "close": 68900.0})
+
+    candidate = get_strategy("channel-rider").evaluate(snapshot)
+
+    assert candidate.created is True
+    assert len(candidate.entries) == 2
+    assert candidate.entries[0].weight == 0.35
 
 
 def test_range_maker_still_requires_rejection_candle_in_clean_range() -> None:

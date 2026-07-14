@@ -105,6 +105,7 @@ def compact_observation_payload(payload: Optional[dict]) -> Optional[dict]:
             "reasonCode": audit.get("reasonCode"),
             "gateScores": audit.get("gateScores") or {},
             "executionProfile": audit.get("executionProfile") or {},
+            "signalFingerprint": audit.get("signalFingerprint"),
         }
     return compact
 

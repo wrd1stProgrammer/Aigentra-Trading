@@ -138,9 +138,12 @@ class ChannelRider(TraderStrategy):
             ]
             setup = "CHANNEL_UPPER_BAND_REJECTION"
 
-        confirming_candle = (
-            (side == "LONG" and fifteen.get("close", price) > fifteen.get("open", price))
-            or (side == "SHORT" and fifteen.get("close", price) < fifteen.get("open", price))
+        completed_candle = fifteen.get("completedCandle") or {}
+        completed_open = completed_candle.get("open")
+        completed_close = completed_candle.get("close")
+        confirming_candle = completed_open is not None and completed_close is not None and (
+            (side == "LONG" and completed_close > completed_open)
+            or (side == "SHORT" and completed_close < completed_open)
         )
         edge_without_reaction = not confirming_candle and (position <= 0.32 or position >= 0.68)
         if side == crowded and funding_percentile >= 88 and oi_change_30m >= 1.2:

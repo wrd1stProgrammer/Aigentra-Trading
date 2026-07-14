@@ -99,6 +99,7 @@ from app.paper.planner import (
     list_active_paper_exposure,
     list_active_paper_exposure_map,
 )
+from app.paper.agent_state import reconcile_trader_agent_state
 from app.paper.realtime_execution import (
     PAPER_EXECUTION_LOCK,
     REALTIME_EXECUTION_STATE,
@@ -111,6 +112,10 @@ from app.paper.reduction_policy import build_reduction_decision
 from app.paper.repositories import lock_trader_state
 from app.paper.settings import sync_default_paper_settings
 from app.paper.sizing import final_trade_risk_percent
+from app.paper.signal_deduplication import (
+    attach_candidate_signal_fingerprint,
+    latest_reviewed_signal_fingerprint,
+)
 from app.ops.trader_history_reset import RESET_CONFIRMATION_TEXT, reset_trader_history
 from app.password_auth_routes import router as password_auth_router
 from app.repositories import (
@@ -507,6 +512,7 @@ async def handle_realtime_paper_execution_result(
     if not (result.filled_orders or result.closed_positions or result.rejected_orders or result.events):
         return
     invalidate_league_cache(symbol, trader_id)
+    reconcile_trader_agent_state(db, trader_id=trader_id, symbol=symbol)
     refresh_leaderboard_snapshots(db, symbol, {trader_id})
     event_ids = [event.id for event in result.events if event.id is not None]
     if event_ids:
@@ -2385,6 +2391,48 @@ async def run_management_reviews(
         # transaction before awaiting it so realtime execution is never left
         # waiting behind an idle management transaction.
         db.commit()
+        serialized_state: dict[str, Any]
+
+        def reconcile_after_review(record, review: PositionManagementResult) -> dict[str, Any]:
+            mode = agent_mode_for_event(event, exposure)
+            action_type = primary_action_type(review)
+            is_price_shock = event.eventType == PRICE_SHOCK_EVENT_TYPE
+            next_review_at = next_review_at_from_review(
+                review,
+                urgent=event.severity.upper() == "HIGH",
+                max_seconds=(
+                    settings.price_shock_review_seconds
+                    if is_price_shock
+                    else heartbeat_seconds_for_exposure(
+                        exposure,
+                        (
+                            settings.position_management_open_heartbeat_seconds
+                            if exposure.kind == "position"
+                            else settings.position_management_pending_heartbeat_seconds
+                        ),
+                    )
+                ),
+            )
+            state = reconcile_trader_agent_state(
+                db,
+                trader_id=trader_id,
+                symbol=symbol,
+                mode=mode,
+                next_review_at=next_review_at,
+                last_review_id=record.id,
+                last_event_type=event.eventType,
+                last_decision=review.decision,
+                last_action_type=action_type,
+                provider=review.provider,
+                model=review.model,
+                payload={
+                    "event": event.model_dump(),
+                    "review": review.model_dump(),
+                    "mode": mode,
+                },
+            )
+            return serialize_record(state)
+
         try:
             review = await run_position_management_with_logging(db, payload, clean_provider, settings=settings)
             # Provider-call logging opens a new transaction. Finish that
@@ -2420,6 +2468,7 @@ async def run_management_reviews(
                     applied_actions=applied_actions,
                     notify=False,
                 )
+                serialized_state = reconcile_after_review(record, review)
                 # Commit paper mutations and their review before releasing the
                 # lock. Realtime execution can then proceed without observing
                 # an uncommitted intermediate state.
@@ -2473,6 +2522,7 @@ async def run_management_reviews(
                         applied_actions=applied_actions,
                         notify=False,
                     )
+                    serialized_state = reconcile_after_review(record, review)
                     db.commit()
             else:
                 record = create_position_management_review(
@@ -2487,6 +2537,7 @@ async def run_management_reviews(
                     applied_actions=[],
                     notify=False,
                 )
+                serialized_state = reconcile_after_review(record, review)
                 db.commit()
         if record.status == "ok":
             await fanout_ai_translations(
@@ -2503,50 +2554,11 @@ async def run_management_reviews(
         from app.subscribers import notify_subscribers_for_management_review
 
         notify_subscribers_for_management_review(db, record)
-        mode = agent_mode_for_event(event, exposure)
-        action_type = primary_action_type(review)
         is_price_shock_event = event.eventType == PRICE_SHOCK_EVENT_TYPE
-        next_review_at = next_review_at_from_review(
-            review,
-            urgent=event.severity.upper() == "HIGH",
-            max_seconds=(
-                settings.price_shock_review_seconds
-                if is_price_shock_event
-                else heartbeat_seconds_for_exposure(
-                    exposure,
-                    (
-                        settings.position_management_open_heartbeat_seconds
-                        if exposure.kind == "position"
-                        else settings.position_management_pending_heartbeat_seconds
-                    ),
-                )
-            ),
-        )
         if is_price_shock_event:
             mark_price_shock_review_consumed(symbol)
-        state = upsert_trader_agent_state(
-            db,
-            symbol=symbol,
-            trader_id=trader_id,
-            phase=event.phase,
-            mode=mode,
-            next_review_at=next_review_at,
-            last_review_id=record.id,
-            last_event_type=event.eventType,
-            last_decision=review.decision,
-            last_action_type=action_type,
-            provider=review.provider,
-            model=review.model,
-            payload={
-                "event": event.model_dump(),
-                "review": review.model_dump(),
-                "exposure": exposure.model_dump(),
-                "nextReviewAt": next_review_at.isoformat(),
-                "mode": mode,
-            },
-        )
         serialized = serialize_record(record)
-        serialized["agentState"] = serialize_record(state)
+        serialized["agentState"] = serialized_state
         review_records.append(serialized)
 
     async def handle_exposure_events(
@@ -6041,8 +6053,41 @@ async def run_trader_cycle(
         )
 
     candidate = strategy.evaluate(snapshot)
+    signal_fingerprint = attach_candidate_signal_fingerprint(
+        candidate,
+        snapshot,
+        trader_id=strategy.profile.id,
+        symbol=clean_symbol,
+    )
+    plan = trade_plan_from_review(
+        clean_symbol,
+        candidate,
+        type(
+            "Review",
+            (),
+            {"decision": "NEEDS_MORE_DATA", "adjustments": [], "counterThesis": "No review"},
+        )(),
+    )
+    if signal_fingerprint is not None:
+        with session_scope() as db:
+            reviewed_fingerprint = latest_reviewed_signal_fingerprint(
+                db,
+                trader_id=strategy.profile.id,
+                symbol=clean_symbol,
+            )
+        if reviewed_fingerprint == signal_fingerprint:
+            candidate.created = False
+            candidate.reason = "This completed-candle setup has already received a second-stage AI review."
+            candidate.entries = []
+            candidate.takeProfits = []
+            candidate.stopLoss = None
+            candidate.riskPercent = None
+            plan = TradePlan(
+                status="ALREADY_REVIEWED_SIGNAL",
+                symbol=clean_symbol,
+                notes=[candidate.reason],
+            )
     review = None
-    plan = trade_plan_from_review(clean_symbol, candidate, type("Review", (), {"decision": "NEEDS_MORE_DATA", "adjustments": [], "counterThesis": "No review"})())
     paper_result: dict[str, Any] = paper_before_candidate
 
     with session_scope() as db:
@@ -6137,6 +6182,8 @@ async def run_trader_cycle(
                             ai_review_id=review_record.id,
                         )
                         created_paper_orders = paper_order_result.get("created", [])
+                        if not created_paper_orders:
+                            plan.status = "ORDER_CREATION_SKIPPED"
                         paper_result = {
                             **paper_result,
                             "ordersCreated": paper_order_result,
