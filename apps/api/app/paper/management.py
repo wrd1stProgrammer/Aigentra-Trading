@@ -610,7 +610,15 @@ def position_management_events(trader_id: str, position: PaperPositionRecord, sn
                 )
             )
 
-    if trader_id == "channel-rider":
+    if trader_id == "vwap-reclaimer":
+        fair_value_proxy = as_float(fifteen.get("barVwapProxy20"), 0.0)
+        failed = has_completed_15m and fair_value_proxy > 0 and (
+            (side == "long" and completed_close_15m < fair_value_proxy)
+            or (side == "short" and completed_close_15m > fair_value_proxy)
+        )
+        if failed:
+            events.append(ManagementEvent(eventType=event_names["position_fail"], phase="OPEN_POSITION", severity="HIGH", reason="Completed 15m close accepted back through the fair-value proxy against the VWAP thesis.", suggestedAction="CLOSE_POSITION", metrics=base_metrics({"fairValueProxy": fair_value_proxy, "hardInvalidation": True})))
+    elif trader_id == "channel-rider":
         lower = as_float(channel.get("lower"), price * 0.99)
         mid = as_float(channel.get("mid"), price)
         upper = as_float(channel.get("upper"), price * 1.01)

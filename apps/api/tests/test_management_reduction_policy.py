@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import select
 
 from app.db import (
+    PaperOrderRecord,
     PaperPositionRecord,
     PositionManagementReviewRecord,
     SessionLocal,
@@ -204,6 +205,23 @@ def test_full_close_intent_matches_standalone_all_word(temp_db):
             requested_fraction=None,
             review_decision="HOLD",
             reason="Close all remaining size.",
+        )
+
+        assert decision.should_apply is True
+        assert decision.quantity_fraction == Decimal("1")
+
+
+def test_close_position_decision_overrides_explicit_partial_reduction_fraction(temp_db):
+    with session_scope() as db:
+        position = _create_open_position(db)
+
+        decision = build_reduction_decision(
+            db,
+            position=position,
+            action_type="REDUCE_RISK",
+            requested_fraction=0.25,
+            review_decision="CLOSE_POSITION",
+            reason="Exit because the completed candle invalidated the thesis.",
         )
 
         assert decision.should_apply is True
@@ -638,6 +656,157 @@ def test_management_close_position_uses_short_db_reason(temp_db):
         assert applied[0]["reason"] == long_reason
         assert position.status == "closed"
         assert position.close_reason == "management_close"
+
+
+def test_close_decision_ignores_contradictory_move_stop_action_and_closes_full_position(temp_db):
+    from app.main import apply_management_actions
+
+    with session_scope() as db:
+        position = _create_open_position(db)
+        result = PaperEngineResult()
+        applied = apply_management_actions(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            event=ManagementEvent(
+                eventType="position_heartbeat",
+                phase="OPEN_POSITION",
+                severity="HIGH",
+                reason="The thesis is invalid.",
+                suggestedAction="CLOSE_POSITION",
+            ),
+            exposure=ManagedExposure(
+                kind="position",
+                id=position.id,
+                status="open",
+                side="LONG",
+                quantity=1,
+                entryPrice=100,
+                stopLoss=90,
+                takeProfit=120,
+                leverage=5,
+            ),
+            review=PositionManagementResult(
+                decision="CLOSE_POSITION",
+                confidence=94,
+                riskLevel="HIGH",
+                actions=[ManagementAction(type="MOVE_STOP_TO_BREAKEVEN", reason="Protect the invalidated trade.")],
+                rationale="Close the invalidated position now.",
+                counterThesis="The original setup no longer applies.",
+            ),
+            snapshot={"price": 101, "timeframes": {"1m": {"open": 101, "high": 101, "low": 101, "close": 101}}},
+            result=result,
+        )
+        db.refresh(position)
+        close_events = db.execute(
+            select(TradeEventRecord).where(
+                TradeEventRecord.position_id == position.id,
+                TradeEventRecord.event_type == "position_closed",
+            )
+        ).scalars().all()
+        reduction_events = db.execute(
+            select(TradeEventRecord).where(
+                TradeEventRecord.position_id == position.id,
+                TradeEventRecord.event_type == "position_reduced_by_ai",
+            )
+        ).scalars().all()
+
+        assert [action["type"] for action in applied] == ["CLOSE_POSITION"]
+        assert applied[0]["applied"] is True
+        assert position.status == "closed"
+        assert len(close_events) == 1
+        assert close_events[0].quantity == Decimal("1.0000000000")
+        assert reduction_events == []
+
+
+def test_close_decision_bypasses_frozen_actions_and_cancels_only_same_plan_orders(temp_db):
+    from app.main import apply_management_actions
+
+    with session_scope() as db:
+        upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)
+        place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="market",
+            quantity=1,
+            leverage=5,
+            take_profit_price=120,
+            stop_loss_price=90,
+            payload={"tradePlanId": 42},
+        )
+        process_candle(db, "paper-trader", "BTCUSDT", {"open": 100, "high": 101, "low": 99, "close": 100})
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        same_plan_order = place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=95,
+            quantity=0.1,
+            leverage=5,
+            payload={"tradePlanId": 42},
+        )
+        different_plan_order = place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=94,
+            quantity=0.1,
+            leverage=5,
+            payload={"tradePlanId": 43},
+        )
+        applied = apply_management_actions(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            event=ManagementEvent(
+                eventType="position_heartbeat",
+                phase="OPEN_POSITION",
+                severity="HIGH",
+                reason="The thesis is invalid.",
+                suggestedAction="CLOSE_POSITION",
+            ),
+            exposure=ManagedExposure(
+                kind="position",
+                id=position.id,
+                status="open",
+                side="LONG",
+                quantity=1,
+                entryPrice=100,
+                stopLoss=90,
+                takeProfit=120,
+                leverage=5,
+                payload={"managementPlan": {"allowedActions": ["HOLD"]}},
+            ),
+            review=PositionManagementResult(
+                decision="CLOSE_POSITION",
+                confidence=96,
+                riskLevel="HIGH",
+                actions=[ManagementAction(type="MOVE_STOP_TO_BREAKEVEN", reason="Contradictory provider action.")],
+                rationale="Close all exposure for this invalidated plan.",
+                counterThesis="The frozen plan is stale after invalidation.",
+            ),
+            snapshot={"price": 101, "timeframes": {"1m": {"open": 101, "high": 101, "low": 101, "close": 101}}},
+            result=PaperEngineResult(),
+        )
+        db.refresh(position)
+        db.refresh(same_plan_order)
+        db.refresh(different_plan_order)
+        cancellation_events = db.execute(
+            select(TradeEventRecord).where(TradeEventRecord.event_type == "order_canceled_after_position_close")
+        ).scalars().all()
+
+        assert [action["type"] for action in applied] == ["CLOSE_POSITION"]
+        assert applied[0]["applied"] is True
+        assert position.status == "closed"
+        assert same_plan_order.status == "canceled"
+        assert different_plan_order.status == "open"
+        assert [event.order_id for event in cancellation_events] == [same_plan_order.id]
 
 
 def test_stale_management_action_cannot_reduce_already_closed_position(temp_db):

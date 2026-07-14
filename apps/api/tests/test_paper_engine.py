@@ -552,7 +552,7 @@ def test_short_take_profit_uses_nearest_profitable_target_when_payload_is_unsort
         assert payload["takeProfits"][0].get("status") != "filled"
 
 
-def test_order_rejected_when_notional_exceeds_risk_settings(temp_db):
+def test_legacy_max_notional_does_not_reject_cash_safe_order(temp_db):
     with session_scope() as db:
         upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_notional=50)
         order = place_paper_order(db, "paper-trader", "BTCUSDT", side="long", quantity=1)
@@ -568,11 +568,14 @@ def test_order_rejected_when_notional_exceeds_risk_settings(temp_db):
         events = db.execute(select(TradeEventRecord)).scalars().all()
         positions = db.execute(select(PaperPositionRecord)).scalars().all()
 
-        assert result.rejected_orders == [order]
-        assert order.status == "rejected"
-        assert positions == []
-        assert rounded(state.equity) == Decimal("10000.0000")
-        assert [event.event_type for event in events] == ["order_rejected"]
+        assert result.rejected_orders == []
+        assert result.filled_orders == [order]
+        assert order.status == "filled"
+        assert len(positions) == 1
+        assert rounded(state.cash_balance) == Decimal("9899.9400")
+        assert rounded(state.margin_used) == Decimal("100.0100")
+        assert rounded(state.equity) == Decimal("9999.9400")
+        assert [event.event_type for event in events] == ["order_filled"]
 
 
 def test_position_management_moves_stop_to_breakeven(temp_db):
@@ -598,9 +601,16 @@ def test_position_management_moves_stop_to_breakeven(temp_db):
         position = db.execute(select(PaperPositionRecord)).scalar_one()
 
         assert first.filled_orders
-        assert position.stop_loss_price == Decimal("90.0000000000")
+        expected_stop = fee_inclusive_breakeven(
+            entry_price=position.entry_price,
+            quantity=1,
+            entry_fee=position.entry_fee,
+            taker_fee_rate=Decimal("0.0005"),
+            side="long",
+        )
+        assert rounded(position.stop_loss_price) == rounded(expected_stop)
         events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
-        assert [event.event_type for event in events] == ["order_filled"]
+        assert [event.event_type for event in events] == ["order_filled", "stop_moved_to_breakeven"]
 
         second = process_candle(
             db,
@@ -610,13 +620,6 @@ def test_position_management_moves_stop_to_breakeven(temp_db):
         )
 
         assert second.closed_positions == []
-        expected_stop = fee_inclusive_breakeven(
-            entry_price=position.entry_price,
-            quantity=1,
-            entry_fee=position.entry_fee,
-            taker_fee_rate=Decimal("0.0005"),
-            side="long",
-        )
         assert rounded(position.stop_loss_price) == rounded(expected_stop)
         third = process_candle(
             db,
@@ -835,18 +838,6 @@ def test_orderflow_sniper_can_move_stop_to_breakeven_before_one_r(temp_db):
         position = db.execute(select(PaperPositionRecord)).scalar_one()
 
         assert result.filled_orders
-        assert position.stop_loss_price == Decimal("90.0000000000")
-        events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
-        assert [event.event_type for event in events] == ["order_filled"]
-
-        second = process_candle(
-            db,
-            "orderflow-sniper",
-            "BTCUSDT",
-            {"open": 105, "high": 107, "low": 104, "close": 105},
-        )
-
-        assert second.closed_positions == []
         expected_stop = fee_inclusive_breakeven(
             entry_price=position.entry_price,
             quantity=1,
@@ -858,8 +849,20 @@ def test_orderflow_sniper_can_move_stop_to_breakeven_before_one_r(temp_db):
         events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
         assert [event.event_type for event in events] == ["order_filled", "stop_moved_to_breakeven"]
 
+        second = process_candle(
+            db,
+            "orderflow-sniper",
+            "BTCUSDT",
+            {"open": 105, "high": 107, "low": 104, "close": 105},
+        )
 
-def test_newly_filled_position_waits_for_next_candle_before_breakeven_management(temp_db):
+        assert second.closed_positions == []
+        assert rounded(position.stop_loss_price) == rounded(expected_stop)
+        events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
+        assert [event.event_type for event in events] == ["order_filled", "stop_moved_to_breakeven"]
+
+
+def test_intrabar_limit_fill_waits_for_next_candle_before_breakeven_management(temp_db):
     with session_scope() as db:
         upsert_risk_settings(db, "session-raider", "BTCUSDT", max_leverage=5)
         place_paper_order(
@@ -867,6 +870,8 @@ def test_newly_filled_position_waits_for_next_candle_before_breakeven_management
             trader_id="session-raider",
             symbol="BTCUSDT",
             side="short",
+            order_type="limit",
+            limit_price=100,
             quantity=1,
             leverage=1,
             take_profit_price=80,
@@ -877,7 +882,7 @@ def test_newly_filled_position_waits_for_next_candle_before_breakeven_management
             db,
             "session-raider",
             "BTCUSDT",
-            {"open": 100, "high": 101, "low": 92, "close": 98},
+            {"open": 99, "high": 101, "low": 92, "close": 98},
         )
         position = db.execute(select(PaperPositionRecord)).scalar_one()
 
@@ -906,6 +911,72 @@ def test_newly_filled_position_waits_for_next_candle_before_breakeven_management
         assert rounded(position.stop_loss_price) == rounded(expected_stop)
         events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
         assert [event.event_type for event in events] == ["order_filled", "stop_moved_to_breakeven"]
+
+
+def test_rsi_market_fill_at_candle_open_moves_stop_at_halfway_to_first_target(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "rsi-divergence-scout", "BTCUSDT", max_leverage=5)
+        place_paper_order(
+            db,
+            trader_id="rsi-divergence-scout",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="market",
+            quantity=1,
+            leverage=1,
+            take_profit_price=120,
+            stop_loss_price=90,
+        )
+
+        result = process_candle(
+            db,
+            "rsi-divergence-scout",
+            "BTCUSDT",
+            {"open": 100, "high": 111, "low": 99, "close": 109},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        expected_stop = fee_inclusive_breakeven(
+            entry_price=position.entry_price,
+            quantity=1,
+            entry_fee=position.entry_fee,
+            taker_fee_rate=Decimal("0.0005"),
+            side="long",
+        )
+        events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
+
+        assert result.filled_orders
+        assert rounded(position.stop_loss_price) == rounded(expected_stop)
+        assert [event.event_type for event in events] == ["order_filled", "stop_moved_to_breakeven"]
+
+
+def test_rsi_intrabar_limit_fill_does_not_use_prefill_high_for_breakeven(temp_db):
+    with session_scope() as db:
+        upsert_risk_settings(db, "rsi-divergence-scout", "BTCUSDT", max_leverage=5)
+        place_paper_order(
+            db,
+            trader_id="rsi-divergence-scout",
+            symbol="BTCUSDT",
+            side="long",
+            order_type="limit",
+            limit_price=100,
+            quantity=1,
+            leverage=1,
+            take_profit_price=120,
+            stop_loss_price=90,
+        )
+
+        result = process_candle(
+            db,
+            "rsi-divergence-scout",
+            "BTCUSDT",
+            {"open": 105, "high": 111, "low": 99, "close": 108},
+        )
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+        events = db.execute(select(TradeEventRecord).order_by(TradeEventRecord.id)).scalars().all()
+
+        assert result.filled_orders
+        assert position.stop_loss_price == Decimal("90.0000000000")
+        assert [event.event_type for event in events] == ["order_filled"]
 
 
 def test_60_hour_profitable_long_moves_stop_to_breakeven(temp_db):

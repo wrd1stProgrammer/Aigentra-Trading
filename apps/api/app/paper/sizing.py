@@ -2,7 +2,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Final
 
 
-SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT: Final = Decimal("15")
+SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT: Final = Decimal("20")
 SERVICE_MARGIN_SCORE_CURVE_MAX_PERCENT: Final = Decimal("100")
 
 
@@ -18,7 +18,7 @@ def final_trade_risk_percent(candidate: Any, review: Any) -> float:
 
 
 def minimum_margin_deployment_percent(settings: Any) -> Decimal:
-    configured_minimum = _as_decimal(getattr(settings, "paper_min_margin_deployment_percent", 15), Decimal("15"))
+    configured_minimum = _as_decimal(getattr(settings, "paper_min_margin_deployment_percent", 20), Decimal("20"))
     return max(
         SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT,
         _clamp_decimal(configured_minimum, Decimal("0"), SERVICE_MARGIN_SCORE_CURVE_MAX_PERCENT),

@@ -642,7 +642,7 @@ def build_sizing_settings(minimum: int = 10):
     )
 
 
-def test_paper_order_sizing_enforces_fifteen_percent_floor_with_step_rounding(temp_db):
+def test_paper_order_sizing_enforces_twenty_percent_floor_with_step_rounding(temp_db):
     with session_scope() as db:
         candidate = TradeCandidate(
             created=True,
@@ -654,7 +654,7 @@ def test_paper_order_sizing_enforces_fifteen_percent_floor_with_step_rounding(te
             ],
             stopLoss=66000,
             takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
-            riskPercent=2.5,
+            riskPercent=4.0,
         )
         plan = build_orderable_plan(candidate)
         settings = build_sizing_settings(minimum=1)
@@ -672,9 +672,9 @@ def test_paper_order_sizing_enforces_fifteen_percent_floor_with_step_rounding(te
 
         total_margin = sum(order["quantity"] * order["limitPrice"] / order["leverage"] for order in result["created"])
         assert result["created"]
-        assert result["marginDeploymentPercent"] == 15
+        assert result["marginDeploymentPercent"] == 20
         assert result["marginDeploymentPercent"] <= 100
-        assert result["targetMarginBudget"] == pytest.approx(1500)
+        assert result["targetMarginBudget"] == pytest.approx(2000)
         assert result["targetMarginBudget"] <= total_margin <= result["targetMarginBudget"] + 14
         assert result["created"][0]["payload"]["minimumEntryMarginSatisfied"] is True
         assert result["plannedRisk"] <= result["riskBudget"] * 1.05
@@ -831,7 +831,7 @@ def test_pending_limit_order_reserves_cash_for_margin_and_entry_fee(temp_db):
             riskPercent=2.0,
         )
 
-        # When: a new order needs the 15% minimum margin.
+        # When: a new order needs the 20% minimum margin.
         result = create_paper_orders_from_plan(
             db,
             trader_id="channel-rider",
@@ -963,7 +963,7 @@ def test_paper_order_sizing_can_exceed_former_account_margin_cap_across_symbols(
             entries=[EntryPlan(price=68000, weight=1.0, reason="new symbol entry")],
             stopLoss=66000,
             takeProfits=[TakeProfitPlan(price=72000, weight=1.0, reason="target")],
-            riskPercent=2.5,
+            riskPercent=4.0,
         )
 
         result = create_paper_orders_from_plan(
@@ -1018,8 +1018,8 @@ def test_paper_order_sizing_does_not_lift_margin_for_ai_confidence(temp_db):
         )
 
         assert result["created"]
-        assert result["marginDeploymentPercent"] == pytest.approx(49)
-        assert result["targetMarginBudget"] == pytest.approx(4900)
+        assert result["marginDeploymentPercent"] == pytest.approx(52)
+        assert result["targetMarginBudget"] == pytest.approx(5200)
         assert result["riskPercent"] == pytest.approx(1.0)
 
 

@@ -20,7 +20,7 @@ from app.paper.repositories import create_trade_event, lock_trader_state
 from app.paper.review_payload import review_payload_fields
 from app.paper.settings import sync_default_paper_settings
 from app.paper.sizing import (
-    SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT,
+    minimum_margin_deployment_percent,
     planned_entry_margin_budgets,
     target_margin_deployment_percent,
 )
@@ -244,6 +244,7 @@ def create_paper_orders_from_plan(
     guardrail_risk_cap = candidate_risk_percent * Decimal(str(guardrails.get("riskMultiplier", 1.0)))
     risk_percent = min(planned_risk_percent, guardrail_risk_cap)
     risk_budget = equity * (risk_percent / Decimal("100"))
+    effective_risk_budget = risk_budget
     base_deployment_percent = target_margin_deployment_percent(candidate, settings)
     deployment_percent = base_deployment_percent
     target_margin_budget = equity * (deployment_percent / Decimal("100"))
@@ -264,8 +265,9 @@ def create_paper_orders_from_plan(
         if available_cash > 0
         else Decimal("0")
     )
-    minimum_entry_margin = equity * SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT / Decimal("100")
-    minimum_entry_margin_label = SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT.normalize()
+    minimum_entry_margin_percent = minimum_margin_deployment_percent(settings)
+    minimum_entry_margin = equity * minimum_entry_margin_percent / Decimal("100")
+    minimum_entry_margin_label = format(minimum_entry_margin_percent.normalize(), "f")
     hard_margin_budget = cash_budget_cap
     split_margin_floor = minimum_entry_margin
     target_margin_budget = min(max(target_margin_budget, split_margin_floor), hard_margin_budget)
@@ -339,7 +341,9 @@ def create_paper_orders_from_plan(
             rounded_minimum_margin = minimum_margin_quantity * expected_entry_fill / leverage
         allocated_risk = risk_budget * weight
         if requires_minimum_margin:
-            allocated_risk = min(risk_budget, max(allocated_risk, minimum_margin_quantity * risk_per_unit))
+            minimum_entry_risk = minimum_margin_quantity * risk_per_unit
+            effective_risk_budget = max(effective_risk_budget, minimum_entry_risk)
+            allocated_risk = max(allocated_risk, minimum_entry_risk)
         risk_sized_quantity = allocated_risk / risk_per_unit
         remaining_margin_budget = max(Decimal("0"), hard_margin_budget - actual_margin_used)
         remaining_target_margin_budget = max(Decimal("0"), target_margin_budget - actual_margin_used)
@@ -360,12 +364,11 @@ def create_paper_orders_from_plan(
         quantity = quantize_quantity(min(risk_sized_quantity, margin_sized_quantity))
         planned_risk = quantity * risk_per_unit
         tolerance = Decimal("1") + Decimal(str(getattr(settings, "paper_risk_budget_tolerance_percent", 5))) / Decimal("100")
-        remaining_risk = max(Decimal("0"), risk_budget * tolerance - total_planned_risk)
+        remaining_risk = max(Decimal("0"), effective_risk_budget * tolerance - total_planned_risk)
         if planned_risk > remaining_risk:
             quantity = min(quantity, quantize_quantity(remaining_risk / risk_per_unit))
             planned_risk = quantity * risk_per_unit
-        minimum_margin_waived_for_risk_cap = requires_minimum_margin and quantity < minimum_margin_quantity
-        if is_donchian and minimum_margin_waived_for_risk_cap:
+        if requires_minimum_margin and quantity < minimum_margin_quantity:
             skipped.append(
                 f"{entry_label} skipped: risk-approved size is below the "
                 f"{minimum_entry_margin_label}% entry margin floor."
@@ -401,16 +404,19 @@ def create_paper_orders_from_plan(
             "riskPercent": float(risk_percent),
             "baseMarginDeploymentPercent": float(base_deployment_percent),
             "marginDeploymentPercent": float(deployment_percent),
-            "minimumEntryMarginPercent": float(SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT),
+            "minimumEntryMarginPercent": float(minimum_entry_margin_percent),
             "minimumEntryMarginRequired": requires_minimum_margin,
             "minimumEntryMarginSatisfied": not requires_minimum_margin or actual_margin >= minimum_entry_margin,
-            "minimumEntryMarginWaivedForRiskCap": minimum_margin_waived_for_risk_cap,
+            "minimumEntryMarginWaivedForRiskCap": False,
             "plannedMargin": float(planned_margin),
             "plannedNotional": float(planned_notional),
             "actualPlannedMargin": float(actual_margin),
             "accountMarginPercent": float((actual_margin / equity) * Decimal("100")) if equity > 0 else 0.0,
             "notionalExposurePercent": float(((actual_margin * leverage) / equity) * Decimal("100")) if equity > 0 else 0.0,
-            "riskBudget": float(risk_budget),
+            "riskBudget": float(effective_risk_budget),
+            "approvedRiskBudget": float(risk_budget),
+            "riskBudgetExpandedForMinimumEntry": effective_risk_budget > risk_budget,
+            "riskBudgetExpansion": float(effective_risk_budget - risk_budget),
             "allocatedRiskBudget": float(allocated_risk),
             "plannedRisk": float(planned_risk),
             "riskPerUnit": float(risk_per_unit),
@@ -498,14 +504,18 @@ def create_paper_orders_from_plan(
     return {
         "created": created,
         "skipped": skipped,
-        "riskBudget": float(risk_budget),
+        "riskBudget": float(effective_risk_budget),
+        "approvedRiskBudget": float(risk_budget),
+        "riskBudgetExpandedForMinimumEntry": effective_risk_budget > risk_budget,
+        "riskBudgetExpansion": float(effective_risk_budget - risk_budget),
         "riskPercent": float(risk_percent),
+        "effectiveRiskPercent": float((effective_risk_budget / equity) * Decimal("100")) if equity > 0 else 0.0,
         "plannedRisk": float(total_planned_risk),
-        "riskBudgetUtilizationPercent": float(total_planned_risk / risk_budget * Decimal("100")) if risk_budget > 0 else 0.0,
+        "riskBudgetUtilizationPercent": float(total_planned_risk / effective_risk_budget * Decimal("100")) if effective_risk_budget > 0 else 0.0,
         "entryGuardrails": guardrails,
         "baseMarginDeploymentPercent": float(base_deployment_percent),
         "marginDeploymentPercent": float(deployment_percent),
-        "minimumEntryMarginPercent": float(SERVICE_MIN_MARGIN_DEPLOYMENT_PERCENT),
+        "minimumEntryMarginPercent": float(minimum_entry_margin_percent),
         "actualMarginDeploymentPercent": float((actual_margin_used / equity) * Decimal("100")) if equity > 0 else 0.0,
         "targetMarginBudget": float(target_margin_budget),
         "actualMarginUsed": float(actual_margin_used),

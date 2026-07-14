@@ -2116,12 +2116,18 @@ def apply_management_actions(
     applied: list[dict[str, Any]] = []
     state = lock_trader_state(db, trader_id)
     allowed_actions = frozen_allowed_management_actions(exposure)
+    authoritative_close_decision = exposure.kind == "position" and review.decision.upper() == "CLOSE_POSITION"
+    actions = (
+        [ManagementAction(type="CLOSE_POSITION", reason=review.rationale or event.reason)]
+        if authoritative_close_decision
+        else review.actions
+    )
 
-    for action in review.actions:
+    for action in actions:
         action_type = action.type.upper()
         hard_invalidation_action = (
             action_type == "CLOSE_POSITION"
-            and is_hard_invalidation_close(event, exposure)
+            and (authoritative_close_decision or is_hard_invalidation_close(event, exposure))
         )
         if allowed_actions is not None and action_type not in allowed_actions and not hard_invalidation_action:
             applied.append(
@@ -2268,7 +2274,7 @@ def apply_management_actions(
         exposure.kind == "position"
         and review.decision == "CLOSE_POSITION"
         and not any(a.get("applied") for a in applied)
-        and (allowed_actions is None or "CLOSE_POSITION" in allowed_actions)
+        and (authoritative_close_decision or allowed_actions is None or "CLOSE_POSITION" in allowed_actions)
     ):
         position = locked_management_record(db, PaperPositionRecord, exposure.id)
         if position and position.status == "open":

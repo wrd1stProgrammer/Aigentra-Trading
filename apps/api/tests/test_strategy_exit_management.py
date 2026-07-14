@@ -36,6 +36,7 @@ def _snapshot(
     live_15m_close: float = 106.0,
     completed_15m_close: float = 106.0,
     completed_4h_close: float = 106.0,
+    bar_vwap_proxy_20: float | None = None,
 ) -> dict[str, object]:
     return {
         "price": price,
@@ -53,6 +54,7 @@ def _snapshot(
                 },
                 "volumeZscore": 0.0,
                 "completedVolumeZscore": 0.0,
+                "barVwapProxy20": bar_vwap_proxy_20,
             },
             "1h": {
                 "channel": {"lower": 95.0, "mid": 105.0, "upper": 115.0},
@@ -182,3 +184,27 @@ def test_unfinished_price_does_not_fire_structural_invalidation(
     )
 
     assert all(event.suggestedAction != "CLOSE_POSITION" for event in events)
+
+
+def test_vwap_short_completed_close_above_fair_value_triggers_hard_invalidation() -> None:
+    position = _long_position("vwap-reclaimer")
+    position.side = "short"
+    position.entry_price = Decimal("62568.74")
+    position.take_profit_price = Decimal("62182.9")
+    position.stop_loss_price = Decimal("62826.7")
+
+    events = position_management_events(
+        "vwap-reclaimer",
+        position,
+        _snapshot(
+            price=62705.8,
+            live_15m_close=62705.8,
+            completed_15m_close=62670.5,
+            bar_vwap_proxy_20=62663.56,
+        ),
+    )
+
+    assert events[0].eventType == "vwap_acceptance_failed"
+    assert events[0].suggestedAction == "CLOSE_POSITION"
+    assert events[0].metrics["hardInvalidation"] is True
+    assert events[0].metrics["fairValueProxy"] == 62663.56

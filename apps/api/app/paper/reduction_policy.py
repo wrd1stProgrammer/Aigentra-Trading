@@ -210,10 +210,10 @@ def _requested_or_default_fraction(
     review_decision: str,
     reason: str,
 ) -> Decimal:
-    if requested_fraction is not None:
-        return _clamp_fraction(requested_fraction)
     if _is_full_close_intent(review_decision, reason):
         return Decimal("1")
+    if requested_fraction is not None:
+        return _clamp_fraction(requested_fraction)
 
     match action_type:
         case "TAKE_PARTIAL_PROFIT":

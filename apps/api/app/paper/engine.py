@@ -410,6 +410,8 @@ def process_candle(db: Session, trader_id: str, symbol: str, candle: Union[Candl
         for position in list_open_positions(db, clean_trader_id, clean_symbol)
         if position.id is not None
     }
+    new_position_ids_filled_at_open: set[int] = set()
+    new_position_ids_filled_intrabar: set[int] = set()
 
     for order in list_open_orders(db, clean_trader_id, clean_symbol):
         if not _record_is_active_for_candle(order.submitted_at or order.created_at, parsed_candle):
@@ -417,13 +419,18 @@ def process_candle(db: Session, trader_id: str, symbol: str, candle: Union[Candl
         fill_price = _fill_price(order, parsed_candle)
         if fill_price is None:
             continue
+        filled_at_open = _order_fills_at_candle_open(order, parsed_candle)
         if _fill_order(db, state, order, fill_price, parsed_candle, result):
             result.filled_orders.append(order)
+            if order.position_id is not None and order.position_id not in preexisting_position_ids:
+                target = new_position_ids_filled_at_open if filled_at_open else new_position_ids_filled_intrabar
+                target.add(order.position_id)
         else:
             result.rejected_orders.append(order)
 
+    manageable_new_position_ids = new_position_ids_filled_at_open - new_position_ids_filled_intrabar
     for position in list_open_positions(db, clean_trader_id, clean_symbol):
-        if position.id not in preexisting_position_ids:
+        if position.id not in preexisting_position_ids and position.id not in manageable_new_position_ids:
             continue
         if not _record_is_active_for_candle(position.opened_at, parsed_candle):
             continue
@@ -484,6 +491,16 @@ def _fill_price(order: PaperOrderRecord, candle: Candle) -> Optional[Decimal]:
             return order.limit_price if candle.open <= order.limit_price else candle.open
             
     return None
+
+
+def _order_fills_at_candle_open(order: PaperOrderRecord, candle: Candle) -> bool:
+    if order.order_type == "market":
+        return True
+    if order.limit_price is None:
+        return False
+    if (order.side or "long").lower() == "long":
+        return candle.open <= order.limit_price
+    return candle.open >= order.limit_price
 
 
 def _payload_decimal(payload: dict[str, Any], key: str) -> Optional[Decimal]:
@@ -555,22 +572,6 @@ def _fill_order(
     order_payload = from_json(order.payload_json) or {}
     _reanchor_market_order_levels(order, order_payload, fill_price)
     notional = order.quantity * fill_price
-    if settings.max_notional is not None and notional > settings.max_notional:
-        order.status = "rejected"
-        order.error_message = "Paper order rejected: notional exceeds risk settings."
-        event = create_trade_event(
-            db,
-            order.trader_id or "",
-            order.symbol or candle.symbol,
-            "order_rejected",
-            order_id=order.id,
-            price=fill_price,
-            quantity=order.quantity,
-            payload={"reason": "max_notional"},
-        )
-        result.events.append(event)
-        return False
-
     fee_rate = settings.maker_fee_rate if order.fee_type == "maker" else settings.taker_fee_rate
     margin = notional / order.leverage
     fee = notional * fee_rate
