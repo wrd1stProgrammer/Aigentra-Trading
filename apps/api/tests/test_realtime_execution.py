@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import select
 
+import app.paper.realtime_execution as realtime_execution
+
 from app.clients.binance_client import Candle
 from app.db import (
     PaperExecutionCursorRecord,
@@ -410,6 +412,59 @@ async def test_realtime_execution_fills_order_and_streams_committed_event(temp_d
         position = db.execute(select(PaperPositionRecord)).scalar_one()
         assert order.status == "filled"
         assert position.status == "open"
+
+
+@pytest.mark.asyncio
+async def test_ai_review_event_reaches_global_subscriber_without_execution_fields(monkeypatch):
+    publisher = getattr(realtime_execution, "publish_ai_review_event", None)
+    assert callable(publisher)
+
+    redis_payloads = []
+
+    async def capture_redis(payload):
+        redis_payloads.append(payload)
+
+    monkeypatch.setattr(realtime_execution, "_publish_redis_event", capture_redis)
+    queue = EXECUTION_EVENT_HUB.subscribe(symbol="BTCUSDT")
+    try:
+        await publisher(trader_id="rsi-divergence-scout", symbol="BTCUSDT", review_id=3517)
+        payload = await asyncio.wait_for(queue.get(), timeout=1)
+    finally:
+        EXECUTION_EVENT_HUB.unsubscribe(queue)
+
+    assert payload["streamEvent"] == "ai_review_created"
+    assert payload["reviewId"] == 3517
+    assert payload["traderId"] == "rsi-divergence-scout"
+    assert "eventTypes" not in payload
+    assert redis_payloads == [payload]
+
+
+@pytest.mark.asyncio
+async def test_paper_state_event_reaches_global_subscriber_with_event_types(monkeypatch):
+    publisher = getattr(realtime_execution, "publish_paper_state_event", None)
+    assert callable(publisher)
+
+    redis_payloads = []
+
+    async def capture_redis(payload):
+        redis_payloads.append(payload)
+
+    monkeypatch.setattr(realtime_execution, "_publish_redis_event", capture_redis)
+    queue = EXECUTION_EVENT_HUB.subscribe(symbol="BTCUSDT")
+    try:
+        await publisher(
+            trader_id="rsi-divergence-scout",
+            symbol="BTCUSDT",
+            event_types=["POSITION_REDUCED_BY_AI", "STOP_LOSS"],
+        )
+        payload = await asyncio.wait_for(queue.get(), timeout=1)
+    finally:
+        EXECUTION_EVENT_HUB.unsubscribe(queue)
+
+    assert payload["eventTypes"] == ["POSITION_REDUCED_BY_AI", "STOP_LOSS"]
+    assert payload["traderId"] == "rsi-divergence-scout"
+    assert "streamEvent" not in payload
+    assert redis_payloads == [payload]
 
 
 @pytest.mark.asyncio

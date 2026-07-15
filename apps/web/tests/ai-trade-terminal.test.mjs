@@ -67,6 +67,7 @@ test("terminal uses compact relative-time rows and fetches the next bounded page
   assert.match(leaderboardSource, /onLoadMore=\{loadMoreAITradeTerminal\}/, "the stream edge should request the next page");
   assert.match(apiSource, /eventParams\.set\("offset"/, "event history should request a page offset");
   assert.match(apiSource, /reviewParams\.set\("offset"/, "review history should request a page offset");
+  assert.match(apiSource, /reviewParams\.set\("refresh", "true"\)/, "event-driven refreshes should bypass a stale cross-process review cache");
   assert.match(apiSource, /nextPage:/, "the API adapter should return a pagination cursor");
 });
 

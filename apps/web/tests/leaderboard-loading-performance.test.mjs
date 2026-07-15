@@ -121,7 +121,7 @@ test("AI decision terminal waits for the leaderboard and subscriber access befor
 
   assert.match(leaderboardSource, /enabled: shouldFetchSecondaryLeaderboardData && isSubscribed/, "locked and initial-loading pages should not fetch terminal details");
   assert.match(leaderboardSource, /staleTime: 60_000/, "terminal data should not refetch at the faster ranking cadence");
-  assert.match(leaderboardSource, /pages\.length[^\n]*<= 1 \? 60_000 : false/, "loaded history pages should not all poll in the background");
+  assert.match(leaderboardSource, /pages\.length[^\n]*<= 1 \? 300_000 : false/, "loaded history pages should not all poll in the background");
   assert.match(apiSource, /const pageSize = 20/, "terminal sources should begin with a small shared page");
   assert.match(apiSource, /eventParams\.set\("offset"/, "execution history should advance only after the scroll edge");
   assert.match(apiSource, /reviewParams\.set\("offset"/, "localized reviews should advance only after the scroll edge");

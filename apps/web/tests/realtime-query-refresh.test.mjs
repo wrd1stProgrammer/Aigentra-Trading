@@ -44,6 +44,27 @@ test("trader detail page subscribes to server execution events for immediate fil
   assert.match(detailSource, /invalidateQueries\(\{ queryKey: leaderboardKey \}\)/, "execution events should also invalidate the visible leaderboard cache");
 });
 
+test("leaderboard uses one global event stream for immediate terminal refresh", () => {
+  assert.match(apiSource, /getLeagueLiveEventsUrl/, "API helper should expose one league-wide event stream URL");
+  assert.match(leaderboardSource, /new EventSource\(leagueLiveEventsUrl\)/, "leaderboard should open one global event stream");
+  assert.match(leaderboardSource, /addEventListener\("paper_execution"/, "execution changes should refresh the terminal");
+  assert.match(leaderboardSource, /addEventListener\("ai_review_created"/, "new AI reviews should refresh the terminal");
+  assert.match(leaderboardSource, /setQueryData<InfiniteData<AITradeTerminalSource, AITradeTerminalPage>>/, "live events should merge a bounded terminal head page");
+  assert.match(leaderboardSource, /mergeAITradeTerminalHead\(current, nextHead\)/, "head refresh should preserve and repaginate loaded terminal history");
+  assert.match(leaderboardSource, /INITIAL_AI_TRADE_TERMINAL_PAGE,[\s\S]*\{ refresh: true \}/, "only the SSE head refresh should bypass the process-local review cache");
+  assert.match(apiSource, /if \(options\?\.refresh\) reviewParams\.set\("refresh", "true"\)/, "normal terminal loads and pagination should retain review caching");
+  assert.equal(
+    leaderboardSource.match(/cancelQueries\(\{ queryKey: terminalKey, exact: true \}\)/g)?.length,
+    2,
+    "SSE head refresh should cancel stale terminal fetches before its request and before its final cache merge"
+  );
+  assert.doesNotMatch(leaderboardSource, /invalidateQueries\(\{ queryKey: terminalKey/, "live events must not refetch every loaded infinite-query page");
+  assert.match(leaderboardSource, /setTimeout\([\s\S]*250/, "bursty live events should be coalesced before refreshing queries");
+  assert.match(leaderboardSource, /removeEventListener\("paper_execution"/, "the execution listener should be cleaned up");
+  assert.match(leaderboardSource, /source\.close\(\)/, "the global stream should close on unmount");
+  assert.match(leaderboardSource, /300_000/, "periodic terminal polling should remain only as a sparse recovery path");
+});
+
 test("execution event stream URL policy skips local cross-origin SSE only", () => {
   assert.equal(
     loadApiModule({

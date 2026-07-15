@@ -105,6 +105,8 @@ from app.paper.realtime_execution import (
     REALTIME_EXECUTION_STATE,
     auto_realtime_execution_loop,
     execution_event_stream,
+    publish_ai_review_event,
+    publish_paper_state_event,
     run_realtime_execution_once,
 )
 from app.paper.plan_state import latest_active_trade_plan, list_active_trade_plans
@@ -2401,6 +2403,7 @@ async def run_management_reviews(
         # waiting behind an idle management transaction.
         db.commit()
         serialized_state: dict[str, Any]
+        event_count_before = len(result.events) if result is not None else 0
 
         def reconcile_after_review(record, review: PositionManagementResult) -> dict[str, Any]:
             mode = agent_mode_for_event(event, exposure)
@@ -2548,6 +2551,12 @@ async def run_management_reviews(
                 )
                 serialized_state = reconcile_after_review(record, review)
                 db.commit()
+        if result is not None and len(result.events) > event_count_before:
+            await publish_paper_state_event(
+                trader_id=trader_id,
+                symbol=symbol,
+                event_types=[paper_event.event_type for paper_event in result.events[event_count_before:]],
+            )
         if record.status == "ok":
             await fanout_ai_translations(
                 db,
@@ -2728,6 +2737,7 @@ async def process_existing_paper_exposure(
     result = None
     management_reviews: list[dict[str, Any]] = []
     status_feed_ids: list[int] = []
+    committed_event_types: list[str] = []
     # Acquire the execution lock before opening a transaction. Previously the
     # management loop updated risk settings first and then waited here while
     # realtime execution held this lock and waited on those uncommitted rows,
@@ -2747,6 +2757,13 @@ async def process_existing_paper_exposure(
             candle_result = process_candle(db, trader_id, symbol, snapshot_to_engine_candle(snapshot))
             merge_paper_engine_results(result, candle_result)
         db.commit()
+        if result is not None:
+            committed_event_types = [event.event_type for event in result.events]
+    await publish_paper_state_event(
+        trader_id=trader_id,
+        symbol=symbol,
+        event_types=committed_event_types,
+    )
     if before["hasExposure"]:
         management_reviews = await run_management_reviews(
             db,
@@ -2879,12 +2896,13 @@ def cached_overview_review_records(
     trader_id: Optional[str] = None,
     locale: str = CANONICAL_AI_LOCALE,
     prefer_cached: bool = False,
+    refresh: bool = False,
 ) -> dict[str, Any]:
     key = overview_review_cache_key(limit=limit, offset=offset, symbol=symbol, trader_id=trader_id, locale=locale)
     cached = OVERVIEW_REVIEWS_CACHE.get(key)
-    if cached and cached[0] > time.monotonic():
+    if not refresh and cached and cached[0] > time.monotonic():
         return cached[1]
-    if cached:
+    if not refresh and cached:
         if key not in OVERVIEW_REVIEWS_REFRESHING:
             OVERVIEW_REVIEWS_REFRESHING.add(key)
             schedule_thread_refresh(
@@ -2896,7 +2914,7 @@ def cached_overview_review_records(
                 key[4],
         )
         return cached[1]
-    if prefer_cached:
+    if prefer_cached and not refresh:
         if key not in OVERVIEW_REVIEWS_REFRESHING:
             OVERVIEW_REVIEWS_REFRESHING.add(key)
             schedule_thread_refresh(
@@ -2923,6 +2941,7 @@ def cached_overview_review_records(
                 trader_id=key[3],
                 locale=key[4],
                 prefer_cached=prefer_cached,
+                refresh=refresh,
             )
     payload = list_overview_review_records(
         db,
@@ -6203,6 +6222,13 @@ async def run_trader_cycle(
                     # them before optional translations/status-feed prose so a
                     # slow auxiliary Codex call cannot delay order visibility.
                     db.commit()
+                    invalidate_league_cache(clean_symbol, strategy.profile.id)
+                    if created_paper_orders:
+                        await publish_paper_state_event(
+                            trader_id=strategy.profile.id,
+                            symbol=clean_symbol,
+                            event_types=["paper_order_created"],
+                        )
                     await fanout_ai_translations(
                         db,
                         settings=settings,
@@ -6214,6 +6240,14 @@ async def run_trader_cycle(
                         target_locales=NON_CANONICAL_AI_LOCALES,
                         release_clean_transaction_before_call=True,
                     )
+                    if review.decision in {"APPROVE", "ADJUST_AND_APPROVE"}:
+                        invalidate_league_cache(clean_symbol, strategy.profile.id)
+                        await publish_ai_review_event(
+                            trader_id=strategy.profile.id,
+                            symbol=clean_symbol,
+                            review_id=review_record.id,
+                            stage="localized",
+                        )
                     await create_status_feed_for_ai_review(db, settings=settings, review=review_record)
                     if plan_record is not None:
                         await create_status_feed_for_pending_trade_plan(
@@ -6720,6 +6754,7 @@ async def league_overview_reviews(
     trader_id: Optional[str] = Query(None),
     locale: str = Query(CANONICAL_AI_LOCALE),
     prefer_cached: bool = Query(False),
+    refresh: bool = Query(False),
 ):
     return cached_overview_review_records(
         limit=limit,
@@ -6728,6 +6763,7 @@ async def league_overview_reviews(
         trader_id=trader_id,
         locale=normalize_locale(locale),
         prefer_cached=prefer_cached,
+        refresh=refresh,
     )
 
 
@@ -7132,6 +7168,23 @@ async def trader_execution_events(
     )
 
 
+@app.get("/api/league/live-events")
+async def league_live_events(
+    request: Request,
+    symbol: str = Query("BTCUSDT"),
+):
+    clean_symbol = normalize_symbol(symbol)
+    return StreamingResponse(
+        execution_event_stream(request, trader_id="", symbol=clean_symbol),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.post("/api/scanner/run-once")
 async def scanner_run_once(request: ScannerRunRequest):
     clean_symbol = normalize_symbol(request.symbol)
@@ -7218,6 +7271,7 @@ async def ai_review_demo(request: RunCycleRequest, provider: Optional[str] = Que
         review = await run_review_with_logging(db, review_payload, requested_provider, settings=settings)
         review.sourceLocale = CANONICAL_AI_LOCALE
         review_record = create_ai_review(db, run_id, clean_symbol, strategy.profile.id, review)
+        review_id = review_record.id
         await fanout_ai_translations(
             db,
             settings=settings,
@@ -7233,6 +7287,15 @@ async def ai_review_demo(request: RunCycleRequest, provider: Optional[str] = Que
         if review.decision in {"APPROVE", "ADJUST_AND_APPROVE"}:
             plan_record = create_trade_plan(db, run_id, clean_symbol, strategy.profile.id, plan)
         plan_id = plan_record.id if plan_record else None
+
+    if review.decision in {"APPROVE", "ADJUST_AND_APPROVE"}:
+        invalidate_league_cache(clean_symbol, strategy.profile.id)
+        await publish_ai_review_event(
+            trader_id=strategy.profile.id,
+            symbol=clean_symbol,
+            review_id=review_id,
+            stage="localized",
+        )
 
     with session_scope() as db:
         run_record = db.get(TraderRunLogRecord, run_id)
@@ -7254,7 +7317,7 @@ async def ai_review_demo(request: RunCycleRequest, provider: Optional[str] = Que
             "marketSnapshotId": snapshot_id,
             "runId": run_id,
             "candidateTradeId": candidate_id,
-            "aiReviewId": review_record.id,
+            "aiReviewId": review_id,
             "tradePlanId": plan_id,
         },
         "trader": strategy.profile.name,

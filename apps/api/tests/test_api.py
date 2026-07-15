@@ -1,3 +1,4 @@
+import inspect
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -18,6 +19,14 @@ OPS_TOKEN = "test-ops-token"
 
 def ops_headers() -> dict[str, str]:
     return {"x-ops-api-token": OPS_TOKEN}
+
+
+def test_entry_review_live_signal_is_localized_approved_and_not_duplicated():
+    source = inspect.getsource(main.run_trader_cycle)
+    assert source.count("await publish_ai_review_event(") == 1
+    assert source.index("await fanout_ai_translations(") < source.index("await publish_ai_review_event(")
+    assert 'if review.decision in {"APPROVE", "ADJUST_AND_APPROVE"}:' in source
+    assert 'event_types=["paper_order_created"]' in source
 
 
 def test_overview_uses_embedded_review_locale_without_cache_lookup(temp_api_db):
@@ -1705,6 +1714,29 @@ def test_overview_stale_cache_is_served_before_background_refresh(temp_api_db, m
     assert scheduled == [(20, 0, "BTCUSDT", None, "ko")]
     assert key in main.OVERVIEW_REVIEWS_REFRESHING
     main.OVERVIEW_REVIEWS_REFRESHING.clear()
+
+
+def test_overview_refresh_bypasses_process_local_cache(temp_api_db, monkeypatch):
+    key = (20, 0, "BTCUSDT", None, "ko")
+    main.OVERVIEW_REVIEWS_CACHE[key] = (
+        time.monotonic() + 300,
+        {"reviews": [{"id": 1}], "nextOffset": 1, "hasMore": False},
+    )
+    fresh_payload = {"reviews": [{"id": 2}], "nextOffset": 1, "hasMore": False}
+    monkeypatch.setattr(main, "list_overview_review_records", lambda *args, **kwargs: fresh_payload)
+
+    with session_scope() as db:
+        payload = main.cached_overview_review_records(
+            db,
+            limit=20,
+            offset=0,
+            symbol="BTCUSDT",
+            locale="ko",
+            refresh=True,
+        )
+
+    assert payload == fresh_payload
+    assert main.OVERVIEW_REVIEWS_CACHE[key][1] == fresh_payload
 
 
 def test_overview_prefer_cached_returns_warming_without_sync_db_on_cold_cache(temp_api_db, monkeypatch):

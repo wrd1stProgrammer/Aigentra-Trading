@@ -526,6 +526,47 @@ async def publish_execution_event(payload: dict[str, Any]) -> None:
     await _publish_redis_event(payload)
 
 
+def _next_event_sequence() -> int:
+    global _EVENT_SEQUENCE
+    _EVENT_SEQUENCE += 1
+    return _EVENT_SEQUENCE
+
+
+async def publish_ai_review_event(
+    *,
+    trader_id: str,
+    symbol: str,
+    review_id: int,
+    stage: str = "created",
+) -> None:
+    payload = {
+        "streamEvent": "ai_review_created",
+        "traderId": trader_id,
+        "symbol": normalize_execution_symbol(symbol),
+        "reviewId": review_id,
+        "stage": stage,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "sourceId": _PROCESS_ID,
+        "sequence": _next_event_sequence(),
+    }
+    await publish_execution_event(payload)
+
+
+async def publish_paper_state_event(*, trader_id: str, symbol: str, event_types: list[str]) -> None:
+    clean_event_types = [event_type for event_type in event_types if event_type]
+    if not clean_event_types:
+        return
+    payload = {
+        "traderId": trader_id,
+        "symbol": normalize_execution_symbol(symbol),
+        "eventTypes": clean_event_types,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "sourceId": _PROCESS_ID,
+        "sequence": _next_event_sequence(),
+    }
+    await publish_execution_event(payload)
+
+
 async def run_realtime_execution_once(
     *,
     symbols: Optional[list[str]] = None,
@@ -711,8 +752,6 @@ async def run_realtime_execution_once(
                                     callback_result = on_result(db, trader_id, symbol, result)
                                     if callback_result is not None:
                                         await callback_result
-                                global _EVENT_SEQUENCE
-                                _EVENT_SEQUENCE += 1
                                 result_payload = _result_payload(
                                     trader_id=trader_id,
                                     symbol=symbol,
@@ -720,7 +759,7 @@ async def run_realtime_execution_once(
                                     candle=latest_candle,
                                     result=result,
                                 )
-                                result_payload["sequence"] = _EVENT_SEQUENCE
+                                result_payload["sequence"] = _next_event_sequence()
                                 result_status = "UPDATED"
                                 result_event_types = [event.event_type for event in result.events]
                         if result_payload:
@@ -934,7 +973,9 @@ async def execution_event_stream(request: Any, *, trader_id: str, symbol: str):
             seen.add(event_key)
             if len(seen) > 200:
                 seen = set(list(seen)[-100:])
-            yield f"event: paper_execution\ndata: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
+            stream_event = payload.get("streamEvent")
+            event_name = stream_event if stream_event == "ai_review_created" else "paper_execution"
+            yield f"event: {event_name}\ndata: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
     finally:
         if redis_task and not redis_task.done():
             redis_task.cancel()

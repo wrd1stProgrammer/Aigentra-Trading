@@ -1012,6 +1012,12 @@ export function getTraderExecutionEventsUrl(traderId: string, symbol: string) {
   return `${EVENT_STREAM_API_BASE_URL}/api/league/traders/${encodeURIComponent(traderId)}/execution-events?${params.toString()}`;
 }
 
+export function getLeagueLiveEventsUrl(symbol: string) {
+  if (shouldSkipLocalCrossOriginEventStream(EVENT_STREAM_API_BASE_URL)) return null;
+  const params = new URLSearchParams({ symbol });
+  return `${EVENT_STREAM_API_BASE_URL}/api/league/live-events?${params.toString()}`;
+}
+
 function shouldSkipLocalCrossOriginEventStream(baseUrl: string) {
   if (typeof window === "undefined") return false;
   const localHosts = new Set(["localhost", "127.0.0.1"]);
@@ -1120,7 +1126,7 @@ export async function getAITradeTerminalSource(
   symbol: string,
   locale: Locale,
   page: AITradeTerminalPage = { eventOffset: 0, reviewOffset: 0 },
-  options?: { readonly signal?: AbortSignal }
+  options?: { readonly signal?: AbortSignal; readonly refresh?: boolean }
 ): Promise<AITradeTerminalSource> {
   const pageSize = 20;
   const eventParams = new URLSearchParams({
@@ -1134,6 +1140,7 @@ export async function getAITradeTerminalSource(
     limit: String(pageSize),
     locale
   });
+  if (options?.refresh) reviewParams.set("refresh", "true");
   if (page.eventOffset !== null) eventParams.set("offset", String(page.eventOffset));
   if (page.reviewOffset !== null) reviewParams.set("offset", String(page.reviewOffset));
 

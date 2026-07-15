@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { useCallback, useMemo, useState, useEffect, type MouseEvent } from "react";
 import {
@@ -20,11 +20,13 @@ import {
   getActivePaperPositions,
   getAITradeTerminalSource,
   getCachedLeaderboardBundle,
+  getLeagueLiveEventsUrl,
   getPaperOrders,
   getRecentTradePlans,
   LEAGUE_LIVE_REFETCH_INTERVAL_MS,
   leaderboardBundleQueryOptions,
   type EquitySnapshot,
+  type AITradeTerminalSource,
   type AITradeTerminalPage,
   type LeaderboardBundle,
   type LeaderboardBundleRequestOptions,
@@ -61,6 +63,9 @@ import { tradeClassification, type TradeClassification } from "@/components/trad
 import type { SubscriberPreferences } from "@/lib/subscriber-preferences";
 import { AITradeTerminalLockedPreview, AITradeTerminalPanel } from "@/components/ai-trade-terminal";
 import { buildAITradeTerminal } from "@/lib/ai-trade-terminal";
+import { mergeAITradeTerminalHead } from "@/lib/ai-trade-terminal-live";
+import { livePositionRoi } from "@/lib/leaderboard-live-market";
+import { useOkxLiveMarkPrice } from "@/components/use-okx-live-mark-price";
 
 const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_108px_108px_104px_80px_36px] gap-3";
 const LIVE_EXPOSURE_LIMIT = 100;
@@ -482,6 +487,8 @@ export function LeaderboardPageClient() {
   });
 
   const pendingPlans = pendingPlansQuery.data ?? [];
+  const hasActiveLivePosition = liveExposurePositions.some((position) => isActivePosition(position.status));
+  const liveMarkPrice = useOkxLiveMarkPrice("BTCUSDT", shouldFetchSecondaryLeaderboardData && hasActiveLivePosition);
 
   const exposureByTrader = useMemo(
     () => buildExposureMap(liveExposurePositions, liveExposureOrders, pendingPlans),
@@ -494,7 +501,7 @@ export function LeaderboardPageClient() {
     getNextPageParam: (lastPage) => lastPage.nextPage ?? undefined,
     enabled: shouldFetchSecondaryLeaderboardData && isSubscribed,
     staleTime: 60_000,
-    refetchInterval: (query) => (query.state.data?.pages.length ?? 0) <= 1 ? 60_000 : false,
+    refetchInterval: (query) => (query.state.data?.pages.length ?? 0) <= 1 ? 300_000 : false,
     refetchIntervalInBackground: false,
     retry: 1
   });
@@ -511,6 +518,71 @@ export function LeaderboardPageClient() {
     if (!aiTradeTerminalQuery.hasNextPage || aiTradeTerminalQuery.isFetchingNextPage) return;
     void aiTradeTerminalQuery.fetchNextPage();
   }, [aiTradeTerminalQuery.fetchNextPage, aiTradeTerminalQuery.hasNextPage, aiTradeTerminalQuery.isFetchingNextPage]);
+
+  useEffect(() => {
+    if (!shouldFetchSecondaryLeaderboardData || !isSubscribed || typeof EventSource === "undefined") return;
+    const leagueLiveEventsUrl = getLeagueLiveEventsUrl("BTCUSDT");
+    if (!leagueLiveEventsUrl) return;
+
+    const source = new EventSource(leagueLiveEventsUrl);
+    const terminalKey = ["league", "ai-trade-terminal", "BTCUSDT", locale] as const;
+    let disposed = false;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let terminalRefreshInFlight = false;
+    let terminalRefreshQueued = false;
+
+    const refreshTerminalHead = async () => {
+      if (terminalRefreshInFlight) {
+        terminalRefreshQueued = true;
+        return;
+      }
+      terminalRefreshInFlight = true;
+      try {
+        await queryClient.cancelQueries({ queryKey: terminalKey, exact: true });
+        const nextHead = await getAITradeTerminalSource(
+          "BTCUSDT",
+          locale,
+          INITIAL_AI_TRADE_TERMINAL_PAGE,
+          { refresh: true }
+        );
+        if (disposed) return;
+        await queryClient.cancelQueries({ queryKey: terminalKey, exact: true });
+        if (disposed) return;
+        queryClient.setQueryData<InfiniteData<AITradeTerminalSource, AITradeTerminalPage>>(terminalKey, (current) => {
+          if (!current) return { pages: [nextHead], pageParams: [INITIAL_AI_TRADE_TERMINAL_PAGE] };
+          return mergeAITradeTerminalHead(current, nextHead);
+        });
+      } catch (error) {
+        if (!disposed) console.warn("terminal_head_refresh_failed", error);
+      } finally {
+        terminalRefreshInFlight = false;
+        if (terminalRefreshQueued && !disposed) {
+          terminalRefreshQueued = false;
+          scheduleExecutionRefresh();
+        }
+      }
+    };
+    const scheduleExecutionRefresh = () => {
+      if (refreshTimer !== null) return;
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        void refreshTerminalHead();
+        void queryClient.invalidateQueries({ queryKey: ["paper"] });
+        void queryClient.invalidateQueries({ queryKey: ["league", "trade-plans", "BTCUSDT"] });
+        void queryClient.invalidateQueries({ queryKey: ["league", "leaderboard", "BTCUSDT"] });
+      }, 250);
+    };
+
+    source.addEventListener("paper_execution", scheduleExecutionRefresh);
+    source.addEventListener("ai_review_created", scheduleExecutionRefresh);
+    return () => {
+      disposed = true;
+      if (refreshTimer !== null) clearTimeout(refreshTimer);
+      source.removeEventListener("paper_execution", scheduleExecutionRefresh);
+      source.removeEventListener("ai_review_created", scheduleExecutionRefresh);
+      source.close();
+    };
+  }, [isSubscribed, locale, queryClient, shouldFetchSecondaryLeaderboardData]);
   const liveRaceStandingsBase = useMemo(() => {
     const liveStandings = selectedLeagueMonth && currentLeagueStandings ? currentLeagueStandings : standings;
     const visibleLiveStandings = liveStandings.filter(isLeaderboardStandingVisible);
@@ -987,6 +1059,7 @@ export function LeaderboardPageClient() {
             returnColumns={returnColumns}
             onToggleFavorite={toggleFavoriteTrader}
             onActivate={activateTrader}
+            liveMarkPrice={liveMarkPrice}
           />
           <MobileRankingList
             standings={visibleStandings}
@@ -998,6 +1071,7 @@ export function LeaderboardPageClient() {
             favoriteTraderIds={favoriteTraderIds}
             returnColumn={mobileReturnColumn}
             onToggleFavorite={toggleFavoriteTrader}
+            liveMarkPrice={liveMarkPrice}
           />
           {subscriberAccessPending && hiddenTraderCount > 0 ? (
             <LeaderboardAccessPendingRows count={hiddenTraderCount} t={t} />
@@ -1016,13 +1090,14 @@ export function LeaderboardPageClient() {
           currentSummary={activeTrader ? currentSummaryByTrader.get(activeTrader.id) : undefined}
           isMonthlyLeague={Boolean(selectedLeagueMonth)}
           rankMasked={rankMasked}
+          liveMarkPrice={liveMarkPrice}
         />
       </section>
     </div>
   );
 }
 
-function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, activeTraderId, t, locale, rankMasked, favoriteTraderIds, returnColumns, onToggleFavorite, onActivate }: {
+function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, activeTraderId, t, locale, rankMasked, favoriteTraderIds, returnColumns, onToggleFavorite, onActivate, liveMarkPrice }: {
   standings: TraderStanding[];
   exposureByTrader: Map<string, TraderExposure>;
   currentSummaryByTrader: ReadonlyMap<string, TraderStanding["summary"]>;
@@ -1034,6 +1109,7 @@ function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, act
   returnColumns: readonly ReturnColumn[];
   onToggleFavorite: (traderId: string) => void;
   onActivate: (traderId: string) => void;
+  liveMarkPrice: number | null;
 }) {
   const primaryReturnColumn = returnColumns[0] ?? fallbackReturnColumn("cumulative", t);
   const secondaryReturnColumn = returnColumns[1] ?? null;
@@ -1055,7 +1131,7 @@ function RankingTable({ standings, exposureByTrader, currentSummaryByTrader, act
           {standings.map((trader) => {
 
             const exposure = exposureByTrader.get(trader.id);
-            const progress = traderProgress(trader, exposure, t, locale, currentSummaryByTrader.get(trader.id));
+            const progress = traderProgress(trader, exposure, t, locale, currentSummaryByTrader.get(trader.id), liveMarkPrice);
             const isActive = activeTraderId === trader.id;
             const primaryReturnValue = returnMetricValue(trader, primaryReturnColumn.key);
             const secondaryReturnValue = secondaryReturnColumn ? returnMetricValue(trader, secondaryReturnColumn.key) : null;
@@ -1150,7 +1226,7 @@ function LeaderboardLockedRows({
   );
 }
 
-function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader, t, locale, rankMasked, favoriteTraderIds, returnColumn, onToggleFavorite }: {
+function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader, t, locale, rankMasked, favoriteTraderIds, returnColumn, onToggleFavorite, liveMarkPrice }: {
   standings: TraderStanding[];
   exposureByTrader: Map<string, TraderExposure>;
   currentSummaryByTrader: ReadonlyMap<string, TraderStanding["summary"]>;
@@ -1160,6 +1236,7 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
   favoriteTraderIds: ReadonlySet<string>;
   returnColumn: ReturnColumn;
   onToggleFavorite: (traderId: string) => void;
+  liveMarkPrice: number | null;
 }) {
   return (
     <div className="w-full min-w-0 max-w-full lg:hidden" data-testid="mobile-ranking-list">
@@ -1171,7 +1248,7 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
       </div>
       <div className="divide-y divide-zinc-200/40 dark:divide-white/[0.06]">
         {standings.map((trader) => {
-            const progress = traderProgress(trader, exposureByTrader.get(trader.id), t, locale, currentSummaryByTrader.get(trader.id));
+            const progress = traderProgress(trader, exposureByTrader.get(trader.id), t, locale, currentSummaryByTrader.get(trader.id), liveMarkPrice);
             const displayName = localizedTraderName(trader, t);
             const isFavorite = favoriteTraderIds.has(trader.id);
             const returnValue = returnMetricValue(trader, returnColumn.key);
@@ -1223,7 +1300,7 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
   );
 }
 
-function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, currentSummary, isMonthlyLeague, rankMasked }: {
+function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, exposure, currentSummary, isMonthlyLeague, rankMasked, liveMarkPrice }: {
   trader: TraderStanding | null;
   t: (key: string) => string;
   locale: Locale;
@@ -1233,6 +1310,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
   currentSummary?: TraderStanding["summary"];
   isMonthlyLeague: boolean;
   rankMasked: boolean;
+  liveMarkPrice: number | null;
 }) {
   if (!trader) {
     return (
@@ -1242,7 +1320,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
     );
   }
 
-  const progress = traderProgress(trader, exposure, t, locale, currentSummary);
+  const progress = traderProgress(trader, exposure, t, locale, currentSummary, liveMarkPrice);
   const state = progress.label;
   const displayName = localizedTraderName(trader, t);
   const previewShortTermColumn = topShortTermReturnColumn([trader], t);
@@ -1696,7 +1774,8 @@ function traderProgress(
   exposure: TraderExposure | undefined,
   t: (key: string) => string,
   locale: Locale,
-  currentSummary?: TraderStanding["summary"]
+  currentSummary?: TraderStanding["summary"],
+  liveMarkPrice: number | null = null
 ): TraderProgress {
   const summary = trader.summary;
   const liveSummary = currentSummary ?? summary;
@@ -1705,7 +1784,7 @@ function traderProgress(
   const order = exposure?.order;
   const plan = exposure?.plan;
   if (position || (liveSummary?.openPositions ?? 0) > 0 || (summary?.openPositions ?? 0) > 0) {
-    const roi = position ? positionRoi(position) : summaryRoi(liveSummary) ?? summaryRoi(summary);
+    const roi = position ? livePositionRoi(position, liveMarkPrice) : summaryRoi(liveSummary) ?? summaryRoi(summary);
     const fallbackDetail = getElapsedTimeString(liveSummary?.updatedAt ?? summary?.updatedAt);
     const detail = roi === null ? fallbackDetail : `${t("leaderboard.status.roi")} ${formatSignedPercent(roi, 1)}`;
     const side = normalizeSide(position?.side ?? (liveSummaryRecord?.side as string | undefined));
@@ -1854,13 +1933,6 @@ function isActivePosition(status?: string | null) {
 function isActiveOrder(status?: string | null) {
   const normalized = normalizeStatusText(status);
   return !["FILLED", "CLOSED", "CANCELED", "CANCELLED", "EXPIRED", "REJECTED"].includes(normalized);
-}
-
-function positionRoi(position: PaperPosition) {
-  const pnl = numberValue(position.unrealizedPnl);
-  const margin = numberValue(position.margin, position.openMargin);
-  if (pnl === null || margin === null || margin <= 0) return null;
-  return (pnl / margin) * 100;
 }
 
 function summaryRoi(summary: TraderStanding["summary"]) {
