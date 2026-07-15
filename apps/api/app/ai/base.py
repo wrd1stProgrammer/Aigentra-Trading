@@ -12,6 +12,7 @@ from app.ai.league_sentiment_models import (
     LeagueSentimentOpinionResult,
     LeagueSentimentPayload,
 )
+from app.ai.management_review_delta import current_management_review_delta
 from app.ai.review_prompt_quality import ENTRY_DETAIL_UI_CONTRACT, STRUCTURED_REVIEW_QUALITY_CONTRACT
 from app.locales import CANONICAL_AI_LOCALE, SUPPORTED_LOCALES, normalize_locale
 from app.paper.holding_policy import trader_holding_policy
@@ -218,7 +219,7 @@ class BaseAIProvider:
         return plan
 
     def normalize_management_result(self, raw: Dict[str, Any]) -> PositionManagementResult:
-        raw = self._review_with_canonical_english(raw)
+        raw = self._management_review_with_canonical_english(raw)
         decision = self._normalize_management_action_type(raw.get("decision", "HOLD"))
         if decision not in VALID_MANAGEMENT_DECISIONS:
             decision = "NEEDS_MORE_DATA"
@@ -271,7 +272,10 @@ class BaseAIProvider:
             rationale=str(raw.get("rationale", "Management review completed.")),
             counterThesis=str(raw.get("counterThesis", "If invalidation fires, hard risk rules take priority.")),
             userSummary=self._normalize_optional_text(raw.get("userSummary")),
-            translations=self._normalize_review_translations(raw.get("translations")),
+            translations=self._normalize_management_review_translations(
+                raw.get("translations"),
+                normalized_actions,
+            ),
             provider=self.name,
             model=self.model,
             fallback=self.fallback,
@@ -295,6 +299,55 @@ class BaseAIProvider:
         if not isinstance(english, dict):
             return raw
         return {**raw, **english, "translations": translations}
+
+    def _management_review_with_canonical_english(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+        translations = raw.get("translations") if isinstance(raw.get("translations"), dict) else {}
+        english = translations.get(CANONICAL_AI_LOCALE)
+        if not isinstance(english, dict):
+            return raw
+        localized = {**raw, **english, "translations": translations}
+        localized["actions"] = self._localized_management_actions(raw.get("actions"), english.get("actions"))
+        return localized
+
+    def _normalize_management_review_translations(
+        self,
+        value: Any,
+        canonical_actions: list[ManagementAction],
+    ) -> dict[str, dict[str, Any]]:
+        translations = self._normalize_review_translations(value)
+        normalized: dict[str, dict[str, Any]] = {}
+        canonical = [action.model_dump(exclude_none=True) for action in canonical_actions]
+        for locale, localized in translations.items():
+            actions = localized.get("actions")
+            if not isinstance(actions, list) or len(actions) != len(canonical):
+                continue
+            normalized[locale] = {
+                **localized,
+                "actions": self._localized_management_actions(canonical, actions),
+            }
+        return normalized
+
+    def _localized_management_actions(self, canonical_value: Any, localized_value: Any) -> list[dict[str, Any]]:
+        canonical = canonical_value if isinstance(canonical_value, list) else []
+        localized = localized_value if isinstance(localized_value, list) else []
+        actions: list[dict[str, Any]] = []
+        for index, item in enumerate(canonical):
+            action = item if isinstance(item, dict) else {"type": str(item)}
+            localized_action = localized[index] if index < len(localized) and isinstance(localized[index], dict) else {}
+            reason = localized_action.get("reason")
+            actions.append(
+                {
+                    key: value
+                    for key, value in {
+                        "type": action.get("type"),
+                        "price": action.get("price"),
+                        "quantityFraction": action.get("quantityFraction"),
+                        "reason": reason if isinstance(reason, str) else str(action.get("reason") or ""),
+                    }.items()
+                    if value is not None
+                }
+            )
+        return actions
 
     def normalize_league_sentiment_result(self, raw: Dict[str, Any]) -> LeagueSentimentOpinionResult:
         bias = str(raw.get("bias", "MIXED")).upper()
@@ -934,44 +987,6 @@ def recent_entry_review_memory(reviews: list[dict[str, Any]]) -> list[dict[str, 
     return memory[:4]
 
 
-MANAGEMENT_PRIMARY_LEVEL_KEYS: Final = (
-    "channelMid",
-    "rangeMid",
-    "ema50",
-    "ema50_4h",
-    "ema20",
-    "vwap",
-    "sessionMid",
-    "imbalanceMidpoint",
-    "failureLine",
-    "invalidationLine",
-)
-
-
-MANAGEMENT_CONTEXT_METRIC_KEYS: Final = (
-    "channelLower",
-    "channelMid",
-    "channelUpper",
-    "rangeLower",
-    "rangeMid",
-    "rangeUpper",
-    "ema20",
-    "ema50",
-    "ema50_4h",
-    "vwap",
-    "sessionMid",
-    "imbalanceMidpoint",
-    "failureLine",
-    "invalidationLine",
-    "fifteenMinuteClose",
-    "volumeZscore",
-    "fundingRate",
-    "takerBuyRatio",
-    "adx1h",
-    "stallPrice",
-)
-
-
 MANAGEMENT_EXPOSURE_CONTEXT_KEYS: Final = (
     "kind",
     "id",
@@ -1026,38 +1041,6 @@ ENTRY_THESIS_TAKE_PROFIT_KEYS: Final = (
     "reason",
     "status",
 )
-
-
-def management_anchor_context(metrics: dict[str, Any], *, entry: Any, stop: Any) -> dict[str, Any]:
-    primary_name = "entry"
-    primary_level = entry
-    for key in MANAGEMENT_PRIMARY_LEVEL_KEYS:
-        value = metrics.get(key)
-        if value is None:
-            continue
-        primary_name = key
-        primary_level = value
-        break
-    return {
-        "primaryLevelName": primary_name,
-        "primaryLevel": primary_level,
-        "invalidationLine": metrics.get("failureLine") or metrics.get("invalidationLine") or stop,
-        "entryOrLimit": entry,
-        "mustNotRepeatRecentReview": True,
-    }
-
-
-def management_strategy_metrics(metrics: dict[str, Any], *, entry: Any, stop: Any) -> dict[str, Any]:
-    strategy_metrics = {
-        key: metrics.get(key)
-        for key in MANAGEMENT_CONTEXT_METRIC_KEYS
-        if metrics.get(key) is not None
-    }
-    return {
-        "failureLine": strategy_metrics.get("failureLine") or strategy_metrics.get("invalidationLine") or stop,
-        "imbalanceMidpoint": strategy_metrics.get("imbalanceMidpoint") or entry,
-        **strategy_metrics,
-    }
 
 
 def compact_management_exposure(exposure: ManagedExposure) -> dict[str, Any]:
@@ -1263,40 +1246,6 @@ def compact_management_market_value(value: Any) -> Any:
     return value
 
 
-def current_management_review_delta(payload: PositionManagementPayload) -> dict[str, Any]:
-    metrics = payload.event.metrics or {}
-    exposure = payload.exposure
-    price = metrics.get("price") or payload.marketSnapshot.get("price")
-    entry = metrics.get("entryPrice") or exposure.entryPrice or exposure.limitPrice
-    stop = metrics.get("stopLoss") or exposure.stopLoss
-    target = metrics.get("takeProfit") or exposure.takeProfit
-    return {
-        "currentDecisionFrame": {
-            "phase": payload.event.phase,
-            "eventType": payload.event.eventType,
-            "suggestedAction": payload.event.suggestedAction,
-            "eventReason": payload.event.reason,
-        },
-        "priceBox": {
-            "side": exposure.side,
-            "price": price,
-            "entry": entry,
-            "stop": stop,
-            "target": target,
-            "unrealizedPnl": metrics.get("unrealizedPnl") or exposure.unrealizedPnl,
-            "progressR": metrics.get("progressR"),
-            "targetProgress": metrics.get("targetProgress"),
-            "distanceToStopR": metrics.get("distanceToStopR"),
-        },
-        "managementAnchors": management_anchor_context(metrics, entry=entry, stop=stop),
-        "strategyTriggers": management_strategy_metrics(metrics, entry=entry, stop=stop),
-        "writeThisReviewDifferently": (
-            "Use this review's current price, progress, strategy-specific management anchor, distance to invalidation, and event reason as the new angle. "
-            "If the decision remains HOLD, explain what changed or did not change since the latest review before repeating any trigger."
-        ),
-    }
-
-
 def extract_json_object(text: str) -> Dict[str, Any]:
     try:
         return json.loads(text)
@@ -1326,7 +1275,9 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "Your decision must always be one of approvalDossier.decisionGate.allowedDecisions. "
         "If approvalDossier.decisionGate.severity is hard_fail, your decision must be one of approvalDossier.decisionGate.allowedDecisions and must not be APPROVE, ADJUST_AND_APPROVE, or DEFER. "
         "If severity is hard_defer, your decision must be DEFER. "
-        "If severity is caution, you may approve only after explaining the exact adjustment or evidence that contains the warning. "
+        "If severity is caution, explain how evidence or bounded execution risk contains the warning. A caution is not by itself a reason to adjust, defer, or reject. "
+        "Use APPROVE when the submitted executable plan is acceptable unchanged; use ADJUST_AND_APPROVE only when you specify a real plan change; "
+        "use DEFER for a time-bound missing confirmation, REJECT for an invalid thesis or unacceptable edge, and NEEDS_MORE_DATA only for genuinely missing inputs. "
         "reviewFacts should mirror the most important dataChecks with language-neutral codes, labelKey values, severity info/warn/error, and short values. "
         "Use approvalDossier.trader, approvalDossier.reviewFocus, and approvalDossier.strategyReviewerPolicy to calibrate your judgment: do not be blindly conservative, "
         "but do not approve inconsistent geometry, missing stops, unsupported leverage, or thesis conflicts. "
@@ -1335,9 +1286,9 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "prefer DEFER, REJECT, or ADJUST_AND_APPROVE with smaller risk, lower allowed leverage, cancelled scale entries, or clearer stop discipline. "
         "If the fresh setup is materially different from the recent losses, explain that difference briefly in structuredReview.managerNote or approvalReason. "
         "Use recentAiReviews as context, not as an independent veto; read them only through approvalDossier.context.recentEntryReviewMemory and do not reject primarily because prior reviews rejected or deferred. "
+        "The server has already blocked an exact duplicate of the same completed candle. A new completed candle is eligible for review; do not demand an arbitrary novelty score or a wholesale thesis change. "
         "Let fresh market evidence, changed price geometry, and the trader-specific thesis decide whether the new candidate deserves approval. "
-        "Prefer ADJUST_AND_APPROVE when the edge is real and the flaw is fixable by calibrated size or bounded leverage, "
-        "entry cancellation, or a stricter early-exit rule. "
+        "When the edge is real but the submitted size, leverage, entries, or exit controls must change, use ADJUST_AND_APPROVE and name that executable change. "
         "Treat 5x as the service execution floor, not proof that only elite setups can be approved. "
         "Do not require arbitrary setupScore 70+ or 75+ thresholds for 5x; judge current price action, entry/stop/target geometry, "
         "fee-aware RR, invalidation clarity, and whether risk can be contained. "
@@ -1511,6 +1462,7 @@ def position_management_review_prompt(payload: PositionManagementPayload) -> str
         f"{STRUCTURED_REVIEW_QUALITY_CONTRACT}"
         "Translate indicators into plain meaning, and include raw numbers only when they support a clear action or trigger. "
         "Compare against compact recentManagementReviews, recentReviewMemory, and recentTradeEvents before writing. Do not reuse the same headline, rationale, or keyReasons from a recent review. "
+        "A scheduled heartbeat is still a real review. When currentReviewDelta.reviewContinuity is STABLE, keep the update concise, preserve a valid HOLD, and do not invent deterioration or reduce risk merely to make the text look different. "
         "Use recentReviewMemory and currentReviewDelta before writing; the user must be able to tell 이번 리뷰가 이전 리뷰와 다른 이유 from the wording. "
         "Do not start any structuredReview field with the same opening phrase, same first clause, or same number-plus-trigger pattern as recentReviewMemory. "
         "For every trader, write around that trader's managementAnchors and strategyTriggers: channel traders should discuss channel levels, trend traders should discuss trend/EMA anchors, range traders should discuss range levels, funding/orderflow traders should discuss crowding or flow anchors, and imbalance traders should discuss midpoint/invalidation anchors. "

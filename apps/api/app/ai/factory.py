@@ -73,12 +73,21 @@ def get_ai_provider(settings: Settings, provider_override: str = None):
                     workdir=settings.codex_cli_workdir,
                     codex_home=settings.codex_cli_home,
                     access_token=settings.codex_cli_access_token,
+                    reasoning_effort=settings.codex_cli_reasoning_effort,
                 )
             ),
             model=settings.codex_cli_model,
             trade_review_model=settings.codex_cli_trade_review_model,
             position_management_model=settings.codex_cli_position_management_model,
+            position_management_heartbeat_model=settings.codex_cli_position_management_heartbeat_model,
             league_sentiment_model=settings.codex_cli_league_sentiment_model,
+            reasoning_effort=settings.codex_cli_reasoning_effort,
+            trade_review_reasoning_effort=settings.codex_cli_trade_review_reasoning_effort,
+            position_management_reasoning_effort=settings.codex_cli_position_management_reasoning_effort,
+            position_management_heartbeat_reasoning_effort=(
+                settings.codex_cli_position_management_heartbeat_reasoning_effort
+            ),
+            league_sentiment_reasoning_effort=settings.codex_cli_league_sentiment_reasoning_effort,
         )
         fallback_name = settings.codex_cli_fallback_provider
         if fallback_name == "codex_cli":

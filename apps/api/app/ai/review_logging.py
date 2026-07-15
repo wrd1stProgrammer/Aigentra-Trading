@@ -8,10 +8,12 @@ from app.ai.entry_approval_dossier import build_entry_approval_dossier
 from app.ai.mock_provider import MockAIProvider
 from app.core.config import Settings
 from app.db import session_scope
+from app.paper.sizing import guardrail_risk_cap_percent
 from app.repositories import create_provider_call_log, sanitize_error_message
 from app.traders.models import (
     PositionManagementPayload,
     PositionManagementResult,
+    ReviewFact,
     StructuredReview,
     TradeReviewPayload,
     TradeReviewResult,
@@ -21,29 +23,52 @@ from app.traders.models import (
 def enforce_entry_review_decision(payload: TradeReviewPayload, review: TradeReviewResult) -> TradeReviewResult:
     gate = build_entry_approval_dossier(payload).get("decisionGate") or {}
     allowed = [str(decision) for decision in gate.get("allowedDecisions") or []]
-    if not allowed or review.decision in allowed:
+    if allowed and review.decision not in allowed:
+        enforced_decision = allowed[0]
+        reason = " ".join(str(item) for item in (gate.get("mustExplain") or [])[:2]).strip()
+        enforced_reason = reason or "Server-side entry validation overrode the provider decision."
+        return review.model_copy(
+            update={
+                "decision": enforced_decision,
+                "riskLevel": "HIGH",
+                "riskFlags": [*review.riskFlags, "server_entry_decision_gate_enforced"],
+                "structuredReview": StructuredReview(
+                    verdict=enforced_decision,
+                    headline=enforced_reason,
+                    action="Do not create an entry order until the server-side gate clears.",
+                    keyReasons=[enforced_reason],
+                    risks=["The current setup violates a deterministic entry guard."],
+                    watchConditions=["Wait for a materially new setup or boundary before retrying."],
+                ),
+                "approvalReason": enforced_reason,
+                "userSummary": enforced_reason,
+                "translations": {},
+                "leverageOverride": None,
+                "riskPercentOverride": None,
+            }
+        )
+    if review.decision not in {"APPROVE", "ADJUST_AND_APPROVE"}:
         return review
-    enforced_decision = allowed[0]
-    reason = " ".join(str(item) for item in (gate.get("mustExplain") or [])[:2]).strip()
-    enforced_reason = reason or "Server-side entry validation overrode the provider decision."
+
+    base_risk = float(payload.candidate.riskPercent or 0.0)
+    risk_cap = guardrail_risk_cap_percent(payload.candidate, payload.entryGuardrails)
+    requested_risk = float(review.riskPercentOverride) if review.riskPercentOverride is not None else base_risk
+    if risk_cap >= base_risk or requested_risk <= risk_cap:
+        return review
+    effective_risk = min(requested_risk, risk_cap)
     return review.model_copy(
         update={
-            "decision": enforced_decision,
-            "riskLevel": "HIGH",
-            "riskFlags": [*review.riskFlags, "server_entry_decision_gate_enforced"],
-            "structuredReview": StructuredReview(
-                verdict=enforced_decision,
-                headline=enforced_reason,
-                action="Do not create an entry order until the server-side gate clears.",
-                keyReasons=[enforced_reason],
-                risks=["The current setup violates a deterministic entry guard."],
-                watchConditions=["Wait for a materially new setup or boundary before retrying."],
-            ),
-            "approvalReason": enforced_reason,
-            "userSummary": enforced_reason,
-            "translations": {},
-            "leverageOverride": None,
-            "riskPercentOverride": None,
+            "riskPercentOverride": effective_risk,
+            "riskFlags": [*review.riskFlags, "server_risk_cap_applied"],
+            "reviewFacts": [
+                *review.reviewFacts,
+                ReviewFact(
+                    code="server_risk_cap_applied",
+                    labelKey="reviewFact.serverRiskCapApplied",
+                    severity="warn",
+                    value=f"{effective_risk:.4f}%",
+                ),
+            ],
         }
     )
 

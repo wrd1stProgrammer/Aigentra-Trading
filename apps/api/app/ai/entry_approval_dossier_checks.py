@@ -169,13 +169,11 @@ def decision_gate(hard_blockers: list[str], warnings: list[str], forced_defers: 
         return {
             "severity": "caution",
             "allowedDecisions": ["APPROVE", "ADJUST_AND_APPROVE", "DEFER", "REJECT", "NEEDS_MORE_DATA"],
-            "preferredDecisions": ["ADJUST_AND_APPROVE", "DEFER", "APPROVE"],
             "mustExplain": warnings[:4],
         }
     return {
         "severity": "clean",
         "allowedDecisions": ["APPROVE", "ADJUST_AND_APPROVE", "DEFER", "REJECT", "NEEDS_MORE_DATA"],
-        "preferredDecisions": ["APPROVE", "ADJUST_AND_APPROVE"],
         "mustExplain": [],
     }
 
@@ -192,7 +190,9 @@ def review_focus(hard_blockers: list[str], warnings: list[str]) -> list[str]:
         "Name one kill-switch that would change the decision.",
     ]
     if warnings:
-        focus.append("If approving, explain the exact adjustment that contains the warning.")
+        focus.append(
+            "If approving, explain how current evidence or bounded risk contains the warning; use ADJUST_AND_APPROVE only when the executable plan actually changes."
+        )
     return focus
 
 

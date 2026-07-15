@@ -71,24 +71,35 @@ def market_summary(payload: TradeReviewPayload) -> dict[str, Any]:
 
 
 def context_summary(payload: TradeReviewPayload) -> dict[str, Any]:
+    guardrails = compact_mapping(
+        payload.entryGuardrails,
+        (
+            "blocked",
+            "blockReasons",
+            "riskMultiplier",
+            "riskCapPercent",
+            "dailyLossPercent",
+            "dailyLossLimitPercent",
+            "drawdownPercent",
+            "consecutiveLosses",
+        ),
+    )
+    if "riskCapPercent" not in guardrails:
+        candidate_risk = float(payload.candidate.riskPercent or 0.0)
+        multiplier = float(guardrails.get("riskMultiplier", 1.0) or 0.0)
+        bounded_multiplier = max(0.0, min(multiplier, 1.0))
+        guardrails["riskCapPercent"] = max(0.0, min(candidate_risk, candidate_risk * bounded_multiplier))
     return {
         **loss_context(payload),
         "accountState": compact_mapping(
             payload.accountState,
             ("equity", "cashBalance", "marginUsed", "realizedPnl", "unrealizedPnl", "totalFees"),
         ),
-        "entryGuardrails": compact_mapping(
-            payload.entryGuardrails,
-            (
-                "blocked",
-                "blockReasons",
-                "riskMultiplier",
-                "dailyLossPercent",
-                "dailyLossLimitPercent",
-                "drawdownPercent",
-                "consecutiveLosses",
-            ),
-        ),
+        "entryGuardrails": guardrails,
+        "repeatEntryPolicy": {
+            "sameCompletedCandle": "BLOCK",
+            "newCompletedCandle": "ELIGIBLE",
+        },
         "activeExposure": active_exposure(payload.activeExposure),
         "recentEntryReviewMemory": recent_entry_memory(payload.recentAiReviews),
         "recentManagementContext": recent_management_context(payload.recentManagementReviews),

@@ -68,6 +68,7 @@ async def test_codex_cli_client_invokes_safe_exec_and_parses_jsonl(tmp_path, mon
         system_prompt="Return JSON only.",
         user_prompt="payload-from-stdin",
         output_schema={"type": "object", "additionalProperties": True},
+        reasoning_effort="high",
     )
 
     record = json.loads(record_path.read_text())
@@ -80,6 +81,7 @@ async def test_codex_cli_client_invokes_safe_exec_and_parses_jsonl(tmp_path, mon
     assert "--ignore-rules" in argv
     assert "--skip-git-repo-check" in argv
     assert "--output-schema" in argv
+    assert ["-c", 'model_reasoning_effort="high"'] == argv[argv.index("-c") : argv.index("-c") + 2]
     assert "--dangerously-bypass-approvals-and-sandbox" not in argv
     assert record["stdin"] == "payload-from-stdin"
     assert record["env"]["CODEX_HOME"] == str(tmp_path / "codex-home")
@@ -160,6 +162,12 @@ def test_codex_cli_surface_model_aliases_map_to_existing_model_fields(monkeypatc
     monkeypatch.setenv("LEAGUE_SENTIMENT_CODEX_MODEL", "gpt-sentiment")
     monkeypatch.setenv("TRADER_STATUS_FEED_CODEX_MODEL", "gpt-feed")
     monkeypatch.setenv("AI_TRANSLATION_CODEX_MODEL", "gpt-translate")
+    monkeypatch.setenv("CODEX_CLI_REASONING_EFFORT", "medium")
+    monkeypatch.setenv("AUTO_SCANNER_CODEX_REASONING_EFFORT", "high")
+    monkeypatch.setenv("POSITION_MANAGEMENT_CODEX_REASONING_EFFORT", "high")
+    monkeypatch.setenv("POSITION_MANAGEMENT_HEARTBEAT_CODEX_MODEL", "gpt-heartbeat")
+    monkeypatch.setenv("POSITION_MANAGEMENT_HEARTBEAT_CODEX_REASONING_EFFORT", "medium")
+    monkeypatch.setenv("AI_TRANSLATION_CODEX_REASONING_EFFORT", "low")
 
     settings = Settings()
 
@@ -169,6 +177,12 @@ def test_codex_cli_surface_model_aliases_map_to_existing_model_fields(monkeypatc
     assert settings.codex_cli_league_sentiment_model == "gpt-sentiment"
     assert settings.codex_cli_status_feed_model == "gpt-feed"
     assert settings.codex_cli_translation_model == "gpt-translate"
+    assert settings.codex_cli_reasoning_effort == "medium"
+    assert settings.codex_cli_trade_review_reasoning_effort == "high"
+    assert settings.codex_cli_position_management_reasoning_effort == "high"
+    assert settings.codex_cli_position_management_heartbeat_model == "gpt-heartbeat"
+    assert settings.codex_cli_position_management_heartbeat_reasoning_effort == "medium"
+    assert settings.codex_cli_translation_reasoning_effort == "low"
 
 
 def test_codex_cli_strict_schema_requires_nested_optional_properties_as_nullable():
@@ -322,7 +336,7 @@ async def test_codex_cli_provider_normalizes_all_review_surfaces():
 
     class FakeClient:
         def __init__(self) -> None:
-            self.models: list[str] = []
+            self.invocations: list[tuple[str, str]] = []
             self.outputs = [
                 {
                     "decision": "APPROVE",
@@ -343,6 +357,18 @@ async def test_codex_cli_provider_normalizes_all_review_surfaces():
                     "riskChange": "UNCHANGED",
                     "nextReviewInSeconds": 300,
                     "rationale": "Position is early.",
+                    "counterThesis": "Close if invalidated.",
+                },
+                {
+                    "decision": "HOLD",
+                    "confidence": 74,
+                    "riskLevel": "HIGH",
+                    "reviewCode": "POSITION_MANAGEMENT_REVIEW",
+                    "structuredReview": {"headline": "Fast event reviewed.", "action": "Hold with the stop fixed."},
+                    "actions": [{"type": "HOLD", "reason": "The hard stop still contains risk."}],
+                    "riskChange": "UNCHANGED",
+                    "nextReviewInSeconds": 120,
+                    "rationale": "Fast event reviewed.",
                     "counterThesis": "Close if invalidated.",
                 },
                 {
@@ -370,8 +396,8 @@ async def test_codex_cli_provider_normalizes_all_review_surfaces():
                 },
             ]
 
-        async def run_json(self, *, system_prompt, user_prompt, output_schema, model):
-            self.models.append(model)
+        async def run_json(self, *, system_prompt, user_prompt, output_schema, model, reasoning_effort=""):
+            self.invocations.append((model, reasoning_effort))
             return self.outputs.pop(0)
 
     fake_client = FakeClient()
@@ -380,19 +406,35 @@ async def test_codex_cli_provider_normalizes_all_review_surfaces():
         model="gpt-default",
         trade_review_model="gpt-entry",
         position_management_model="gpt-management",
+        position_management_heartbeat_model="gpt-heartbeat",
         league_sentiment_model="gpt-sentiment",
+        trade_review_reasoning_effort="high",
+        position_management_reasoning_effort="high",
+        position_management_heartbeat_reasoning_effort="medium",
+        league_sentiment_reasoning_effort="low",
     )
 
     entry = await provider.review_trade_candidate(sample_review_payload())
     management = await provider.review_position_management(sample_management_payload())
+    event_payload = sample_management_payload()
+    event_payload.event = event_payload.event.model_copy(
+        update={"eventType": "common_price_shock", "severity": "HIGH"}
+    )
+    event_management = await provider.review_position_management(event_payload)
     sentiment = await provider.review_league_sentiment(sample_league_sentiment_payload())
 
-    assert fake_client.models == ["gpt-entry", "gpt-management", "gpt-sentiment"]
+    assert fake_client.invocations == [
+        ("gpt-entry", "high"),
+        ("gpt-heartbeat", "medium"),
+        ("gpt-management", "high"),
+        ("gpt-sentiment", "low"),
+    ]
     assert entry.provider == "codex_cli"
     assert management.provider == "codex_cli"
     assert sentiment.provider == "codex_cli"
     assert entry.model == "gpt-entry"
-    assert management.model == "gpt-management"
+    assert management.model == "gpt-heartbeat"
+    assert event_management.model == "gpt-management"
     assert sentiment.model == "gpt-sentiment"
 
 def sample_review_payload_result(*, provider: str, model: str):

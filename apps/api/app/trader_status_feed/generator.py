@@ -210,6 +210,7 @@ def get_status_feed_generator(settings: Settings, provider_override: str | None 
                     workdir=settings.codex_cli_workdir,
                     codex_home=settings.codex_cli_home,
                     access_token=settings.codex_cli_access_token,
+                    reasoning_effort=settings.codex_cli_status_feed_reasoning_effort,
                 )
             ),
             model=settings.codex_cli_status_feed_model or settings.trader_status_feed_model or settings.codex_cli_model,

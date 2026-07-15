@@ -148,20 +148,71 @@ class Settings(BaseModel):
     openai_league_sentiment_model: str = Field(default_factory=lambda: os.getenv("OPENAI_LEAGUE_SENTIMENT_MODEL", ""))
     codex_cli_command: str = Field(default_factory=lambda: os.getenv("CODEX_CLI_COMMAND", os.getenv("CODEX_CLI_BIN", "codex")))
     codex_cli_model: str = Field(default_factory=lambda: os.getenv("CODEX_CLI_MODEL", ""))
+    codex_cli_reasoning_effort: str = Field(
+        default_factory=lambda: os.getenv("CODEX_CLI_REASONING_EFFORT", "medium").strip().lower()
+    )
     codex_cli_trade_review_model: str = Field(
         default_factory=lambda: env_first("AUTO_SCANNER_CODEX_MODEL", "CODEX_CLI_TRADE_REVIEW_MODEL")
+    )
+    codex_cli_trade_review_reasoning_effort: str = Field(
+        default_factory=lambda: env_first(
+            "AUTO_SCANNER_CODEX_REASONING_EFFORT",
+            "CODEX_CLI_TRADE_REVIEW_REASONING_EFFORT",
+        )
+        or "high"
     )
     codex_cli_position_management_model: str = Field(
         default_factory=lambda: env_first("POSITION_MANAGEMENT_CODEX_MODEL", "CODEX_CLI_POSITION_MANAGEMENT_MODEL")
     )
+    codex_cli_position_management_reasoning_effort: str = Field(
+        default_factory=lambda: env_first(
+            "POSITION_MANAGEMENT_CODEX_REASONING_EFFORT",
+            "CODEX_CLI_POSITION_MANAGEMENT_REASONING_EFFORT",
+        )
+        or "high"
+    )
+    codex_cli_position_management_heartbeat_model: str = Field(
+        default_factory=lambda: env_first(
+            "POSITION_MANAGEMENT_HEARTBEAT_CODEX_MODEL",
+            "CODEX_CLI_POSITION_MANAGEMENT_HEARTBEAT_MODEL",
+        )
+    )
+    codex_cli_position_management_heartbeat_reasoning_effort: str = Field(
+        default_factory=lambda: env_first(
+            "POSITION_MANAGEMENT_HEARTBEAT_CODEX_REASONING_EFFORT",
+            "CODEX_CLI_POSITION_MANAGEMENT_HEARTBEAT_REASONING_EFFORT",
+        )
+        or "medium"
+    )
     codex_cli_league_sentiment_model: str = Field(
         default_factory=lambda: env_first("LEAGUE_SENTIMENT_CODEX_MODEL", "CODEX_CLI_LEAGUE_SENTIMENT_MODEL")
+    )
+    codex_cli_league_sentiment_reasoning_effort: str = Field(
+        default_factory=lambda: env_first(
+            "LEAGUE_SENTIMENT_CODEX_REASONING_EFFORT",
+            "CODEX_CLI_LEAGUE_SENTIMENT_REASONING_EFFORT",
+        )
+        or "medium"
     )
     codex_cli_translation_model: str = Field(
         default_factory=lambda: env_first("AI_TRANSLATION_CODEX_MODEL", "CODEX_CLI_TRANSLATION_MODEL")
     )
+    codex_cli_translation_reasoning_effort: str = Field(
+        default_factory=lambda: env_first(
+            "AI_TRANSLATION_CODEX_REASONING_EFFORT",
+            "CODEX_CLI_TRANSLATION_REASONING_EFFORT",
+        )
+        or "low"
+    )
     codex_cli_status_feed_model: str = Field(
         default_factory=lambda: env_first("TRADER_STATUS_FEED_CODEX_MODEL", "CODEX_CLI_STATUS_FEED_MODEL")
+    )
+    codex_cli_status_feed_reasoning_effort: str = Field(
+        default_factory=lambda: env_first(
+            "TRADER_STATUS_FEED_CODEX_REASONING_EFFORT",
+            "CODEX_CLI_STATUS_FEED_REASONING_EFFORT",
+        )
+        or "medium"
     )
     codex_cli_timeout_seconds: float = Field(default_factory=lambda: env_float("CODEX_CLI_TIMEOUT_SECONDS", "120"))
     codex_cli_workdir: str = Field(default_factory=lambda: os.getenv("CODEX_CLI_WORKDIR", str(API_ROOT.parent.parent)))

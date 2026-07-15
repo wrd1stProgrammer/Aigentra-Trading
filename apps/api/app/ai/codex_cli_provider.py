@@ -33,6 +33,7 @@ class CodexCliConfig:
     workdir: str = "."
     codex_home: str = ""
     access_token: str = ""
+    reasoning_effort: str = ""
 
 
 class CodexJsonClient(Protocol):
@@ -43,6 +44,7 @@ class CodexJsonClient(Protocol):
         user_prompt: str,
         output_schema: dict[str, Any],
         model: str = "",
+        reasoning_effort: str = "",
     ) -> dict[str, Any]:
         ...
 
@@ -144,10 +146,16 @@ class CodexCliClient:
         user_prompt: str,
         output_schema: dict[str, Any],
         model: str = "",
+        reasoning_effort: str = "",
     ) -> dict[str, Any]:
         schema_path = self._write_schema(output_schema)
         try:
-            args = self._command_args(schema_path=schema_path, model=model or self.config.model, system_prompt=system_prompt)
+            args = self._command_args(
+                schema_path=schema_path,
+                model=model or self.config.model,
+                reasoning_effort=reasoning_effort or self.config.reasoning_effort,
+                system_prompt=system_prompt,
+            )
             with anyio.fail_after(self.config.timeout_seconds):
                 result = await anyio.run_process(
                     args,
@@ -173,7 +181,14 @@ class CodexCliClient:
             )
         return self._parse_stdout(stdout)
 
-    def _command_args(self, *, schema_path: Path, model: str, system_prompt: str) -> list[str]:
+    def _command_args(
+        self,
+        *,
+        schema_path: Path,
+        model: str,
+        reasoning_effort: str,
+        system_prompt: str,
+    ) -> list[str]:
         args = [
             self.config.command,
             "--ask-for-approval",
@@ -190,6 +205,8 @@ class CodexCliClient:
         ]
         if model:
             args.extend(["-m", model])
+        if reasoning_effort:
+            args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
         args.append(system_prompt)
         return args
 
@@ -259,13 +276,27 @@ class CodexCliAIProvider(BaseAIProvider):
         model: str = "",
         trade_review_model: str = "",
         position_management_model: str = "",
+        position_management_heartbeat_model: str = "",
         league_sentiment_model: str = "",
+        reasoning_effort: str = "",
+        trade_review_reasoning_effort: str = "",
+        position_management_reasoning_effort: str = "",
+        position_management_heartbeat_reasoning_effort: str = "",
+        league_sentiment_reasoning_effort: str = "",
     ) -> None:
         self.client = client
         self.model = model
         self.trade_review_model = trade_review_model or model
         self.position_management_model = position_management_model or model
+        self.position_management_heartbeat_model = position_management_heartbeat_model or self.position_management_model
         self.league_sentiment_model = league_sentiment_model or model
+        self.reasoning_effort = reasoning_effort
+        self.trade_review_reasoning_effort = trade_review_reasoning_effort or reasoning_effort
+        self.position_management_reasoning_effort = position_management_reasoning_effort or reasoning_effort
+        self.position_management_heartbeat_reasoning_effort = (
+            position_management_heartbeat_reasoning_effort or reasoning_effort
+        )
+        self.league_sentiment_reasoning_effort = league_sentiment_reasoning_effort or reasoning_effort
 
     async def review_trade_candidate(self, payload: TradeReviewPayload) -> TradeReviewResult:
         raw = await self.client.run_json(
@@ -273,19 +304,28 @@ class CodexCliAIProvider(BaseAIProvider):
             user_prompt=entry_approval_prompt(payload),
             output_schema=trade_review_schema(),
             model=self.trade_review_model,
+            reasoning_effort=self.trade_review_reasoning_effort,
         )
         review = self.normalize_result(raw)
         return review.model_copy(update={"model": self.trade_review_model})
 
     async def review_position_management(self, payload: PositionManagementPayload) -> PositionManagementResult:
+        ordinary_heartbeat = is_ordinary_management_heartbeat(payload)
+        model = self.position_management_heartbeat_model if ordinary_heartbeat else self.position_management_model
+        reasoning_effort = (
+            self.position_management_heartbeat_reasoning_effort
+            if ordinary_heartbeat
+            else self.position_management_reasoning_effort
+        )
         raw = await self.client.run_json(
             system_prompt=CODEX_JSON_SYSTEM_PROMPT,
             user_prompt=position_management_review_prompt(payload),
             output_schema=management_review_schema(),
-            model=self.position_management_model,
+            model=model,
+            reasoning_effort=reasoning_effort,
         )
         review = self.normalize_management_result(raw)
-        return review.model_copy(update={"model": self.position_management_model})
+        return review.model_copy(update={"model": model})
 
     async def review_league_sentiment(self, payload: LeagueSentimentPayload) -> LeagueSentimentOpinionResult:
         raw = await self.client.run_json(
@@ -293,9 +333,19 @@ class CodexCliAIProvider(BaseAIProvider):
             user_prompt=league_sentiment_prompt(payload),
             output_schema=league_sentiment_schema(),
             model=self.league_sentiment_model,
+            reasoning_effort=self.league_sentiment_reasoning_effort,
         )
         opinion = self.normalize_league_sentiment_result(raw)
         return opinion.model_copy(update={"model": self.league_sentiment_model})
+
+
+def is_ordinary_management_heartbeat(payload: PositionManagementPayload) -> bool:
+    event = payload.event
+    return (
+        str(event.eventType or "").endswith("_heartbeat")
+        and str(event.severity or "").upper() not in {"HIGH", "CRITICAL"}
+        and str(event.suggestedAction or "").upper() == "HOLD"
+    )
 
 
 class FallbackAIProvider(BaseAIProvider):

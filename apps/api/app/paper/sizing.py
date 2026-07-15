@@ -17,6 +17,16 @@ def final_trade_risk_percent(candidate: Any, review: Any) -> float:
     return max(0.0, min(requested, base_risk))
 
 
+def guardrail_risk_cap_percent(candidate: Any, guardrails: Any) -> float:
+    base_risk = _as_float(getattr(candidate, "riskPercent", None), 0.0)
+    if base_risk <= 0:
+        return 0.0
+    context = guardrails if isinstance(guardrails, dict) else {}
+    multiplier = _as_float(context.get("riskMultiplier"), 1.0)
+    bounded_multiplier = max(0.0, min(multiplier, 1.0))
+    return max(0.0, min(base_risk, base_risk * bounded_multiplier))
+
+
 def minimum_margin_deployment_percent(settings: Any) -> Decimal:
     configured_minimum = _as_decimal(getattr(settings, "paper_min_margin_deployment_percent", 20), Decimal("20"))
     return max(

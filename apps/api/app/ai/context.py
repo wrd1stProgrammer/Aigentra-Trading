@@ -45,6 +45,9 @@ def _review_summary(record: AIReviewRecord) -> dict[str, Any]:
 
 def _management_summary(record: PositionManagementReviewRecord) -> dict[str, Any]:
     payload = _payload(record)
+    event = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+    event_metrics = event.get("metrics") if isinstance(event.get("metrics"), dict) else {}
+    exposure = payload.get("exposure") if isinstance(payload.get("exposure"), dict) else {}
     review = payload.get("review") if isinstance(payload.get("review"), dict) else {}
     applied = payload.get("appliedActions") if isinstance(payload.get("appliedActions"), list) else []
     return {
@@ -55,6 +58,26 @@ def _management_summary(record: PositionManagementReviewRecord) -> dict[str, Any
         "decision": record.decision,
         "actionType": record.action_type,
         "confidence": record.confidence,
+        "eventMetrics": {
+            str(key): value
+            for key, value in event_metrics.items()
+            if isinstance(value, (int, float, str)) and not isinstance(value, bool)
+        },
+        "exposure": {
+            key: exposure[key]
+            for key in (
+                "kind",
+                "id",
+                "status",
+                "side",
+                "entryPrice",
+                "limitPrice",
+                "stopLoss",
+                "takeProfit",
+                "unrealizedPnl",
+            )
+            if exposure.get(key) is not None
+        },
         "rationale": review.get("rationale"),
         "counterThesis": review.get("counterThesis"),
         "reviewCode": review.get("reviewCode"),

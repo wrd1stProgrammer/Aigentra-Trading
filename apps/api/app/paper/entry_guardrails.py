@@ -37,10 +37,12 @@ def entry_guardrail_context(
         select(TraderStateRecord).where(TraderStateRecord.trader_id == trader_id)
     ).scalar_one_or_none()
     if state is None:
+        candidate_risk = max(Decimal("0"), Decimal(str(candidate_risk_percent or 0)))
         return {
             "blocked": False,
             "blockReasons": [],
             "riskMultiplier": 1.0,
+            "riskCapPercent": float(candidate_risk),
             "dailyLossPercent": 0.0,
             "drawdownPercent": 0.0,
             "consecutiveLosses": 0,
@@ -97,6 +99,7 @@ def entry_guardrail_context(
         "blocked": bool(reasons),
         "blockReasons": reasons,
         "riskMultiplier": float(risk_multiplier),
+        "riskCapPercent": float(candidate_risk * risk_multiplier),
         "equity": float(current_equity),
         "dailyBaselineEquity": float(daily_baseline),
         "peakEquity": float(peak_equity),
