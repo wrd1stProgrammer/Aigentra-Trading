@@ -1161,6 +1161,7 @@ def _close_position(
         equity=state.equity,
         payload={
             "reason": close_reason,
+            "feeType": "taker",
             "side": position.side,
             "entryPrice": position.entry_price,
             "averageEntryPrice": position.entry_price,

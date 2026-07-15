@@ -31,7 +31,8 @@ import { buildScenarioTimelineItems } from "@/components/trader-profile-detail/d
 import { buildHoldingItems } from "@/components/trader-profile-detail/holdings";
 import { tradeClassification } from "@/components/trade-classification";
 import { nextLiveDetailAlert, type LiveDetailAlert } from "@/components/trader-profile-detail/live-alerts";
-import { accountStartingEquity, buildMonthlyPnlCalendar, normalizeEquitySnapshots } from "@/components/trader-profile-detail/pnl-calendar";
+import { accountStartingEquity } from "@/components/trader-profile-detail/pnl-calendar";
+import { usePnlCalendarNavigation } from "@/components/trader-profile-detail/pnl-calendar-navigation";
 import { normalizePlan } from "@/components/trader-profile-detail/plan";
 import {
   countByUtcDateWithFallback,
@@ -69,7 +70,8 @@ import type { Locale } from "@/lib/i18n";
 
 const DETAIL_INITIAL_REVIEWS_LIMIT = 20;
 const DETAIL_REVIEWS_PAGE_SIZE = 20;
-const DETAIL_EVENTS_PAGE_SIZE = 10;
+const DETAIL_INITIAL_EVENTS_LIMIT = 50;
+const DETAIL_EVENTS_PAGE_SIZE = 50;
 type PositionTakeProfitTarget = NonNullable<PaperPosition["takeProfits"]>[number] & Record<string, unknown>;
 
 function isAbortLike(error: unknown) {
@@ -94,23 +96,29 @@ function getSunday(date: Date): Date {
   return d;
 }
 
-function LockedScenarioTimelinePreview({ t }: { readonly t: Translator }) {
+const LOCKED_SCENARIO_PREVIEW_VARIANTS = [
+  { title: "w-36", meta: "w-24", lines: ["w-11/12", "w-3/5"] },
+  { title: "w-44", meta: "w-20", lines: ["w-4/5", "w-2/3", "w-5/12"] },
+  { title: "w-28", meta: "w-28", lines: ["w-full", "w-3/4"] },
+  { title: "w-40", meta: "w-16", lines: ["w-5/6", "w-1/2", "w-2/3"] }
+] as const;
+
+function LockedScenarioTimelinePreview({ variant }: { readonly variant: number }) {
+  const silhouette = LOCKED_SCENARIO_PREVIEW_VARIANTS[variant % LOCKED_SCENARIO_PREVIEW_VARIANTS.length] ?? LOCKED_SCENARIO_PREVIEW_VARIANTS[0];
   return (
     <div data-testid="scenario-timeline-locked-preview" className="grid grid-cols-1 gap-3 border-b border-zinc-100 pb-5 last:border-0 last:pb-0 dark:border-zinc-900 sm:grid-cols-[28px_minmax(0,1fr)] sm:gap-5 sm:border-0 sm:pb-0">
       <div className="relative z-[1] mt-1 hidden size-5 place-items-center rounded-full bg-white dark:bg-zinc-950 sm:grid sm:size-7">
         <span className="size-3 rounded-full bg-zinc-300 dark:bg-zinc-700" />
       </div>
-      <div className="min-w-0 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3.5 shadow-sm shadow-zinc-950/[0.03] dark:border-white/10 dark:bg-white/[0.035] dark:shadow-black/20">
+      <div aria-hidden="true" className="min-h-28 min-w-0 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3.5 shadow-sm shadow-zinc-950/[0.03] dark:border-white/10 dark:bg-white/[0.035] dark:shadow-black/20">
         <div className="flex min-w-0 items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-zinc-950 dark:text-zinc-100">{t("access.reviewInlineLocked")}</p>
-          <span className="shrink-0 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-700 dark:text-emerald-200">
-            {t("access.lockedLabel")}
-          </span>
+          <span className={`h-4 rounded-full bg-zinc-300/80 dark:bg-white/15 ${silhouette.title}`} />
+          <span className={`h-3 shrink-0 rounded-full bg-emerald-300/25 dark:bg-emerald-300/15 ${silhouette.meta}`} />
         </div>
-        <p className="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300">{t("access.reviewLockedDescription")}</p>
-        <div aria-hidden="true" className="mt-3 space-y-2">
-          <div className="h-2.5 w-3/4 rounded-full bg-zinc-200/80 dark:bg-white/10" />
-          <div className="h-2.5 w-1/2 rounded-full bg-zinc-200/70 dark:bg-white/[0.075]" />
+        <div className="mt-4 space-y-2.5">
+          {silhouette.lines.map((width, lineIndex) => (
+            <span key={`${variant}-${lineIndex}`} className={`block h-3 rounded-full bg-zinc-200/80 dark:bg-white/10 ${width}`} />
+          ))}
         </div>
       </div>
     </div>
@@ -406,6 +414,8 @@ function mapMergedItemToHistoryItem(
     leverageLabel: `x${formatNumber(item.leverage, 0, locale)}`,
     entryLabel: formatNumber(item.entryPrice, 0, locale),
     exitLabel: formatNumber(item.exitPrice, 0, locale),
+    feeLabel: "-",
+    feeRole: null,
     pnlLabel: formatCurrency(item.pnl, locale),
     pnlTone: pnlTone,
     resultLabel: resultLabel,
@@ -535,10 +545,11 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     }
     setLoadingMoreTradeEvents(true);
     try {
+      const requestLimit = reset ? DETAIL_INITIAL_EVENTS_LIMIT : DETAIL_EVENTS_PAGE_SIZE;
       const response = await getTraderTradeEvents(
         traderId,
         symbol,
-        DETAIL_EVENTS_PAGE_SIZE,
+        requestLimit,
         nextOffset,
         locale,
         { signal: abortController.signal }
@@ -548,7 +559,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       setPagedTradeEvents((current) => mergeTradeEvents(reset ? [] : current, nextEvents));
       const responseNextOffset = Number.isFinite(response.nextOffset) ? response.nextOffset : nextOffset + nextEvents.length;
       setTradeEventsOffset(responseNextOffset);
-      setTradeEventsHasMore(typeof response.hasMore === "boolean" ? response.hasMore : nextEvents.length >= DETAIL_EVENTS_PAGE_SIZE);
+      setTradeEventsHasMore(typeof response.hasMore === "boolean" ? response.hasMore : nextEvents.length >= requestLimit);
     } catch (err) {
       if (abortController.signal.aborted || tradeEventsContextKeyRef.current !== requestContextKey || isAbortLike(err)) return;
       console.error("Failed to load trade events:", err);
@@ -560,6 +571,10 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       if (tradeEventsAbortRef.current === abortController) tradeEventsAbortRef.current = null;
     }
   }, [locale, symbol, tradeEventsHasMore, traderId]);
+
+  const loadMoreTradeEvents = useCallback(() => {
+    void loadTradeEventsPage(tradeEventsOffset, false);
+  }, [loadTradeEventsPage, tradeEventsOffset]);
 
   useEffect(() => {
     return () => {
@@ -769,7 +784,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       symbol,
       locale,
       t,
-      limit: 30
+      limit: Math.max(DETAIL_INITIAL_EVENTS_LIMIT, chartEvents.length)
     }),
     [chartEvents, closedPositions, locale, orders, positions, symbol, t]
   );
@@ -777,15 +792,13 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     () => defaultExecutionMarkerSelection({ markers: executionMarkers, positions }),
     [executionMarkers, positions]
   );
-  const pnlCalendar = useMemo(
-    () => buildMonthlyPnlCalendar({
-      locale,
-      startingEquity: accountStartingEquity(standing?.equity, standing?.totalPnl),
-      snapshots: normalizeEquitySnapshots(equitySnapshotsQuery.data),
-      dailyPnl
-    }),
-    [equitySnapshotsQuery.data, dailyPnl, locale, standing?.equity, standing?.totalPnl]
-  );
+  const pnlCalendarNavigation = usePnlCalendarNavigation({
+    contextKey: `${traderId}:${symbol}`,
+    locale,
+    startingEquity: accountStartingEquity(standing?.equity, standing?.totalPnl),
+    snapshots: equitySnapshotsQuery.data,
+    dailyPnl
+  });
   const alertContextKey = `${traderId}:${symbol}`;
   const historyRefreshKey = useMemo(() => {
     const latestEvent = events[0] ? `${events[0].id ?? ""}:${events[0].eventType ?? events[0].type ?? ""}:${events[0].createdAt ?? events[0].timestamp ?? ""}` : "";
@@ -1032,7 +1045,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
           markers={executionMarkers}
           selectedId={selectedExecutionMarkerId}
           onSelect={selectExecutionMarker}
-          onLoadMore={() => void loadTradeEventsPage(tradeEventsOffset, false)}
+          onLoadMore={loadMoreTradeEvents}
           hasMore={tradeEventsHasMore}
           loadingMore={loadingMoreTradeEvents}
           locale={locale}
@@ -1066,7 +1079,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
           />
         </div>
         <div className="hidden xl:block relative h-full w-full min-h-0">
-          <StatusFeedThread feeds={statusFeeds} locale={locale} t={t} isSubscribed={accessState.isSubscribed} className="absolute inset-0 h-full" />
+          <StatusFeedThread feeds={statusFeeds} locale={locale} t={t} isSubscribed={accessState.isSubscribed} traderId={traderId} symbol={symbol} className="absolute inset-0 h-full" />
         </div>
       </section>
 
@@ -1200,7 +1213,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                       symbol={symbol}
                       onUnlocked={() => setSelectedScenario(item.scenario ?? null)}
                       deferLockedChildren
-                      lockedPreview={<LockedScenarioTimelinePreview t={t} />}
+                      lockedPreview={<LockedScenarioTimelinePreview variant={index} />}
                     >
                       <TimelineRow
                         item={item}
@@ -1243,7 +1256,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
         <DetailSidebar
           holdingItems={holdingItems}
           tradeHistoryItems={historyItems}
-          pnlCalendar={pnlCalendar}
+          pnlCalendarNavigation={pnlCalendarNavigation}
           standing={standing}
           latestPlan={latestPlan}
           locale={locale}
@@ -1315,7 +1328,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
         {/* Tab contents */}
         <div className="min-w-0">
           {mobileActiveTab === "feed" && (
-            <StatusFeedThread feeds={statusFeeds} locale={locale} t={t} isSubscribed={accessState.isSubscribed} />
+            <StatusFeedThread feeds={statusFeeds} locale={locale} t={t} isSubscribed={accessState.isSubscribed} traderId={traderId} symbol={symbol} />
           )}
 
           {mobileActiveTab === "scenarios" && (
@@ -1429,7 +1442,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                         symbol={symbol}
                         onUnlocked={() => setSelectedScenario(item.scenario ?? null)}
                         deferLockedChildren
-                        lockedPreview={<LockedScenarioTimelinePreview t={t} />}
+                        lockedPreview={<LockedScenarioTimelinePreview variant={index} />}
                       >
                         <TimelineRow
                           item={item}
@@ -1479,7 +1492,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
           )}
 
           {mobileActiveTab === "pnl" && (
-            <PnlCalendarPanel calendar={pnlCalendar} locale={locale} t={t} />
+            <PnlCalendarPanel navigation={pnlCalendarNavigation} locale={locale} t={t} />
           )}
 
         </div>

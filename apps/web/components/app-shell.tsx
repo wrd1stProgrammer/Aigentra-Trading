@@ -5,8 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { 
-  ChartLineUp, SignIn, Translate, Trophy, UserCircle,
-  X, User, Users, FileText, InstagramLogo, ThreadsLogo, ChatCircleText, SignOut, Ticket, ShieldCheck
+  BookOpenText, ChartLineUp, Newspaper, SignIn, Trophy, UserCircle,
+  X, Users, InstagramLogo, SignOut, Ticket, ShieldCheck
 } from "@phosphor-icons/react";
 import { BrandMark } from "@/components/brand-mark";
 import { useAppContext } from "@/components/app-provider";
@@ -59,6 +59,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isLegalNoticesPage = pathname === "/legal-notices";
   const isPrivacyPolicyPage = pathname === "/privacy-policy";
   const isRiskDisclosurePage = pathname === "/risk-disclosure";
+  const isBlogPage = pathname === "/blog" || pathname.startsWith("/blog/");
+  const isLearnPage = pathname === "/learn" || pathname.startsWith("/learn/");
+  const isMethodologyPage = pathname === "/methodology";
   const isTraderDetailPage = pathname.startsWith("/leaderboard/") && pathname !== "/leaderboard";
   const showAppChrome =
     !isLandingPage &&
@@ -67,7 +70,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     !isDisclaimerPage &&
     !isLegalNoticesPage &&
     !isPrivacyPolicyPage &&
-    !isRiskDisclosurePage;
+    !isRiskDisclosurePage &&
+    !isBlogPage &&
+    !isLearnPage &&
+    !isMethodologyPage;
   const shellLinks = links.filter((link) => {
     if (link.href === "/login") return !session?.user;
     if (link.href === "/account") return Boolean(session?.user);
@@ -143,7 +149,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
       ) : null}
-      <main className={isLoginPage ? "py-0 px-0 w-full max-w-none" : (isLandingPage ? "py-0" : `${APP_SHELL_CONTAINER_CLASS} min-w-0 overflow-x-clip py-4 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:py-7 md:pb-7`)}>
+      <main className={isLoginPage || isBlogPage || isLearnPage || isMethodologyPage ? "w-full max-w-none px-0 py-0" : (isLandingPage ? "py-0" : `${APP_SHELL_CONTAINER_CLASS} min-w-0 overflow-x-clip py-4 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:py-7 md:pb-7`)}>
         {isTraderDetailPage ? (
           <div className="-mb-[calc(5.75rem+env(safe-area-inset-bottom)-1rem)] md:mb-0">
             {children}
@@ -153,7 +159,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
       </main>
 
-      {showAppChrome && !isTraderDetailPage ? (
+      {showAppChrome && !isTraderDetailPage && !isAdminPage ? (
         <nav className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 rounded-2xl border border-white/10 bg-[#0a0d0c]/94 p-1.5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl md:hidden">
           <div className="grid grid-cols-4 gap-1">
             {shellLinks.map((link) => {
@@ -279,9 +285,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     )}
                   </div>
                 </div>
-                <p className="mt-2 text-xs leading-relaxed text-zinc-400 text-pretty">
-                  {access?.isSubscribed ? t("access.proDetail") : t("access.drawerCouponDetail")}
-                </p>
+                {!access?.isSubscribed ? (
+                  <p className="mt-2 text-xs leading-relaxed text-zinc-400 text-pretty">
+                    {t("access.drawerCouponDetail")}
+                  </p>
+                ) : null}
                 {!access?.isSubscribed ? (
                   <div className="mt-3 h-1.5 w-full bg-white/[0.04] rounded-full overflow-hidden">
                     <div
@@ -295,31 +303,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
             {/* Menu List */}
             <div className="py-5 flex flex-col gap-2.5">
-              {session?.user ? (
-                <Link 
-                  href="/account"
-                  onClick={() => setIsDrawerOpen(false)}
-                  className="flex items-center gap-3.5 text-zinc-300 hover:text-white text-sm font-semibold transition py-2 px-3 hover:bg-white/[0.03] rounded-xl focus-ring"
-                >
-                  <User size={18} className="text-zinc-400" />
-                  <span>{t("shell.myPage")}</span>
-                </Link>
-              ) : null}
               <Link 
-                href="/traders"
+                href="/blog"
                 onClick={() => setIsDrawerOpen(false)}
                 className="flex items-center gap-3.5 text-zinc-300 hover:text-white text-sm font-semibold transition py-2 px-3 hover:bg-white/[0.03] rounded-xl focus-ring"
               >
-                <Users size={18} className="text-zinc-400" />
-                <span>{t("shell.team")}</span>
+                <Newspaper size={18} className="text-zinc-400" />
+                <span>{t("shell.blog")}</span>
               </Link>
               <Link 
-                href="/tests"
+                href="/learn"
                 onClick={() => setIsDrawerOpen(false)}
                 className="flex items-center gap-3.5 text-zinc-300 hover:text-white text-sm font-semibold transition py-2 px-3 hover:bg-white/[0.03] rounded-xl focus-ring"
               >
-                <FileText size={18} className="text-zinc-400" />
-                <span>{t("shell.guide")}</span>
+                <BookOpenText size={18} className="text-zinc-400" />
+                <span>{t("shell.glossary")}</span>
               </Link>
             </div>
           </div>
@@ -360,31 +358,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </h4>
               <div className="flex flex-col gap-1.5">
                 <a 
-                  href="https://instagram.com" 
+                  href="https://www.instagram.com/aigentra_trading/"
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="flex items-center gap-3 text-zinc-400 hover:text-white text-xs font-semibold transition py-1.5 px-2 hover:bg-white/[0.02] rounded-lg focus-ring"
                 >
                   <InstagramLogo size={16} className="text-zinc-500" />
                   <span>{t("shell.instagram")}</span>
-                </a>
-                <a 
-                  href="https://threads.net" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 text-zinc-400 hover:text-white text-xs font-semibold transition py-1.5 px-2 hover:bg-white/[0.02] rounded-lg focus-ring"
-                >
-                  <ThreadsLogo size={16} className="text-zinc-500" />
-                  <span>{t("shell.threads")}</span>
-                </a>
-                <a 
-                  href="https://kakao.com" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 text-zinc-400 hover:text-white text-xs font-semibold transition py-1.5 px-2 hover:bg-white/[0.02] rounded-lg focus-ring"
-                >
-                  <ChatCircleText size={16} className="text-zinc-500" />
-                  <span>{t("shell.community")}</span>
                 </a>
               </div>
             </div>

@@ -55,6 +55,24 @@ test("free leaderboard preview fills to three traders when one bucket is empty",
   assert.deepEqual(new Set(preview.map((item) => item.id)), new Set(["rank-one", "positive-a", "positive-b"]));
 });
 
+test("free leaderboard preview excludes retired and zero-trade traders before selecting three rows", () => {
+  const standings = [
+    standing("retired-leader", 1, 15, { lifecycleStatus: "retired", trades: 12 }),
+    standing("zero-trade", 2, 10, { trades: 0 }),
+    standing("eligible-leader", 3, 8),
+    standing("eligible-positive", 4, 2),
+    standing("eligible-negative", 5, -0.2),
+    standing("eligible-extra", 6, -1)
+  ];
+
+  const preview = previewPolicy.buildFreeLeaderboardPreview(standings, "2026-07-05");
+
+  assert.equal(preview.length, 3);
+  assert.equal(preview[0].id, "eligible-leader");
+  assert.equal(preview.some((item) => item.id === "retired-leader"), false);
+  assert.equal(preview.some((item) => item.id === "zero-trade"), false);
+});
+
 test("free leaderboard preview seed uses a stable UTC day key", () => {
   assert.equal(
     previewPolicy.currentFreeLeaderboardPreviewSeed(new Date("2026-07-05T23:59:59Z")),
@@ -62,12 +80,16 @@ test("free leaderboard preview seed uses a stable UTC day key", () => {
   );
 });
 
-function standing(id, rank, rankingReturn) {
+function standing(id, rank, rankingReturn, overrides = {}) {
   return {
     id,
     rank,
     rankingReturn,
-    returnPct: rankingReturn
+    returnPct: rankingReturn,
+    trades: 1,
+    lifecycleStatus: "active",
+    retiredFromMonth: null,
+    ...overrides
   };
 }
 

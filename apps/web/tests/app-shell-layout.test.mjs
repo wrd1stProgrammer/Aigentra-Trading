@@ -37,6 +37,20 @@ test("app shell lets the root landing page own its reference-style header", () =
   assert.ok(source.includes('isLandingPage ? "py-0" : `${APP_SHELL_CONTAINER_CLASS} min-w-0 overflow-x-clip py-4 pb-[calc(5.75rem+env(safe-area-inset-bottom))] md:py-7 md:pb-7`'), "root landing should not be wrapped in dashboard gutters");
 });
 
+test("app shell lets editorial pages render edge to edge without dark dashboard gutters", () => {
+  assert.ok(
+    source.includes('const isBlogPage = pathname === "/blog" || pathname.startsWith("/blog/")'),
+    "blog index and article routes should share the public-page layout"
+  );
+  assert.ok(source.includes('const isLearnPage = pathname === "/learn" || pathname.startsWith("/learn/")'), "knowledge pages should share the public-page layout");
+  assert.ok(source.includes('const isMethodologyPage = pathname === "/methodology"'), "methodology should share the public-page layout");
+  assert.ok(source.includes("!isBlogPage &&\n    !isLearnPage &&\n    !isMethodologyPage;"), "editorial pages should not render dashboard chrome");
+  assert.ok(
+    source.includes('isLoginPage || isBlogPage || isLearnPage || isMethodologyPage ? "w-full max-w-none px-0 py-0"'),
+    "editorial pages should not expose the dark app background around their white surface"
+  );
+});
+
 test("app shell mobile nav uses a bottom tab bar without forcing body overflow", () => {
   assert.match(source, /min-h-\[100dvh\] overflow-x-clip/, "closed drawers and wide route panels should not expand the mobile layout viewport");
   assert.match(source, /APP_SHELL_CONTAINER_CLASS\} min-w-0 overflow-x-clip/, "dashboard routes should clip accidental page-level horizontal overflow");
@@ -97,4 +111,24 @@ test("app shell nav marks the clicked tab active before the next route finishes"
     false,
     "modifier clicks should keep native browser behavior"
   );
+});
+
+test("profile drawer exposes only the official Aigentra Instagram social link", () => {
+  assert.match(
+    source,
+    /href="https:\/\/www\.instagram\.com\/aigentra_trading\/"/,
+    "official Instagram should open the Aigentra Trading profile"
+  );
+  assert.doesNotMatch(source, /shell\.threads/, "official Threads should be removed from the profile drawer");
+  assert.doesNotMatch(source, /shell\.community/, "user community should be removed from the profile drawer");
+  assert.doesNotMatch(source, /ThreadsLogo|ChatCircleText/, "removed social links should not leave unused icons behind");
+});
+
+test("profile drawer routes every user to blog and glossary without legacy account rows", () => {
+  assert.match(source, /href="\/blog"/, "profile drawer should link to the blog home");
+  assert.match(source, /href="\/learn"/, "profile drawer should link to the glossary home");
+  assert.doesNotMatch(source, /href="\/traders"/, "team row should be removed for every access state");
+  assert.doesNotMatch(source, /href="\/tests"/, "guide row should be removed for every access state");
+  assert.doesNotMatch(source, /href="\/account"[\s\S]*shell\.myPage/, "My Page should be removed from the drawer");
+  assert.doesNotMatch(source, /access\.proDetail/, "Pro explanation should be removed below the active badge");
 });

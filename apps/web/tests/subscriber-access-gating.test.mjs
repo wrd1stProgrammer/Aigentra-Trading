@@ -57,11 +57,25 @@ test("free leaderboard renders today's three public traders and locks the rest",
   assert.match(i18nSource, /오늘의 무료 공개 트레이더는 실제 순위를 숨깁니다\./, "Korean copy should explain hidden preview ranks");
 });
 
-test("live race board is redacted behind the subscriber gate", () => {
-  assert.match(leaderboardSource, /LiveRaceBoardLockedPreview/, "leaderboard should render a redacted live race preview for locked users");
-  assert.match(leaderboardSource, /lockedPreview=\{<LiveRaceBoardLockedPreview/, "live race lock should not render real standings while locked");
-  assert.match(leaderboardSource, /deferLockedChildren/, "live race lock should defer real children until access is unlocked");
-  assert.match(leaderboardSource, /data-testid="live-race-board-locked-preview"/, "redacted live race preview should be testable");
+test("free and live leaderboard surfaces exclude retired and zero-trade standings before access gating", () => {
+  assert.match(
+    leaderboardSource,
+    /const displayStandings = useMemo\(\(\) => standings\.filter\(hasLeaderboardTradingRecord\)/,
+    "the main table should remove ineligible traders before selecting public rows"
+  );
+  assert.match(
+    leaderboardSource,
+    /liveStandings\.filter\(isLeaderboardStandingVisible\)/,
+    "the live race should use the same eligibility policy for subscribers and free users"
+  );
+});
+
+test("AI decision terminal is redacted behind the subscriber gate", () => {
+  const terminalSource = readFileSync(new URL("../components/ai-trade-terminal.tsx", import.meta.url), "utf8");
+  assert.match(leaderboardSource, /AITradeTerminalLockedPreview/, "leaderboard should render a redacted terminal preview for locked users");
+  assert.match(leaderboardSource, /lockedPreview=\{<AITradeTerminalLockedPreview/, "terminal lock should not render real execution details while locked");
+  assert.match(leaderboardSource, /deferLockedChildren/, "terminal lock should defer real children until access is unlocked");
+  assert.match(terminalSource, /ai-trade-terminal-locked-preview/, "redacted terminal preview should be testable");
 });
 
 test("subscriber access query state is scoped to the signed-in account", () => {
@@ -198,12 +212,12 @@ test("subscriber gates use neutral pending state instead of guest blur while acc
   );
   assert.match(
     accessGateSource,
-    /relative w-full min-w-0 max-w-full overflow-hidden rounded-2xl/,
+    /const containerClass = fitContent \? "w-fit shrink-0" : "w-full min-w-0 max-w-full"/,
     "protected gates should not let blurred locked previews widen mobile route layouts"
   );
   assert.match(
     accessGateSource,
-    /return <div className=\{`w-full min-w-0 max-w-full \$\{className\}`\}>\{children\}<\/div>;/,
+    /return <div className=\{`\$\{containerClass\} \$\{className\}`\}>\{children\}<\/div>;/,
     "unlocked subscriber gates should keep the same bounded width wrapper as locked previews"
   );
   assert.doesNotMatch(

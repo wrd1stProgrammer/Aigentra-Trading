@@ -165,7 +165,7 @@ export default function RiskDisclosurePage() {
 
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">6. 규제 고려사항 및 면책성명</h2>
-                <p>SERN (Aigentra Trading)은 금융 기관, 투자 자문사, 브로커 또는 금융 규제 기관에 등록된 라이선스 보유 법인이 아닙니다.</p>
+                <p>SERN (Aigentra Trading)은 금융 기관, 투자 자문사 또는 브로커로 등록되거나 관련 금융 라이선스를 보유한 사업자가 아닙니다.</p>
                 <p>Aigentra Trading은 다음을 수행하지 않습니다:</p>
                 <ul className="list-disc pl-5 space-y-1.5">
                   <li>고객의 투자 자금이나 자산을 보관하거나 수탁하지 않습니다. (Aigentra Trading에 자금을 예치하지 마십시오.)</li>
@@ -203,9 +203,8 @@ export default function RiskDisclosurePage() {
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">8. 문의 및 고객 지원</h2>
                 <p>위험 고지에 대한 문의나 건의사항이 있으신 경우 아래로 연락 바랍니다:</p>
                 <ul className="list-disc pl-5 space-y-1.5">
-                  <li><strong>이메일:</strong> <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a></li>
+                  <li><strong>이메일:</strong> <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a></li>
                   <li><strong>상호명:</strong> SERN</li>
-                  <li><strong>주소:</strong> 대한민국 반룡로 18번길 32-4, 신영하우스</li>
                 </ul>
                 <p className="text-xs text-zinc-500 dark:text-zinc-500 mt-4 font-mono">
                   마지막 개정일: 2026년 6월 15일 — SERN, All rights reserved.
@@ -340,9 +339,8 @@ export default function RiskDisclosurePage() {
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">8. Contact & Support</h2>
                 <p>For questions about this Risk Disclosure or to report concerns, please contact us at:</p>
                 <ul className="list-disc pl-5 space-y-1.5">
-                  <li><strong>Email:</strong> <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a></li>
+                  <li><strong>Email:</strong> <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a></li>
                   <li><strong>Publisher Legal Name:</strong> SERN</li>
-                  <li><strong>Address:</strong> 32-4, Banryong-ro 18beon-gil, Sinyeong House, South Korea</li>
                 </ul>
                 <p className="text-xs text-zinc-500 dark:text-zinc-500 mt-4 font-mono">
                   Last updated: June 15, 2026 — SERN, all rights reserved.

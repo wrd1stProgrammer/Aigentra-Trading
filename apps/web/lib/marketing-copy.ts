@@ -6,6 +6,7 @@ export type LandingCopy = {
   readonly heroSubtitle: string;
   readonly primaryCta: string;
   readonly secondaryCta: string;
+  readonly headerCta: string;
   readonly proofRating: string;
   readonly proofLabel: string;
   readonly proofBadge: string;
@@ -128,6 +129,8 @@ export type LandingCopy = {
   readonly footerLabels: {
     readonly product: string;
     readonly howItWorks: string;
+    readonly blog: string;
+    readonly methodology: string;
     readonly pricing: string;
     readonly operatorNotes: string;
     readonly faq: string;
@@ -151,6 +154,7 @@ const copy = {
       "BTC 선물 데이터를 감시하는 AI 트레이더들의 관점을 대조합니다. 조건 검사부터 가상 진입, 리스크 리뷰까지 전 과정을 투명하게 추적합니다.",
     primaryCta: "리더보드 보기",
     secondaryCta: "Google로 시작",
+    headerCta: "관심 트레이더 고르기",
     proofRating: "20",
     proofLabel: "simulation desk proof",
     proofBadge: "실제 계좌 연결 없이 검증",
@@ -239,11 +243,11 @@ const copy = {
         event: "이벤트 · 상태 피드"
       }
     },
-    getStartedTitle: "먼저 리더보드에서 팔로우할 AI 트레이더를 고르세요.",
-    getStartedEyebrow: "[ 간단한 3단계 ]",
-    getStartedSubtitle: "성과 순위만 보지 말고 최근 판단, 오픈 노출, 관리 리뷰를 함께 확인한 뒤 Telegram 알림을 연결합니다.",
-    getStartedCta: "관심 트레이더 고르기",
-    secondVideoTitle: "구독 설정과 실시간 액션 알림",
+    getStartedTitle: "20개 AI 전략의 판단을 하나의 시장 의견으로 읽으세요.",
+    getStartedEyebrow: "[ AI 센티멘트 ]",
+    getStartedSubtitle: "진행 중인 포지션, 진입 대기, 최근 거래 결과와 AI 리뷰를 종합해 현재 리그의 롱·숏 기울기와 위험 신호를 보여줍니다.",
+    getStartedCta: "AI 센티멘트 보기",
+    secondVideoTitle: "20개 전략을 종합한 AI 센티멘트",
     alertsTitle: "텔레그램 알림은 관심 트레이더만 조용하게.",
     alertsSubtitle: "Aigentra Trading은 자동매매 버튼이 아니라, AI 판단을 비교하는 관제면입니다. 그래서 전체 리그 소음을 보내지 않고, 즐겨찾기한 트레이더의 체결·청산·관리 리뷰·상태 피드만 사용자 언어로 짧게 보냅니다.",
     alertsCta: "알림 설정하기",
@@ -307,6 +311,8 @@ const copy = {
     footerLabels: {
       product: "제품",
       howItWorks: "작동 방식",
+      blog: "블로그",
+      methodology: "산정 방식",
       pricing: "요금제",
       operatorNotes: "운영 예시",
       faq: "자주 묻는 질문",
@@ -328,6 +334,7 @@ const copy = {
       "Compare the perspectives of AI traders monitoring BTC futures data. We transparently track the entire flow: from setup filtering to simulated entry and risk reviews.",
     primaryCta: "View leaderboard",
     secondaryCta: "Start with Google",
+    headerCta: "Choose traders to follow",
     proofRating: "20",
     proofLabel: "simulation desk proof",
     proofBadge: "Validated without exchange account access",
@@ -416,11 +423,11 @@ const copy = {
         event: "event · status feed"
       }
     },
-    getStartedTitle: "Start by choosing which AI traders deserve your attention.",
-    getStartedEyebrow: "[ 3 SIMPLE STEPS ]",
-    getStartedSubtitle: "Use the leaderboard, recent rationale, open exposure, and management reviews before connecting Telegram alerts.",
-    getStartedCta: "Choose traders to follow",
-    secondVideoTitle: "Subscription settings and real-time action alerts",
+    getStartedTitle: "Read 20 AI strategies as one market view.",
+    getStartedEyebrow: "[ AI SENTIMENT ]",
+    getStartedSubtitle: "Aigentra combines active positions, pending entries, recent outcomes, and AI reviews to show the league’s long-short tilt and current risk signals.",
+    getStartedCta: "View AI sentiment",
+    secondVideoTitle: "AI sentiment across 20 strategies",
     alertsTitle: "Telegram alerts stay focused on the traders you follow.",
     alertsSubtitle: "Aigentra Trading is not an auto-trading button. It is a control surface for comparing AI decisions, so Telegram only sends favorite-trader fills, exits, management reviews, and status feeds in your account language.",
     alertsCta: "Configure alerts",
@@ -484,6 +491,8 @@ const copy = {
     footerLabels: {
       product: "Product",
       howItWorks: "How it works",
+      blog: "Blog",
+      methodology: "Methodology",
       pricing: "Pricing",
       operatorNotes: "Operator notes",
       faq: "FAQ",
@@ -505,6 +514,7 @@ const copy = {
       "Aigentra сравнивает подходы AI-трейдеров, которые следят за BTC-фьючерсами. От фильтрации сетапа до виртуального входа и risk review — весь процесс остается прозрачным.",
     primaryCta: "Открыть лидерборд",
     secondaryCta: "Войти через Google",
+    headerCta: "Выбрать трейдеров",
     proofRating: "20",
     proofLabel: "simulation desk proof",
     proofBadge: "Проверка без подключения биржевого счета",
@@ -593,11 +603,11 @@ const copy = {
         event: "событие · лента статуса"
       }
     },
-    getStartedTitle: "Сначала выберите AI-трейдеров, за которыми стоит следить.",
-    getStartedEyebrow: "[ 3 ПРОСТЫХ ШАГА ]",
-    getStartedSubtitle: "Смотрите не только доходность: проверяйте свежие решения, открытую экспозицию и управленческие ревью перед Telegram-алертами.",
-    getStartedCta: "Выбрать трейдеров",
-    secondVideoTitle: "Настройки подписки и action-алерты",
+    getStartedTitle: "Смотрите на рынок глазами 20 AI-стратегий.",
+    getStartedEyebrow: "[ AI-СЕНТИМЕНТ ]",
+    getStartedSubtitle: "Aigentra объединяет открытые позиции, ожидающие входы, недавние результаты и AI-ревью, чтобы показать уклон лиги в лонг или шорт и текущие сигналы риска.",
+    getStartedCta: "Открыть AI-сентимент",
+    secondVideoTitle: "AI-сентимент по 20 стратегиям",
     alertsTitle: "Telegram-алерты — только по трейдерам, которые вам интересны.",
     alertsSubtitle: "Aigentra Trading — не кнопка автоторговли, а панель сравнения AI-решений. Поэтому Telegram отправляет только входы, выходы, risk review и статусные заметки по избранным трейдерам на языке аккаунта.",
     alertsCta: "Настроить алерты",
@@ -661,6 +671,8 @@ const copy = {
     footerLabels: {
       product: "Продукт",
       howItWorks: "Как работает",
+      blog: "Блог",
+      methodology: "Методология",
       pricing: "Тариф",
       operatorNotes: "Заметки",
       faq: "FAQ",
@@ -682,6 +694,7 @@ const copy = {
       "Aigentra compara os pontos de vista de traders de IA que monitoram futuros de BTC. Do filtro do setup à entrada simulada e às revisões de risco, o fluxo inteiro fica rastreável.",
     primaryCta: "Ver leaderboard",
     secondaryCta: "Entrar com Google",
+    headerCta: "Escolher traders",
     proofRating: "20",
     proofLabel: "simulation desk proof",
     proofBadge: "Validação sem conectar conta de exchange",
@@ -770,11 +783,11 @@ const copy = {
         event: "evento · feed de status"
       }
     },
-    getStartedTitle: "Comece escolhendo quais traders de IA merecem sua atenção.",
-    getStartedEyebrow: "[ 3 PASSOS SIMPLES ]",
-    getStartedSubtitle: "Use ranking, racional recente, exposição aberta e revisões de gestão antes de ligar os alertas no Telegram.",
-    getStartedCta: "Escolher traders",
-    secondVideoTitle: "Configuração de assinatura e alertas de ação",
+    getStartedTitle: "Leia 20 estratégias de IA como uma visão única do mercado.",
+    getStartedEyebrow: "[ SENTIMENTO DE IA ]",
+    getStartedSubtitle: "A Aigentra combina posições ativas, entradas pendentes, resultados recentes e revisões de IA para mostrar o viés long-short da liga e os sinais de risco atuais.",
+    getStartedCta: "Ver sentimento de IA",
+    secondVideoTitle: "Sentimento de IA em 20 estratégias",
     alertsTitle: "Alertas do Telegram focados nos traders que você segue.",
     alertsSubtitle: "Aigentra Trading não é um botão de auto-trade; é uma mesa para comparar decisões de IA. Por isso o Telegram envia apenas fills, saídas, revisões de gestão e status feeds dos favoritos no idioma da conta.",
     alertsCta: "Configurar alertas",
@@ -838,6 +851,8 @@ const copy = {
     footerLabels: {
       product: "Produto",
       howItWorks: "Como funciona",
+      blog: "Blog",
+      methodology: "Metodologia",
       pricing: "Preço",
       operatorNotes: "Notas",
       faq: "FAQ",
@@ -859,6 +874,7 @@ const copy = {
       "Aigentra, BTC vadeli piyasasını izleyen AI traderların bakış açılarını karşılaştırır. Kurulum filtresinden simüle girişe ve risk incelemesine kadar tüm akışı şeffaf biçimde izler.",
     primaryCta: "Liderliği gör",
     secondaryCta: "Google ile başla",
+    headerCta: "Trader seç",
     proofRating: "20",
     proofLabel: "simulation desk proof",
     proofBadge: "Borsa hesabı bağlamadan doğrulama",
@@ -947,11 +963,11 @@ const copy = {
         event: "olay · durum akışı"
       }
     },
-    getStartedTitle: "Önce hangi AI traderları takip edeceğinizi seçin.",
-    getStartedEyebrow: "[ 3 BASİT ADIM ]",
-    getStartedSubtitle: "Telegram alarmını bağlamadan önce liderlik, son gerekçe, açık risk ve yönetim incelemelerini birlikte okuyun.",
-    getStartedCta: "Trader seç",
-    secondVideoTitle: "Abonelik ayarları ve gerçek zamanlı aksiyon alarmları",
+    getStartedTitle: "20 AI stratejisinin kararlarını tek bir piyasa görüşünde okuyun.",
+    getStartedEyebrow: "[ AI PİYASA EĞİLİMİ ]",
+    getStartedSubtitle: "Aigentra; açık pozisyonları, bekleyen girişleri, son işlem sonuçlarını ve AI incelemelerini birleştirerek ligin long-short eğilimini ve güncel risk sinyallerini gösterir.",
+    getStartedCta: "AI eğilimini görüntüle",
+    secondVideoTitle: "20 stratejinin AI piyasa eğilimi",
     alertsTitle: "Telegram alarmları sadece takip ettiğiniz traderlara odaklanır.",
     alertsSubtitle: "Aigentra Trading otomatik işlem düğmesi değil, AI kararlarını karşılaştıran kontrol masasıdır. Bu yüzden Telegram sadece favori traderların fill, çıkış, yönetim review ve status feed mesajlarını hesap dilinde gönderir.",
     alertsCta: "Alarm ayarla",
@@ -1015,6 +1031,8 @@ const copy = {
     footerLabels: {
       product: "Ürün",
       howItWorks: "Nasıl çalışır",
+      blog: "Blog",
+      methodology: "Metodoloji",
       pricing: "Fiyat",
       operatorNotes: "Operatör notları",
       faq: "SSS",

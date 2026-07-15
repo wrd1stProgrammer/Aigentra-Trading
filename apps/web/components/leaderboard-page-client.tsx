@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { useCallback, useMemo, useState, useEffect, type MouseEvent } from "react";
 import {
@@ -18,12 +18,14 @@ import {
 import {
   getEquitySnapshots,
   getActivePaperPositions,
+  getAITradeTerminalSource,
   getCachedLeaderboardBundle,
   getPaperOrders,
   getRecentTradePlans,
   LEAGUE_LIVE_REFETCH_INTERVAL_MS,
   leaderboardBundleQueryOptions,
   type EquitySnapshot,
+  type AITradeTerminalPage,
   type LeaderboardBundle,
   type LeaderboardBundleRequestOptions,
   type PaperOrder,
@@ -41,7 +43,11 @@ import { fallbackTraders, traderDetailKey, traderNameKey, traderShortKey } from 
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { statusLabel } from "@/lib/status";
 import { compareLiveRaceItems, liveRaceScore } from "@/lib/live-race-policy";
-import { buildFreeLeaderboardPreview, currentFreeLeaderboardPreviewSeed } from "@/lib/free-leaderboard-preview";
+import {
+  buildFreeLeaderboardPreview,
+  currentFreeLeaderboardPreviewSeed,
+  isLeaderboardStandingVisible
+} from "@/lib/free-leaderboard-preview";
 import {
   buildLeaguePeriodUrl,
   shouldFetchCurrentLeagueCompanion,
@@ -53,9 +59,14 @@ import { activePositionLeverage, appendLeverageSample, formatLeverageBadge, orde
 import { TradeClassificationBadges } from "@/components/trade-classification-badges";
 import { tradeClassification, type TradeClassification } from "@/components/trade-classification";
 import type { SubscriberPreferences } from "@/lib/subscriber-preferences";
+import { AITradeTerminalLockedPreview, AITradeTerminalPanel } from "@/components/ai-trade-terminal";
+import { buildAITradeTerminal } from "@/lib/ai-trade-terminal";
 
 const RANKING_GRID_CLASS = "grid-cols-[46px_minmax(220px,1fr)_130px_108px_108px_104px_80px_36px] gap-3";
 const LIVE_EXPOSURE_LIMIT = 100;
+const SEVEN_DAY_EQUITY_SNAPSHOT_LIMIT = 7 * 24 * 4;
+const LEGACY_EQUITY_SNAPSHOT_LIMIT = 100;
+const INITIAL_AI_TRADE_TERMINAL_PAGE: AITradeTerminalPage = { eventOffset: 0, reviewOffset: 0 };
 
 
 type TraderExposure = {
@@ -110,6 +121,13 @@ function monthReturnMetricLabel(locale: Locale, month: number, t: (key: string) 
   return t("leaderboard.monthlyReturnWithMonth").replace("{month}", monthLabel);
 }
 
+function leagueMonthOptionLabel(locale: Locale, option: LeagueMonthOption) {
+  if (locale === "ko") return `${option.month}월`;
+  return new Intl.DateTimeFormat(locale, { month: "short", timeZone: "UTC" }).format(
+    new Date(Date.UTC(option.year, option.month - 1, 1))
+  );
+}
+
 type LeagueMonthOption = {
   readonly value: string;
   readonly year: number;
@@ -141,8 +159,11 @@ function isSameOrAfterLeagueMonth(value: string, floor: string) {
 function isTraderVisibleInLeagueMonth(trader: TraderProfile, leagueMonth?: string) {
   if (!leagueMonth) return true;
   if (trader.launchMonth && !isSameOrAfterLeagueMonth(leagueMonth, trader.launchMonth)) return false;
-  if (trader.retiredFromMonth && isSameOrAfterLeagueMonth(leagueMonth, trader.retiredFromMonth)) return false;
   return true;
+}
+
+function hasLeaderboardTradingRecord(trader: Pick<TraderStanding, "trades">) {
+  return trader.trades > 0;
 }
 
 function initialLeagueMonthFromSearchParams(searchParams: URLSearchParams | ReadonlyURLSearchParamsLike) {
@@ -360,10 +381,7 @@ export function LeaderboardPageClient() {
     [selectedLeagueMonth, traders]
   );
   const standings = useMemo(() => buildStandings(periodTraders, bundle.summaries ?? []), [bundle.summaries, periodTraders]);
-  const displayStandings = useMemo(
-    () => standings,
-    [standings]
-  );
+  const displayStandings = useMemo(() => standings.filter(hasLeaderboardTradingRecord), [standings]);
   const accessReady = session.status === "unauthenticated" || Boolean(access) || (session.status === "authenticated" && accessQuery.isError);
   const subscriberAccessPending = !accessReady;
   const subscriberAccessUnavailable = Boolean(access?.unavailable) || (session.status === "authenticated" && accessQuery.isError && !access);
@@ -381,7 +399,7 @@ export function LeaderboardPageClient() {
     () => (shouldUsePreviewLimit ? buildFreeLeaderboardPreview(displayStandings, freePreviewSeed) : displayStandings),
     [displayStandings, freePreviewSeed, shouldUsePreviewLimit]
   );
-  const visibleStandings = useMemo(
+  const returnMetricStandings = useMemo(
     () => favoritesOnly ? visibleStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : visibleStandingsBase,
     [favoriteTraderIds, favoritesOnly, visibleStandingsBase]
   );
@@ -390,11 +408,11 @@ export function LeaderboardPageClient() {
     () =>
       buildReturnColumns({
         keys: selectedLeagueMonth ? MONTHLY_RETURN_METRIC_KEYS : RETURN_METRIC_KEYS,
-        standings: visibleStandings,
+        standings: returnMetricStandings,
         t,
         monthlyReturnLabel: selectedLeagueMonth ? monthlyReturnLabel : undefined
       }),
-    [monthlyReturnLabel, selectedLeagueMonth, t, visibleStandings]
+    [monthlyReturnLabel, returnMetricStandings, selectedLeagueMonth, t]
   );
   const selectedReturnMetric = returnMetricCandidates.find((candidate) => candidate.key === selectedReturnMetricKey) ?? null;
   const effectiveReturnMetricKey = selectedReturnMetric?.key ?? null;
@@ -410,6 +428,14 @@ export function LeaderboardPageClient() {
   );
   const returnPeriodButtonLabel = selectedReturnMetric?.label ?? returnColumns[0]?.label ?? mobileReturnColumn.label;
   const activeReturnMetricKey = effectiveReturnMetricKey ?? returnColumns[0]?.key ?? mobileReturnColumn.key;
+  const rankedVisibleStandingsBase = useMemo(
+    () => rankStandingsByReturnMetric(visibleStandingsBase, activeReturnMetricKey),
+    [activeReturnMetricKey, visibleStandingsBase]
+  );
+  const visibleStandings = useMemo(
+    () => favoritesOnly ? rankedVisibleStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : rankedVisibleStandingsBase,
+    [favoriteTraderIds, favoritesOnly, rankedVisibleStandingsBase]
+  );
   const hiddenTraderCount = Math.max(0, displayStandings.length - visibleStandingsBase.length);
   const activeTrader = visibleStandings.find((item) => item.id === activeTraderId) ?? visibleStandings[0] ?? null;
   const currentSummaryByTrader = useMemo(
@@ -461,9 +487,34 @@ export function LeaderboardPageClient() {
     () => buildExposureMap(liveExposurePositions, liveExposureOrders, pendingPlans),
     [liveExposureOrders, liveExposurePositions, pendingPlans]
   );
+  const aiTradeTerminalQuery = useInfiniteQuery({
+    queryKey: ["league", "ai-trade-terminal", "BTCUSDT", locale],
+    queryFn: (context) => getAITradeTerminalSource("BTCUSDT", locale, context.pageParam, { signal: context.signal }),
+    initialPageParam: INITIAL_AI_TRADE_TERMINAL_PAGE,
+    getNextPageParam: (lastPage) => lastPage.nextPage ?? undefined,
+    enabled: shouldFetchSecondaryLeaderboardData && isSubscribed,
+    staleTime: 60_000,
+    refetchInterval: (query) => (query.state.data?.pages.length ?? 0) <= 1 ? 60_000 : false,
+    refetchIntervalInBackground: false,
+    retry: 1
+  });
+  const aiTradeTerminalRows = useMemo(
+    () => buildAITradeTerminal({
+      events: aiTradeTerminalQuery.data?.pages.flatMap((page) => page.events) ?? [],
+      reviews: aiTradeTerminalQuery.data?.pages.flatMap((page) => page.reviews) ?? [],
+      traders,
+      locale
+    }),
+    [aiTradeTerminalQuery.data, locale, traders]
+  );
+  const loadMoreAITradeTerminal = useCallback(() => {
+    if (!aiTradeTerminalQuery.hasNextPage || aiTradeTerminalQuery.isFetchingNextPage) return;
+    void aiTradeTerminalQuery.fetchNextPage();
+  }, [aiTradeTerminalQuery.fetchNextPage, aiTradeTerminalQuery.hasNextPage, aiTradeTerminalQuery.isFetchingNextPage]);
   const liveRaceStandingsBase = useMemo(() => {
     const liveStandings = selectedLeagueMonth && currentLeagueStandings ? currentLeagueStandings : standings;
-    return shouldUsePreviewLimit ? buildFreeLeaderboardPreview(liveStandings, freePreviewSeed) : liveStandings;
+    const visibleLiveStandings = liveStandings.filter(isLeaderboardStandingVisible);
+    return shouldUsePreviewLimit ? buildFreeLeaderboardPreview(visibleLiveStandings, freePreviewSeed) : visibleLiveStandings;
   }, [currentLeagueStandings, freePreviewSeed, selectedLeagueMonth, shouldUsePreviewLimit, standings]);
   const liveRaceStandings = useMemo(
     () => (favoritesOnly ? liveRaceStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : liveRaceStandingsBase),
@@ -479,7 +530,14 @@ export function LeaderboardPageClient() {
 
   const activeSnapshotsQuery = useQuery({
     queryKey: ["league", "equity-snapshots", activeTab, activeTrader?.id ?? ""],
-    queryFn: async (context) => unwrapEquitySnapshots(await getEquitySnapshots(45, activeTrader?.id ?? undefined, snapshotSymbol, { signal: context.signal })),
+    queryFn: async (context) => {
+      try {
+        return unwrapEquitySnapshots(await getEquitySnapshots(SEVEN_DAY_EQUITY_SNAPSHOT_LIMIT, activeTrader?.id ?? undefined, snapshotSymbol, { signal: context.signal }));
+      } catch (error) {
+        if (context.signal.aborted) throw error;
+        return unwrapEquitySnapshots(await getEquitySnapshots(LEGACY_EQUITY_SNAPSHOT_LIMIT, activeTrader?.id ?? undefined, snapshotSymbol, { signal: context.signal }));
+      }
+    },
     enabled: shouldFetchSecondaryLeaderboardData && Boolean(activeTrader?.id),
     placeholderData: (previousData) => previousData ?? [],
     staleTime: LEAGUE_LIVE_REFETCH_INTERVAL_MS,
@@ -521,7 +579,7 @@ export function LeaderboardPageClient() {
     rankingPlaceholder: btcQuery.isPlaceholderData,
     rankingWarming: leaderboardWarming
   });
-  const isFetching = btcQuery.isFetching || currentLeagueBundleQuery.isFetching || liveExposurePositionsQuery.isFetching || liveExposureOrdersQuery.isFetching || pendingPlansQuery.isFetching;
+  const isFetching = btcQuery.isFetching || currentLeagueBundleQuery.isFetching || liveExposurePositionsQuery.isFetching || liveExposureOrdersQuery.isFetching || pendingPlansQuery.isFetching || aiTradeTerminalQuery.isFetching;
   const showBackgroundFetching = !initialLoading && isFetching;
 
   return (
@@ -536,16 +594,14 @@ export function LeaderboardPageClient() {
         accessQuery={accessQuery}
         mode="subscription"
         deferLockedChildren
-        lockedPreview={<LiveRaceBoardLockedPreview leaguePeriodLabel={liveRacePeriodLabel} t={t} />}
+        lockedPreview={<AITradeTerminalLockedPreview t={t} />}
       >
-        <LiveRaceBoard
-          standings={liveRaceStandings}
-          exposureByTrader={exposureByTrader}
-          currentSummaryByTrader={currentSummaryByTrader}
-          openPositions={liveRaceOpenPositions}
-          openOrders={liveRaceOpenOrders}
-          activeTraderCount={liveRaceActiveTraderCount}
-          leaguePeriodLabel={liveRacePeriodLabel}
+        <AITradeTerminalPanel
+          rows={aiTradeTerminalRows}
+          loading={aiTradeTerminalQuery.isPending}
+          loadingMore={aiTradeTerminalQuery.isFetchingNextPage}
+          hasMore={Boolean(aiTradeTerminalQuery.hasNextPage)}
+          onLoadMore={loadMoreAITradeTerminal}
           locale={locale}
           t={t}
         />
@@ -629,7 +685,7 @@ export function LeaderboardPageClient() {
                       >
                         {leagueMonthsForSelectedYear.map((option) => (
                           <option key={option.value} value={option.month}>
-                            {locale === "ko" ? `${option.month}월` : "June"}
+                            {leagueMonthOptionLabel(locale, option)}
                           </option>
                         ))}
                       </select>
@@ -831,7 +887,7 @@ export function LeaderboardPageClient() {
                     >
                       {leagueMonthsForSelectedYear.map((option) => (
                         <option key={option.value} value={option.month}>
-                          {locale === "ko" ? `${option.month}월` : "June"}
+                          {leagueMonthOptionLabel(locale, option)}
                         </option>
                       ))}
                     </select>
@@ -1136,7 +1192,7 @@ function MobileRankingList({ standings, exposureByTrader, currentSummaryByTrader
                       </p>
                     </div>
                     <p className="mt-0.5 truncate text-xs text-zinc-500">{t(traderShortKey(trader.id))}</p>
-                    <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
+                    <div className="mt-1.5 flex min-w-0 flex-nowrap items-center gap-1.5">
                       <StatusPill label={progress.label} tone={progress.tone} />
                       <SideBadge progress={progress} />
                       <LeverageBadge progress={progress} />
@@ -1208,7 +1264,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
             </div>
             <TraderRankBadge trader={trader} t={t} masked={rankMasked} />
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="mt-4 flex flex-nowrap items-center gap-2">
             <StatusPill label={state} tone={progress.tone} />
             <SideBadge progress={progress} />
             <LeverageBadge progress={progress} />
@@ -1228,7 +1284,7 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
         <section>
           <h4 className="text-sm font-semibold">{t("leaderboard.previewPerformance")}</h4>
           <div className="mt-3 grid grid-cols-2 gap-2 w-full min-w-0">
-            <MiniCell label={t("common.return30d")} value={formatSignedPercent(trader.returnPct)} />
+            <MiniCell label={t("leaderboard.cumulativeReturn")} value={formatSignedPercent(trader.returnPct)} />
             <MiniCell label={t("common.return7d")} value={formatSignedPercent(trader.return7d)} />
             <MiniCell label={t("leaderboard.biggestWin")} value={formatCurrency(trader.biggestWin, locale)} />
             <MiniCell label={t("common.winRate")} value={formatNullablePercent(trader.winRate)} />
@@ -1264,7 +1320,7 @@ function RankBadge({ rank, compact = false }: { rank: number; compact?: boolean 
           : "bg-orange-300/20 text-orange-200 ring-orange-300/30";
     const Icon = rank === 1 ? Trophy : Medal;
     return (
-      <span className={`${compact ? "size-8" : "size-10"} grid place-items-center rounded-full ring-1 ${medalClass}`} title={`#${rank}`}>
+      <span className={`${compact ? "size-8" : "size-10"} grid shrink-0 aspect-square place-items-center rounded-full ring-1 ${medalClass}`} title={`#${rank}`}>
         <Icon size={compact ? 17 : 20} weight="fill" />
       </span>
     );
@@ -1272,7 +1328,7 @@ function RankBadge({ rank, compact = false }: { rank: number; compact?: boolean 
   const colors =
     "bg-[var(--surface-muted)] text-muted-app";
   return (
-    <span className={`${compact ? "size-8 text-xs" : "size-10 text-sm"} grid place-items-center rounded-full font-mono font-semibold ${colors}`}>
+    <span className={`${compact ? "size-8 text-xs" : "size-10 text-sm"} grid shrink-0 aspect-square place-items-center rounded-full font-mono font-semibold ${colors}`}>
       {rank}
     </span>
   );
@@ -1281,7 +1337,7 @@ function RankBadge({ rank, compact = false }: { rank: number; compact?: boolean 
 function MaskedRankBadge({ compact = false, t }: { compact?: boolean; t: (key: string) => string }) {
   return (
     <span
-      className={`${compact ? "size-8 text-sm" : "size-10 text-base"} grid place-items-center rounded-full border border-dashed border-white/15 bg-white/[0.035] font-mono font-bold text-zinc-300`}
+      className={`${compact ? "size-8 text-sm" : "size-10 text-base"} grid shrink-0 aspect-square place-items-center rounded-full border border-dashed border-white/15 bg-white/[0.035] font-mono font-bold text-zinc-300`}
       title={t("leaderboard.freePreviewRankHidden")}
     >
       ?
@@ -1310,7 +1366,7 @@ function TraderRankBadge({
   if (!isRetiredTraderLifecycle(trader)) return <RankBadge rank={trader.rank} compact={compact} />;
   return (
     <span
-      className={`${compact ? "size-8" : "size-10"} grid place-items-center rounded-full border border-zinc-500/25 bg-zinc-500/10 text-zinc-400`}
+      className={`${compact ? "size-8" : "size-10"} grid shrink-0 aspect-square place-items-center rounded-full border border-zinc-500/25 bg-zinc-500/10 text-zinc-400`}
       title={t("leaderboard.retiredTraderTitle")}
     >
       <PauseCircle size={compact ? 17 : 20} weight="bold" />
@@ -1334,16 +1390,18 @@ function TraderIdentity({ trader, progress, t }: { trader: TraderStanding; progr
     <div className="flex min-w-0 items-center gap-3">
       <TraderMark trader={trader} />
       <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <TraderLifecycleBadge trader={trader} t={t} compact />
           <p className="truncate text-sm font-bold tracking-tight text-white">
             {displayName}
           </p>
+        </div>
+        <div className="mt-1 flex min-w-0 items-center gap-1.5">
           <SideBadge progress={progress} />
           <LeverageBadge progress={progress} />
           <TradeClassificationBadge progress={progress} t={t} />
+          <p className="min-w-0 truncate font-mono text-xs text-zinc-500">{t(traderShortKey(trader.id))}</p>
         </div>
-        <p className="text-zinc-500 mt-1 truncate text-xs font-mono">{t(traderShortKey(trader.id))}</p>
       </div>
     </div>
   );
@@ -1416,7 +1474,7 @@ function LeverageBadge({ progress }: { progress: TraderProgress }) {
 }
 
 function TradeClassificationBadge({ progress, t }: { progress: TraderProgress; t: (key: string) => string }) {
-  return <TradeClassificationBadges classification={progress.classification ?? null} t={t} compact />;
+  return <TradeClassificationBadges classification={progress.classification ?? null} t={t} compact showHorizon={false} />;
 }
 
 function buildReturnColumns({ keys, standings, t, monthlyReturnLabel }: ReturnColumnBuildOptions): readonly ReturnColumn[] {
@@ -1436,6 +1494,18 @@ function selectReturnColumns({ candidates, selectedKey, count }: ReturnColumnSel
 
   const companionColumn = rankReturnColumns(candidates.filter((candidate) => candidate.key !== selectedColumn.key))[0] ?? null;
   return companionColumn ? [selectedColumn, companionColumn] : [selectedColumn];
+}
+
+function rankStandingsByReturnMetric(standings: readonly TraderStanding[], key: ReturnMetricKey): TraderStanding[] {
+  return [...standings]
+    .sort((a, b) => {
+      const retiredDelta = Number(isRetiredTraderLifecycle(a)) - Number(isRetiredTraderLifecycle(b));
+      if (retiredDelta !== 0) return retiredDelta;
+      const returnDelta = returnMetricValue(b, key) - returnMetricValue(a, key);
+      if (returnDelta !== 0) return returnDelta;
+      return a.rank - b.rank || b.rankScore - a.rankScore || b.equity - a.equity || a.id.localeCompare(b.id);
+    })
+    .map((item, index) => ({ ...item, rank: index + 1 }));
 }
 
 function rankReturnColumns(columns: readonly ReturnColumn[]): readonly ReturnColumn[] {

@@ -120,8 +120,8 @@ export function TradeHistoryPanel({
       >
         {items.map((item) => (
           <div key={item.id} className="py-3.5">
-            <div className="grid grid-cols-[74px_minmax(0,1fr)] items-center gap-3">
-              <span className="font-mono text-sm font-semibold text-zinc-400">{item.time}</span>
+            <div className="grid grid-cols-[124px_minmax(0,1fr)] items-center gap-3">
+              <span className="whitespace-nowrap font-mono text-xs font-semibold text-zinc-400">{item.time}</span>
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-zinc-950 dark:text-zinc-50">
                   <span className={movementToneClass(item.actionTone)}>{item.action}</span> {item.label}

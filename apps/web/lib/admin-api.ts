@@ -65,10 +65,27 @@ const adminApiCallSchema = z.object({
   errorMessage: z.string().nullable()
 });
 
+const adminDailyGrowthSchema = z.object({
+  date: z.string(),
+  uniqueVisitors: z.number().int().nonnegative(),
+  signups: z.number().int().nonnegative(),
+  paidConversions: z.number().int().nonnegative(),
+  signupConversionRate: z.number().nonnegative()
+});
+
+const adminGrowthSchema = z.object({
+  timezone: z.literal("Asia/Seoul"),
+  trackingStartedAt: z.string().nullable(),
+  today: adminDailyGrowthSchema,
+  yesterday: adminDailyGrowthSchema,
+  series: z.array(adminDailyGrowthSchema).length(7)
+});
+
 export const adminOverviewSchema = z.object({
   generatedAt: z.string(),
   database: adminDatabaseSchema,
   totals: adminTotalsSchema,
+  growth: adminGrowthSchema,
   paper: adminPaperSchema,
   recentEvents: z.array(adminEventSchema),
   recentSubscribers: z.array(adminSubscriberSchema),
@@ -118,15 +135,27 @@ export async function loadAdminTable(table: string, offset = 0, limit = 25): Pro
   return parsed.data;
 }
 
-async function adminApiRequest(pathOrUrl: string | URL): Promise<unknown> {
+export async function recordAdminVisit(visitorKey: string, userKey: string | null): Promise<void> {
+  await adminApiRequest("/api/admin/visits", {
+    method: "POST",
+    body: JSON.stringify({ visitorKey, userKey }),
+    headers: { "Content-Type": "application/json" }
+  });
+}
+
+async function adminApiRequest(pathOrUrl: string | URL, requestInit: RequestInit = {}): Promise<unknown> {
   const url = typeof pathOrUrl === "string" ? new URL(pathOrUrl, adminApiBaseUrl()) : pathOrUrl;
   const timeout = adminApiTimeoutSignal();
+  const headers = new Headers(requestInit.headers);
+  for (const [name, value] of Object.entries(adminApiHeaders())) headers.set(name, value);
   try {
     const response = await fetch(url, {
+      ...requestInit,
       cache: "no-store",
-      headers: adminApiHeaders(),
+      headers,
       signal: timeout.signal
     });
+    if (response.status === 204) return null;
     const responseBody: unknown = await safeJson(response);
     if (!response.ok) throw new AdminApiError(readError(responseBody), response.status);
     return responseBody;

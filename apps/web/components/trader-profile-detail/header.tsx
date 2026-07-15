@@ -58,13 +58,13 @@ export function HeroHeader({
           </div>
         </div>
 
-        <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-300 mt-1">
+        <p className="mt-1 break-keep text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
           {localizedDescription}
         </p>
 
         <div className="grid grid-cols-3 gap-2 rounded-xl bg-zinc-50 p-1.5 ring-1 ring-zinc-200 dark:bg-zinc-900/70 dark:ring-zinc-800 mt-2">
           <MiniHeroStat label={t("leaderboard.rankScore")} value={formatNumber(standing.rankScore, 2, locale)} />
-          <MiniHeroStat label={t("common.return7d")} value={formatPercent(standing.monthlyReturn)} tone={standing.monthlyReturn >= 0 ? "good" : "bad"} />
+          <MiniHeroStat label={t("leaderboard.monthlyReturn")} value={formatPercent(standing.monthlyReturn)} tone={standing.monthlyReturn >= 0 ? "good" : "bad"} />
           <MiniHeroStat label={t("common.winRate")} value={standing.winRate === null ? "-" : formatPercent(standing.winRate)} />
         </div>
       </div>
@@ -92,7 +92,7 @@ export function HeroHeader({
         </div>
         <div className="grid grid-cols-3 gap-2 rounded-2xl bg-white p-2 dark:bg-zinc-950 ring-1 ring-zinc-200 dark:ring-zinc-800">
           <MiniHeroStat label={t("leaderboard.rankScore")} value={formatNumber(standing.rankScore, 2, locale)} />
-          <MiniHeroStat label={t("common.return7d")} value={formatPercent(standing.monthlyReturn)} tone={standing.monthlyReturn >= 0 ? "good" : "bad"} />
+          <MiniHeroStat label={t("leaderboard.monthlyReturn")} value={formatPercent(standing.monthlyReturn)} tone={standing.monthlyReturn >= 0 ? "good" : "bad"} />
           <MiniHeroStat label={t("common.winRate")} value={standing.winRate === null ? "-" : formatPercent(standing.winRate)} />
         </div>
       </div>

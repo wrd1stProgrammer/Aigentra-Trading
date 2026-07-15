@@ -1,72 +1,26 @@
 import { useState } from "react";
 import type { EquitySnapshot } from "@/lib/api";
-import { formatCurrency, formatDateTime, intlLocale } from "@/lib/format";
+import { formatCurrency, formatDateTime } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
 import type { TraderStanding } from "@/lib/league";
+import {
+  chartPath,
+  equityChartPoints,
+  formatAxisPrice,
+  formatExactPrice,
+  formatTooltipTime,
+  getTraderColor,
+  GRIDLINE_COUNT
+} from "@/components/leaderboard-sidebar-equity-chart-data";
 
 export const SIDEBAR_CHART_STROKE_WIDTH = "1.25";
 export const SIDEBAR_CHART_STROKE = "var(--accent)";
 
-type ChartPoint = {
-  readonly y: number;
-  readonly time: string | null;
+type ChartDayLabel = {
+  readonly x: number;
+  readonly label: string;
+  readonly anchor: "start" | "middle" | "end";
 };
-
-const TRADER_COLORS: Array<{ stroke: string; gradientStart: string }> = [
-  { stroke: "#3b82f6", gradientStart: "#3b82f6" }, // Blue
-  { stroke: "#10b981", gradientStart: "#10b981" }, // Emerald
-  { stroke: "#8b5cf6", gradientStart: "#8b5cf6" }, // Violet
-  { stroke: "#f43f5e", gradientStart: "#f43f5e" }, // Rose
-  { stroke: "#f59e0b", gradientStart: "#f59e0b" }, // Amber
-  { stroke: "#06b6d4", gradientStart: "#06b6d4" }, // Cyan
-  { stroke: "#ec4899", gradientStart: "#ec4899" }, // Pink
-  { stroke: "#14b8a6", gradientStart: "#14b8a6" }, // Teal
-  { stroke: "#a855f7", gradientStart: "#a855f7" }, // Purple
-  { stroke: "#f97316", gradientStart: "#f97316" }  // Orange
-];
-
-function getTraderColor(traderId: string) {
-  let hash = 0;
-  for (let i = 0; i < traderId.length; i++) {
-    hash = traderId.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const index = Math.abs(hash) % TRADER_COLORS.length;
-  return TRADER_COLORS[index] || TRADER_COLORS[0];
-}
-
-function formatBriefPrice(value: number, locale: Locale): string {
-  if (value >= 1_000_000) {
-    const val = value / 1_000_000;
-    return `${val.toFixed(val % 1 === 0 ? 0 : 1)}M`;
-  }
-  if (value >= 1_000) {
-    const val = value / 1_000;
-    return `${val.toFixed(val % 1 === 0 ? 0 : 1)}k`;
-  }
-  return value.toLocaleString(intlLocale(locale), { maximumFractionDigits: 1 });
-}
-
-function formatExactPrice(value: number, locale: Locale): string {
-  return new Intl.NumberFormat(intlLocale(locale), {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value);
-}
-
-function formatTooltipTime(timeStr: string | null | undefined, locale: Locale): string {
-  if (!timeStr) return "";
-  const date = new Date(timeStr);
-  if (Number.isNaN(date.getTime())) return "";
-
-  return `${new Intl.DateTimeFormat(intlLocale(locale), {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "UTC"
-  }).format(date)} UTC`;
-}
-
 
 export function EquityAreaChart({
   trader,
@@ -114,14 +68,12 @@ export function EquityAreaChart({
 
   const color = getTraderColor(trader.id);
   const gradientId = `equity-area-${trader.id}`;
-  const isFallback = snapshots.length === 0;
 
   // Y-axis gridlines
-  const gridlineCount = 4;
   const gridlines: Array<{ y: number; price: number }> = [];
-  for (let i = 0; i < gridlineCount; i++) {
-    const price = paddedMax - (i / (gridlineCount - 1)) * paddedRange;
-    const y = 15 + (i / (gridlineCount - 1)) * plotHeight;
+  for (let i = 0; i < GRIDLINE_COUNT; i++) {
+    const price = paddedMax - (i / (GRIDLINE_COUNT - 1)) * paddedRange;
+    const y = 15 + (i / (GRIDLINE_COUNT - 1)) * plotHeight;
     gridlines.push({ y, price });
   }
 
@@ -145,11 +97,12 @@ export function EquityAreaChart({
 
 
   // Filter X-axis labels to ensure they are at least 70px apart
-  const filteredDayLabels: Array<{ x: number; label: string }> = [];
+  const filteredDayLabels: ChartDayLabel[] = [];
   let lastPlacedX = -999;
   for (const label of dayLabels) {
     if (filteredDayLabels.length === 0 || label.x - lastPlacedX >= 70) {
-      filteredDayLabels.push(label);
+      const anchor = label.x <= plotMarginLeft + 24 ? "start" : label.x >= plotMarginLeft + plotWidth - 24 ? "end" : "middle";
+      filteredDayLabels.push({ ...label, anchor });
       lastPlacedX = label.x;
     }
   }
@@ -194,26 +147,25 @@ export function EquityAreaChart({
   return (
     <div className="relative overflow-hidden rounded-lg bg-[var(--surface)] px-0 py-4 ring-1 ring-[var(--border)]">
       <div className="mb-3 flex items-start justify-between gap-3 px-4">
-        <div>
+        <div className="min-w-0">
           <p className="text-base font-bold text-white">{t("leaderboard.chart.equityCurve")}</p>
-          <p className="text-soft-app mt-1 text-xs">{isFallback ? t("leaderboard.chart.noSnapshots") : formatDateTime(points.at(-1)?.time, locale)}</p>
+          <p className="text-soft-app mt-1 truncate text-xs">{snapshots.length === 0 ? t("leaderboard.chart.noSnapshots") : formatDateTime(points.at(-1)?.time, locale)}</p>
         </div>
-        <div className="text-right">
-          <p className="font-mono text-lg font-bold text-white">{formatCurrency(points.at(-1)?.y, locale)}</p>
+        <div className="max-w-[55%] shrink-0 truncate text-right">
+          <p className="truncate font-mono text-lg font-bold text-white">{formatCurrency(points.at(-1)?.y, locale)}</p>
           <p className={`font-mono text-sm font-semibold ${trader.returnPct >= 0 ? "value-good" : "value-bad"}`}>{formatSignedPercent(trader.returnPct)}</p>
         </div>
       </div>
 
       {hoveredPoint && hoveredRawPoint && (
         <div
-          className="absolute z-10 rounded-md border border-white/[0.08] bg-zinc-950/95 px-2.5 py-1.5 shadow-lg backdrop-blur-sm transition-all duration-75 pointer-events-none"
+          className="pointer-events-none absolute top-[76px] z-10 rounded-md border border-white/[0.08] bg-zinc-950/95 px-2.5 py-1.5 shadow-lg backdrop-blur-sm transition-all duration-75"
           style={{
             left: `${(hoveredPoint.x / 600) * 100}%`,
-            top: "12px",
             transform: `translateX(${-((hoveredPoint.x - plotMarginLeft) / plotWidth) * 100}%)`,
           }}
         >
-          <div className="flex items-center gap-2 font-mono text-xs font-medium">
+          <div className="flex items-center gap-2 whitespace-nowrap font-mono text-xs font-medium">
             <span className="text-white font-bold">{formatExactPrice(hoveredRawPoint.y, locale)}</span>
             <span className="text-zinc-400">{formatTooltipTime(hoveredRawPoint.time, locale)}</span>
           </div>
@@ -239,24 +191,24 @@ export function EquityAreaChart({
           </linearGradient>
         </defs>
 
-        {gridlines.map((g, idx) => (
+        {gridlines.map((gridline, idx) => (
           <g key={`grid-${idx}`}>
             <line
               x1={plotMarginLeft}
-              y1={g.y}
+              y1={gridline.y}
               x2={plotMarginLeft + plotWidth}
-              y2={g.y}
+              y2={gridline.y}
               stroke="currentColor"
               strokeOpacity="0.05"
               strokeWidth="0.75"
             />
             <text
               x={plotMarginLeft - 10}
-              y={g.y + 6}
+              y={gridline.y + 6}
               textAnchor="end"
               className="fill-zinc-400 font-mono text-[18px] font-semibold"
             >
-              {formatBriefPrice(g.price, locale)}
+              {formatAxisPrice(gridline.price, paddedRange, locale)}
             </text>
           </g>
         ))}
@@ -275,7 +227,7 @@ export function EquityAreaChart({
             <text
               x={label.x}
               y={plotBottom + 22}
-              textAnchor="middle"
+              textAnchor={label.anchor}
               className="fill-zinc-400 font-mono text-[20px] font-semibold"
             >
               {label.label}
@@ -322,51 +274,8 @@ export function EquityAreaChart({
   );
 }
 
-function equityChartPoints(trader: TraderStanding, snapshots: readonly EquitySnapshot[]): ChartPoint[] {
-  const points = snapshots
-    .map((snapshot) => ({
-      y: numberValue(snapshot.equity),
-      time: snapshot.candleTime ?? snapshot.createdAt ?? snapshot.timestamp ?? null
-    }))
-    .filter((point): point is ChartPoint => point.y !== null)
-    .sort((a, b) => timeValue(a.time) - timeValue(b.time))
-    .slice(-60);
-  if (points.length >= 2) return points;
-
-  const current = trader.equity || 10000;
-  const start = trader.returnPct === -100 ? current : current / (1 + trader.returnPct / 100);
-  const updatedAt = trader.summary?.updatedAt ?? null;
-  return [
-    { y: Number.isFinite(start) ? start : 10000, time: updatedAt },
-    { y: current, time: updatedAt }
-  ];
-}
-
-function chartPath(points: ReadonlyArray<{ readonly x: number; readonly y: number }>) {
-  return points
-    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
-    .join(" ");
-}
-
 function formatSignedPercent(value: number | null | undefined, digits = 2) {
   if (value === null || value === undefined || Number.isNaN(value)) return "-";
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(digits)}%`;
-}
-
-function numberValue(...values: readonly unknown[]) {
-  for (const value of values) {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string" && value.trim()) {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
-  return null;
-}
-
-function timeValue(value?: string | null) {
-  if (!value) return 0;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : 0;
 }

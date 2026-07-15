@@ -37,13 +37,29 @@ test("admin API proxy is session-protected and uses only the backend admin token
 
 test("admin UI exposes operations-focused sections without raw SQL execution", () => {
   const dashboardSource = readFileSync(new URL("../components/admin-dashboard-client.tsx", import.meta.url), "utf8");
+  const growthSource = readFileSync(new URL("../components/admin-growth-overview.tsx", import.meta.url), "utf8");
+  const operationsSource = readFileSync(new URL("../components/admin-operations-panels.tsx", import.meta.url), "utf8");
+  const tableSource = readFileSync(new URL("../components/admin-table-browser.tsx", import.meta.url), "utf8");
+  const combinedSource = `${dashboardSource}\n${growthSource}\n${operationsSource}\n${tableSource}`;
 
-  for (const label of ["DB Overview", "Subscribers", "Paper Trading", "API Incidents", "Table Browser"]) {
-    assert.match(dashboardSource, new RegExp(label), `admin dashboard should render ${label}`);
+  for (const label of ["오늘의 성장 퍼널", "순사용자", "신규 가입", "유료 전환", "가입→구독 전환율", "서비스 상태", "Table Browser"]) {
+    assert.match(combinedSource, new RegExp(label), `admin dashboard should render ${label}`);
   }
   assert.match(dashboardSource, /data-testid="admin-dashboard"/, "admin dashboard needs a stable QA target");
-  assert.match(dashboardSource, /fetchAdminTable/, "table browser should fetch whitelisted tables");
-  assert.doesNotMatch(dashboardSource, /textarea|raw sql|executeSql|DROP TABLE/i, "MVP should not expose raw SQL execution");
+  assert.match(tableSource, /fetchAdminTable/, "table browser should fetch whitelisted tables");
+  assert.doesNotMatch(combinedSource, /textarea|raw sql|executeSql|DROP TABLE/i, "MVP should not expose raw SQL execution");
+});
+
+test("site visits use privacy-safe first-party daily deduplication", () => {
+  const routeSource = readFileSync(new URL("../app/api/analytics/visit/route.ts", import.meta.url), "utf8");
+  const trackerSource = readFileSync(new URL("../components/site-visit-tracker.tsx", import.meta.url), "utf8");
+  const apiSource = readFileSync(new URL("../lib/admin-api.ts", import.meta.url), "utf8");
+
+  assert.match(routeSource, /createHmac\("sha256"/, "visitor identifiers should be hashed before leaving the web server");
+  assert.match(routeSource, /httpOnly:\s*true/, "anonymous visitor identity should stay in an HTTP-only first-party cookie");
+  assert.match(trackerSource, /sendBeacon\("\/api\/analytics\/visit"\)/, "the app should record one lightweight visit per page session");
+  assert.match(apiSource, /\/api\/admin\/visits/, "visit recording should use the protected backend endpoint");
+  assert.doesNotMatch(routeSource, /ip|user-agent/i, "visit tracking should not persist IP or user-agent fingerprints");
 });
 
 test("admin shell does not trigger subscriber hydration requests", () => {

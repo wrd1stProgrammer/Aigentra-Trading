@@ -83,6 +83,10 @@ export function protectedScenarioSourceKey(traderId: string, symbol: string, sce
   return `scenario:${traderId}:${symbol}:${scenarioId}`;
 }
 
+export function protectedStatusFeedSourceKey(traderId: string, symbol: string, feedId: string) {
+  return `review:${traderId}:${symbol}:status-feed:${feedId}`;
+}
+
 export async function unlockProtectedSource(input: {
   readonly sourceKey: string;
   readonly sourceType: "scenario" | "review" | "trader_detail";

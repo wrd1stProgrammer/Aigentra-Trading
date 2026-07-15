@@ -68,6 +68,34 @@ test("monthly pnl calendar uses backend daily pnl before lifetime equity snapsho
   assert.equal(calendar.assetChange.deltaText, "+182.70");
 });
 
+test("monthly pnl calendar derives an older month's opening equity from later realized pnl", () => {
+  // Given: the latest equity is in July and daily realized PnL spans June and July.
+  const pnlCalendar = loadTsModule("../components/trader-profile-detail/pnl-calendar.ts");
+
+  // When: June is selected from the monthly calendar controls.
+  const calendar = pnlCalendar.buildMonthlyPnlCalendar({
+    now: new Date("2026-06-01T00:00:00Z"),
+    locale: "en",
+    startingEquity: 10000,
+    snapshots: [
+      { equity: 10225, unrealizedPnl: 0, createdAt: "2026-07-03T20:30:21.384Z" }
+    ],
+    dailyPnl: [
+      { date: "2026-05-20", pnl: 50 },
+      { date: "2026-06-10", pnl: 100 },
+      { date: "2026-06-18", pnl: -25 },
+      { date: "2026-07-01", pnl: 60 },
+      { date: "2026-07-03", pnl: 40 }
+    ]
+  });
+
+  // Then: June starts before both June and later July gains, and ends after June only.
+  assert.equal(calendar.monthLabel, "June 2026");
+  assert.equal(calendar.assetChange.start, 10050);
+  assert.equal(calendar.assetChange.current, 10125);
+  assert.equal(calendar.assetChange.deltaText, "+75.00");
+});
+
 function loadTsModule(relativePath) {
   const tsSource = readFileSync(new URL(relativePath, import.meta.url), "utf8");
   const { outputText } = ts.transpileModule(tsSource, {

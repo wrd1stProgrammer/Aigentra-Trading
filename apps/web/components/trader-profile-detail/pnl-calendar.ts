@@ -11,7 +11,7 @@ function intlLocale(locale?: Locale) {
   return locale ? locales[locale] : "en-US";
 }
 
-type SnapshotInput = {
+export type NormalizedEquitySnapshot = {
   readonly equity?: number | string | null;
   readonly unrealizedPnl?: number | string | null;
   readonly unrealized_pnl?: number | string | null;
@@ -61,7 +61,7 @@ export function buildMonthlyPnlCalendar({
   readonly now?: Date;
   readonly locale: Locale;
   readonly startingEquity: number;
-  readonly snapshots: readonly SnapshotInput[];
+  readonly snapshots: readonly NormalizedEquitySnapshot[];
   readonly events?: readonly EventInput[];
   readonly dailyPnl?: readonly { readonly date: string; readonly pnl: number; }[];
 }): MonthlyPnlCalendar {
@@ -85,7 +85,7 @@ export function buildMonthlyPnlCalendar({
   }
   const days: PnlCalendarDay[] = [];
   let currentEquity = hasBackendDailyPnl
-    ? monthlyStartingEquityFromDailyPnl(snapshots, eventPnlByDay, startingEquity)
+    ? monthlyStartingEquityFromDailyPnl(snapshots, eventPnlByDay, startingEquity, isoDateKey(monthStart))
     : startingEquity;
   const effectiveStartingEquity = currentEquity;
 
@@ -131,15 +131,15 @@ export function accountStartingEquity(currentEquity: number | null | undefined, 
   return 10_000;
 }
 
-export function normalizeEquitySnapshots(value: unknown): SnapshotInput[] {
-  if (Array.isArray(value)) return value as SnapshotInput[];
+export function normalizeEquitySnapshots(value: unknown): NormalizedEquitySnapshot[] {
+  if (Array.isArray(value)) return value as NormalizedEquitySnapshot[];
   if (typeof value === "object" && value !== null && Array.isArray((value as { snapshots?: unknown }).snapshots)) {
-    return (value as { snapshots: SnapshotInput[] }).snapshots;
+    return (value as { snapshots: NormalizedEquitySnapshot[] }).snapshots;
   }
   return [];
 }
 
-function latestSnapshotRealizedEquityByDay(snapshots: readonly SnapshotInput[]) {
+function latestSnapshotRealizedEquityByDay(snapshots: readonly NormalizedEquitySnapshot[]) {
   const values = new Map<string, number>();
   for (const snapshot of [...snapshots].sort((left, right) => timeValue(left) - timeValue(right))) {
     const equity = firstFiniteNumber(snapshot.equity);
@@ -164,20 +164,21 @@ function realizedPnlByDay(events: readonly EventInput[]) {
 }
 
 function monthlyStartingEquityFromDailyPnl(
-  snapshots: readonly SnapshotInput[],
+  snapshots: readonly NormalizedEquitySnapshot[],
   eventPnlByDay: ReadonlyMap<string, number>,
-  fallbackStartingEquity: number
+  fallbackStartingEquity: number,
+  monthStartKey: string
 ) {
   const latestSnapshot = latestSnapshotRealizedEquity(snapshots);
   if (!latestSnapshot) return fallbackStartingEquity;
   let cumulativePnl = 0;
   for (const [dateKey, pnl] of eventPnlByDay.entries()) {
-    if (dateKey <= latestSnapshot.dateKey) cumulativePnl += pnl;
+    if (dateKey >= monthStartKey && dateKey <= latestSnapshot.dateKey) cumulativePnl += pnl;
   }
   return latestSnapshot.equity - cumulativePnl;
 }
 
-function latestSnapshotRealizedEquity(snapshots: readonly SnapshotInput[]) {
+function latestSnapshotRealizedEquity(snapshots: readonly NormalizedEquitySnapshot[]) {
   let latest: { readonly dateKey: string; readonly equity: number; readonly time: number } | null = null;
   for (const snapshot of snapshots) {
     const equity = firstFiniteNumber(snapshot.equity);
@@ -204,7 +205,7 @@ function calendarWeeks(days: readonly PnlCalendarDay[], monthStart: Date) {
   return weeks;
 }
 
-function timeValue(snapshot: SnapshotInput) {
+function timeValue(snapshot: NormalizedEquitySnapshot) {
   const date = new Date(snapshot.createdAt ?? snapshot.timestamp ?? "");
   return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 }

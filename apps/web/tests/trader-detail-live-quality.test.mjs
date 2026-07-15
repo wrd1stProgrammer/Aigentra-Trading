@@ -11,6 +11,8 @@ const chartSource = readFileSync(new URL("../components/live-candle-chart.tsx", 
 const pageSource = readFileSync(new URL("../components/trader-profile-page-client.tsx", import.meta.url), "utf8");
 const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
+const calendarPanelSource = readFileSync(new URL("../components/trader-profile-detail/pnl-calendar-panel.tsx", import.meta.url), "utf8");
+const executionRailSource = readFileSync(new URL("../components/trader-profile-detail/execution-marker-rail.tsx", import.meta.url), "utf8");
 const detailLoadingPolicy = loadTsModule("../lib/trader-detail-loading-policy.ts");
 
 test("management review scenarios use event-aware titles instead of repeated generic labels", () => {
@@ -47,6 +49,15 @@ test("trading journal only renders position action journal items", () => {
   assert.match(journalSource, /positionActionItems/, "journal component should receive filtered position-action items");
 });
 
+test("mobile trading journal renders persisted fee and role instead of fabricating them", () => {
+  assert.doesNotMatch(journalSource, /0\.0005/, "journal must not estimate fees with a hard-coded rate");
+  assert.doesNotMatch(journalSource, /Math\.floor\(qtyNum \* 10000\)/, "journal must not invent maker/taker role from number parity");
+  assert.match(journalSource, /item\.feeLabel/, "journal should render the serialized event fee");
+  assert.match(journalSource, /item\.feeRole/, "journal should render the serialized event role");
+  assert.match(dataSource, /feeLabel:/, "history normalization should preserve event fee display data");
+  assert.match(dataSource, /feeRole:/, "history normalization should preserve event fee role");
+});
+
 test("chart surface uses faster initial candle load and production copy", () => {
   assert.match(chartSource, /const DEFAULT_INTERVAL: ChartInterval = "5m"/, "detail chart should open on the 5 minute candle interval");
   assert.match(chartSource, /const limit = candleLimitForInterval\(interval\)/, "initial candle load should use the interval-specific optimized window");
@@ -58,6 +69,22 @@ test("trader detail header keeps execution rail without monitoring tabs", () => 
   assert.match(pageSource, /ExecutionMarkerRail/, "detail page should keep the recent execution rail above the chart");
   assert.doesNotMatch(pageSource, /<TabButton/, "detail page should not render the old monitoring analysis info tab strip");
   assert.doesNotMatch(pageSource, /detail\.monitoring/, "detail page should not render the old monitoring tab label");
+});
+
+test("monthly pnl panel exposes accessible previous and next month controls", () => {
+  assert.match(calendarPanelSource, /onPreviousMonth/, "calendar should expose previous-month navigation");
+  assert.match(calendarPanelSource, /onNextMonth/, "calendar should expose next-month navigation");
+  assert.match(calendarPanelSource, /calendar\.previousMonth/, "previous-month control should have localized accessible copy");
+  assert.match(calendarPanelSource, /calendar\.nextMonth/, "next-month control should have localized accessible copy");
+  assert.match(pageSource, /usePnlCalendarNavigation/, "desktop and mobile calendars should share one month selection state");
+  assert.match(calendarPanelSource, /flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between/, "mobile calendar header should not squeeze and split the Korean title");
+  assert.match(calendarPanelSource, /w-full shrink-0 items-center justify-between[^"]*sm:w-auto/, "mobile month controls should use their own full-width row");
+  assert.match(calendarPanelSource, /compactPnlText\(day\.pnl\)/, "large daily pnl values should use a compact mobile label instead of overlapping adjacent days");
+});
+
+test("locked recent execution coupon stays centered inside its own chip", () => {
+  assert.match(executionRailSource, /fitContent/, "execution gates should size themselves to the protected chip");
+  assert.match(executionRailSource, /data-testid="execution-marker-locked-gate"/, "locked chip geometry should be targetable in browser QA");
 });
 
 test("detail bundle uses cached placeholder data without treating it as live fetch completion", () => {

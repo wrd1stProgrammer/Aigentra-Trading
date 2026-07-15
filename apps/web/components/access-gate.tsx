@@ -34,6 +34,7 @@ type ProtectedContentGateProps = {
   readonly children: ReactNode;
   readonly onUnlocked?: (result: SubscriberUnlockResponse) => void;
   readonly iconOnly?: boolean;
+  readonly fitContent?: boolean;
   readonly deferLockedChildren?: boolean;
   readonly lockedPreview?: ReactNode;
 };
@@ -67,6 +68,7 @@ function ProtectedContentGateContent({
   children,
   onUnlocked,
   iconOnly = false,
+  fitContent = false,
   deferLockedChildren = false,
   lockedPreview = null,
   accessQuery
@@ -79,11 +81,13 @@ function ProtectedContentGateContent({
   const [error, setError] = useState<string | null>(null);
   const pendingChildren = shouldRenderProtectedGateChildren({ phase: "pending", deferLockedChildren }) ? children : lockedPreview;
   const lockedChildren = shouldRenderProtectedGateChildren({ phase: "locked", deferLockedChildren }) ? children : lockedPreview;
+  const containerClass = fitContent ? "w-fit shrink-0" : "w-full min-w-0 max-w-full";
 
   if (!access) {
     return (
       <SubscriberAccessPending
         className={className}
+        containerClass={containerClass}
         label={accessQuery.isError ? t("common.liveDataUnavailable") : t("common.loading")}
       >
         {pendingChildren}
@@ -96,7 +100,7 @@ function ProtectedContentGateContent({
       ? access.isSubscribed
       : isProtectedSourceUnlocked(access, sourceKey);
   if (unlocked) {
-    return <div className={`w-full min-w-0 max-w-full ${className}`}>{children}</div>;
+    return <div className={`${containerClass} ${className}`}>{children}</div>;
   }
 
   const isCouponMode = mode === "coupon";
@@ -130,7 +134,7 @@ function ProtectedContentGateContent({
       : "transform absolute left-1/2 top-1/2 w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2";
 
   return (
-    <div className={`relative w-full min-w-0 max-w-full overflow-hidden rounded-2xl ${className}`}>
+    <div className={`relative overflow-hidden rounded-2xl ${containerClass} ${className}`}>
       <div className="pointer-events-none min-w-0 max-w-full select-none overflow-hidden rounded-2xl">
         <div className="blur-[3px]">{lockedChildren}</div>
       </div>
@@ -181,15 +185,17 @@ function ProtectedContentGateContent({
 
 function SubscriberAccessPending({
   className,
+  containerClass,
   label,
   children
 }: {
   readonly className: string;
+  readonly containerClass: string;
   readonly label: string;
   readonly children: ReactNode;
 }) {
   return (
-    <div data-testid="subscriber-access-pending" className={`relative w-full min-w-0 max-w-full overflow-hidden rounded-2xl ${className}`}>
+    <div data-testid="subscriber-access-pending" className={`relative overflow-hidden rounded-2xl ${containerClass} ${className}`}>
       <div className="pointer-events-none min-w-0 max-w-full select-none overflow-hidden rounded-2xl opacity-80">
         {children}
       </div>
@@ -264,7 +270,7 @@ function AccessDialog({
           </button>
         </div>
 
-        <p id={descriptionId} className="mt-3 text-sm leading-6 text-zinc-300 text-pretty">
+        <p id={descriptionId} className="mt-3 break-keep text-sm leading-6 text-zinc-300 text-pretty">
           {dialogDescription({ access, mode, description, t })}
         </p>
 

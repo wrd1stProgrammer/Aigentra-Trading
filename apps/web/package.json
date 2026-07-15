@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/*.test.mjs && npm run typecheck"
+    "test": "node --test tests/*.test.mjs && npm run typecheck",
+    "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
@@ -28,6 +29,9 @@
     "eslint": "^9.27.0",
     "eslint-config-next": "^15.3.2",
     "postcss": "^8.5.3",
+    "react-doctor": "^0.7.7",
+    "react-grab": "^0.1.48",
+    "react-scan": "^0.5.7",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3"
   }

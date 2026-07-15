@@ -5,6 +5,7 @@ import ts from "typescript";
 
 const helperUrl = new URL("../components/trade-classification.ts", import.meta.url);
 const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8");
+const badgeSource = readFileSync(new URL("../components/trade-classification-badges.tsx", import.meta.url), "utf8");
 const positionSource = readFileSync(new URL("../components/trader-profile-detail/binance-position-panel.tsx", import.meta.url), "utf8");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
 const helper = existsSync(helperUrl) ? loadTsModule(helperUrl) : null;
@@ -40,6 +41,22 @@ test("entry-plan and in-position trader badges render after side and leverage", 
   assert.match(leaderboardSource, /tradeClassification\(position, exposure, trader\)/);
   assert.match(leaderboardSource, /tradeClassification\(order, exposure, trader\)/);
   assert.match(leaderboardSource, /tradeClassification\(plan, exposure, trader\)/);
+});
+
+test("leaderboard classification shows strategy below the untruncated trader name", () => {
+  const identitySource = leaderboardSource.slice(
+    leaderboardSource.indexOf("function TraderIdentity"),
+    leaderboardSource.indexOf("function TraderLifecycleBadge")
+  );
+  assert.match(leaderboardSource, /<TradeClassificationBadges classification=\{progress\.classification \?\? null\} t=\{t\} compact showHorizon=\{false\} \/>/);
+  assert.match(badgeSource, /readonly showHorizon\?: boolean/);
+  assert.match(badgeSource, /const visibleLabel = showHorizon \? `\$\{holdingLabel\} · \$\{strategyLabel\}` : strategyLabel/);
+  assert.match(badgeSource, /title=\{visibleLabel\}/);
+  assert.match(badgeSource, /whitespace-nowrap/);
+  assert.match(identitySource, /<p className="truncate text-sm font-bold tracking-tight text-white">[\s\S]*?<\/div>\s*<div className="mt-1 flex min-w-0 items-center gap-1\.5">\s*<SideBadge/);
+  assert.ok(identitySource.indexOf("</p>") < identitySource.indexOf("<SideBadge"), "the name element should close before the three position badges begin");
+  assert.doesNotMatch(leaderboardSource, /mt-4 flex flex-wrap items-center gap-2/);
+  assert.doesNotMatch(leaderboardSource, /flex min-w-0 flex-wrap items-center gap-2/);
 });
 
 test("trader detail places localized classification beside the perpetual symbol", () => {

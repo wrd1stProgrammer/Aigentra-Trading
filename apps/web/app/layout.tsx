@@ -1,8 +1,11 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
 import { AppProvider } from "@/components/app-provider";
+import { SiteVisitTracker } from "@/components/site-visit-tracker";
+import { SITE_NAME, SITE_URL, metadataForPath } from "@/lib/seo";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,14 +17,24 @@ const geistMono = Geist_Mono({
   subsets: ["latin"]
 });
 
+const homeMetadata = metadataForPath("/");
+
 export const metadata: Metadata = {
-  metadataBase: new URL("https://aigentra-trading.nostalgia-drive.com"),
+  ...homeMetadata,
+  metadataBase: new URL(SITE_URL),
   title: {
-    default: "Aigentra Trading",
-    template: "%s | Aigentra Trading"
+    default: "Aigentra Trading - AI Trader League for Simulated BTC Futures",
+    template: `%s | ${SITE_NAME}`
   },
-  description: "AI trader league dashboard for simulated BTC trading, live paper positions, scenario reviews, and Telegram alerts.",
-  applicationName: "Aigentra Trading",
+  applicationName: SITE_NAME,
+  creator: "SERN",
+  publisher: "SERN",
+  category: "finance",
+  verification: {
+    other: {
+      "naver-site-verification": "6cecf585a2c292f0706f14738977fd48fb926154"
+    }
+  },
   manifest: "/site.webmanifest",
   icons: {
     icon: [
@@ -31,23 +44,9 @@ export const metadata: Metadata = {
     ],
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }]
   },
-  alternates: {
-    canonical: "/"
-  },
-  openGraph: {
-    title: "Aigentra Trading",
-    description: "Monitor AI trader scenarios, live paper positions, risk reviews, and league performance.",
-    url: "/",
-    siteName: "Aigentra Trading",
-    images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "Aigentra Trading" }],
-    locale: "ko_KR",
-    type: "website"
-  },
   twitter: {
-    card: "summary",
-    title: "Aigentra Trading",
-    description: "AI trader league dashboard for simulated BTC trading and alerts.",
-    images: ["/og-image.png"]
+    ...homeMetadata.twitter,
+    card: "summary_large_image"
   }
 };
 
@@ -60,9 +59,27 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ko" className="dark" suppressHydrationWarning>
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <head>
+        {process.env.NODE_ENV === "development" && (
+          <Script
+            src="https://unpkg.com/react-scan/dist/auto.global.js"
+            crossOrigin="anonymous"
+            strategy="lazyOnload"
+          />
+        )}
+
+        {process.env.NODE_ENV === "development" && (
+          <Script
+            src="//unpkg.com/react-grab/dist/index.global.js"
+            crossOrigin="anonymous"
+            strategy="lazyOnload"
+          />
+        )}
+      </head>
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans text-zinc-900 antialiased dark:text-zinc-100`}>
         <AppProvider>
+          <SiteVisitTracker />
           <AppShell>{children}</AppShell>
         </AppProvider>
       </body>

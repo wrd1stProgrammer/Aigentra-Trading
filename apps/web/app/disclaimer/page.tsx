@@ -79,16 +79,16 @@ export default function DisclaimerPage() {
             <>
               <div className="bg-zinc-500/5 border border-zinc-200/50 dark:border-white/5 rounded-xl p-5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                 <p className="font-bold mb-1">중요 안내</p>
-                AIGENTRA.TRADING 웹사이트 및 연관된 모든 콘텐츠를 이용하기 전에 본 면책 조항을 주의 깊게 확인하시기 바랍니다.
+                AIGENTRATRADING.COM 웹사이트 및 연관된 모든 콘텐츠를 이용하기 전에 본 면책 조항을 주의 깊게 확인하시기 바랍니다.
               </div>
 
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">1. 금융 투자 조항 면책 (NFA)</h2>
                 <p>
-                  aigentra.trading 플랫폼, SNS 채널, 이메일 소식지 및 메신저 등 모든 매체에 게시되는 정보는 정보 제공 및 교육적 시뮬레이션 목적에 국한되며, 전문적인 금융 자문(Financial Advice)을 구성하지 않습니다.
+                  aigentratrading.com 플랫폼, SNS 채널, 이메일 소식지 및 메신저 등 모든 매체에 게시되는 정보는 정보 제공 및 교육적 시뮬레이션 목적에 국한되며, 전문적인 금융 자문(Financial Advice)을 구성하지 않습니다.
                 </p>
                 <p>
-                  발행인 <strong>SERN</strong>(사업자등록번호: 418-11-83101, 주소: 대한민국 반룡로 18번길 32-4, 신영하우스)은 어떠한 관할 지역에서도 등록된 투자 자문업자, 금융 브로커, 또는 공인 금융 설계사가 아닙니다. 당사는 금융 투자 조항을 설계하거나 특정 금융 투자 상품의 매수, 매도, 보유에 관한 권고를 행할 법적 라이선스를 보유하고 있지 않습니다.
+                  발행인 <strong>SERN</strong>(사업자등록번호: 418-11-83101)은 어떠한 관할 지역에서도 등록된 투자 자문업자, 금융 브로커, 또는 공인 금융 설계사가 아닙니다. 당사는 금융 투자 조항을 설계하거나 특정 금융 투자 상품의 매수, 매도, 보유에 관한 권고를 행할 법적 라이선스를 보유하고 있지 않습니다.
                 </p>
                 <p>
                   본 플랫폼의 AI 분석 툴 및 모의 거래 리그 데이터는 머신러닝 알고리즘에 기초하여 자동 산출된 기계 분석 지표 및 기록물이며, 라이선스가 있는 전문가의 조언을 대신할 수 없습니다. 분석 결과를 신뢰하여 발생한 모든 실제 금융 거래의 최종 귀책 사유는 사용자 본인에게 있습니다.
@@ -146,8 +146,7 @@ export default function DisclaimerPage() {
                 </p>
                 <ul className="list-disc pl-5 space-y-1">
                   <li><strong>상호명:</strong> SERN</li>
-                  <li><strong>주소:</strong> 대한민국 반룡로 18번길 32-4, 신영하우스</li>
-                  <li><strong>이메일:</strong> <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a></li>
+                  <li><strong>이메일:</strong> <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a></li>
                 </ul>
               </section>
             </>
@@ -155,16 +154,16 @@ export default function DisclaimerPage() {
             <>
               <div className="bg-zinc-500/5 border border-zinc-200/50 dark:border-white/5 rounded-xl p-5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                 <p className="font-bold mb-1">Important Notice</p>
-                PLEASE READ THIS DISCLAIMER CAREFULLY BEFORE ACCESSING OR USING AIGENTRA.TRADING OR ANY ASSOCIATED CONTENT.
+                PLEASE READ THIS DISCLAIMER CAREFULLY BEFORE ACCESSING OR USING AIGENTRATRADING.COM OR ANY ASSOCIATED CONTENT.
               </div>
 
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">1. Not Financial Advice (NFA)</h2>
                 <p>
-                  All content published on the aigentra.trading platform, its social media channels, newsletters, or communications is for informational and educational simulation purposes only and does not constitute financial or investment advice.
+                  All content published on the aigentratrading.com platform, its social media channels, newsletters, or communications is for informational and educational simulation purposes only and does not constitute financial or investment advice.
                 </p>
                 <p>
-                  The publisher, <strong>SERN</strong> (Business Registration Number: 418-11-83101, Address: 32-4, Banryong-ro 18beon-gil, Sinyeong House, South Korea), is not a registered investment advisor, licensed broker-dealer, or certified financial planner in any jurisdiction.
+                  The publisher, <strong>SERN</strong> (Business Registration Number: 418-11-83101), is not a registered investment advisor, licensed broker-dealer, or certified financial planner in any jurisdiction.
                 </p>
                 <p>
                   The AI-generated chart analyses are automated technical indicators produced by machine learning models. They do not represent professional opinions and must not be used as the primary basis for financial decisions.
@@ -213,8 +212,7 @@ export default function DisclaimerPage() {
                 </p>
                 <ul className="list-disc pl-5 space-y-1">
                   <li><strong>Publisher:</strong> SERN</li>
-                  <li><strong>Address:</strong> 32-4, Banryong-ro 18beon-gil, Sinyeong House, South Korea</li>
-                  <li><strong>Email:</strong> <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a></li>
+                  <li><strong>Email:</strong> <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a></li>
                 </ul>
               </section>
             </>

@@ -1,11 +1,11 @@
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 import os
 from pathlib import Path
 from typing import Generator, Optional
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text, TypeDecorator, UniqueConstraint, create_engine, text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text, TypeDecorator, UniqueConstraint, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -592,6 +592,22 @@ class WhopWebhookEventRecord(Base):
     status: Mapped[str] = mapped_column(String(60), default="processed", nullable=False, index=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class SiteDailyVisitorRecord(Base):
+    __tablename__ = "site_daily_visitors"
+    __table_args__ = (
+        UniqueConstraint("visit_date", "visitor_key", name="uq_site_daily_visitors_date_visitor"),
+        Index("ix_site_daily_visitors_date_user", "visit_date", "user_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
+    visit_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    visitor_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    visit_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
 
 class ReviewUnlockRecord(CommonMixin, Base):

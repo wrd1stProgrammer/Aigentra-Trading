@@ -25,6 +25,10 @@ export const traderIds = [
 
 export type TraderId = (typeof traderIds)[number];
 
+export function isTraderId(id: string): id is TraderId {
+  return traderIds.some((traderId) => traderId === id);
+}
+
 export const fallbackTraders = [
   {
     id: "channel-rider",

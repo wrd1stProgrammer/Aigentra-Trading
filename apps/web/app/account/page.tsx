@@ -2,11 +2,10 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth, authSetupComplete } from "@/auth";
 import { SubscriberAccountClient } from "@/components/subscriber-account-client";
+import { createNoindexMetadata } from "@/lib/seo";
 import { loadSubscriberPreferences } from "@/lib/subscriber-preference-api";
 
-export const metadata: Metadata = {
-  title: "Account | Aigentra Trading"
-};
+export const metadata: Metadata = createNoindexMetadata("Account", "/account");
 
 export const dynamic = "force-dynamic";
 

@@ -40,6 +40,12 @@ function loadStatusFeedModule() {
   const module = { exports: {} };
   const componentRequire = (id) => {
     if (id === "@/lib/format") return { formatRelativeDateTime: () => "방금 전" };
+    if (id === "@/components/access-gate") {
+      return { ProtectedContentGate: ({ lockedPreview, children }) => lockedPreview ?? children };
+    }
+    if (id === "@/components/use-subscriber-access") {
+      return { protectedStatusFeedSourceKey: (traderId, symbol, feedId) => `feed:${traderId}:${symbol}:${feedId}` };
+    }
     return require(id);
   };
   vm.runInNewContext(
@@ -97,6 +103,7 @@ test("trader detail exposes reference-style monitoring layout regions", () => {
 test("status feed thread reads like a note without next-watch labels", () => {
   assert.doesNotMatch(source, /detail\.statusFeedWatch/, "status feed should not render a labeled next-watch line");
   assert.doesNotMatch(source, /feedWatch\(feed\)/, "legacy watch fields should not be displayed in the thread UI");
+  assert.match(source, /min-w-0 break-keep text-pretty text-sm font-semibold/, "thread headlines should keep Korean phrases together in the narrow desktop feed");
   assert.match(source, /mt-2 break-keep text-pretty text-sm leading-6 text-zinc-600/, "thread body should keep Korean phrases from orphaning syllables in the narrow card");
   assert.match(source, /mt-1 break-keep text-sm leading-6 text-zinc-300/, "leaderboard note body should use the same Korean-friendly wrapping");
 });
@@ -126,7 +133,7 @@ test("status feed render ignores legacy watch checklist content", () => {
   }
 });
 
-test("status feed renders a neutral title and localized lifecycle badges", () => {
+test("status feed renders a neutral title without lifecycle badges", () => {
   const feeds = [
     { ...legacyWatchFeed, id: 11, displayState: "current" },
     { ...legacyWatchFeed, id: 12, displayState: "stale" },
@@ -141,14 +148,13 @@ test("status feed renders a neutral title and localized lifecycle badges", () =>
   );
 
   assert.match(html, /트레이더 노트/, "thread heading should be neutral rather than claiming every row is live");
-  assert.match(html, /현재 상태/, "current note should be explicitly labeled");
-  assert.match(html, /이전 상태 기준/, "stale latest note should be explicitly labeled");
-  assert.match(html, /과거 기록/, "older note should be explicitly labeled");
-  assert.match(html, /data-testid="status-feed-display-state"/, "badges should expose a stable QA and accessibility hook");
-  assert.match(source, /shrink-0 whitespace-nowrap/, "badge and timestamp metadata should stay on one line");
+  assert.doesNotMatch(html, /현재 상태/, "current lifecycle badge should stay hidden");
+  assert.doesNotMatch(html, /이전 상태 기준/, "stale lifecycle badge should stay hidden");
+  assert.doesNotMatch(html, /과거 기록/, "archived lifecycle badge should stay hidden");
+  assert.doesNotMatch(html, /data-testid="status-feed-display-state"/, "feed rows should not render lifecycle badge markup");
 });
 
-test("locked status feed previews do not render subscriber-only note text", () => {
+test("locked status feed previews use a blurred coupon gate without rendering subscriber-only note text", () => {
   const lockedFeed = {
     id: 2,
     createdAt: "2026-06-19T01:00:00.000Z",
@@ -161,15 +167,25 @@ test("locked status feed previews do not render subscriber-only note text", () =
       feeds: [legacyWatchFeed, lockedFeed],
       locale: "ko",
       t,
-      isSubscribed: false
+      isSubscribed: false,
+      traderId: "channel-rider",
+      symbol: "BTCUSDT"
     })
   );
 
   assert.match(threadHtml, /숏 포지션 종료/, "first free note should remain visible");
   assert.match(threadHtml, /desk-note-thread-locked-preview/, "locked rows should render a static preview");
-  assert.match(threadHtml, /AI 리뷰 잠김/, "locked preview should use localized lock copy");
   assert.doesNotMatch(threadHtml, /비공개 진입 리뷰/, "locked headline must not be rendered");
   assert.doesNotMatch(threadHtml, /DOM에 남으면 안 됩니다/, "locked message must not be rendered");
+  assert.match(source, /protectedStatusFeedSourceKey/, "locked feed notes should receive stable coupon source keys");
+  assert.match(source, /mode="coupon"/, "locked feed notes should open the shared coupon dialog");
+  assert.match(source, /deferLockedChildren/, "locked feed notes should keep private copy out of the DOM until unlock");
+  assert.match(source, /LOCKED_FEED_PREVIEW_VARIANTS/, "locked feed silhouettes should vary deterministically");
+});
+
+test("locked scenario silhouettes vary by row instead of repeating one fake card", () => {
+  assert.match(source, /LOCKED_SCENARIO_PREVIEW_VARIANTS/, "scenario previews should define multiple deterministic silhouettes");
+  assert.match(source, /LockedScenarioTimelinePreview variant=\{index\}/, "each scenario row should select its silhouette by index");
 });
 
 test("scenario timeline uses real trading review and plan data", () => {

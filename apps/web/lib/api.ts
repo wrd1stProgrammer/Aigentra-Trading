@@ -309,15 +309,35 @@ export type PaperTradeEvent = {
   id?: string | number;
   traderId?: string | null;
   symbol?: string | null;
+  orderId?: string | number | null;
+  positionId?: string | number | null;
   eventType?: string | null;
   type?: string | null;
   side?: string | null;
   price?: number | null;
   quantity?: number | null;
+  realizedPnl?: number | null;
   message?: string | null;
   createdAt?: string | null;
   timestamp?: string | null;
+  payload?: Record<string, unknown> | null;
   [key: string]: any;
+};
+
+export type LeagueOverviewReview = ManagementReview & {
+  readonly source?: "entry_review" | "management_review" | string | null;
+  readonly overviewSource?: "entry_review" | "management_review" | string | null;
+};
+
+export type AITradeTerminalSource = {
+  readonly events: readonly PaperTradeEvent[];
+  readonly reviews: readonly LeagueOverviewReview[];
+  readonly nextPage: AITradeTerminalPage | null;
+};
+
+export type AITradeTerminalPage = {
+  readonly eventOffset: number | null;
+  readonly reviewOffset: number | null;
 };
 
 export type EquitySnapshot = {
@@ -613,7 +633,7 @@ const BROWSER_CACHE_PREFIX = "atl-api-cache:v2:";
 const LEADERBOARD_BROWSER_CACHE_MS = 5 * 60_000;
 const TRADER_DETAIL_BROWSER_CACHE_MS = 60_000;
 const TRADER_DETAIL_INITIAL_REVIEWS_LIMIT = 20;
-const TRADER_DETAIL_INITIAL_EVENTS_LIMIT = 20;
+const TRADER_DETAIL_INITIAL_EVENTS_LIMIT = 50;
 
 async function requestFirst<T>(paths: string[], options?: RequestInit): Promise<T> {
   let lastError: unknown;
@@ -1095,6 +1115,62 @@ export function getTradeEvents(limit = 20, symbol?: string, traderId?: string) {
     `/api/paper-trading/events?${params.toString()}`
   ]);
 }
+
+export async function getAITradeTerminalSource(
+  symbol: string,
+  locale: Locale,
+  page: AITradeTerminalPage = { eventOffset: 0, reviewOffset: 0 },
+  options?: { readonly signal?: AbortSignal }
+): Promise<AITradeTerminalSource> {
+  const pageSize = 20;
+  const eventParams = new URLSearchParams({
+    symbol,
+    limit: String(pageSize),
+    includePayload: "true",
+    locale
+  });
+  const reviewParams = new URLSearchParams({
+    symbol,
+    limit: String(pageSize),
+    locale
+  });
+  if (page.eventOffset !== null) eventParams.set("offset", String(page.eventOffset));
+  if (page.reviewOffset !== null) reviewParams.set("offset", String(page.reviewOffset));
+
+  const emptyEvents = { events: [], nextOffset: 0, hasMore: false } satisfies TradeEventPage;
+  const emptyReviews = { reviews: [], nextOffset: 0, hasMore: false } satisfies OverviewReviewPage;
+  const [eventResponse, reviewResponse] = await Promise.all([
+    page.eventOffset === null
+      ? Promise.resolve(emptyEvents)
+      : request<TradeEventPage>(`/api/paper/events?${eventParams.toString()}`, { signal: options?.signal }),
+    page.reviewOffset === null
+      ? Promise.resolve(emptyReviews)
+      : request<OverviewReviewPage>(`/api/league/overview-reviews?${reviewParams.toString()}`, { signal: options?.signal })
+  ]);
+  const hasNextPage = eventResponse.hasMore || reviewResponse.hasMore;
+  return {
+    events: eventResponse.events,
+    reviews: reviewResponse.reviews,
+    nextPage: hasNextPage
+      ? {
+          eventOffset: eventResponse.hasMore ? eventResponse.nextOffset : null,
+          reviewOffset: reviewResponse.hasMore ? reviewResponse.nextOffset : null
+        }
+      : null
+  };
+}
+
+type TradeEventPage = {
+  readonly events: readonly PaperTradeEvent[];
+  readonly nextOffset: number;
+  readonly hasMore: boolean;
+};
+
+type OverviewReviewPage = {
+  readonly reviews: readonly LeagueOverviewReview[];
+  readonly nextOffset: number;
+  readonly hasMore: boolean;
+};
 
 export function getTraderTradeEvents(
   traderId: string,

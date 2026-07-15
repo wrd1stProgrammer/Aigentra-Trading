@@ -150,13 +150,16 @@ def list_traders_for_league_month(league_month: Optional[str]) -> List[TraderPro
         trader
         for trader in list_traders()
         if is_trader_launched_for_month(trader, league_month)
-        and not is_trader_retired_for_month(trader.id, league_month)
     ]
 
 
 def list_scanner_traders(started_at: Optional[datetime] = None) -> List[TraderProfile]:
     scanner_month = _month_key(started_at)
-    return list_traders_for_league_month(scanner_month)
+    return [
+        trader
+        for trader in list_traders_for_league_month(scanner_month)
+        if not is_trader_retired_for_month(trader.id, scanner_month)
+    ]
 
 
 def get_strategy(trader_id: str) -> TraderStrategy:

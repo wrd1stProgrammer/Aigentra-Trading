@@ -565,6 +565,8 @@ test("live desk notes use a thread-feed surface with stable readable notes", () 
   assert.match(statusFeedThreadSource, /rounded-\[1\.25rem\]/, "thread notes should use a distinct message-card radius");
   assert.match(statusFeedThreadSource, /text-pretty/, "long desk notes should avoid ragged awkward wrapping");
   assert.match(statusFeedThreadSource, /tabular-nums/, "timestamps should use tabular figures");
+  assert.match(statusFeedThreadSource, /grid-cols-\[minmax\(0,1fr\)_auto\]/, "note titles and timestamps should use stable independent columns");
+  assert.doesNotMatch(statusFeedThreadSource, /flex min-w-0 flex-wrap items-start justify-between gap-x-3 gap-y-1\.5/, "timestamps should not drop below titles through flex wrapping");
 });
 
 test("trade history uses closed positions and normalized user-facing result labels", () => {

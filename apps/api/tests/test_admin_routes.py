@@ -142,6 +142,27 @@ def test_admin_overview_reports_operational_counts(temp_admin_db, monkeypatch):
         )
 
     client = TestClient(app)
+    user_key = "a" * 64
+    assert client.post(
+        "/api/admin/visits",
+        headers=admin_headers(),
+        json={"visitorKey": "1" * 64, "userKey": user_key},
+    ).status_code == 204
+    assert client.post(
+        "/api/admin/visits",
+        headers=admin_headers(),
+        json={"visitorKey": "1" * 64, "userKey": user_key},
+    ).status_code == 204
+    assert client.post(
+        "/api/admin/visits",
+        headers=admin_headers(),
+        json={"visitorKey": "2" * 64, "userKey": user_key},
+    ).status_code == 204
+    assert client.post(
+        "/api/admin/visits",
+        headers=admin_headers(),
+        json={"visitorKey": "3" * 64},
+    ).status_code == 204
     response = client.get("/api/admin/overview", headers=admin_headers())
 
     assert response.status_code == 200
@@ -152,6 +173,12 @@ def test_admin_overview_reports_operational_counts(temp_admin_db, monkeypatch):
     assert data["totals"]["activeSubscriptions"] == 1
     assert data["totals"]["telegramLinked"] == 1
     assert data["totals"]["reviewUnlocks"] == 1
+    assert data["growth"]["timezone"] == "Asia/Seoul"
+    assert data["growth"]["today"]["uniqueVisitors"] == 2
+    assert data["growth"]["today"]["signups"] == 1
+    assert data["growth"]["today"]["paidConversions"] == 1
+    assert data["growth"]["today"]["signupConversionRate"] == 100.0
+    assert len(data["growth"]["series"]) == 7
     assert data["paper"]["openOrders"] == 1
     assert data["paper"]["openPositions"] == 1
     assert data["paper"]["closedPositions"] == 1
@@ -159,6 +186,15 @@ def test_admin_overview_reports_operational_counts(temp_admin_db, monkeypatch):
     assert data["recentEvents"][0]["eventType"] == "take_profit"
     assert data["recentSubscribers"][0]["email"] == "operator@example.com"
     assert data["slowApiCalls"][0]["status"] == "error"
+
+
+def test_site_visit_requires_admin_token(temp_admin_db, monkeypatch):
+    monkeypatch.setenv("ADMIN_API_TOKEN", ADMIN_TOKEN)
+    client = TestClient(app)
+
+    response = client.post("/api/admin/visits", json={"visitorKey": "4" * 64})
+
+    assert response.status_code == 401
 
 
 def test_admin_table_browser_is_whitelisted_and_paginated(temp_admin_db, monkeypatch):

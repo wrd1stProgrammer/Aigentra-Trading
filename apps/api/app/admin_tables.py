@@ -13,6 +13,7 @@ from app.db import (
     PaperPositionRecord,
     PasswordAccountRecord,
     ReviewUnlockRecord,
+    SiteDailyVisitorRecord,
     SubscriberPreferenceRecord,
     TradeEventRecord,
     WhopCheckoutRecord,
@@ -113,6 +114,7 @@ ADMIN_TABLE_COLUMNS = {
         "equity",
     ),
     "api_call_logs": ("id", "created_at", "endpoint", "method", "status", "latency_ms", "error_message"),
+    "site_daily_visitors": ("id", "created_at", "updated_at", "visit_date", "visitor_key", "user_key", "visit_count"),
 }
 
 ADMIN_TABLE_MODELS = {
@@ -124,6 +126,7 @@ ADMIN_TABLE_MODELS = {
     "paper_positions": PaperPositionRecord,
     "trade_events": TradeEventRecord,
     "api_call_logs": APICallLogRecord,
+    "site_daily_visitors": SiteDailyVisitorRecord,
 }
 
 

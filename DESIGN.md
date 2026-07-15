@@ -27,6 +27,8 @@ A dark trading command center: compact, live, and operational, with enough calm 
 | Status/warning | --warn | #B45309 | #FBBF24 | Pending, caution |
 | Status/info | --info | #2563EB | #60A5FA | Informational state |
 | Focus | --focus | #14B8A6 | #5EEAD4 | Keyboard focus |
+| Terminal/background | --terminal-bg | #070908 | #070908 | AI decision terminal |
+| Terminal/text | --terminal-ink | #F4F7F5 | #F4F7F5 | Terminal primary copy |
 
 ### Rules
 
@@ -108,10 +110,19 @@ All spacing derives from a 4px base.
 - **Structure**: tonal surface, 1px token border, 14-22px radius depending on outer/inner role.
 - **States**: hover border shift is subtle; no dramatic shadows.
 
+### Admin Growth Dashboard
+
+- **Structure**: a compact Supabase-inspired operations surface with one bordered header rail, a four-metric KST daily funnel, a seven-day activity strip, then operational lists and the read-only table browser. The first scan path is unique visitors → signups → paid conversions → signup conversion rate.
+- **Metric context**: every daily value includes an explicit previous-day comparison. Visitor counts are deduplicated by a privacy-safe daily identifier; signups deduplicate emails across account sources; paid conversions deduplicate successful checkout emails.
+- **Surface**: use the existing near-black and emerald tokens. Depth comes from nested tonal surfaces and border hierarchy, not shadows or decorative grids. Green remains a status and positive-delta signal rather than a large fill.
+- **Typography**: labels use the mono overline voice, values use tabular figures, and supporting definitions remain visible at 12px or above.
+- **Responsive behavior**: the funnel is one column on small screens, two columns at tablet width, and four columns on desktop. Operational panels collapse to one column; tables retain contained horizontal scrolling.
+- **Accessibility**: trends include text deltas rather than color alone, charts expose a text summary, refresh controls retain visible focus and disabled states, and no KPI relies on hover-only explanations.
+
 ### Trade Classification Badge
 
 - **Structure**: one compact tokenized chip combining localized holding horizon and strategy family as `horizon · strategy`.
-- **Placement**: follow side and leverage in leaderboard exposure rows; sit immediately after `Perp` in desktop and mobile position symbols.
+- **Placement**: leaderboard exposure rows show only the localized strategy family after side and leverage, on the same unbroken row; trader-detail position symbols retain the full `horizon · strategy` label immediately after `Perp`.
 - **Rules**: use muted surface/border tokens, remain visually secondary to LONG/SHORT, never introduce page-level horizontal overflow, and hide only when no valid frozen-plan or trader fallback classification exists.
 
 ### Alert/Review Row
@@ -119,13 +130,51 @@ All spacing derives from a 4px base.
 - **Structure**: time, trader identity, decision summary, optional severity dot.
 - **Mobile**: stack time/trader above summary; keep the whole row tappable.
 
-### Live Race Board
+### AI Decision Terminal
 
-- **Structure**: one compact header strip with the current period, three live metrics, and a five-card race lane derived from the existing leaderboard bundle. Avoid split hero layouts that leave unused space.
-- **Data priority**: rank, trader, favorable 24h movement, live exposure state, and side/leverage badges. Negative 24h movement is a fallback signal, not the main race; it should be strongly deprioritized unless there are not enough active or positive movers. Omit broad portfolio totals and narrative snippets here because the ranking table and detail panel already own them.
-- **States**: active movers use emerald for favorable movement, rose for slipping, amber for pending exposure, and neutral for watch-only traders. Loading uses the existing page loading policy rather than an internal spinner.
-- **Mobile**: keep the board short with a horizontally swipeable race lane inside the card. The lead card uses status, side/leverage, mood, and return only; hide trader name, profile mark, and rank there to avoid a tall hero card. Avoid page-level horizontal overflow and keep Korean copy within compact phrases.
-- **Performance**: render from already loaded standings, summaries, and exposures. No overview-review fetch, narrative snippet, infinite scroll, chart sparkline, or additional initial request.
+- **Structure**: the leaderboard begins with one compact terminal stream of recent AI entry decisions and execution outcomes. Its single header row holds the terminal label and live state on the left and the stream explanation on the right. Each event row shows localized relative time, event type, localized trader identity, one ellipsized AI judgment line, and only the relevant side, price, non-zero PnL, or confidence facts. The repeated market symbol stays out of the right-side facts.
+- **Event scope**: show only entry approval, pending entry, confirmed entry, take profit, stop loss, breakeven exit, and generic position close. Exclude hold reviews, stop adjustments, funding, canceled orders, and unrelated scanner chatter.
+- **Cycle clarity**: keep position, order, and plan IDs out of the visual stream. A close followed by a new position remains separate through its event order, timestamp, and event badge even when trader, symbol, and side match.
+- **Interaction**: no chart, replay, scrubber, autoplay, or decorative motion. The stream owns a `260px` maximum-height scroll region; reaching its lower edge requests the next bounded page. Rows may link to the trader detail page and must have keyboard-visible focus.
+- **States**: emerald maps to approvals, confirmed entries, and profit; rose to stop loss; amber to pending entry; blue-neutral to breakeven; zinc to generic close. Confirmed entries use the localized second-stage review headline rather than a price confirmation sentence. Loading and locked previews preserve the terminal footprint without exposing private execution data.
+- **Mobile**: stack time and event tag above trader, judgment, and facts. Preserve terminal density without body-level horizontal overflow.
+- **Performance**: fetch event and review windows in parallel in 20-record pages only after subscriber access resolves, cache for at least one minute, and request later pages only when the user reaches the stream edge. Do not fetch candles or initialize charting code.
+
+### Blog Editorial Card
+
+- **Structure**: image-free white editorial card with localized category/date metadata, article number, title, excerpt, reading time, and arrow affordance. Cards link to canonical `/blog/[slug]` article URLs.
+- **Tone**: the page surface is clean and white for readability. A restrained top rule, mono metadata, and terminal-green interaction states carry the Aigentra identity without simulated thumbnails or decorative artwork.
+- **Home layout**: use the landing page's `1240px` content width, `16px / 40px / 64px` responsive gutters, a centered heading no larger than `48px`, and three equal cards on desktop. Text-only cards keep a stable minimum height so varying localized titles do not shift the row.
+- **Index layout**: use the same card primitive and content width. Cards become two columns at tablet width and three columns only when the copy remains readable.
+- **SEO/content**: every visible title, excerpt, article body, CTA, and related-post label must come from locale-aware blog content, not hard-coded English.
+- **Mobile**: stack cards in one column with `16px` gutters. Keep metadata and reading-time actions visible; article text must remain readable without horizontal overflow.
+
+### Blog Article
+
+- **Structure**: one uninterrupted editorial column inspired by the supplied BullGPT reference: back link, metadata, left-aligned title and deck, key takeaways, divider, long-form sections, FAQ, share row, product CTA, related articles, then the standard footer.
+- **Reading width**: article prose is capped at `800px`; surrounding CTA and related content may expand to `1040px`. The article is a full-width white band rather than a card inside the page shell.
+- **Typography**: desktop title is `48px / 1.1 / 800`, mobile title is `34-36px / 1.12`; section headings are `26px / 1.33 / 700`; long-form body is `16px / 28px / 400`. Tracking stays at `0` in accordance with the global type system.
+- **Rhythm**: title-to-deck `16px`, deck-to-takeaways `64px`, heading-to-body `24px`, paragraph gap `20px`, major section gap `48px`. Lists use clear bullets and do not become detached side cards.
+- **Localization**: use natural CJK wrapping. `break-keep` is allowed for headings and compact metadata, but long Korean body copy must use normal word wrapping so the reading column does not overflow.
+
+### Blog Article CTA
+
+- **Structure**: dark rounded terminal panel with a subtle grid texture, green bracket eyebrow, concise headline, body copy, and one leaderboard CTA. It sits below the share row and above related posts, following the supplied article reference.
+- **Dimensions**: up to `1040px` wide with `40-56px` padding and a `16px` radius. It remains visually distinct from the white article without becoming a nested card composition.
+- **Rules**: keep the CTA action educational and product-directed. Do not imply profit, live execution, or investment advice.
+
+### Knowledge Hub Card & Concept Note
+
+- **Structure**: reuse the Blog Editorial Card and Blog Article primitives so `/learn` reads as the educational sibling of `/blog`. Cards add an English term above the localized concept name; concept notes use definition, importance, formula/example, interpretation, misconception, risk, source, and related-reading sections.
+- **Home placement**: the knowledge preview follows the blog preview and precedes the standard landing footer. It shows three foundational concepts and one hub CTA without introducing a new visual band.
+- **SEO/content**: publish only reviewed concepts with a distinct search intent. Each detail page includes a canonical URL, `DefinedTerm` and `BreadcrumbList` data, a real source, and contextual links to concepts and blog guides.
+- **Mobile**: preserve the same single-column editorial flow as blog pages. Formulas may wrap naturally and no page may introduce body-level horizontal overflow.
+
+### Editorial Navigation & Action Panel
+
+- **Home link**: `/blog`, `/blog/[slug]`, `/learn`, and `/learn/[slug]` begin with one compact outlined Home pill at the left edge of their content rail. It remains visually secondary to the page title and uses the shared focus treatment.
+- **Action panel**: every blog article and knowledge note uses the same dark grid-backed `[ TAKE ACTION ]` panel between the article and related reading. Copy may be localized by content type, but the sole action routes to the public leaderboard and must retain the educational, non-advisory framing.
+- **Footer brand**: the Aigentra mark and wordmark form one keyboard-focusable link to `/`; the tagline remains outside the link.
 
 ## 6. Motion & Interaction
 

@@ -79,13 +79,13 @@ export default function PrivacyPolicyPage() {
             <>
               <div className="bg-zinc-500/5 border border-zinc-200/50 dark:border-white/5 rounded-xl p-5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                 <p className="font-bold mb-1">방침 요약</p>
-                SERN(이하 &ldquo;당사&rdquo;)은 aigentra.trading 플랫폼의 모든 사용자의 개인정보를 보호하기 위해 최선을 다하고 있습니다. 본 개인정보 처리방침은 당사가 수집하는 개인정보의 종류, 사용 목적, 공유 대상 및 개인정보 보호 권리에 대해 기술합니다. 본 방침에 동의하지 않으실 경우, 플랫폼 이용을 즉시 중단해 주시기 바랍니다.
+                SERN(이하 &ldquo;당사&rdquo;)은 aigentratrading.com 플랫폼의 모든 사용자의 개인정보를 보호하기 위해 최선을 다하고 있습니다. 본 개인정보 처리방침은 당사가 수집하는 개인정보의 종류, 사용 목적, 공유 대상 및 개인정보 보호 권리에 대해 기술합니다. 본 방침에 동의하지 않으실 경우, 플랫폼 이용을 즉시 중단해 주시기 바랍니다.
               </div>
 
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">1. 소개</h2>
                 <p>
-                  SERN(이하 &ldquo;당사&rdquo;, &ldquo;회사&rdquo;)은 aigentra.trading 플랫폼(이하 &ldquo;플랫폼&rdquo;)의 모든 사용자의 개인정보를 보호하기 위해 최선을 다하고 있습니다. 본 개인정보 처리방침은 당사가 수집하는 개인정보의 종류, 사용 목적, 공유 대상 및 개인정보 보호 권리에 대해 기술합니다.
+                  SERN(이하 &ldquo;당사&rdquo;, &ldquo;회사&rdquo;)은 aigentratrading.com 플랫폼(이하 &ldquo;플랫폼&rdquo;)의 모든 사용자의 개인정보를 보호하기 위해 최선을 다하고 있습니다. 본 개인정보 처리방침은 당사가 수집하는 개인정보의 종류, 사용 목적, 공유 대상 및 개인정보 보호 권리에 대해 기술합니다.
                 </p>
                 <p>
                   플랫폼에 접속하거나 이용함으로써 귀하는 본 방침에 기술된 개인정보 처리 관행에 동의하게 됩니다. 동의하지 않으실 경우, 플랫폼 이용을 즉시 중단해 주시기 바랍니다.
@@ -98,8 +98,8 @@ export default function PrivacyPolicyPage() {
                 <ul className="list-disc pl-5 space-y-1.5">
                   <li><strong>상호명:</strong> SERN</li>
                   <li><strong>사업자등록번호:</strong> 418-11-83101</li>
-                  <li><strong>주소:</strong> 대한민국 반룡로 18번길 32-4, 신영하우스</li>
-                  <li><strong>문의 메일:</strong> <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a></li>
+                  <li><strong>사업자 형태:</strong> 개인사업자</li>
+                  <li><strong>문의 메일:</strong> <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a></li>
                 </ul>
               </section>
 
@@ -117,7 +117,7 @@ export default function PrivacyPolicyPage() {
                 <ul className="list-disc pl-5 space-y-1">
                   <li>기술적 접속 데이터: IP 주소, 브라우저 종류, 운영체제(OS), 디바이스 식별값</li>
                   <li>플랫폼 사용 이력: 조회한 페이지, 체류 시간, 클릭 기록, 사용된 기능 목록</li>
-                  <li>쿠키 및 트래킹 데이터 (제6조 참고)</li>
+                  <li>로그인 세션 및 언어·화면 설정을 위한 필수 쿠키와 로컬 저장값 (제6조 참고)</li>
                   <li>로그 데이터: 접속 로그, 오류 로그, 타임스탬프</li>
                 </ul>
                 <p><strong>3.3 제3자로부터 수집하는 정보</strong></p>
@@ -125,7 +125,6 @@ export default function PrivacyPolicyPage() {
                   <li>Google OAuth로부터 제공받는 로그인 확인 데이터 및 기본 계정 프로필</li>
                   <li>Whop.com으로부터 제공받는 결제 데이터 (거래 확인 번호, 구독 활성화 상태 등)</li>
                   <li>Telegram Bot API로부터 제공받는 Chat ID, 봇 대화 시작 여부, 사용자명 등 연결 확인 데이터</li>
-                  <li>Meta Pixel 및 기타 광고 플랫폼으로부터 제공받는 광고/마케팅 분석 데이터 (제6조 참고)</li>
                 </ul>
               </section>
 
@@ -140,7 +139,6 @@ export default function PrivacyPolicyPage() {
                   <li>거래성 안내(영수증, 계정 상태 변경 알림 등) 발송</li>
                   <li>마케팅 및 홍보성 안내 발송 (사용자의 수신 동의가 있는 경우)</li>
                   <li>이용 분석을 통한 서비스 고도화 및 품질 개선</li>
-                  <li>Meta Pixel 및 유사 도구를 활용한 타겟 광고 및 맞춤 마케팅 제공</li>
                   <li>법적 의무 준수 및 서비스 이용약관의 집행</li>
                   <li>부정 사용, 해킹, 남용의 방지 및 보안 감지</li>
                 </ul>
@@ -152,35 +150,22 @@ export default function PrivacyPolicyPage() {
                 <ul className="list-disc pl-5 space-y-1.5">
                   <li>계약의 이행: 사용자와 체결한 정기 구독 및 서비스 계약 약정을 실행하기 위함</li>
                   <li>정당한 이익: 통계 분석, 부정 이용 방지, 서비스 안정성 유지 및 품질 향상</li>
-                  <li>동의: 이메일 마케팅 수신 동의, 쿠키 및 광고 추적 동의 (동의가 필요한 경우)</li>
+                  <li>동의: 이메일 마케팅 등 선택 기능에 대한 동의 (해당 기능을 사용하는 경우)</li>
                   <li>법적 의무 준수: 관련 세법 및 관련 법령에 따른 준수</li>
                 </ul>
               </section>
 
               <section className="space-y-3">
-                <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">6. 쿠키(Cookies) 및 Meta Pixel</h2>
-                <p><strong>6.1 쿠키 (Cookies)</strong></p>
+                <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">6. 쿠키 및 로컬 저장</h2>
                 <p>
-                  당사는 로그인 세션을 유지하고 편의를 제공하기 위해 쿠키 및 유사 트래킹 기술을 활용합니다. 사용 목적은 다음과 같습니다:
+                  당사는 로그인 세션을 유지하고 언어·화면 설정을 기억하기 위해 필수 쿠키와 브라우저 저장 기능을 사용합니다. 현재 공개 사이트에는 광고 픽셀이나 제3자 행동 분석 스크립트를 배포하지 않습니다.
                 </p>
                 <ul className="list-disc pl-5 space-y-1">
                   <li>세션 관리 및 로그인 본인 인증</li>
-                  <li>분석 (이용자의 플랫폼 상호작용 이해)</li>
-                  <li>광고 타겟팅 및 리타겟팅</li>
+                  <li>사용자가 선택한 언어와 화면 설정 유지</li>
                 </ul>
                 <p>귀하는 브라우저 설정을 통해 쿠키를 차단할 수 있으나, 차단 시 플랫폼 일부 기능의 사용이 제한될 수 있습니다.</p>
-                <p><strong>6.2 메타 픽셀 (Meta Pixel)</strong></p>
-                <p>
-                  본 사이트는 페이스북 및 인스타그램 내 광고 캠페인의 효과를 분석하고 본 사이트를 방문한 적이 있는 사용자를 대상으로 타겟 광고를 게재하기 위해 Meta Platforms, Inc.에서 제공하는 메타 픽셀 코드를 통합하고 있습니다.
-                </p>
-                <p>
-                  메타 픽셀은 사용자의 IP 주소, 브라우저 정보, 방문한 페이지 URL, 플랫폼 내 발생한 이벤트(페이지 뷰, 구독 등)를 수집할 수 있습니다. 해당 데이터는 Meta Platforms, Inc.의 개인정보 처리방침(facebook.com/privacy/policy)에 따라 처리됩니다.
-                </p>
-                <p>
-                  메타의 데이터 수집 동의 철회는 <a href="https://www.facebook.com/help/568137493302217" target="_blank" rel="noopener noreferrer" className="text-emerald-500 hover:underline">여기</a>를 방문하거나 페이스북 광고 선호도 설정을 통해 가능합니다.
-                </p>
-                <p><strong>6.3 Google Analytics 및 기타 분석 툴</strong></p>
-                <p>당사는 Google Analytics 등 기타 트래픽 분석 툴을 함께 활용하여 비식별화된 플랫폼 이용 통계를 수집하고 개선할 수 있으며, 이는 각 업체의 자체 개인정보 보호 정책을 따릅니다.</p>
+                <p>향후 광고 또는 행동 분석 도구를 도입하는 경우 실제 배포 전에 본 방침, 처리 목적, 보유 기간과 필요한 동의 절차를 갱신합니다.</p>
               </section>
 
               <section className="space-y-3">
@@ -190,8 +175,6 @@ export default function PrivacyPolicyPage() {
                   <li><strong>Google LLC:</strong> Google 로그인 및 기본 프로필 인증</li>
                   <li><strong>Whop.com:</strong> 결제 처리 및 구독권 관리 서비스</li>
                   <li><strong>Telegram Messenger Inc. 및 Telegram Bot API:</strong> 사용자가 연결한 채팅으로 알림 전송 및 Chat ID 확인</li>
-                  <li><strong>Meta Platforms, Inc.:</strong> Meta Pixel을 통한 타겟 광고 및 마케팅 성과 추적</li>
-                  <li><strong>Google Analytics:</strong> 서비스 이용 통계 및 품질 개선 분석</li>
                   <li><strong>호스팅 및 인프라 공급업체:</strong> 안전한 데이터 저장 및 클라우드 호스팅 서비스 제공</li>
                   <li><strong>사법 당국:</strong> 관련 법률, 법원의 명령 또는 수사 기관의 적법한 요구가 있을 경우</li>
                   <li><strong>승계인:</strong> 인수합병, 영업 양도 등의 경영상 변화가 발생할 경우</li>
@@ -223,7 +206,7 @@ export default function PrivacyPolicyPage() {
                   <li><strong>이의 제기:</strong> 정당한 이익에 기반한 개인정보 처리에 대한 이의 제기</li>
                   <li><strong>CCPA 권리 (캘리포니아 거주민 대상):</strong> 정보공개청구권, 삭제권, 개인정보 판매/공유 거부권</li>
                 </ul>
-                <p>귀하의 권리를 행사하고자 하는 경우 <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a>으로 문의하시기 바랍니다.</p>
+                <p>귀하의 권리를 행사하고자 하는 경우 <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a>으로 문의하시기 바랍니다.</p>
               </section>
 
               <section className="space-y-3">
@@ -251,9 +234,8 @@ export default function PrivacyPolicyPage() {
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">14. 문의처</h2>
                 <p>개인정보 관련 문의사항은 아래로 연락해 주시기 바랍니다:</p>
                 <ul className="list-disc pl-5 space-y-1">
-                  <li><strong>이메일:</strong> <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a></li>
+                  <li><strong>이메일:</strong> <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a></li>
                   <li><strong>상호명:</strong> SERN</li>
-                  <li><strong>주소:</strong> 대한민국 반룡로 18번길 32-4, 신영하우스</li>
                 </ul>
                 <p className="text-xs text-zinc-500 dark:text-zinc-500 mt-4 font-mono">
                   마지막 개정일: 2026년 6월 15일 — SERN, All rights reserved.
@@ -264,13 +246,13 @@ export default function PrivacyPolicyPage() {
             <>
               <div className="bg-zinc-500/5 border border-zinc-200/50 dark:border-white/5 rounded-xl p-5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                 <p className="font-bold mb-1">Notice Summary</p>
-                SERN ("we", "us", "our") is committed to protecting the privacy of all users of the aigentra.trading platform (the "Platform"). This Privacy Policy describes what personal data we collect, how we use it, with whom we share it, and your rights regarding your data. If you do not agree, please discontinue use of the Platform immediately.
+                SERN ("we", "us", "our") is committed to protecting the privacy of all users of the aigentratrading.com platform (the "Platform"). This Privacy Policy describes what personal data we collect, how we use it, with whom we share it, and your rights regarding your data. If you do not agree, please discontinue use of the Platform immediately.
               </div>
 
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">1. Introduction</h2>
                 <p>
-                  SERN, operating as Aigentra Trading ("we", "us", "our"), is committed to protecting the privacy of all users of aigentra.trading (the "Platform"). This Privacy Policy describes what personal data we collect, how we use it, with whom we share it, and your rights regarding your data.
+                  SERN, operating as Aigentra Trading ("we", "us", "our"), is committed to protecting the privacy of all users of aigentratrading.com (the "Platform"). This Privacy Policy describes what personal data we collect, how we use it, with whom we share it, and your rights regarding your data.
                 </p>
                 <p>
                   By accessing or using the Platform, you consent to the practices described in this Policy. If you do not agree, please discontinue use of the Platform immediately.
@@ -283,8 +265,8 @@ export default function PrivacyPolicyPage() {
                 <ul className="list-disc pl-5 space-y-1.5">
                   <li><strong>Publisher Legal Name:</strong> SERN</li>
                   <li><strong>Business Registration Number:</strong> 418-11-83101</li>
-                  <li><strong>Address:</strong> 32-4, Banryong-ro 18beon-gil, Sinyeong House, South Korea</li>
-                  <li><strong>Contact Email:</strong> <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a></li>
+                  <li><strong>Legal Form:</strong> Sole proprietor</li>
+                  <li><strong>Contact Email:</strong> <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a></li>
                 </ul>
               </section>
 
@@ -302,7 +284,7 @@ export default function PrivacyPolicyPage() {
                 <ul className="list-disc pl-5 space-y-1">
                   <li>Technical data: IP address, browser type, operating system, device identifiers;</li>
                   <li>Usage data: pages visited, time spent, clicks, features used;</li>
-                  <li>Cookie and tracking data (see Section 6);</li>
+                  <li>Essential session cookies and local language or display preferences (see Section 6);</li>
                   <li>Log data: access logs, error logs, timestamps.</li>
                 </ul>
                 <p><strong>3.3 Data from Third Parties</strong></p>
@@ -310,7 +292,6 @@ export default function PrivacyPolicyPage() {
                   <li>Google OAuth login confirmation and basic account profile data;</li>
                   <li>Payment data from Whop.com (transaction confirmation, subscription status);</li>
                   <li>Telegram Bot API connection data, including Chat ID, bot conversation state, and username where available;</li>
-                  <li>Advertising data from Meta Pixel and other advertising platforms (see Section 6).</li>
                 </ul>
               </section>
 
@@ -325,7 +306,6 @@ export default function PrivacyPolicyPage() {
                   <li>Send transactional communications (receipts, account notifications);</li>
                   <li>Send marketing communications (where you have provided consent);</li>
                   <li>Analyze Platform usage to improve our services;</li>
-                  <li>Serve targeted advertising through Meta Pixel and similar tools;</li>
                   <li>Comply with legal obligations and enforce our Terms of Service;</li>
                   <li>Detect and prevent fraud or abuse.</li>
                 </ul>
@@ -343,27 +323,14 @@ export default function PrivacyPolicyPage() {
               </section>
 
               <section className="space-y-3">
-                <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">6. Cookies & Meta Pixel</h2>
-                <p><strong>6.1 Cookies</strong></p>
-                <p>We use cookies and similar tracking technologies on the Platform for:</p>
+                <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">6. Cookies & Local Storage</h2>
+                <p>We use essential cookies and browser storage for:</p>
                 <ul className="list-disc pl-5 space-y-1">
                   <li>Session management and authentication;</li>
-                  <li>Analytics (understanding how users interact with the Platform);</li>
-                  <li>Advertising and retargeting.</li>
+                  <li>Remembering language and display preferences.</li>
                 </ul>
                 <p>You may control cookie settings through your browser. Disabling certain cookies may affect Platform functionality.</p>
-                <p><strong>6.2 Meta Pixel</strong></p>
-                <p>
-                  We use the Meta Pixel (formerly Facebook Pixel) on aigentra.trading. This is a piece of code provided by Meta Platforms, Inc. that allows us to measure the effectiveness of our advertising campaigns on Facebook and Instagram, and to serve targeted ads to users who have visited our Platform.
-                </p>
-                <p>
-                  The Meta Pixel may collect: your IP address, browser information, page URL, and events you trigger on the Platform (such as page views or purchases). This data is processed by Meta Platforms, Inc. under their own Privacy Policy (available at facebook.com/privacy/policy).
-                </p>
-                <p>
-                  You may opt out of Meta's data collection by visiting: <a href="https://www.facebook.com/help/568137493302217" target="_blank" rel="noopener noreferrer" className="text-emerald-500 hover:underline">Meta Opt Out Guide</a> or through your Meta ad preferences.
-                </p>
-                <p><strong>6.3 Google Analytics and Other Analytics Tools</strong></p>
-                <p>We may use Google Analytics or similar tools for traffic analysis. These tools collect anonymized usage data governed by their respective privacy policies.</p>
+                <p>No advertising pixel or third-party behavioral analytics script is currently deployed on the public site. Before introducing one, we will update this policy, its purpose and retention terms, and any required consent flow.</p>
               </section>
 
               <section className="space-y-3">
@@ -373,8 +340,6 @@ export default function PrivacyPolicyPage() {
                   <li>Google LLC: Google sign-in and basic profile authentication;</li>
                   <li>Whop.com: our payment and subscription management platform;</li>
                   <li>Telegram Messenger Inc. and Telegram Bot API: delivery of alerts to the chat you connect and Chat ID verification;</li>
-                  <li>Meta Platforms, Inc.: for advertising via Meta Pixel;</li>
-                  <li>Google Analytics: product usage analytics and service improvement;</li>
                   <li>Hosting & infrastructure providers: for Platform operation;</li>
                   <li>Legal authorities: where required by law or court order;</li>
                   <li>Successors: in the event of a merger, acquisition, or asset sale.</li>
@@ -406,7 +371,7 @@ export default function PrivacyPolicyPage() {
                   <li><strong>Objection:</strong> object to processing based on legitimate interests;</li>
                   <li><strong>CCPA Rights (California residents):</strong> right to know, delete, and opt-out of sale of information.</li>
                 </ul>
-                <p>To exercise your rights, contact us at: <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a></p>
+                <p>To exercise your rights, contact us at: <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a></p>
               </section>
 
               <section className="space-y-3">
@@ -434,9 +399,8 @@ export default function PrivacyPolicyPage() {
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">14. Contact</h2>
                 <p>For privacy-related inquiries, please contact us at:</p>
                 <ul className="list-disc pl-5 space-y-1">
-                  <li><strong>Email:</strong> <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a></li>
+                  <li><strong>Email:</strong> <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a></li>
                   <li><strong>Publisher Legal Name:</strong> SERN</li>
-                  <li><strong>Address:</strong> 32-4, Banryong-ro 18beon-gil, Sinyeong House, South Korea</li>
                 </ul>
                 <p className="text-xs text-zinc-500 dark:text-zinc-500 mt-4 font-mono">
                   Last updated: June 15, 2026 — SERN, all rights reserved.

@@ -79,7 +79,7 @@ export default function TermsPage() {
             <>
               <div className="bg-zinc-500/5 border border-zinc-200/50 dark:border-white/5 rounded-xl p-5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                 <p className="font-bold mb-1">필독 안내</p>
-                AIGENTRA.TRADING 서비스를 이용하거나 가입하기 전에 본 약관을 주의 깊게 읽어주시기 바랍니다. 계정을 생성하거나 유료 서비스를 구독하는 것은 본 약관의 내용을 완전히 동의하고 이에 법적으로 구속됨을 의미합니다.
+                AIGENTRATRADING.COM 서비스를 이용하거나 가입하기 전에 본 약관을 주의 깊게 읽어주시기 바랍니다. 계정을 생성하거나 유료 서비스를 구독하는 것은 본 약관의 내용을 완전히 동의하고 이에 법적으로 구속됨을 의미합니다.
               </div>
 
               <section className="space-y-3">
@@ -90,15 +90,15 @@ export default function TermsPage() {
                 <ul className="list-disc pl-5 space-y-1.5">
                   <li><strong>상호명:</strong> SERN</li>
                   <li><strong>사업자등록번호:</strong> 418-11-83101</li>
-                  <li><strong>주소:</strong> 대한민국 반룡로 18번길 32-4, 신영하우스</li>
-                  <li><strong>문의 이메일:</strong> <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a></li>
+                  <li><strong>사업자 형태:</strong> 개인사업자</li>
+                  <li><strong>문의 이메일:</strong> <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a></li>
                 </ul>
               </section>
 
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">제2조 — 용어의 정의</h2>
                 <ul className="list-disc pl-5 space-y-1.5">
-                  <li>&ldquo;플랫폼&rdquo;이란 웹사이트 aigentra.trading 및 그와 관련된 모든 웹 어플리케이션, 분석 기능, API 등을 포함한 서비스를 의미합니다.</li>
+                  <li>&ldquo;플랫폼&rdquo;이란 웹사이트 aigentratrading.com 및 그와 관련된 모든 웹 어플리케이션, 분석 기능, API 등을 포함한 서비스를 의미합니다.</li>
                   <li>&ldquo;서비스&rdquo;란 AI 기반 모의 투자 리그, 가상 포지션 및 트레이딩 분석 데스크를 포함하여 플랫폼에서 사용자에게 제공하는 모든 기능을 지칭합니다.</li>
                   <li>&ldquo;사용자&rdquo; 또는 &ldquo;구독자&rdquo;란 플랫폼에 계정을 만들거나 유료 정기 구독권을 획득한 개인 또는 법인을 의미합니다.</li>
                   <li>&ldquo;구독&rdquo;이란 본 플랫폼의 유료 기능을 사용하기 위하여 주기적으로 요금을 납부하는 것을 말하며, 현재 Whop을 통해 처리됩니다.</li>
@@ -131,7 +131,7 @@ export default function TermsPage() {
                 <div className="border border-zinc-200/50 dark:border-white/5 bg-zinc-500/5 rounded-lg p-4 space-y-2">
                   <p><strong>(a) 전체 플랫폼 기능의 완전한 장애:</strong></p>
                   <p className="pl-4">
-                    플랫폼이 완전한 비정상 상태 또는 접속 불능에 놓여 24시간 연속으로 서비스 공급이 중단되었음이 타임스탬프 스크린샷과 로그 기록을 통해 완벽히 증빙되는 경우. 단순한 AI 출력 퀄리티 불만족 또는 기기 호환성 문제 등은 환불 대상에서 전면 제외됩니다. 장애 발생 시 48시간 이내에 <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a>으로 장애 사실을 신고해야 합니다.
+                    플랫폼이 완전한 비정상 상태 또는 접속 불능에 놓여 24시간 연속으로 서비스 공급이 중단되었음이 타임스탬프 스크린샷과 로그 기록을 통해 완벽히 증빙되는 경우. 단순한 AI 출력 퀄리티 불만족 또는 기기 호환성 문제 등은 환불 대상에서 전면 제외됩니다. 장애 발생 시 48시간 이내에 <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a>으로 장애 사실을 신고해야 합니다.
                   </p>
                   <p><strong>(b) 결제 시스템의 명백한 이중 결제 오류:</strong></p>
                   <p className="pl-4">
@@ -150,7 +150,7 @@ export default function TermsPage() {
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">제7조 — 지적재산권</h2>
                 <p>
-                  aigentra.trading 내의 모든 소프트웨어 코드, AI 모델 분석 알고리즘, 그래픽 인터페이스, 브랜드 자산 및 콘텐츠 정보는 SERN의 전유적 권리이며 저작권법의 보호를 받습니다.
+                  aigentratrading.com 내의 모든 소프트웨어 코드, AI 모델 분석 알고리즘, 그래픽 인터페이스, 브랜드 자산 및 콘텐츠 정보는 SERN의 전유적 권리이며 저작권법의 보호를 받습니다.
                 </p>
               </section>
 
@@ -172,26 +172,26 @@ export default function TermsPage() {
             <>
               <div className="bg-zinc-500/5 border border-zinc-200/50 dark:border-white/5 rounded-xl p-5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                 <p className="font-bold mb-1">Notice</p>
-                PLEASE READ THESE TERMS OF SERVICE CAREFULLY BEFORE ACCESSING OR USING AIGENTRA.TRADING. BY CREATING AN ACCOUNT OR PURCHASING A SUBSCRIPTION, YOU AGREE TO BE LEGALLY BOUND BY THESE TERMS.
+                PLEASE READ THESE TERMS OF SERVICE CAREFULLY BEFORE ACCESSING OR USING AIGENTRATRADING.COM. BY CREATING AN ACCOUNT OR PURCHASING A SUBSCRIPTION, YOU AGREE TO BE LEGALLY BOUND BY THESE TERMS.
               </div>
 
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">Article 1 — Publisher Identification</h2>
                 <p>
-                  The website aigentra.trading (the &ldquo;Platform&rdquo;) is published and operated under the laws of South Korea with the following entity details:
+                  The website aigentratrading.com (the &ldquo;Platform&rdquo;) is published and operated under the laws of South Korea with the following entity details:
                 </p>
                 <ul className="list-disc pl-5 space-y-1.5">
                   <li><strong>Publisher Legal Name:</strong> SERN</li>
                   <li><strong>Business Registration Number:</strong> 418-11-83101</li>
-                  <li><strong>Address:</strong> 32-4, Banryong-ro 18beon-gil, Sinyeong House, South Korea</li>
-                  <li><strong>Contact Email:</strong> <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a></li>
+                  <li><strong>Legal Form:</strong> Sole proprietor</li>
+                  <li><strong>Contact Email:</strong> <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a></li>
                 </ul>
               </section>
 
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">Article 2 — Definitions</h2>
                 <ul className="list-disc pl-5 space-y-1.5">
-                  <li>&ldquo;Platform&rdquo; means the website aigentra.trading and all associated web applications, analysis APIs, and services.</li>
+                  <li>&ldquo;Platform&rdquo; means the website aigentratrading.com and all associated web applications, analysis APIs, and services.</li>
                   <li>&ldquo;Service&rdquo; means the AI-driven simulation trading leagues, strategy desks, and notification bots provided by the Platform.</li>
                   <li>&ldquo;User&rdquo; or &ldquo;Subscriber&rdquo; means any individual or entity utilizing the Platform or acquiring a recurring monthly license.</li>
                   <li>&ldquo;Subscription&rdquo; refers to recurring paid licenses (presently billed via Whop).</li>
@@ -224,7 +224,7 @@ export default function TermsPage() {
                 <div className="border border-zinc-200/50 dark:border-white/5 bg-zinc-500/5 rounded-lg p-4 space-y-2">
                   <p><strong>(a) Continuous Technical Outage:</strong></p>
                   <p className="pl-4">
-                    The User must demonstrate using timestamped logs and screenshots that the Platform was completely non-functional for a continuous block of twenty-four (24) or more hours. AI output quality issues do not qualify. Incidents must be reported to <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a> within forty-eight (48) hours of occurrence.
+                    The User must demonstrate using timestamped logs and screenshots that the Platform was completely non-functional for a continuous block of twenty-four (24) or more hours. AI output quality issues do not qualify. Incidents must be reported to <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a> within forty-eight (48) hours of occurrence.
                   </p>
                   <p><strong>(b) Double / Duplicate Charge:</strong></p>
                   <p className="pl-4">

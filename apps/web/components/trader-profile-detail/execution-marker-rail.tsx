@@ -1,12 +1,14 @@
 "use client";
 
 import { Crosshair, TrendDown, TrendUp } from "@phosphor-icons/react";
-import type { UIEvent } from "react";
+import { useEffect, useState, type UIEvent } from "react";
 import { buildExecutionMarkerCycles, type ExecutionMarker, type ExecutionMarkerCycle } from "@/components/trader-profile-detail/execution-markers";
 import type { Locale } from "@/lib/i18n";
 import type { Translator } from "@/components/trader-profile-detail/types";
 import { ProtectedContentGate } from "@/components/access-gate";
 import { isProtectedSourceUnlocked, protectedScenarioSourceKey, type SubscriberAccessState } from "@/components/use-subscriber-access";
+
+const INITIAL_VISIBLE_EXECUTION_CYCLES = 8;
 
 export function ExecutionMarkerRail({
   markers,
@@ -33,12 +35,27 @@ export function ExecutionMarkerRail({
   readonly traderId?: string;
   readonly symbol?: string;
 }) {
-  const cycles = buildExecutionMarkerCycles({ markers, locale, t, limit: Math.max(12, markers.length) });
+  const [visibleCycleLimit, setVisibleCycleLimit] = useState(INITIAL_VISIBLE_EXECUTION_CYCLES);
+  const cycles = buildExecutionMarkerCycles({ markers, locale, t, limit: Math.max(INITIAL_VISIBLE_EXECUTION_CYCLES, markers.length) });
+  const visibleCycles = cycles.slice(0, visibleCycleLimit);
+
+  useEffect(() => {
+    setVisibleCycleLimit(INITIAL_VISIBLE_EXECUTION_CYCLES);
+  }, [symbol, traderId]);
+
+  useEffect(() => {
+    if (cycles.length >= INITIAL_VISIBLE_EXECUTION_CYCLES || !hasMore || loadingMore || !onLoadMore) return;
+    onLoadMore();
+  }, [cycles.length, hasMore, loadingMore, onLoadMore]);
 
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
-    if (!onLoadMore || loadingMore || !hasMore) return;
     const target = event.currentTarget;
     if (target.scrollLeft + target.clientWidth < target.scrollWidth - 32) return;
+    if (visibleCycleLimit < cycles.length) {
+      setVisibleCycleLimit((current) => Math.min(current + INITIAL_VISIBLE_EXECUTION_CYCLES, cycles.length));
+      return;
+    }
+    if (!onLoadMore || loadingMore || !hasMore) return;
     onLoadMore();
   };
 
@@ -56,7 +73,7 @@ export function ExecutionMarkerRail({
         <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto py-0.5 pr-1 scrollbar-none" onScroll={handleScroll}>
           {cycles.length ? (
             <>
-              {cycles.map((cycle, index) => {
+              {visibleCycles.map((cycle, index) => {
                 const sourceKey = traderId && symbol ? protectedScenarioSourceKey(traderId, symbol, cycle.id) : "";
                 const isUnlocked = accessState ? isProtectedSourceUnlocked(accessState, sourceKey) : true;
                 const isLocked = accessState && !accessState.isSubscribed && index > 0 && !isUnlocked;
@@ -83,8 +100,9 @@ export function ExecutionMarkerRail({
                       onUnlocked={() => onSelect(cycle.representativeId)}
                       className="shrink-0"
                       iconOnly={true}
+                      fitContent
                     >
-                      {chip}
+                      <div data-testid="execution-marker-locked-gate">{chip}</div>
                     </ProtectedContentGate>
                   );
                 }

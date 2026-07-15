@@ -3307,7 +3307,6 @@ def paper_position_stats(db: Session, trader_id: str, symbol: Optional[str] = No
     closed = [position for position in positions if position.status == "closed"]
     open_positions = [position for position in positions if position.status == "open"]
     events_by_position_id = trade_events_by_position_id(db, positions)
-    cycle_pnl_values = position_cycle_pnl_values(positions, events_by_position_id)
     pnl_values = position_cycle_pnl_values(closed, events_by_position_id, include_unrealized=False)
     leverage_values = [float(position.leverage or 0) for position in positions if float(position.leverage or 0) > 0]
     long_count = sum(1 for position in positions if position.side == "long")
@@ -3320,8 +3319,8 @@ def paper_position_stats(db: Session, trader_id: str, symbol: Optional[str] = No
     open_margin = sum(float(position.margin or 0) for position in open_positions)
     return {
         "totalTrades": len(closed),
-        "biggestWin": biggest_win_from_pnls(cycle_pnl_values),
-        "biggestLoss": biggest_loss_from_pnls(cycle_pnl_values),
+        "biggestWin": biggest_win_from_pnls(pnl_values),
+        "biggestLoss": biggest_loss_from_pnls(pnl_values),
         "averageLeverage": round(sum(leverage_values) / len(leverage_values), 2) if leverage_values else None,
         "sharpeProxy": sharpe_proxy,
         "longTrades": long_count,
@@ -3566,7 +3565,6 @@ def monthly_leaderboard_summaries(
     equity_points_by_trader = monthly_equity_points_by_trader(db, trader_ids, symbol, period_start, period_end)
     positions_by_trader = monthly_positions_by_trader(db, trader_ids, symbol, period_start, period_end)
     cycle_positions_by_trader = monthly_cycle_positions_by_trader(db, trader_ids, symbol, period_start, period_end)
-    all_time_biggest_wins = all_time_biggest_wins_by_trader(db, trader_ids, symbol)
     all_cycle_positions = [position for positions in cycle_positions_by_trader.values() for position in positions]
     cycle_events_by_position_id = trade_events_by_position_id(db, all_cycle_positions, before=period_end)
     rolling_as_of = min(period_end, datetime.now(timezone.utc))
@@ -3609,11 +3607,10 @@ def monthly_leaderboard_summaries(
             cycle_events_by_position_id,
             include_unrealized=False,
         )
-        position_pnls = position_cycle_pnl_values(cycle_positions, cycle_events_by_position_id)
         closed_positions = len(monthly_positions)
         wins, losses = win_loss_counts_from_pnls(closed_position_pnls)
-        biggest_win = all_time_biggest_wins.get(trader.id, 0.0)
-        biggest_loss = biggest_loss_from_pnls(position_pnls)
+        biggest_win = biggest_win_from_pnls(closed_position_pnls)
+        biggest_loss = biggest_loss_from_pnls(closed_position_pnls)
         long_trades = sum(1 for position in monthly_positions if str(position.side).lower() == "long")
         short_trades = sum(1 for position in monthly_positions if str(position.side).lower() == "short")
         win_rate = win_rate_from_counts(wins, losses)
@@ -4091,8 +4088,7 @@ def trader_summary_for_profile(db: Session, trader, symbol: str) -> dict:
     current_equity = float(state.equity) if state else initial_equity
     realized_pnl = float(state.realized_pnl) if state else 0.0
     unrealized_pnl = float(state.unrealized_pnl) if state else 0.0
-    total_pnl = realized_pnl + unrealized_pnl
-    cumulative_return = round((total_pnl / initial_equity) * 100, 2) if initial_equity > 0 else 0.0
+    total_pnl, cumulative_return = equity_performance(initial_equity, current_equity)
     closed_positions, wins, losses = position_win_loss_counts(db, trader.id, symbol)
     win_rate = win_rate_from_counts(wins, losses)
     open_orders = count_model_records(db, PaperOrderRecord, trader.id, symbol, "open")
@@ -4178,6 +4174,12 @@ def compute_trader_summary_payload(db: Session, symbol: str) -> list[dict]:
     return [trader_summary_for_profile(db, trader, symbol) for trader in list_traders()]
 
 
+def equity_performance(initial_equity: float, current_equity: float) -> tuple[float, float]:
+    total_pnl = round(current_equity - initial_equity, 4)
+    cumulative_return = round((total_pnl / initial_equity) * 100, 2) if initial_equity > 0 else 0.0
+    return total_pnl, cumulative_return
+
+
 def float_or_default(value: Any, default: float = 0.0) -> float:
     if value is None:
         return default
@@ -4233,11 +4235,7 @@ def upsert_leaderboard_snapshot_from_summary(db: Session, summary: dict) -> Trad
         db.add(record)
     now = datetime.now(timezone.utc)
     total_pnl = float_or_default(summary.get("totalPnl"))
-    rank_score = max(
-        float_or_default(summary.get("cumulativeReturn")),
-        float_or_default(summary.get("return7d")),
-        float_or_default(summary.get("return30d")),
-    )
+    rank_score = float_or_default(summary.get("cumulativeReturn"))
     record.status = "active" if summary.get("hasLivePaperData") else "empty"
     record.updated_at = now
     record.mode = "paper"
@@ -7570,7 +7568,7 @@ async def paper_agent_states(
 @app.get("/api/paper-trading/equity-snapshots")
 @app.get("/api/equity-snapshots")
 def paper_equity_snapshots(
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=1000),
     symbol: Optional[str] = Query(None),
     trader_id: Optional[str] = Query(None),
     db: Session = Depends(get_db),

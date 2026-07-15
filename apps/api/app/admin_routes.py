@@ -3,11 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import os
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.admin_tables import admin_table_names, count_rows, number_payload, read_admin_table_payload, time_payload
+from app.admin_metrics import growth_metrics_payload, record_daily_visit
 from app.core.config import get_settings
 from app.db import (
     APICallLogRecord,
@@ -24,6 +26,11 @@ from app.whop_status import ACTIVE_CHECKOUT_STATUSES
 
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+class SiteVisitPayload(BaseModel):
+    visitorKey: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]+$")
+    userKey: str | None = Field(default=None, min_length=64, max_length=64, pattern=r"^[a-f0-9]+$")
 
 
 def require_admin_api_token(x_admin_api_token: str = Header(default="")) -> None:
@@ -63,12 +70,24 @@ def read_admin_overview(
             "tradeEvents24h": count_rows(db, TradeEventRecord, TradeEventRecord.created_at >= since_24h),
             "apiErrors24h": count_rows(db, APICallLogRecord, APICallLogRecord.status == "error", APICallLogRecord.created_at >= since_24h),
         },
+        "growth": growth_metrics_payload(db, now),
         "paper": paper_summary(db),
         "recentEvents": [trade_event_payload(record) for record in recent_records(db, TradeEventRecord, 8)],
         "recentSubscribers": [subscriber_payload(record) for record in recent_records(db, SubscriberPreferenceRecord, 8)],
         "slowApiCalls": [api_call_payload(record) for record in recent_slow_api_calls(db)],
         "tables": admin_table_names(),
     }
+
+
+@router.post("/visits", status_code=204)
+def record_site_visit(
+    payload: SiteVisitPayload,
+    _: None = Depends(require_admin_api_token),
+    db: Session = Depends(get_db),
+) -> Response:
+    record_daily_visit(db, visitor_key=payload.visitorKey, user_key=payload.userKey)
+    db.commit()
+    return Response(status_code=204)
 
 
 @router.get("/table")

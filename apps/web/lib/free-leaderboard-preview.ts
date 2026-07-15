@@ -9,7 +9,8 @@ export function buildFreeLeaderboardPreview(
   standings: readonly TraderStanding[],
   seed = currentFreeLeaderboardPreviewSeed()
 ) {
-  if (standings.length <= FREE_LEADERBOARD_LIMIT) return [...standings];
+  const eligibleStandings = standings.filter(isLeaderboardStandingVisible);
+  if (eligibleStandings.length <= FREE_LEADERBOARD_LIMIT) return eligibleStandings;
 
   const selected: TraderStanding[] = [];
   const selectedIds = new Set<string>();
@@ -18,9 +19,9 @@ export function buildFreeLeaderboardPreview(
     selected.push(trader);
     selectedIds.add(trader.id);
   };
-  const remaining = () => standings.filter((trader) => !selectedIds.has(trader.id));
+  const remaining = () => eligibleStandings.filter((trader) => !selectedIds.has(trader.id));
 
-  addTrader(standings.find((trader) => trader.rank === 1) ?? standings[0]);
+  addTrader(eligibleStandings.find((trader) => trader.rank === 1) ?? eligibleStandings[0]);
 
   const nonNegativeCandidates = remaining().filter((trader) => previewReturn(trader) >= 0);
   addTrader(pickSeededTrader(nonNegativeCandidates, `${seed}:non-negative`));
@@ -31,11 +32,19 @@ export function buildFreeLeaderboardPreview(
     .slice(0, Math.max(FREE_LEADERBOARD_LIMIT, 1));
   addTrader(pickSeededTrader(softNegativeCandidates, `${seed}:soft-negative`));
 
-  for (const trader of standings) {
+  for (const trader of eligibleStandings) {
     addTrader(trader);
   }
 
   return selected;
+}
+
+export function isLeaderboardStandingVisible(
+  trader: Pick<TraderStanding, "lifecycleStatus" | "retiredFromMonth" | "trades">
+) {
+  const lifecycleStatus = String(trader.lifecycleStatus ?? "").trim().toLowerCase();
+  const lifecycleEnded = lifecycleStatus === "retired" || lifecycleStatus === "terminated" || lifecycleStatus === "ended";
+  return trader.trades > 0 && !lifecycleEnded && !trader.retiredFromMonth;
 }
 
 function previewReturn(trader: TraderStanding) {

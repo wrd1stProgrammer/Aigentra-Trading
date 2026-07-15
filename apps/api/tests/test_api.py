@@ -876,7 +876,14 @@ def test_leaderboard_fast_rejects_invalid_utc_month():
     assert response.json()["detail"] == "leagueMonth must use UTC YYYY-MM format."
 
 
-def test_monthly_leaderboard_retired_july_traders_are_hidden_but_current_keeps_catalog(temp_api_db):
+def test_equity_snapshots_accepts_seven_days_of_quarter_hour_points(temp_api_db):
+    response = client.get("/api/paper/equity-snapshots?symbol=BTCUSDT&limit=672")
+
+    assert response.status_code == 200
+    assert "snapshots" in response.json()
+
+
+def test_monthly_leaderboard_keeps_retired_july_traders_in_history(temp_api_db):
     main.LEAGUE_BUNDLE_CACHE.clear()
 
     june = client.get("/api/league/leaderboard-fast?symbol=BTCUSDT&locale=ko&leagueMonth=2026-06&refresh=true")
@@ -892,12 +899,12 @@ def test_monthly_leaderboard_retired_july_traders_are_hidden_but_current_keeps_c
     monthly_data = monthly.json()
     monthly_trader_ids = {trader["id"] for trader in monthly_data["traders"]}
     monthly_summary_ids = {summary["traderId"] for summary in monthly_data["summaries"]}
-    assert "volatility-squeezer" not in monthly_trader_ids
-    assert "imbalance-hunter" not in monthly_trader_ids
-    assert "leverage-hunter" not in monthly_trader_ids
-    assert "volatility-squeezer" not in monthly_summary_ids
-    assert "imbalance-hunter" not in monthly_summary_ids
-    assert "leverage-hunter" not in monthly_summary_ids
+    assert "volatility-squeezer" in monthly_trader_ids
+    assert "imbalance-hunter" in monthly_trader_ids
+    assert "leverage-hunter" in monthly_trader_ids
+    assert "volatility-squeezer" in monthly_summary_ids
+    assert "imbalance-hunter" in monthly_summary_ids
+    assert "leverage-hunter" in monthly_summary_ids
     assert {"liquidation-pressure-sniper", "volatility-skew-sentinel"}.issubset(monthly_trader_ids)
     assert {"liquidation-pressure-sniper", "volatility-skew-sentinel"}.issubset(monthly_summary_ids)
 
@@ -1017,7 +1024,7 @@ def test_monthly_leaderboard_reuses_position_rows_per_trader(monkeypatch):
     assert summaries[0]["shortTrades"] == 1
 
 
-def test_monthly_leaderboard_biggest_win_uses_all_time_value(monkeypatch):
+def test_monthly_leaderboard_biggest_win_uses_period_closed_positions(monkeypatch):
     trader = SimpleNamespace(id="donchian-breakout", name="Donchian Breakout Boss", baseRiskPercent=0.35)
     start_snapshot = SimpleNamespace(
         cash_balance=Decimal("10000"),
@@ -1093,8 +1100,35 @@ def test_monthly_leaderboard_biggest_win_uses_all_time_value(monkeypatch):
     assert summaries[0]["wins"] == 1
     assert summaries[0]["losses"] == 0
     assert summaries[0]["winRate"] == 100.0
-    assert summaries[0]["biggestWin"] == 420.75
+    assert summaries[0]["biggestWin"] == 41.25
     assert summaries[0]["biggestLoss"] == 0.0
+
+
+def test_equity_performance_includes_paid_fees() -> None:
+    total_pnl, cumulative_return = main.equity_performance(10_000.0, 9_998.0)
+
+    assert total_pnl == -2.0
+    assert cumulative_return == -0.02
+
+
+def test_current_snapshot_rank_score_equals_cumulative_return(temp_api_db) -> None:
+    summary = {
+        "traderId": "channel-rider",
+        "traderName": "Channel Cartographer",
+        "symbol": "BTCUSDT",
+        "hasLivePaperData": True,
+        "equity": 10_100.0,
+        "totalPnl": 100.0,
+        "cumulativeReturn": 1.0,
+        "return7d": 8.0,
+        "return30d": 6.0,
+    }
+
+    with session_scope() as db:
+        record = main.upsert_leaderboard_snapshot_from_summary(db, summary)
+        db.flush()
+
+        assert record.rank_score == 1.0
 
 
 def test_monthly_league_bundle_omits_status_feeds_unless_related_requested(monkeypatch):

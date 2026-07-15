@@ -2011,7 +2011,7 @@ export function LiveCandleChart({
           <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 mx-1 hidden sm:block" />
 
           {/* Indicators dropdown buttons */}
-          <div className="hidden shrink-0 gap-1 sm:flex lg:flex-wrap">
+          <div className="hidden shrink-0 gap-1 lg:flex lg:flex-wrap">
             <IndicatorToggle active={showEma20} onClick={() => setShowEma20(p => !p)} label="EMA 20" />
             <IndicatorToggle active={showEma50} onClick={() => setShowEma50(p => !p)} label="EMA 50" />
             <IndicatorToggle active={showEma200} onClick={() => setShowEma200(p => !p)} label="EMA 200" />

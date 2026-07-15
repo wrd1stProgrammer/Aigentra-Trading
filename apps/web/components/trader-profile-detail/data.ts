@@ -221,6 +221,8 @@ function buildClosedPositionHistoryItem({
   );
   const exitPrice = firstFiniteNumber(position.exitPrice, position.exit_price, position.closePrice, event?.price, event?.exitPrice, eventPayload?.exitPrice);
   const quantity = firstFiniteNumber(position.quantity, position.size, event?.quantity);
+  const fee = firstFiniteNumber(event?.fee, eventPayload?.fee, position.exitFee, position.exit_fee);
+  const feeRole = feeRoleValue(event?.feeType, event?.fee_type, eventPayload?.feeType, eventPayload?.fee_type);
   const leverage = firstFiniteNumber(position.leverage, payload?.leverage, eventPayload?.leverage, recordValue(payload?.leveragePlan)?.suggestedLeverage);
   return {
     id: `position-${position.id ?? event?.id ?? index}`,
@@ -236,6 +238,8 @@ function buildClosedPositionHistoryItem({
     leverageLabel: leverageLabel(leverage, locale),
     entryLabel: entryPrice === null ? "-" : formatNumber(entryPrice, 0, locale),
     exitLabel: exitPrice === null ? "-" : formatNumber(exitPrice, 0, locale),
+    feeLabel: fee === null ? "-" : formatNumber(fee, 8, locale),
+    feeRole: feeRole,
     pnlLabel: pnl === null ? "-" : formatCurrency(pnl, locale),
     pnlTone: pnlTone(pnl),
     resultLabel: result.label,
@@ -273,6 +277,8 @@ function buildClosedEventHistoryItem({
   const exitPrice = firstFiniteNumber(event.exitPrice, event.closePrice, event.price, payload?.exitPrice, payload?.closePrice);
   const leverage = firstFiniteNumber(event.leverage, payload?.leverage, firstFiniteFromRecords(relatedRecords, ["leverage", "suggestedLeverage"]));
   const side = firstString(event.side, payload?.side, firstStringFromRecords(relatedRecords, ["side"]));
+  const fee = firstFiniteNumber(event.fee, payload?.fee);
+  const feeRole = feeRoleValue(event.feeType, event.fee_type, payload?.feeType, payload?.fee_type);
   return {
     id: `event-${event.id ?? index}`,
     time: formatRelativeDateTime(event.createdAt, locale, t),
@@ -287,11 +293,19 @@ function buildClosedEventHistoryItem({
     leverageLabel: leverageLabel(leverage, locale),
     entryLabel: entryPrice === null ? "-" : formatNumber(entryPrice, 0, locale),
     exitLabel: exitPrice === null ? "-" : formatNumber(exitPrice, 0, locale),
+    feeLabel: fee === null ? "-" : formatNumber(fee, 8, locale),
+    feeRole: feeRole,
     pnlLabel: pnl === null ? "-" : formatCurrency(pnl, locale),
     pnlTone: pnlTone(pnl),
     resultLabel: result.label,
     isPositionAction: true
   };
+}
+
+function feeRoleValue(...values: readonly unknown[]): "maker" | "taker" | null {
+  const role = firstString(...values)?.toLowerCase();
+  if (role === "maker" || role === "taker") return role;
+  return null;
 }
 
 function tradeResultFromValues({

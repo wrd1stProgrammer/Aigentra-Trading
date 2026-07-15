@@ -3,10 +3,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 const homeSource = readFileSync(new URL("../components/home-page-client.tsx", import.meta.url), "utf8");
+const blogPreviewSource = readFileSync(new URL("../components/blog/blog-preview-section.tsx", import.meta.url), "utf8");
+const learnPreviewSource = readFileSync(new URL("../components/learn/learn-preview-section.tsx", import.meta.url), "utf8");
+const learnCardSource = readFileSync(new URL("../components/learn/learn-card.tsx", import.meta.url), "utf8");
+const blogCardSource = readFileSync(new URL("../components/blog/blog-card.tsx", import.meta.url), "utf8");
+const blogArticleSource = readFileSync(new URL("../components/blog/blog-article-client.tsx", import.meta.url), "utf8");
+const blogArticleUiSource = readFileSync(new URL("../lib/blog/article-ui.ts", import.meta.url), "utf8");
+const globalStylesSource = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 const visualSource = readFileSync(new URL("../components/home-landing-visuals.tsx", import.meta.url), "utf8");
 const shellSource = readFileSync(new URL("../components/app-shell.tsx", import.meta.url), "utf8");
 const marketingSource = readFileSync(new URL("../lib/marketing-copy.ts", import.meta.url), "utf8");
 const appProviderSource = readFileSync(new URL("../components/app-provider.tsx", import.meta.url), "utf8");
+const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
 
 test("home page is a first-visit landing page instead of the operations dashboard", () => {
   assert.match(homeSource, /data-testid="landing-hero"/, "landing hero needs a stable QA target");
@@ -31,7 +39,28 @@ test("home page follows the BullGPT-style section contract requested by the user
   assert.match(homeSource, /scroll-mt-20/, "pricing anchor should land below the viewport chrome instead of hiding the section title");
   assert.match(homeSource, /data-testid="landing-faq"/, "landing should include the split FAQ area from the reference");
   assert.match(homeSource, /data-testid="landing-about"/, "landing should include the black about band before footer");
+  assert.match(homeSource, /<BlogPreviewSection \/>/, "landing should mount the blog preview section before footer");
+  assert.match(homeSource, /<LearnPreviewSection \/>/, "landing should mount the knowledge hub below the blog preview");
+  assert.match(learnPreviewSource, /data-testid="landing-learn"/, "knowledge preview should expose a stable QA target");
+  assert.match(blogPreviewSource, /data-testid="landing-blog"/, "blog preview should expose a stable QA target");
+  assert.doesNotMatch(blogCardSource, /BlogThumbnail|<img/, "blog cards should use the requested image-free editorial design");
+  assert.match(blogCardSource, /blog-editorial-card/, "blog surfaces should reuse the editorial card primitive");
+  assert.match(globalStylesSource, /--blog-card-min-height: 22\.5rem/, "image-free cards should keep a tokenized stable desktop rhythm");
   assert.match(homeSource, /data-testid="landing-footer"/, "landing should end with a simple footer");
+  assert.match(
+    homeSource,
+    /data-testid="landing-about"[\s\S]*<BlogPreviewSection \/>[\s\S]*<LearnPreviewSection \/>[\s\S]*data-testid="landing-footer"/,
+    "blog and knowledge previews should sit between the about band and footer"
+  );
+});
+
+test("blog article copy-link action has a browser fallback", () => {
+  assert.match(`${blogArticleSource}\n${blogArticleUiSource}`, /document\.execCommand\("copy"\)/, "copy link should still work when Clipboard API rejects local browser writes");
+  assert.match(blogArticleSource, /manualCopyHint/, "blocked clipboard environments should expose a selectable manual-copy fallback");
+  assert.match(blogArticleSource, /blog-list--unordered/, "article takeaways should use the shared bullet-list primitive");
+  assert.match(blogArticleSource, /blog-list--ordered/, "article workflows should use the shared numbered-list primitive");
+  assert.match(globalStylesSource, /word-break: keep-all/, "localized editorial primitives should preserve Korean words and endings");
+  assert.match(globalStylesSource, /\.blog-list--unordered[\s\S]*list-style-type: disc/, "the bullet-list primitive should restore visible markers after Tailwind reset");
 });
 
 test("landing representative copy avoids forced Korean line breaks and removes view-less copy", () => {
@@ -50,6 +79,30 @@ test("marketing copy includes subscription and reference-aligned content for all
   assert.match(marketingSource, /"pt-BR":/, "landing copy should include Brazilian Portuguese content for supported locale detection");
   assert.match(marketingSource, /tr:/, "landing copy should include Turkish content for supported locale detection");
   assert.match(marketingSource, /Record<Locale, LandingCopy>/, "landing copy should be complete for every supported locale");
+  assert.match(marketingSource, /blog: "블로그"/, "footer copy should localize the blog hub link");
+});
+
+test("home knowledge cards localize every visible concept field for all supported locales", () => {
+  assert.match(learnPreviewSource, /<LearnCard[^>]*locale=\{locale\}/, "home concept cards should receive the active locale");
+  assert.match(learnCardSource, /learnUiCopy\[locale\]/, "concept cards should resolve their labels through the complete knowledge dictionary");
+  assert.match(learnCardSource, /entry\.localizedTerm/, "concept cards should render the active locale's term title");
+  assert.doesNotMatch(learnCardSource, /정의와 계산 예시/, "concept card actions should not be hard-coded in Korean");
+
+  const requiredKeys = [
+    "learn.card.category.derivatives",
+    "learn.card.label",
+    "learn.card.action",
+    "learn.card.funding-rate.title",
+    "learn.card.funding-rate.summary",
+    "learn.card.open-interest.title",
+    "learn.card.open-interest.summary",
+    "learn.card.liquidation.title",
+    "learn.card.liquidation.summary",
+  ];
+
+  for (const key of requiredKeys) {
+    assert.equal(i18nSource.match(new RegExp(`"${key}"`, "g"))?.length, 5, `${key} should exist in all five locale dictionaries`);
+  }
 });
 
 test("pricing plan calls to action route to real product surfaces", () => {
@@ -83,6 +136,19 @@ test("AI agent monitoring preview reflects current product language", () => {
   assert.doesNotMatch(marketingSource, /LLM agents|LLM 에이전트/, "landing monitoring copy should describe AI agents without provider or model-class jargon");
   assert.match(visualSource, /LandingCopy\["previews"\]/, "home preview cards should source copy from localized marketing data");
   assert.doesNotMatch(visualSource, /\[AI Trader League\] 트레이더 피드|변동성 확장 구간|단기 매도 거래량 급증/, "preview cards should not hardcode Korean copy in React components");
+});
+
+test("the second landing video introduces AI sentiment in every supported locale", () => {
+  assert.match(marketingSource, /\[ AI 센티멘트 \]/, "Korean copy should identify the AI sentiment feature");
+  assert.match(marketingSource, /\[ AI SENTIMENT \]/, "English copy should identify the AI sentiment feature");
+  assert.match(marketingSource, /\[ AI-СЕНТИМЕНТ \]/, "Russian copy should identify the AI sentiment feature");
+  assert.match(marketingSource, /\[ SENTIMENTO DE IA \]/, "Portuguese copy should identify the AI sentiment feature");
+  assert.match(marketingSource, /\[ AI PİYASA EĞİLİMİ \]/, "Turkish copy should identify the AI sentiment feature");
+  assert.match(marketingSource, /20개 AI 전략/, "the Korean headline should explain the 20-strategy consensus");
+  assert.match(marketingSource, /20 AI strategies/, "the English headline should explain the 20-strategy consensus");
+  assert.match(homeSource, /href="\/consensus"[\s\S]{0,300}\{copy\.getStartedCta\}/, "the sentiment CTA should open the consensus product surface");
+  assert.match(homeSource, /\{copy\.headerCta\} →/, "the header CTA should keep its own localized label");
+  assert.doesNotMatch(marketingSource, /\[ 간단한 3단계 \]|\[ 3 SIMPLE STEPS \]/, "the old onboarding label should not describe the sentiment video");
 });
 
 test("pricing, Telegram preview, and FAQ match the simplified Pro offer", () => {

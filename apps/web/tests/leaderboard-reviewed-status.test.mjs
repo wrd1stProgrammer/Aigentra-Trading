@@ -46,22 +46,20 @@ test("leaderboard hover preview uses a 7D equity chart and six performance cells
   );
   assert.match(i18nSource, /"leaderboard\.averageLeverage": "평균 배율"/, "Korean average leverage label should be localized");
   assert.match(i18nSource, /"leaderboard\.averageLeverage": "Avg Leverage"/, "English average leverage label should be localized");
+  assert.match(
+    leaderboardSource,
+    /\$\{compact \? "size-8" : "size-10"\} grid shrink-0 aspect-square place-items-center rounded-full/,
+    "the sidebar rank badge should remain circular when the trader name consumes horizontal space"
+  );
 });
 
-test("leaderboard uses a zero-extra-fetch live race board instead of league overview", () => {
-  assert.match(leaderboardSource, /data-testid="live-race-board"/, "race board should have a stable first-load target");
-  assert.match(leaderboardSource, /function LiveRaceBoard/, "race board should be a named component inside the leaderboard surface");
-  assert.match(leaderboardSource, /buildRaceBoardItems/, "race board items should be derived from existing leaderboard data");
-  assert.match(leaderboardSource, /return24h/, "race board should emphasize short-window movement, not duplicate all-time ranking only");
-  assert.match(leaderboardSource, /currentLeagueStandings/, "monthly screens should keep the race board anchored to current live standings");
-  assert.match(leaderboardSource, /standings=\{liveRaceStandings\}/, "race board should receive its own live standings instead of the selected table rows");
-  assert.match(leaderboardSource, /leaderboard\.liveRace\.period/, "race board should use a stable live period label");
-  assert.doesNotMatch(leaderboardSource, /\[ LEAGUE OVERVIEW \]/, "old overview title should be fully removed");
-  assert.doesNotMatch(leaderboardSource, /data-testid="league-overview-section"/, "old overview section target should be removed");
-  assert.doesNotMatch(leaderboardSource, /data-testid="league-overview-stream"/, "old overview stream target should be removed");
-  assert.doesNotMatch(leaderboardSource, /OptionActivityStream/, "old overview stream component should be removed");
-  assert.doesNotMatch(leaderboardSource, /getLeagueOverviewReviews/, "leaderboard should not import or call the slow overview API");
-  assert.doesNotMatch(apiSource, /\/api\/league\/overview-reviews/, "web API client should not keep the removed overview endpoint helper");
+test("leaderboard opens with a subscriber-only AI decision terminal", () => {
+  assert.match(leaderboardSource, /<AITradeTerminalPanel/, "leaderboard should render the AI decision terminal");
+  assert.match(leaderboardSource, /<AITradeTerminalLockedPreview/, "free users should see a stable terminal-shaped subscription preview");
+  assert.match(leaderboardSource, /enabled: shouldFetchSecondaryLeaderboardData && isSubscribed/, "terminal requests should wait for the main leaderboard and subscriber access");
+  assert.match(leaderboardSource, /staleTime: 60_000/, "terminal data should stay cached for a bounded minute");
+  assert.match(apiSource, /\/api\/paper\/events/, "terminal should use actual execution events");
+  assert.match(apiSource, /\/api\/league\/overview-reviews/, "terminal should pair executions with localized AI reviews");
 });
 
 test("leaderboard browser cache placeholders wait until after hydration", () => {
@@ -254,6 +252,39 @@ test("mobile leaderboard renders one best return column only", () => {
     mobileListSource,
     /secondaryReturnColumn/,
     "mobile rows should not force a second return metric into the narrow column"
+  );
+});
+
+test("leaderboard period selection drives row ranking and localized month labels", () => {
+  assert.match(
+    leaderboardSource,
+    /rankStandingsByReturnMetric\(visibleStandingsBase, activeReturnMetricKey\)/,
+    "changing the return period must re-rank rows with the selected metric instead of only swapping labels"
+  );
+  assert.match(
+    leaderboardSource,
+    /const effectiveReturnMetricKey = selectedReturnMetric\?\.key \?\? null/,
+    "unselected return periods should allow the automatic best-positive column picker to choose the first visible metric"
+  );
+  assert.match(
+    leaderboardSource,
+    /const activeReturnMetricKey = effectiveReturnMetricKey \?\? returnColumns\[0\]\?\.key \?\? mobileReturnColumn\.key/,
+    "row ranking should follow the selected metric when present, otherwise the first automatically visible metric"
+  );
+  assert.match(
+    leaderboardSource,
+    /returnMetricValue\(b, key\) - returnMetricValue\(a, key\)/,
+    "selected return metric values should be the primary sort key"
+  );
+  assert.match(
+    leaderboardSource,
+    /leagueMonthOptionLabel\(locale, option\)/,
+    "month dropdown options should use locale-aware labels"
+  );
+  assert.doesNotMatch(
+    leaderboardSource,
+    /: "June"/,
+    "non-Korean month options must not all render as June"
   );
 });
 

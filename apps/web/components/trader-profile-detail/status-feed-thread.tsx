@@ -4,6 +4,15 @@ import type { TraderStatusFeed } from "@/lib/api";
 import { formatRelativeDateTime } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
 import type { Translator } from "@/components/trader-profile-detail/types";
+import { ProtectedContentGate } from "@/components/access-gate";
+import { protectedStatusFeedSourceKey } from "@/components/use-subscriber-access";
+
+const LOCKED_FEED_PREVIEW_VARIANTS = [
+  { headline: "w-2/5", time: "w-20", lines: ["w-11/12", "w-4/5", "w-3/5"] },
+  { headline: "w-1/2", time: "w-16", lines: ["w-full", "w-3/4"] },
+  { headline: "w-1/3", time: "w-24", lines: ["w-5/6", "w-11/12", "w-1/2"] },
+  { headline: "w-3/5", time: "w-14", lines: ["w-4/5", "w-2/3"] }
+] as const;
 
 function feedCreatedAt(feed: TraderStatusFeed) {
   return feed.createdAt ?? feed.created_at ?? null;
@@ -19,10 +28,6 @@ function feedMessage(feed: TraderStatusFeed) {
 
 function feedState(feed: TraderStatusFeed) {
   return feed.stateKey ?? feed.state_key ?? "";
-}
-
-function feedDisplayState(feed: TraderStatusFeed) {
-  return feed.displayState ?? feed.display_state ?? "archived";
 }
 
 function stateTone(state: string | null | undefined) {
@@ -51,14 +56,12 @@ export function LatestStatusFeedNote({
   }
 
   const state = feedState(feed);
-  const displayState = feedDisplayState(feed);
   const time = feedCreatedAt(feed);
   return (
     <div data-testid="leaderboard-latest-status-feed" className="mt-4 border-t border-white/10 pt-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-400">{t("leaderboard.latestStatusFeed")}</p>
-        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-          <StatusFeedDisplayBadge displayState={displayState} t={t} />
+        <div className="shrink-0 whitespace-nowrap">
           {time ? <span className="font-mono text-[11px] text-zinc-500">{formatRelativeDateTime(time, locale, t)}</span> : null}
         </div>
       </div>
@@ -73,12 +76,16 @@ export function StatusFeedThread({
   locale,
   t,
   isSubscribed = true,
+  traderId,
+  symbol,
   className = ""
 }: {
   readonly feeds: readonly TraderStatusFeed[];
   readonly locale: Locale;
   readonly t: Translator;
   readonly isSubscribed?: boolean;
+  readonly traderId?: string;
+  readonly symbol?: string;
   readonly className?: string;
 }) {
   const items = feeds.slice(0, 8);
@@ -101,26 +108,26 @@ export function StatusFeedThread({
             {items.map((feed, index) => {
               const isLocked = !isSubscribed && index > 0;
               if (isLocked) {
-                return <LockedStatusFeedPreview key={`${feed.id ?? feedCreatedAt(feed) ?? index}-locked`} t={t} />;
+                const feedId = String(feed.id ?? feedCreatedAt(feed) ?? index);
+                const sourceKey = traderId && symbol ? protectedStatusFeedSourceKey(traderId, symbol, feedId) : "";
+                const lockedPreview = <LockedStatusFeedPreview variant={index} />;
+                if (!sourceKey) return <div key={`${feedId}-locked`}>{lockedPreview}</div>;
+                return (
+                  <ProtectedContentGate
+                    key={`${feedId}-locked`}
+                    mode="coupon"
+                    sourceKey={sourceKey}
+                    sourceType="review"
+                    traderId={traderId}
+                    symbol={symbol}
+                    deferLockedChildren
+                    lockedPreview={lockedPreview}
+                  >
+                    <StatusFeedNote feed={feed} locale={locale} t={t} />
+                  </ProtectedContentGate>
+                );
               }
-
-              const state = feedState(feed);
-              const displayState = feedDisplayState(feed);
-              const time = feedCreatedAt(feed);
-              return (
-                <article key={`${feed.id ?? time ?? index}`} data-testid="desk-note-thread-item" className="relative pl-0">
-                  <div className="rounded-[1.25rem] border border-zinc-200 bg-zinc-50/80 px-4 py-3.5 shadow-sm shadow-zinc-950/[0.03] transition duration-200 ease-out hover:-translate-y-0.5 hover:border-zinc-300 dark:border-white/10 dark:bg-white/[0.035] dark:shadow-black/20 dark:hover:border-zinc-700">
-                    <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
-                      <p className={`min-w-0 flex-1 basis-40 text-pretty text-sm font-semibold leading-5 ${stateTone(state)}`}>{feedHeadline(feed) || t("detail.statusFeed")}</p>
-                      <div className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap">
-                        <StatusFeedDisplayBadge displayState={displayState} t={t} />
-                        {time ? <span className="font-mono text-[11px] tabular-nums text-zinc-500">{formatRelativeDateTime(time, locale, t)}</span> : null}
-                      </div>
-                    </div>
-                    <p className="mt-2 break-keep text-pretty text-sm leading-6 text-zinc-600 dark:text-zinc-300">{feedMessage(feed)}</p>
-                  </div>
-                </article>
-              );
+              return <StatusFeedNote key={`${feed.id ?? feedCreatedAt(feed) ?? index}`} feed={feed} locale={locale} t={t} />;
             })}
           </div>
         ) : (
@@ -133,42 +140,45 @@ export function StatusFeedThread({
   );
 }
 
-function StatusFeedDisplayBadge({
-  displayState,
+function StatusFeedNote({
+  feed,
+  locale,
   t
 }: {
-  readonly displayState: "current" | "stale" | "archived";
+  readonly feed: TraderStatusFeed;
+  readonly locale: Locale;
   readonly t: Translator;
 }) {
-  const tone = {
-    current: "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-    stale: "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-    archived: "border-zinc-300 bg-zinc-100 text-zinc-500 dark:border-white/10 dark:bg-white/[0.06] dark:text-zinc-400"
-  }[displayState];
+  const state = feedState(feed);
+  const time = feedCreatedAt(feed);
   return (
-    <span
-      data-testid="status-feed-display-state"
-      className={`shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-4 ${tone}`}
-    >
-      {t(`detail.statusFeedState.${displayState}`)}
-    </span>
+    <article data-testid="desk-note-thread-item" className="relative pl-0">
+      <div className="rounded-[1.25rem] border border-zinc-200 bg-zinc-50/80 px-4 py-3.5 shadow-sm shadow-zinc-950/[0.03] transition duration-200 ease-out hover:-translate-y-0.5 hover:border-zinc-300 dark:border-white/10 dark:bg-white/[0.035] dark:shadow-black/20 dark:hover:border-zinc-700">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4">
+          <p className={`min-w-0 break-keep text-pretty text-sm font-semibold leading-5 ${stateTone(state)}`}>{feedHeadline(feed) || t("detail.statusFeed")}</p>
+          <div className="shrink-0 whitespace-nowrap pt-0.5 text-right">
+            {time ? <span className="font-mono text-[11px] tabular-nums text-zinc-500">{formatRelativeDateTime(time, locale, t)}</span> : null}
+          </div>
+        </div>
+        <p className="mt-2 break-keep text-pretty text-sm leading-6 text-zinc-600 dark:text-zinc-300">{feedMessage(feed)}</p>
+      </div>
+    </article>
   );
 }
 
-function LockedStatusFeedPreview({ t }: { readonly t: Translator }) {
+function LockedStatusFeedPreview({ variant }: { readonly variant: number }) {
+  const silhouette = LOCKED_FEED_PREVIEW_VARIANTS[variant % LOCKED_FEED_PREVIEW_VARIANTS.length] ?? LOCKED_FEED_PREVIEW_VARIANTS[0];
   return (
     <article data-testid="desk-note-thread-locked-preview" className="relative pl-0">
-      <div className="rounded-[1.25rem] border border-zinc-200 bg-zinc-50/80 px-4 py-3.5 shadow-sm shadow-zinc-950/[0.03] dark:border-white/10 dark:bg-white/[0.035] dark:shadow-black/20">
-        <div className="flex min-w-0 items-start justify-between gap-3">
-          <p className="min-w-0 text-pretty text-sm font-semibold leading-5 text-zinc-900 dark:text-zinc-200">{t("access.reviewInlineLocked")}</p>
-          <span className="shrink-0 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-700 dark:text-emerald-200">
-            {t("access.lockedLabel")}
-          </span>
+      <div aria-hidden="true" className="min-h-28 rounded-[1.25rem] border border-zinc-200 bg-zinc-50/80 px-4 py-3.5 shadow-sm shadow-zinc-950/[0.03] dark:border-white/10 dark:bg-white/[0.035] dark:shadow-black/20">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4">
+          <span className={`h-4 rounded-full bg-zinc-300/80 dark:bg-white/15 ${silhouette.headline}`} />
+          <span className={`h-3 shrink-0 rounded-full bg-zinc-200 dark:bg-white/10 ${silhouette.time}`} />
         </div>
-        <p className="mt-2 text-pretty text-sm leading-6 text-zinc-600 dark:text-zinc-300">{t("access.reviewLockedDescription")}</p>
-        <div aria-hidden="true" className="mt-3 space-y-2">
-          <div className="h-2.5 w-4/5 rounded-full bg-zinc-200/80 dark:bg-white/10" />
-          <div className="h-2.5 w-2/3 rounded-full bg-zinc-200/70 dark:bg-white/[0.075]" />
+        <div className="mt-4 space-y-2.5">
+          {silhouette.lines.map((width, lineIndex) => (
+            <span key={`${variant}-${lineIndex}`} className={`block h-3 rounded-full bg-zinc-200/80 dark:bg-white/10 ${width}`} />
+          ))}
         </div>
       </div>
     </article>

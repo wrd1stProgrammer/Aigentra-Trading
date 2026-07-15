@@ -115,14 +115,17 @@ test("locked leaderboard rows can defer heavy protected children until subscribe
   );
 });
 
-test("live race board does not fan out a separate overview review request", () => {
+test("AI decision terminal waits for the leaderboard and subscriber access before bounded requests", () => {
   const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8");
   const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
 
-  assert.match(leaderboardSource, /data-testid="live-race-board"/, "race board should render from the leaderboard page itself");
-  assert.match(leaderboardSource, /buildRaceBoardItems/, "race board should derive its rows from already loaded leaderboard state");
-  assert.doesNotMatch(leaderboardSource, /getLeagueOverviewReviews/, "leaderboard should not request overview reviews for the replacement panel");
-  assert.doesNotMatch(apiSource, /overview-reviews/, "the web client should not expose the removed overview review hot path");
+  assert.match(leaderboardSource, /enabled: shouldFetchSecondaryLeaderboardData && isSubscribed/, "locked and initial-loading pages should not fetch terminal details");
+  assert.match(leaderboardSource, /staleTime: 60_000/, "terminal data should not refetch at the faster ranking cadence");
+  assert.match(leaderboardSource, /pages\.length[^\n]*<= 1 \? 60_000 : false/, "loaded history pages should not all poll in the background");
+  assert.match(apiSource, /const pageSize = 20/, "terminal sources should begin with a small shared page");
+  assert.match(apiSource, /eventParams\.set\("offset"/, "execution history should advance only after the scroll edge");
+  assert.match(apiSource, /reviewParams\.set\("offset"/, "localized reviews should advance only after the scroll edge");
+  assert.match(apiSource, /Promise\.all\(\[/, "the two bounded terminal sources should load in parallel");
 });
 
 test("live race board uses a compact lane instead of a split hero layout", () => {

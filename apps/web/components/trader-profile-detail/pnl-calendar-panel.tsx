@@ -1,22 +1,33 @@
 "use client";
 
+import { CaretLeft, CaretRight } from "@phosphor-icons/react";
 import { formatCurrency, intlLocale } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
-import type { MonthlyPnlCalendar, PnlCalendarDay } from "@/components/trader-profile-detail/pnl-calendar";
+import type { PnlCalendarDay } from "@/components/trader-profile-detail/pnl-calendar";
+import type { PnlCalendarNavigation } from "@/components/trader-profile-detail/pnl-calendar-navigation";
 import type { Translator } from "@/components/trader-profile-detail/types";
 
-export function PnlCalendarPanel({ calendar, locale, t }: { calendar: MonthlyPnlCalendar; locale: Locale; t: Translator }) {
+export function PnlCalendarPanel({ navigation, locale, t }: { navigation: PnlCalendarNavigation; locale: Locale; t: Translator }) {
+  const { calendar, canNextMonth, onPreviousMonth, onNextMonth } = navigation;
   const assetTone = calendar.assetChange.delta > 0 ? "good" : calendar.assetChange.delta < 0 ? "bad" : "neutral";
   return (
     <section data-testid="pnl-calendar-panel" className="rounded-2xl bg-white p-5 ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight">{t("calendar.pnlTitle")}</h2>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t("calendar.pnlSubtitle")}</p>
+          <h2 className="break-keep text-lg font-semibold tracking-tight">{t("calendar.pnlTitle")}</h2>
+          <p className="mt-1 break-keep text-sm text-zinc-500 dark:text-zinc-400">{t("calendar.pnlSubtitle")}</p>
         </div>
-        <span className="rounded-full bg-zinc-100 px-3 py-1 font-mono text-sm font-semibold text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
-          {calendar.monthLabel}
-        </span>
+        <div className="flex w-full shrink-0 items-center justify-between gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-900 sm:w-auto">
+          <button type="button" onClick={onPreviousMonth} className="focus-ring grid size-9 place-items-center rounded-lg text-zinc-500 transition hover:bg-white hover:text-zinc-950 active:translate-y-px dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50" aria-label={t("calendar.previousMonth")}>
+            <CaretLeft size={16} weight="bold" />
+          </button>
+          <span data-testid="pnl-calendar-month-label" className="min-w-24 px-1 text-center font-mono text-sm font-semibold text-zinc-600 dark:text-zinc-300">
+            {calendar.monthLabel}
+          </span>
+          <button type="button" onClick={onNextMonth} disabled={!canNextMonth} className="focus-ring grid size-9 place-items-center rounded-lg text-zinc-500 transition hover:bg-white hover:text-zinc-950 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-30 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50" aria-label={t("calendar.nextMonth")}>
+            <CaretRight size={16} weight="bold" />
+          </button>
+        </div>
       </div>
 
       <div className="mt-5 grid grid-cols-7 gap-1.5">
@@ -31,7 +42,8 @@ export function PnlCalendarPanel({ calendar, locale, t }: { calendar: MonthlyPnl
               {day ? (
                 <>
                   <span className="font-mono text-base font-semibold leading-none">{day.day}</span>
-                  <span className="mt-1 font-mono text-[11px] font-semibold leading-none">{day.pnlText}</span>
+                  <span className="mt-1 font-mono text-[10px] font-semibold leading-none sm:hidden">{compactPnlText(day.pnl)}</span>
+                  <span className="mt-1 hidden font-mono text-[11px] font-semibold leading-none sm:inline">{day.pnlText}</span>
                 </>
               ) : null}
             </div>
@@ -86,6 +98,14 @@ function assetToneClass(tone: "good" | "bad" | "neutral") {
 
 function assetBarWidth(returnPct: number) {
   return Math.min(100, Math.max(8, Math.abs(returnPct) * 3 + 10));
+}
+
+function compactPnlText(value: number) {
+  const sign = value > 0 ? "+" : "";
+  const magnitude = Math.abs(value);
+  if (magnitude >= 1000) return `${sign}${(value / 1000).toFixed(1)}k`;
+  if (magnitude >= 100) return `${sign}${value.toFixed(0)}`;
+  return `${sign}${value.toFixed(2)}`;
 }
 
 function weekdayLabels(locale: Locale) {

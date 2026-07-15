@@ -61,9 +61,9 @@ test("monthly league UI does not overwrite selected-month returns with live trai
   assert.doesNotMatch(i18nSource, /24H \/ 7D 최고|Best 24H \/ 7D/, "monthly UI should not expose a generic best-of short-term label");
   assert.doesNotMatch(i18nSource, /24H 최고/, "short-term race labels should not read as a static best-of metric");
   assert.match(i18nSource, /"leaderboard\.currentLeague": "전체"/, "the non-monthly league tab should be labeled as the full league");
-  assert.match(i18nSource, /"leaderboard\.liveRace\.period": "실시간"/, "the live race board should not inherit the selected league tab label");
-  assert.match(leaderboardSource, /leaguePeriodLabel=\{liveRacePeriodLabel\}/, "live race board should keep a stable live period label");
-  assert.doesNotMatch(leaderboardSource, /selectedLeagueMonth \? `\\$\\{selectedLeagueMonth\\} UTC` : t\("leaderboard\.currentLeague"\)/, "live race board should not change its period badge when monthly tabs change");
+  assert.match(i18nSource, /"leaderboard\.terminal\.live": "LIVE"/, "the terminal should expose a stable live status independent of the selected league month");
+  assert.match(leaderboardSource, /queryKey: \["league", "ai-trade-terminal", "BTCUSDT", locale\]/, "monthly tabs should reuse the same current terminal query");
+  assert.doesNotMatch(leaderboardSource, /"ai-trade-terminal"[^\n]*selectedLeagueMonth/, "terminal events should not be rewritten by a historical ranking tab");
 });
 
 test("leaderboard replaces MDD with biggest win", () => {
@@ -84,6 +84,9 @@ test("new and retired trader lifecycle badges are modeled for leaderboard surfac
   assert.match(leaderboardSource, /isRetiredTraderLifecycle/, "retired lifecycle detection should be shared by rank and lifecycle badges");
   assert.match(leaderboardSource, /<TraderRankBadge trader=\{trader\} t=\{t\}/, "trader rows and preview should use a lifecycle-aware rank slot");
   assert.match(leaderboardSource, /isTraderVisibleInLeagueMonth/, "monthly placeholders should apply lifecycle visibility before rendering rows");
+  assert.doesNotMatch(leaderboardSource, /trader\.retiredFromMonth && isSameOrAfterLeagueMonth/, "retired traders should remain in monthly league history");
+  assert.match(leaderboardSource, /standings\.filter\(hasLeaderboardTradingRecord\)/, "the full leaderboard should retain retired traders with trading history");
+  assert.match(leaderboardSource, /const retiredDelta = Number\(isRetiredTraderLifecycle\(a\)\) - Number\(isRetiredTraderLifecycle\(b\)\)/, "retired traders should sort below active traders in the full list");
   assert.match(leaderboardSource, /t\("leaderboard\.newTraderBadge"\)/, "new trader badge copy should be localized");
   assert.match(leaderboardSource, /t\("leaderboard\.retiredTraderBadge"\)/, "retired trader badge copy should be localized");
   assert.match(i18nSource, /"leaderboard\.retiredRankBadge": "감시 중단"/, "retired rank icon should carry an accessible localized label");

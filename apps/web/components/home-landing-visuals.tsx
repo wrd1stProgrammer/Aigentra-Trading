@@ -538,10 +538,10 @@ export function LandingFooter({ copy }: { readonly copy: LandingCopy }) {
     <>
       <div className="mx-auto grid max-w-[1500px] gap-10 border-b border-zinc-200 pb-12 sm:grid-cols-2 md:grid-cols-6 text-left">
         <div className="md:col-span-2">
-          <div className="flex items-center gap-3">
+          <Link href="/" className="focus-ring footer-brand-link">
             <BrandMark framed />
             <span className="text-xl font-bold tracking-tight text-zinc-900">Aigentra Trading</span>
-          </div>
+          </Link>
           <p className="mt-5 max-w-[32ch] text-sm leading-6 text-zinc-500">{copy.footerTagline}</p>
         </div>
         
@@ -549,6 +549,8 @@ export function LandingFooter({ copy }: { readonly copy: LandingCopy }) {
           <h3 className="font-semibold text-sm text-zinc-800 uppercase tracking-wider">{copy.footerLabels.product}</h3>
           <div className="mt-4 grid gap-3 text-sm text-zinc-500">
             <Link href="/" className="hover:text-zinc-900 transition">{copy.footerLabels.howItWorks}</Link>
+            <Link href="/blog" className="hover:text-zinc-900 transition">{copy.footerLabels.blog}</Link>
+            <Link href="/methodology" className="hover:text-zinc-900 transition">{copy.footerLabels.methodology}</Link>
             <Link href="/login" className="hover:text-zinc-900 transition">{copy.footerLabels.pricing}</Link>
             <Link href="/login" className="hover:text-zinc-900 transition">{copy.footerLabels.operatorNotes}</Link>
             <Link href="/login" className="hover:text-zinc-900 transition">{copy.footerLabels.faq}</Link>
@@ -558,7 +560,7 @@ export function LandingFooter({ copy }: { readonly copy: LandingCopy }) {
         <div>
           <h3 className="font-semibold text-sm text-zinc-800 uppercase tracking-wider">{copy.footerLabels.company}</h3>
           <div className="mt-4 grid gap-3 text-sm text-zinc-500">
-            <a href="mailto:support@aigentra.trading" className="hover:text-zinc-900 transition">{copy.footerLabels.contact}</a>
+            <a href="mailto:support@aigentratrading.com" className="hover:text-zinc-900 transition">{copy.footerLabels.contact}</a>
           </div>
         </div>
 

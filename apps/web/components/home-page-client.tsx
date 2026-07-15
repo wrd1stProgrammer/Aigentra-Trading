@@ -5,6 +5,8 @@ import { signOut, useSession } from "next-auth/react";
 import { ArrowRight, BellRinging, CaretDown, Check, SignIn, SignOut, Star, TelegramLogo, Translate, Trophy, UserCircle } from "@phosphor-icons/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { BrandMark } from "@/components/brand-mark";
+import { BlogPreviewSection } from "@/components/blog/blog-preview-section";
+import { LearnPreviewSection } from "@/components/learn/learn-preview-section";
 import { useAppContext } from "@/components/app-provider";
 import { PipelinePreview, PositionManagementPreview, ConsensusPreview, TradePlanPreview, AlertPreview, LandingFooter, PricingCard, VideoFrame } from "@/components/home-landing-visuals";
 import { landingCopy } from "@/lib/marketing-copy";
@@ -133,7 +135,7 @@ export function HomePageClient() {
             </Link>
             <div className="flex shrink-0 items-center gap-2 sm:gap-4">
               <Link href="/login" className="hidden text-white hover:text-emerald-300 font-mono text-sm font-semibold transition shrink-0 sm:inline">
-                {copy.getStartedCta} →
+                {copy.headerCta} →
               </Link>
               <div className="relative">
                 <button
@@ -356,7 +358,7 @@ export function HomePageClient() {
               <p className="font-mono text-xs uppercase tracking-[0.15em] text-emerald-600">{copy.getStartedEyebrow}</p>
               <h2 className="mt-5 text-balance text-3xl font-bold tracking-tight text-zinc-950 sm:text-4xl md:text-5xl">{copy.getStartedTitle}</h2>
               <p className="mx-auto mt-5 max-w-[64ch] text-pretty text-base leading-relaxed text-zinc-600 sm:text-lg">{copy.getStartedSubtitle}</p>
-              <Link href="/leaderboard" className="focus-ring mt-8 inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-8 py-4 text-sm font-bold text-white shadow-neon-emerald hover:bg-emerald-400 transition duration-300">
+              <Link href="/consensus" className="focus-ring mt-8 inline-flex items-center justify-center gap-2 rounded-full bg-emerald-500 px-8 py-4 text-sm font-bold text-white shadow-neon-emerald hover:bg-emerald-400 transition duration-300">
                 {copy.getStartedCta}
                 <ArrowRight size={16} weight="bold" />
               </Link>
@@ -604,6 +606,9 @@ export function HomePageClient() {
           </div>
         </div>
       </section>
+
+      <BlogPreviewSection />
+      <LearnPreviewSection />
 
       <footer data-testid="landing-footer" className="relative overflow-hidden bg-white py-14 text-zinc-950 border-t border-zinc-200 sm:py-16">
         <div className="relative mx-auto max-w-[1240px] px-4 sm:px-10 lg:px-16">

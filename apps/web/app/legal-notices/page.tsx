@@ -79,25 +79,25 @@ export default function LegalNoticesPage() {
             <>
               <div className="bg-zinc-500/5 border border-zinc-200/50 dark:border-white/5 rounded-xl p-5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                 <p className="font-bold mb-1">고지 요약</p>
-                본 법적 고지 문서는 aigentra.trading 플랫폼의 소유권, 책임의 한계 및 지적 재산권 보호 조치를 명확히 공시하기 위한 것입니다.
+                본 법적 고지 문서는 aigentratrading.com 플랫폼의 소유권, 책임의 한계 및 지적 재산권 보호 조치를 명확히 공시하기 위한 것입니다.
               </div>
 
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">1. 발행인 정보 (Publisher Information)</h2>
                 <p>
-                  Aigentra Trading(aigentra.trading, 이하 &ldquo;플랫폼&rdquo;)은 대한민국 법률에 따라 등록된 법인에 의해 소유 및 발행됩니다. 상세 정보는 다음과 같습니다:
+                  Aigentra Trading(aigentratrading.com, 이하 &ldquo;플랫폼&rdquo;)은 개인사업자 SERN이 운영합니다. 확인된 사업자 정보는 다음과 같습니다:
                 </p>
                 <ul className="list-disc pl-5 space-y-1.5">
                   <li><strong>운영 상호:</strong> SERN</li>
                   <li><strong>사업자등록번호:</strong> 418-11-83101</li>
-                  <li><strong>대표 주소:</strong> 대한민국 반룡로 18번길 32-4, 신영하우스</li>
-                  <li><strong>고객 문의망:</strong> <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a></li>
-                  <li><strong>공식 주소:</strong> <Link href="/" className="text-emerald-500 hover:underline">https://aigentra.trading</Link></li>
+                  <li><strong>사업자 형태:</strong> 개인사업자</li>
+                  <li><strong>고객 문의망:</strong> <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a></li>
+                  <li><strong>공식 주소:</strong> <Link href="/" className="text-emerald-500 hover:underline">https://aigentratrading.com</Link></li>
                 </ul>
               </section>
 
               <section className="space-y-3">
-                <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">2. 법인 관리 총괄자 (Director of Publication)</h2>
+                <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">2. 발행 관리 책임</h2>
                 <p>
                   본 플랫폼의 법률 고지, 대외 소통 및 발행 관리 총괄책임은 <strong>SERN의 총괄 대표자</strong>에게 있습니다. 연락 및 공식 법무 질의는 상기의 고객 문의 이메일을 통해 송신하실 수 있습니다.
                 </p>
@@ -121,7 +121,7 @@ export default function LegalNoticesPage() {
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">4. 지적 재산권 및 무단 도용 금지</h2>
                 <p>
-                  aigentra.trading 플랫폼에 기재된 소스 코드 구조, 프론트엔드 콘솔 인터페이스 레이아웃, 인공지능 분석 가중치 보고서, 로고 엠블럼, 텍스트 글귀 등 모든 저작물 및 지적 재산권은 <strong>SERN</strong>의 독점 소유물입니다.
+                  aigentratrading.com 플랫폼에 기재된 소스 코드 구조, 프론트엔드 콘솔 인터페이스 레이아웃, 인공지능 분석 가중치 보고서, 로고 엠블럼, 텍스트 글귀 등 모든 저작물 및 지적 재산권은 <strong>SERN</strong>의 독점 소유물입니다.
                 </p>
                 <p>
                   당사의 사전 서면 승인 없이 본 플랫폼의 핵심 디자인, AI 분석 로그 정보 등을 무단 복제, 상업적 크롤링, 재배포 또는 무단 가공하는 행위는 지적재산권 침해에 해당하며 강력한 민형사상 법적 제재 조치가 수반될 수 있습니다.
@@ -145,7 +145,7 @@ export default function LegalNoticesPage() {
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">7. 호스팅 정보 (Hosting)</h2>
                 <p>
-                  본 플랫폼의 프론트엔드 및 데이터베이스 시스템은 검증된 타사 퍼블릭 클라우드 인프라를 통해 호스팅 및 유지보수됩니다. 상세한 인프라 관리 문의는 <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a>을 통하여 전달받고 있습니다.
+                  본 플랫폼의 프론트엔드 및 데이터베이스 시스템은 검증된 타사 퍼블릭 클라우드 인프라를 통해 호스팅 및 유지보수됩니다. 상세한 인프라 관리 문의는 <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a>을 통하여 전달받고 있습니다.
                 </p>
               </section>
 
@@ -160,27 +160,27 @@ export default function LegalNoticesPage() {
             <>
               <div className="bg-zinc-500/5 border border-zinc-200/50 dark:border-white/5 rounded-xl p-5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                 <p className="font-bold mb-1">Notice</p>
-                This Legal Notice governs the structural information, publication authorities, and intellectual property rights associated with the aigentra.trading platform.
+                This Legal Notice governs the structural information, publication authorities, and intellectual property rights associated with the aigentratrading.com platform.
               </div>
 
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">1. Publisher Information</h2>
                 <p>
-                  The website aigentra.trading (the &ldquo;Platform&rdquo;) is operated by the following corporate publisher:
+                  The website aigentratrading.com (the &ldquo;Platform&rdquo;) is operated by SERN, a South Korean sole proprietor:
                 </p>
                 <ul className="list-disc pl-5 space-y-1.5">
                   <li><strong>Operator:</strong> SERN</li>
                   <li><strong>Business Registration Number:</strong> 418-11-83101</li>
-                  <li><strong>Registered Address:</strong> 32-4, Banryong-ro 18beon-gil, Sinyeong House, South Korea</li>
-                  <li><strong>Legal Contact:</strong> <a href="mailto:kicoa24@gmail.com" className="text-emerald-500 hover:underline">kicoa24@gmail.com</a></li>
-                  <li><strong>Official URL:</strong> <Link href="/" className="text-emerald-500 hover:underline">https://aigentra.trading</Link></li>
+                  <li><strong>Legal Form:</strong> Sole proprietor</li>
+                  <li><strong>Legal Contact:</strong> <a href="mailto:support@aigentratrading.com" className="text-emerald-500 hover:underline">support@aigentratrading.com</a></li>
+                  <li><strong>Official URL:</strong> <Link href="/" className="text-emerald-500 hover:underline">https://aigentratrading.com</Link></li>
                 </ul>
               </section>
 
               <section className="space-y-3">
                 <h2 className="text-base font-bold text-zinc-900 dark:text-white font-mono uppercase tracking-wide">2. Director of Publication</h2>
                 <p>
-                  General publication oversight, compliance audits, and publisher affairs are administered under the authority of the **Representative of SERN**. Inquiries can be forwarded to the official email listed above.
+                  General publication oversight and publisher affairs are administered by the SERN operator. Inquiries can be forwarded to the official email listed above.
                 </p>
               </section>
 

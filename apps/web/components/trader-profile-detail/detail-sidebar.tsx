@@ -3,7 +3,7 @@
 import { formatDateTime } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
 import type { TraderStanding } from "@/lib/league";
-import type { MonthlyPnlCalendar } from "@/components/trader-profile-detail/pnl-calendar";
+import type { PnlCalendarNavigation } from "@/components/trader-profile-detail/pnl-calendar-navigation";
 import { PnlCalendarPanel } from "@/components/trader-profile-detail/pnl-calendar-panel";
 import { HoldingPanel, TradeHistoryPanel } from "@/components/trader-profile-detail/side-panels";
 import type { HoldingItem, PlanView, TradeHistoryItem, Translator } from "@/components/trader-profile-detail/types";
@@ -11,7 +11,7 @@ import type { HoldingItem, PlanView, TradeHistoryItem, Translator } from "@/comp
 export function DetailSidebar({
   holdingItems,
   tradeHistoryItems,
-  pnlCalendar,
+  pnlCalendarNavigation,
   standing,
   latestPlan,
   locale,
@@ -22,7 +22,7 @@ export function DetailSidebar({
 }: {
   readonly holdingItems: HoldingItem[];
   readonly tradeHistoryItems: TradeHistoryItem[];
-  readonly pnlCalendar: MonthlyPnlCalendar;
+  readonly pnlCalendarNavigation: PnlCalendarNavigation;
   readonly standing: TraderStanding;
   readonly latestPlan: PlanView;
   readonly locale: Locale;
@@ -45,7 +45,7 @@ export function DetailSidebar({
         hasMore={historyHasMore}
         loadingMore={loadingMoreHistory}
       />
-      <PnlCalendarPanel calendar={pnlCalendar} locale={locale} t={t} />
+      <PnlCalendarPanel navigation={pnlCalendarNavigation} locale={locale} t={t} />
     </aside>
   );
 }

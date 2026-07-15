@@ -6,6 +6,7 @@ const footerSource = readFileSync(new URL("../components/home-landing-visuals.ts
 const marketingSource = readFileSync(new URL("../lib/marketing-copy.ts", import.meta.url), "utf8");
 const riskSource = readFileSync(new URL("../app/risk-disclosure/page.tsx", import.meta.url), "utf8");
 const privacySource = readFileSync(new URL("../app/privacy-policy/page.tsx", import.meta.url), "utf8");
+const legalSource = readFileSync(new URL("../app/legal-notices/page.tsx", import.meta.url), "utf8");
 const landingFooterSource = footerSource.slice(
   footerSource.indexOf("export function LandingFooter"),
   footerSource.indexOf("function MiniChart")
@@ -14,6 +15,9 @@ const landingFooterSource = footerSource.slice(
 test("landing footer uses localized readable risk disclosure instead of hardcoded tiny English copy", () => {
   assert.match(marketingSource, /footerRiskNotice/, "landing copy should expose a localized full risk notice");
   assert.match(landingFooterSource, /copy\.footerRiskNotice/, "footer should render the localized full risk notice");
+  assert.match(landingFooterSource, /href="\/blog"/, "footer should link to the blog hub for crawl discovery");
+  assert.match(landingFooterSource, /copy\.footerLabels\.blog/, "blog footer link should use localized copy");
+  assert.match(landingFooterSource, /href="\/methodology"/, "footer should expose the public metric methodology");
   assert.doesNotMatch(landingFooterSource, /AI-powered chart analysis tool for educational purposes only/, "footer should not hardcode the English long disclaimer");
   assert.doesNotMatch(landingFooterSource, /text-\[9px\]/, "footer legal copy should stay legible");
 });
@@ -36,10 +40,19 @@ test("risk disclosure warning callouts keep icon, title, and body separated", ()
   assert.match(riskSource, /<p className="mt-2 text-xs font-semibold leading-relaxed">/, "warning body should have vertical spacing below the title");
 });
 
-test("privacy policy names the account, payment, alert, and analytics processors users actually touch", () => {
-  for (const required of ["Google", "Telegram", "Whop", "Meta", "Google Analytics"]) {
+test("privacy policy names only verified account, payment, and alert processors", () => {
+  for (const required of ["Google", "Telegram", "Whop"]) {
     assert.match(privacySource, new RegExp(required), `privacy policy should mention ${required}`);
   }
+  assert.doesNotMatch(privacySource, /Meta Pixel|Google Analytics/, "undeployed advertising and analytics trackers must not be claimed as active processors");
   assert.match(privacySource, /chat id|Chat ID|채팅 ID|chatId/i, "Telegram connection data should be described");
   assert.match(privacySource, /OAuth|Google 로그인|Google sign-in/i, "Google sign-in data should be described");
+});
+
+test("publisher copy matches the verified sole-proprietor record without inventing an address", () => {
+  assert.match(legalSource, /개인사업자|sole proprietor/i, "publisher legal form should match the official individual-business record");
+  assert.doesNotMatch(legalSource, /corporate publisher|등록된 법인|법인 관리 총괄자/i, "publisher copy must not claim a corporation");
+  for (const source of [legalSource, privacySource, riskSource]) {
+    assert.doesNotMatch(source, /32-4, Banryong-ro|반룡로 18번길 32-4/, "unverified street address must not be published");
+  }
 });

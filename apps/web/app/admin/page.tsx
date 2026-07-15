@@ -3,10 +3,9 @@ import { redirect } from "next/navigation";
 import { AdminDashboardClient } from "@/components/admin-dashboard-client";
 import { AdminApiError, loadAdminOverview, loadAdminTable } from "@/lib/admin-api";
 import { AdminAuthError, requireAdminIdentity } from "@/lib/admin-auth";
+import { createNoindexMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Admin | Aigentra Trading"
-};
+export const metadata: Metadata = createNoindexMetadata("Admin", "/admin");
 
 export const dynamic = "force-dynamic";
 

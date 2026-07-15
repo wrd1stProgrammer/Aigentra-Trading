@@ -84,7 +84,7 @@ test("admin page redirects guests, blocks non-admins, and renders the dashboard 
   });
   const html = await adminPage.text();
   assert.equal(adminPage.status, 200);
-  assert.match(html, /Aigentra 운영 대시보드/);
+  assert.match(html, /운영 대시보드/);
   assert.match(html, /data-testid="admin-dashboard"/);
   assert.doesNotMatch(html, /postgres:\/\/|password=/i);
 });
@@ -215,6 +215,21 @@ function adminOverviewPayload() {
       reviewUnlocks: 0,
       tradeEvents24h: 2,
       apiErrors24h: 0,
+    },
+    growth: {
+      timezone: "Asia/Seoul",
+      trackingStartedAt: "2026-06-26T00:00:00.000Z",
+      today: { date: "2026-07-02", uniqueVisitors: 14, signups: 3, paidConversions: 1, signupConversionRate: 33.3 },
+      yesterday: { date: "2026-07-01", uniqueVisitors: 10, signups: 2, paidConversions: 0, signupConversionRate: 0 },
+      series: [
+        { date: "2026-06-26", uniqueVisitors: 4, signups: 0, paidConversions: 0, signupConversionRate: 0 },
+        { date: "2026-06-27", uniqueVisitors: 6, signups: 1, paidConversions: 0, signupConversionRate: 0 },
+        { date: "2026-06-28", uniqueVisitors: 7, signups: 1, paidConversions: 0, signupConversionRate: 0 },
+        { date: "2026-06-29", uniqueVisitors: 8, signups: 1, paidConversions: 0, signupConversionRate: 0 },
+        { date: "2026-06-30", uniqueVisitors: 9, signups: 2, paidConversions: 1, signupConversionRate: 50 },
+        { date: "2026-07-01", uniqueVisitors: 10, signups: 2, paidConversions: 0, signupConversionRate: 0 },
+        { date: "2026-07-02", uniqueVisitors: 14, signups: 3, paidConversions: 1, signupConversionRate: 33.3 },
+      ],
     },
     paper: {
       openOrders: 1,

@@ -91,6 +91,8 @@ export type TradeHistoryItem = {
   leverageLabel: string;
   entryLabel: string;
   exitLabel: string;
+  feeLabel: string;
+  feeRole: "maker" | "taker" | null;
   pnlLabel: string;
   pnlTone: "good" | "bad" | "neutral";
   resultLabel: string;

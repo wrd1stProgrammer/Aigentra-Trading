@@ -64,7 +64,7 @@ export function TradingJournal({
                 <TableCell className="font-mono">{item.quantity}</TableCell>
                 <TableCell className="font-mono">{item.entryLabel}</TableCell>
                 <TableCell className="font-mono">{item.exitLabel}</TableCell>
-                <TableCell className={`font-mono font-semibold ${pnlClass(item.pnlTone)}`}>{item.pnlLabel}</TableCell>
+                <TableCell className={`whitespace-nowrap font-mono font-semibold ${pnlClass(item.pnlTone)}`}>{item.pnlLabel}</TableCell>
                 <TableCell>
                   <span className={`inline-flex rounded-md px-2 py-1 text-xs font-bold ring-1 ${resultBadgeClass(item.actionTone)}`}>
                     {item.resultLabel}
@@ -85,11 +85,6 @@ export function TradingJournal({
               ? "-"
               : (qtyNum * exitNum).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 });
 
-            const feeUsdt = isNaN(qtyNum) || isNaN(exitNum)
-              ? "0.00000000"
-              : (qtyNum * exitNum * 0.0005).toFixed(8);
-
-            const role = (Math.floor(qtyNum * 10000) + Math.floor(exitNum)) % 2 === 0 ? "Maker" : "Taker";
             const side = item.sideLabel.toUpperCase().includes("LONG") ? "Buy" : "Sell";
             const isBuy = side === "Buy";
 
@@ -142,17 +137,19 @@ export function TradingJournal({
 
                   <div className="flex items-center justify-between">
                     <span className="text-zinc-500 dark:text-[#909cbd]">{t("detail.feeUsdt")}</span>
-                    <span className="font-mono text-zinc-900 dark:text-[#eaecef]">{feeUsdt}</span>
+                    <span className="font-mono text-zinc-900 dark:text-[#eaecef]">{item.feeLabel}</span>
                   </div>
 
                   <div className="flex items-center justify-between">
                     <span className="text-zinc-500 dark:text-[#909cbd]">{t("detail.role")}</span>
-                    <span className="text-zinc-900 dark:text-[#eaecef]">{role === "Maker" ? t("detail.maker") : t("detail.taker")}</span>
+                    <span className="text-zinc-900 dark:text-[#eaecef]">
+                      {item.feeRole === "maker" ? t("detail.maker") : item.feeRole === "taker" ? t("detail.taker") : "-"}
+                    </span>
                   </div>
 
                   <div className="flex items-center justify-between">
                     <span className="text-zinc-500 dark:text-[#909cbd]">{t("detail.realizedPnlUsdt")}</span>
-                    <span className={`font-mono font-semibold ${pnlClass(item.pnlTone)}`}>{item.pnlLabel}</span>
+                    <span className={`whitespace-nowrap font-mono font-semibold ${pnlClass(item.pnlTone)}`}>{item.pnlLabel}</span>
                   </div>
                 </div>
               </div>
@@ -198,5 +195,3 @@ function resultBadgeClass(tone: TradeHistoryItem["actionTone"]) {
   if (tone === "bad") return "bg-rose-500/10 text-rose-700 ring-rose-500/25 dark:text-rose-300";
   return "bg-zinc-100 text-zinc-600 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-800";
 }
-
-
