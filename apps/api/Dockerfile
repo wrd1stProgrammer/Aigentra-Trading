@@ -12,7 +12,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
-    npm install -g @openai/codex@0.142.4; \
+    npm install -g @openai/codex@0.144.2; \
     /usr/local/bin/codex --version
 
 RUN addgroup --system app && adduser --system --ingroup app app
