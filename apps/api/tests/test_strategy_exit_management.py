@@ -81,7 +81,7 @@ def _snapshot(
         ("channel-rider", Decimal("116.0")),
         ("donchian-breakout", Decimal("115.0")),
         ("trend-sentinel", Decimal("118.0")),
-        ("atr-trail-commander", Decimal("118.0")),
+        ("atr-trail-commander", Decimal("112.0")),
         ("liquidity-reaper", Decimal("112.0")),
     ],
 )

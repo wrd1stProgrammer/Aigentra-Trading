@@ -160,6 +160,33 @@ def test_pullback_rejects_zone_touch_without_completed_recovery() -> None:
     assert "completed 15m" in candidate.reason.lower()
 
 
+def test_pullback_rejects_doji_recovery_without_directional_follow_through() -> None:
+    snapshot = _pullback_snapshot()
+    snapshot["timeframes"]["15m"]["latestCompletedCandle"] = _completed_candle(
+        67_840.0, 67_920.0, 67_300.0, 67_850.0
+    )
+
+    candidate = get_strategy("pullback-architect").evaluate(snapshot)
+
+    assert candidate.created is False
+    assert "directional" in candidate.reason.lower()
+
+
+def test_pullback_stop_keeps_minimum_atr_room_beyond_final_scale() -> None:
+    snapshot = _pullback_snapshot()
+    snapshot["timeframes"]["1h"]["swings"] = {
+        "highs": [68_600.0],
+        "lows": [67_550.0],
+    }
+
+    candidate = get_strategy("pullback-architect").evaluate(snapshot)
+
+    assert candidate.created is True
+    assert candidate.stopLoss is not None
+    deepest_entry = min(entry.price for entry in candidate.entries)
+    assert deepest_entry - candidate.stopLoss >= snapshot["timeframes"]["1h"]["atr14"] * 0.60
+
+
 def test_funding_extreme_can_trade_without_optional_flow_at_reduced_risk() -> None:
     candidate = get_strategy("funding-contrarian").evaluate(
         _funding_snapshot(optional_flow_available=False)

@@ -3,6 +3,7 @@ from typing import Any, Dict, List
 from app.traders.models import EntryPlan, TakeProfitPlan, TradeCandidate, TraderProfile
 from app.traders.strategy_base import (
     TraderStrategy,
+    candle_body_ratio,
     candidate_geometry_errors,
     completed_signal_execution_valid,
     default_leverage_plan,
@@ -96,6 +97,7 @@ class PullbackArchitect(TraderStrategy):
             return make_rejection("Price is outside the 1H EMA20-EMA50 pullback decision zone.", 48)
         signal_low = float(signal_candle.get("low") or price)
         signal_high = float(signal_candle.get("high") or price)
+        signal_open = float(signal_candle.get("open") or price)
         signal_close = float(signal_candle.get("close") or price)
         bullish_recovery = signal_low <= upper_zone * 1.002 and signal_close >= ema20
         bearish_recovery = signal_high >= lower_zone * 0.998 and signal_close <= ema20
@@ -103,6 +105,11 @@ class PullbackArchitect(TraderStrategy):
             return make_rejection("Completed 15m candle has not recovered EMA20 after the pullback reaction.", 50)
         if bearish_alignment and not bearish_recovery:
             return make_rejection("Completed 15m candle has not rejected EMA20 after the rebound reaction.", 50)
+        directional_body = candle_body_ratio(signal_candle) >= 0.18
+        if bullish_alignment and (signal_close <= signal_open or not directional_body):
+            return make_rejection("Completed 15m recovery lacks directional bullish follow-through.", 50)
+        if bearish_alignment and (signal_close >= signal_open or not directional_body):
+            return make_rejection("Completed 15m rejection lacks directional bearish follow-through.", 50)
         if abs(funding) >= 0.001 or funding_percentile >= 92:
             return make_rejection("Funding is too overheated for a continuation pullback.", 52)
         if regime == "shock":
@@ -144,7 +151,7 @@ class PullbackArchitect(TraderStrategy):
                     EntryPlan(price=round_price(price), weight=1.0, reason="Single probe after late pullback confirmation"),
                 ]
             structural_low = min(swings_1h.get("lows", []) or [lower_zone])
-            stop = round_price(min(structural_low - atr_1h * 0.35, min(entry.price for entry in entries) - atr_1h * 0.45))
+            stop = round_price(min(structural_low - atr_1h * 0.45, min(entry.price for entry in entries) - atr_1h * 0.60))
             tps = [
                 TakeProfitPlan(price=round_price(max(price * 1.014, price + (price - stop) * 1.45)), weight=0.5, reason="Prior swing high or 1.45R"),
                 TakeProfitPlan(price=round_price(max(price * 1.032, price + (price - stop) * 2.6)), weight=0.5, reason="Next resistance zone or 2.6R"),
@@ -160,7 +167,7 @@ class PullbackArchitect(TraderStrategy):
                     EntryPlan(price=round_price(price), weight=1.0, reason="Single probe after late rebound confirmation"),
                 ]
             structural_high = max(swings_1h.get("highs", []) or [upper_zone])
-            stop = round_price(max(structural_high + atr_1h * 0.35, max(entry.price for entry in entries) + atr_1h * 0.45))
+            stop = round_price(max(structural_high + atr_1h * 0.45, max(entry.price for entry in entries) + atr_1h * 0.60))
             tps = [
                 TakeProfitPlan(price=round_price(min(price * 0.986, price - (stop - price) * 1.45)), weight=0.5, reason="Prior swing low or 1.45R"),
                 TakeProfitPlan(price=round_price(min(price * 0.968, price - (stop - price) * 2.6)), weight=0.5, reason="Next support zone or 2.6R"),

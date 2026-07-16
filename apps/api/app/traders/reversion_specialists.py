@@ -67,11 +67,15 @@ class VwapReclaimer(TraderStrategy):
         low = fvalue(candle.get("low"))
         high = fvalue(candle.get("high"))
         body = candle_body_ratio(candle)
+        completed_volume_z = float(gate["volumeZ15m"])
+        weak_completed_volume = completed_volume_z < 0.15
         reclaim_long = open_ < vwap and low < vwap < close and close > open_ and body >= 0.30
         reject_short = open_ > vwap and high > vwap > close and close < open_ and body >= 0.30
         reclaim_long = reclaim_long and gate["trend4h"] != "bearish"
         reject_short = reject_short and gate["trend4h"] != "bullish"
         score = 50 + (14 if reclaim_long or reject_short else 0) + (7 if body >= 0.42 else 0)
+        if weak_completed_volume:
+            score -= 4
         if reclaim_long:
             side, setup = "LONG", "VWAP_RECLAIM_LONG"
         elif reject_short:
@@ -86,7 +90,7 @@ class VwapReclaimer(TraderStrategy):
             atr=float(gate["atr1h"]),
         ):
             return reject_btc_candidate(self.profile, "Completed VWAP reentry is stale at the live execution price.", score, gate, "stale_completed_trigger")
-        risk_distance = max(float(gate["atr1h"]) * 0.78, float(gate["price"]) * 0.0042)
+        risk_distance = max(float(gate["atr1h"]) * 0.95, float(gate["price"]) * 0.0055)
         return build_btc_candidate(
             profile=self.profile,
             snapshot=snapshot,
@@ -100,8 +104,13 @@ class VwapReclaimer(TraderStrategy):
             entry_style="confirm_retest",
             order_execution="COMPLETED_VWAP_REENTRY",
             reason_code="completed_vwap_reentry",
-            gate_scores={**gate, "barVwapProxy20": vwap},
+            gate_scores={
+                **gate,
+                "barVwapProxy20": vwap,
+                "weakCompletedVolume": weak_completed_volume,
+            },
             sizing_note="VWAP reentry: risk stays moderate because intraday fair-value edges decay quickly.",
+            risk_percent=0.35 if weak_completed_volume else self.profile.baseRiskPercent,
         )
 
 

@@ -764,7 +764,7 @@ def test_trend_sentinel_does_not_move_stop_to_breakeven_at_one_r(temp_db):
         ("channel-rider", 114, 116.1),
         ("donchian-breakout", 114, 115.1),
         ("trend-sentinel", 117, 118.1),
-        ("atr-trail-commander", 117, 118.1),
+        ("atr-trail-commander", 111, 112.1),
         ("liquidity-reaper", 110, 112.1),
     ],
 )

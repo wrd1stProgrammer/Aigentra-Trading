@@ -271,3 +271,25 @@ def test_range_maker_fails_closed_without_completed_volume() -> None:
 
     assert candidate.created is False
     assert "completed 15m volume" in candidate.reason.lower()
+
+
+def test_vwap_weak_completed_volume_keeps_entry_but_reduces_risk() -> None:
+    snapshot = _vwap_setup()
+    snapshot["timeframes"]["15m"]["completedVolumeZscore"] = -0.05
+
+    candidate = get_strategy("vwap-reclaimer").evaluate(snapshot)
+
+    assert candidate.created is True
+    assert candidate.riskPercent == pytest.approx(0.35)
+    assert candidate.audit["gateScores"]["weakCompletedVolume"] is True
+
+
+def test_vwap_stop_floor_sits_outside_intraday_noise() -> None:
+    snapshot = _vwap_setup()
+    snapshot["timeframes"]["1h"]["atr14"] = 200.0
+
+    candidate = get_strategy("vwap-reclaimer").evaluate(snapshot)
+
+    assert candidate.created is True
+    assert candidate.stopLoss is not None
+    assert snapshot["price"] - candidate.stopLoss >= snapshot["price"] * 0.0055

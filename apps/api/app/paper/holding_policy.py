@@ -421,14 +421,14 @@ TRADER_HOLDING_POLICIES: dict[str, HoldingPolicy] = {
         giveback_target_progress=Decimal("0.55"),
         early_failure_adverse_r=Decimal("0.75"),
         trail_review_progress_r=Decimal("1.90"),
-        style_note="ATR trend follower; avoid premature breakeven and trail only after enough profit cushion.",
+        style_note="ATR trend follower; protect a proven winner at breakeven, then delay trailing until a larger profit cushion.",
         horizon="trend",
         primary_timeframe="4h",
         expected_hold_minutes=1800,
         order_ttl_seconds=2700,
         target_profile="atr_trend",
         risk_uplift_multiplier=Decimal("1.22"),
-        first_take_profit_breakeven_progress=Decimal("0.90"),
+        first_take_profit_breakeven_progress=Decimal("0.60"),
     ),
 }
 
