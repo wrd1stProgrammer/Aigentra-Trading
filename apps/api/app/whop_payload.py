@@ -49,19 +49,24 @@ def checkout_id_from_data(data: dict[str, Any]) -> str:
 
 
 def membership_id_from_data(data: dict[str, Any]) -> str:
-    member = data.get("member")
-    if isinstance(member, dict):
-        member_id = read_string(member, "id")
-        if member_id:
-            return member_id
+    if read_string(data, "object") == "membership":
+        return read_string(data, "id")
+    if read_string(data, "id").startswith("mem_"):
+        return read_string(data, "id")
     membership = data.get("membership")
     if isinstance(membership, dict):
         membership_id = read_string(membership, "id")
         if membership_id:
             return membership_id
-    if read_string(data, "object") == "membership":
-        return read_string(data, "id")
-    return read_string(data, "membership_id")
+    direct_membership_id = read_string(data, "membership_id")
+    if direct_membership_id:
+        return direct_membership_id
+    member = data.get("member")
+    if isinstance(member, dict):
+        member_id = read_string(member, "id")
+        if member_id:
+            return member_id
+    return ""
 
 
 def payment_id_from_event(event_type: str, data: dict[str, Any]) -> str:

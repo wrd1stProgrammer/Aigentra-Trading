@@ -1,11 +1,13 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
+import { headers } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
 import { AppProvider } from "@/components/app-provider";
 import { SiteVisitTracker } from "@/components/site-visit-tracker";
 import { SITE_NAME, SITE_URL, metadataForPath } from "@/lib/seo";
+import { REQUEST_LOCALE_HEADER, localeFromRequestHeader } from "@/lib/server-locale";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -57,9 +59,12 @@ export const viewport: Viewport = {
   themeColor: "#070908"
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const requestHeaders = await headers();
+  const initialLocale = localeFromRequestHeader(requestHeaders.get(REQUEST_LOCALE_HEADER));
+
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang={initialLocale} className="dark" suppressHydrationWarning>
       <head>
         {process.env.NODE_ENV === "development" && (
           <Script
@@ -78,7 +83,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         )}
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans text-zinc-900 antialiased dark:text-zinc-100`}>
-        <AppProvider>
+        <AppProvider initialLocale={initialLocale}>
           <SiteVisitTracker />
           <AppShell>{children}</AppShell>
         </AppProvider>

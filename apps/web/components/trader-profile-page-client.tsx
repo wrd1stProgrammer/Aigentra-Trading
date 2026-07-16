@@ -36,6 +36,7 @@ import { usePnlCalendarNavigation } from "@/components/trader-profile-detail/pnl
 import { normalizePlan } from "@/components/trader-profile-detail/plan";
 import {
   countByUtcDateWithFallback,
+  hasLoadedRecordsBeforeUtcDate,
   nextVisibleCount,
   timelineCountByUtcDate,
   timelineItemsForUtcDate
@@ -58,7 +59,8 @@ import { PageLoadingOverlay } from "@/components/page-loading-overlay";
 import type { TradeHistoryItem, Translator } from "@/components/trader-profile-detail/types";
 import { traderVisuals } from "@/lib/league";
 import { selectMergedPositionReviewSource } from "@/lib/position-review-source";
-import { CaretLeft, CaretRight, Clock } from "@phosphor-icons/react";
+import { isPartialRiskReductionAction } from "@/components/trader-profile-detail/trade-history-result";
+import { CaretLeft, CaretRight } from "@phosphor-icons/react";
 import { ProtectedContentGate } from "@/components/access-gate";
 import {
   guestSubscriberAccess,
@@ -390,20 +392,23 @@ function mapMergedItemToHistoryItem(
 ): TradeHistoryItem {
   const pnlTone = item.pnl > 0.01 ? "good" : item.pnl < -0.01 ? "bad" : "neutral";
   const resultTone = pnlTone;
+  const isPartialRiskReduction = isPartialRiskReductionAction(item.action);
   
-  let resultLabel = t("detail.resultBreakeven");
-  if (item.pnl > 0.01) resultLabel = t("detail.resultTakeProfit");
-  if (item.pnl < -0.01) resultLabel = t("detail.resultStopLoss");
+  let resultLabel = isPartialRiskReduction ? t("status.positionReducedByAi") : t("detail.resultBreakeven");
+  if (!isPartialRiskReduction && item.pnl > 0.01) resultLabel = t("detail.resultTakeProfit");
+  if (!isPartialRiskReduction && item.pnl < -0.01) resultLabel = t("detail.resultStopLoss");
   
-  let basisDetail = t("detail.resultReasonBreakeven");
+  let basisDetail = isPartialRiskReduction ? t("status.positionReducedByAi") : t("detail.resultReasonBreakeven");
   const reasonUpper = item.closeReason.toUpperCase();
-  if (reasonUpper.includes("TAKE_PROFIT")) basisDetail = t("detail.resultReasonTakeProfit");
-  if (reasonUpper.includes("STOP_LOSS") || reasonUpper.includes("LIQUIDATION")) basisDetail = t("detail.resultReasonStopLoss");
+  if (!isPartialRiskReduction && reasonUpper.includes("TAKE_PROFIT")) basisDetail = t("detail.resultReasonTakeProfit");
+  if (!isPartialRiskReduction && (reasonUpper.includes("STOP_LOSS") || reasonUpper.includes("LIQUIDATION"))) {
+    basisDetail = t("detail.resultReasonStopLoss");
+  }
   
   return {
     id: `merged-${item.time}-${item.side}-${item.exitPrice}`,
     time: formatRelativeDateTime(item.time, locale, t),
-    action: t("detail.closeTrade"),
+    action: isPartialRiskReduction ? t("status.positionReducedByAi") : t("detail.closeTrade"),
     actionTone: resultTone,
     label: item.symbol,
     quantity: `${formatNumber(item.quantity, 4, locale)}`,
@@ -441,6 +446,7 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const [extraReviews, setExtraReviews] = useState<ManagementReview[]>([]);
   const [reviewsNextOffset, setReviewsNextOffset] = useState(DETAIL_INITIAL_REVIEWS_LIMIT);
   const [reviewsHasMore, setReviewsHasMore] = useState(true);
+  const [reviewsFailedOffset, setReviewsFailedOffset] = useState<number | null>(null);
   const [loadingMoreReviews, setLoadingMoreReviews] = useState(false);
   const [historyItems, setHistoryItems] = useState<TradeHistoryItem[]>([]);
   const [historyOffset, setHistoryOffset] = useState(0);
@@ -766,6 +772,8 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   const loadedScenarioCountByDate = useMemo(() => timelineCountByUtcDate(scenarioTimelineItems), [scenarioTimelineItems]);
   const selectedScenarioTotal = scenarioCountByDate.get(selectedDate) ?? 0;
   const selectedScenarioVisibleCount = visibleScenarioCountByDate[selectedDate] ?? 10;
+  const loadedScenarioCountForSelectedDate = loadedScenarioCountByDate.get(selectedDate) ?? 0;
+  const hasLoadedReviewWindowPastSelectedDate = hasLoadedRecordsBeforeUtcDate(reviews, selectedDate);
   const filteredTimelineItems = useMemo(() => {
     return timelineItemsForUtcDate(scenarioTimelineItems, selectedDate, selectedScenarioVisibleCount);
   }, [scenarioTimelineItems, selectedDate, selectedScenarioVisibleCount]);
@@ -870,6 +878,8 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
     setExtraReviews([]);
     setReviewsNextOffset(DETAIL_INITIAL_REVIEWS_LIMIT);
     setReviewsHasMore(true);
+    setReviewsFailedOffset(null);
+    setLoadingMoreReviews(false);
     tradeEventsAbortRef.current?.abort();
     tradeEventsContextKeyRef.current = contextKey;
     tradeEventsLoadingRef.current = false;
@@ -974,7 +984,9 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
       setExtraReviews((current) => mergeManagementReviews(current, response.managementReviews));
       setReviewsNextOffset(response.nextOffset);
       setReviewsHasMore(response.hasMore);
+      setReviewsFailedOffset(null);
     } catch (err) {
+      if (reviewsContextKeyRef.current === requestContextKey) setReviewsFailedOffset(reviewsNextOffset);
       console.error("Failed to load management reviews:", err);
     } finally {
       if (reviewsContextKeyRef.current === requestContextKey) {
@@ -985,17 +997,29 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
   }, [locale, reviewsHasMore, reviewsNextOffset, symbol, traderId]);
 
   const loadMoreSelectedScenarios = useCallback(() => {
-    const loadedForDate = loadedScenarioCountByDate.get(selectedDate) ?? 0;
     if (selectedScenarioTotal > selectedScenarioVisibleCount) {
       setVisibleScenarioCountByDate((current) => ({
         ...current,
         [selectedDate]: nextVisibleCount(selectedScenarioVisibleCount, selectedScenarioTotal)
       }));
     }
-    if (loadedForDate < selectedScenarioTotal && reviewsHasMore) {
-      void loadMoreReviews();
-    }
-  }, [loadMoreReviews, loadedScenarioCountByDate, reviewsHasMore, selectedDate, selectedScenarioTotal, selectedScenarioVisibleCount]);
+  }, [selectedDate, selectedScenarioTotal, selectedScenarioVisibleCount]);
+
+  useEffect(() => {
+    if (loadingMoreReviews || !reviewsHasMore || hasLoadedReviewWindowPastSelectedDate) return;
+    if (reviewsFailedOffset === reviewsNextOffset) return;
+    if (loadedScenarioCountForSelectedDate >= selectedScenarioVisibleCount) return;
+    void loadMoreReviews();
+  }, [
+    hasLoadedReviewWindowPastSelectedDate,
+    loadedScenarioCountForSelectedDate,
+    loadingMoreReviews,
+    loadMoreReviews,
+    reviewsFailedOffset,
+    reviewsHasMore,
+    reviewsNextOffset,
+    selectedScenarioVisibleCount
+  ]);
 
   const handleScenarioScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     const target = event.currentTarget;
@@ -1231,17 +1255,6 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
               </div>
             </div>
 
-            <div className="mt-6 border-t border-zinc-100 pt-4 flex justify-center dark:border-zinc-900">
-              <button
-                type="button"
-                className="focus-ring flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-zinc-500 hover:text-zinc-800 transition dark:text-zinc-400 dark:hover:text-zinc-200"
-                disabled={loadingMoreReviews}
-                onClick={loadMoreSelectedScenarios}
-              >
-                <Clock size={14} />
-                {t("detail.loadMoreSelectedScenarios")}
-              </button>
-            </div>
           </section>
 
           <TradingJournal
@@ -1460,16 +1473,6 @@ export function TraderProfilePageClient({ traderId }: { traderId: string }) {
                 </div>
               </div>
 
-              <div className="mt-6 border-t border-zinc-100 pt-4 flex justify-center dark:border-zinc-900">
-                <button
-                  type="button"
-                  className="focus-ring flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-zinc-500 hover:text-zinc-800 transition dark:text-zinc-400 dark:hover:text-zinc-200"
-                  onClick={loadMoreSelectedScenarios}
-                >
-                  <Clock size={14} />
-                  {t("detail.loadMoreSelectedScenarios")}
-                </button>
-              </div>
             </section>
           )}
 

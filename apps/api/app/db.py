@@ -545,6 +545,25 @@ class SubscriberPreferenceRecord(CommonMixin, Base):
     locale: Mapped[str] = mapped_column(String(8), default="ko", nullable=False)
 
 
+class SubscriberOnboardingRecord(Base):
+    __tablename__ = "subscriber_onboarding"
+    __table_args__ = (
+        UniqueConstraint("email", name="uq_subscriber_onboarding_email"),
+        Index("ix_subscriber_onboarding_user_completed", "user_id", "completed_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False, index=True)
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(240), nullable=False, index=True)
+    acquisition_source: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    weekly_position_frequency: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    primary_goal: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    experience_level: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+
+
 class WhopCheckoutRecord(Base):
     __tablename__ = "whop_checkouts"
     __table_args__ = (
@@ -569,6 +588,8 @@ class WhopCheckoutRecord(Base):
     whop_plan_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
     whop_payment_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
     whop_membership_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    current_period_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     currency: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     purchase_url: Mapped[str] = mapped_column(Text, nullable=False)

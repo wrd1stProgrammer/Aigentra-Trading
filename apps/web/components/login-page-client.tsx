@@ -5,6 +5,7 @@ import { signIn } from "next-auth/react";
 import { type FormEvent, useState } from "react";
 import { ArrowLeft, Eye, EyeSlash, GoogleLogo, ShieldCheck } from "@phosphor-icons/react";
 import { useAppContext } from "@/components/app-provider";
+import { markNewAccountRewardPending } from "@/lib/new-account-reward";
 import { safeInternalPath } from "@/lib/safe-redirect";
 
 type LoginPageClientProps = {
@@ -205,6 +206,8 @@ export function LoginPageClient({ nextPath, googleConfigured, credentialsConfigu
         setFormMessage({ tone: "error", text: signupErrorMessage(body, response.status, text) });
         return;
       }
+
+      markNewAccountRewardPending(email);
 
       const result = await signIn("credentials", {
         email,

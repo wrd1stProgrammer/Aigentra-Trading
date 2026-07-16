@@ -9,6 +9,7 @@ import { TelegramReviewSectionSettings } from "@/components/telegram-review-sect
 import { TelegramTestButton } from "@/components/telegram-test-button";
 import { useSubscriberPreferenceSync } from "@/components/use-subscriber-preference-sync";
 import { ProtectedContentGate } from "@/components/access-gate";
+import { SubscriptionManagementDisclosure } from "@/components/subscription-management-disclosure";
 import { useSubscriberAccess } from "@/components/use-subscriber-access";
 import {
   mergeStoredSubscriberPreferences,
@@ -99,10 +100,13 @@ export function SubscriberAccountClient({ initialPreferences, botTokenConfigured
             <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white sm:text-3xl break-keep">
               {copy.title}
             </h1>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              {access?.isSubscribed ? copy.active : appContext.t("access.freePlan")}
-            </span>
+            {access?.isSubscribed ? (
+              <SubscriptionManagementDisclosure locale={resolvedLocale} />
+            ) : (
+              <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-zinc-300 bg-zinc-100 px-3 text-[10px] font-bold text-zinc-600 dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-400">
+                {appContext.t("access.freePlan")}
+              </span>
+            )}
           </div>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 text-sm max-w-2xl break-keep leading-relaxed">
             {copy.subtitle}

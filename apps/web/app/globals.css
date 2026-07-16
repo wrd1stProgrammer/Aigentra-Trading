@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+html[lang="ko"] .landing-page :is(h1, h2, h3) {
+  word-break: keep-all;
+  overflow-wrap: normal;
+}
+
 :root {
   color-scheme: light;
   --app-bg: #f3f4f6;
@@ -16,6 +21,7 @@
   --border-strong: rgba(15, 23, 42, 0.18);
   --accent: #0f766e;
   --accent-strong: #115e59;
+  --accent-soft: rgba(15, 118, 110, 0.1);
   --good: #047857;
   --bad: #dc2626;
   --warn: #b45309;
@@ -80,6 +86,7 @@
   --border-strong: rgba(244, 247, 245, 0.22);
   --accent: #2dd4bf;
   --accent-strong: #5eead4;
+  --accent-soft: rgba(45, 212, 191, 0.1);
   --good: #34d399;
   --bad: #fb7185;
   --warn: #fbbf24;

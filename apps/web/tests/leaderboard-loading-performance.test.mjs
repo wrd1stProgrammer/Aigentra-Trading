@@ -115,11 +115,12 @@ test("locked leaderboard rows can defer heavy protected children until subscribe
   );
 });
 
-test("AI decision terminal waits for the leaderboard and subscriber access before bounded requests", () => {
+test("AI decision terminal waits for resolved access before bounded requests", () => {
   const leaderboardSource = readFileSync(new URL("../components/leaderboard-page-client.tsx", import.meta.url), "utf8");
   const apiSource = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
 
-  assert.match(leaderboardSource, /enabled: shouldFetchSecondaryLeaderboardData && isSubscribed/, "locked and initial-loading pages should not fetch terminal details");
+  assert.match(leaderboardSource, /enabled: shouldFetchSecondaryLeaderboardData && accessReady && !subscriberAccessUnavailable/, "pending and unavailable access states should not fetch terminal details");
+  assert.match(leaderboardSource, /if \(!isSubscribed \|\| !aiTradeTerminalQuery\.hasNextPage/, "free previews should never fetch a second page");
   assert.match(leaderboardSource, /staleTime: 60_000/, "terminal data should not refetch at the faster ranking cadence");
   assert.match(leaderboardSource, /pages\.length[^\n]*<= 1 \? 300_000 : false/, "loaded history pages should not all poll in the background");
   assert.match(apiSource, /const pageSize = 20/, "terminal sources should begin with a small shared page");

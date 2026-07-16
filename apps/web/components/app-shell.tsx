@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
@@ -10,8 +10,12 @@ import {
 } from "@phosphor-icons/react";
 import { BrandMark } from "@/components/brand-mark";
 import { useAppContext } from "@/components/app-provider";
+import { NewAccountOnboardingModal } from "@/components/new-account-onboarding-modal";
+import { NewAccountRewardModal } from "@/components/new-account-reward-modal";
 import { useSubscriberAccess } from "@/components/use-subscriber-access";
 import { LOCALE_OPTIONS, type Locale } from "@/lib/i18n";
+import { isLocalizedHomeLocale } from "@/lib/locale-routing";
+import { acknowledgeNewAccountReward, isNewAccountRewardPending } from "@/lib/new-account-reward";
 import {
   isShellLinkActive,
   shouldHandleShellNavigationClick,
@@ -27,6 +31,7 @@ const links = [
 ];
 
 const APP_SHELL_CONTAINER_CLASS = "mx-auto w-full max-w-[1760px] px-2 sm:px-6 lg:px-10 2xl:px-14";
+type WelcomePhase = "idle" | "onboarding" | "reward";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -36,12 +41,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const accessQuery = useSubscriberAccess({ enabled: !isAdminPage });
   const access = accessQuery.data;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [welcomePhase, setWelcomePhase] = useState<WelcomePhase>("idle");
   const [pendingPathname, setPendingPathname] = useState<string | null>(null);
   const visiblePath = visibleShellPathname(pathname, pendingPathname);
+  const authenticatedEmail = session?.user?.email;
 
   useEffect(() => {
     setPendingPathname(null);
   }, [pathname]);
+
+  useEffect(() => {
+    if (welcomePhase !== "idle" || pathname !== "/leaderboard" || !authenticatedEmail || !access) return;
+    const hasUntouchedWelcomeBalance =
+      !access.isSubscribed &&
+      !access.unavailable &&
+      access.couponLimit === 3 &&
+      access.couponsRemaining === access.couponLimit &&
+      access.couponsUsed === 0;
+    if (hasUntouchedWelcomeBalance && isNewAccountRewardPending(authenticatedEmail)) {
+      setWelcomePhase("onboarding");
+    }
+  }, [access, authenticatedEmail, pathname, welcomePhase]);
+
+  const completeOnboarding = useCallback(() => {
+    setWelcomePhase("reward");
+  }, []);
+
+  const dismissRewardModal = useCallback(() => {
+    acknowledgeNewAccountReward();
+    setWelcomePhase("idle");
+  }, []);
 
   const handleShellLinkClick = (event: MouseEvent<HTMLAnchorElement>, href: string) => {
     if (!shouldHandleShellNavigationClick(event)) return;
@@ -52,7 +81,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const userName = session?.user?.name || t("shell.user");
   const avatarText = userName.length > 2 ? userName.slice(-2) : userName;
 
-  const isLandingPage = pathname === "/";
+  const isLandingPage = pathname === "/" || isLocalizedHomeLocale(pathname.slice(1));
   const isLoginPage = pathname === "/login";
   const isTermsPage = pathname === "/terms";
   const isDisclaimerPage = pathname === "/disclaimer";
@@ -158,6 +187,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           children
         )}
       </main>
+
+      {welcomePhase === "onboarding" ? (
+        <NewAccountOnboardingModal locale={locale} onComplete={completeOnboarding} />
+      ) : null}
+
+      {welcomePhase === "reward" ? (
+        <NewAccountRewardModal
+          locale={locale}
+          couponCount={access?.couponLimit ?? 3}
+          onClose={dismissRewardModal}
+        />
+      ) : null}
 
       {showAppChrome && !isTraderDetailPage && !isAdminPage ? (
         <nav className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 rounded-2xl border border-white/10 bg-[#0a0d0c]/94 p-1.5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur-xl md:hidden">

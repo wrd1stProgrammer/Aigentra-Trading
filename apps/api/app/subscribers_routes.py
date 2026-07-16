@@ -1,12 +1,13 @@
 import os
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.db import SubscriberPreferenceRecord, get_db, session_scope
+from app.db import SubscriberOnboardingRecord, SubscriberPreferenceRecord, get_db, session_scope
 from app.subscribers import (
     TelegramSettingsInput,
     get_or_create_subscriber_preferences,
@@ -50,6 +51,15 @@ class SubscriberAccessUnlockPayload(BaseModel):
     sourceType: str = "scenario"
     traderId: str | None = None
     symbol: str | None = None
+
+
+class SubscriberOnboardingPayload(BaseModel):
+    userId: str
+    email: str
+    acquisitionSource: Literal["search", "tiktok", "instagram", "threads", "referral", "other"]
+    weeklyPositionFrequency: Literal["none", "one_two", "three_five", "six_ten", "eleven_plus"]
+    primaryGoal: Literal["compare_strategies", "learn_trading", "improve_risk", "get_alerts"]
+    experienceLevel: Literal["beginner", "intermediate", "advanced", "professional"]
 
 
 def require_subscriber_api_token(x_subscriber_api_token: str = Header(default="")) -> None:
@@ -154,6 +164,66 @@ def read_subscriber_access(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return access_payload(state)
+
+
+@router.get("/onboarding")
+def read_subscriber_onboarding(
+    user_id: str = Query(alias="userId"),
+    email: str = Query(),
+    _: None = Depends(require_subscriber_api_token),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    normalized_email = email.strip().lower()
+    record = db.query(SubscriberOnboardingRecord).filter_by(email=normalized_email).one_or_none()
+    if record is None:
+        return {"completed": False}
+    return subscriber_onboarding_payload(record)
+
+
+@router.put("/onboarding")
+def complete_subscriber_onboarding(
+    payload: SubscriberOnboardingPayload,
+    _: None = Depends(require_subscriber_api_token),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    normalized_email = payload.email.strip().lower()
+    normalized_user_id = payload.userId.strip()
+    if not normalized_email or not normalized_user_id:
+        raise HTTPException(status_code=400, detail="subscriber identity is required")
+    record = db.query(SubscriberOnboardingRecord).filter_by(email=normalized_email).one_or_none()
+    now = datetime.now(timezone.utc)
+    if record is None:
+        record = SubscriberOnboardingRecord(
+            user_id=normalized_user_id,
+            email=normalized_email,
+            completed_at=now,
+            acquisition_source=payload.acquisitionSource,
+            weekly_position_frequency=payload.weeklyPositionFrequency,
+            primary_goal=payload.primaryGoal,
+            experience_level=payload.experienceLevel,
+        )
+        db.add(record)
+    else:
+        record.user_id = normalized_user_id
+        record.completed_at = now
+        record.acquisition_source = payload.acquisitionSource
+        record.weekly_position_frequency = payload.weeklyPositionFrequency
+        record.primary_goal = payload.primaryGoal
+        record.experience_level = payload.experienceLevel
+    db.commit()
+    db.refresh(record)
+    return subscriber_onboarding_payload(record)
+
+
+def subscriber_onboarding_payload(record: SubscriberOnboardingRecord) -> dict[str, object]:
+    return {
+        "completed": True,
+        "acquisitionSource": record.acquisition_source,
+        "weeklyPositionFrequency": record.weekly_position_frequency,
+        "primaryGoal": record.primary_goal,
+        "experienceLevel": record.experience_level,
+        "completedAt": record.completed_at.isoformat(),
+    }
 
 
 @router.post("/access/unlock")

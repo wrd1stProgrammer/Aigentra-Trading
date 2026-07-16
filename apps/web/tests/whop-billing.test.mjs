@@ -5,7 +5,9 @@ import assert from "node:assert/strict";
 const billingApiSource = readFileSync(new URL("../lib/billing-api.ts", import.meta.url), "utf8");
 const billingRouteSource = readFileSync(new URL("../app/api/billing/checkout/route.ts", import.meta.url), "utf8");
 const billingStatusRouteSource = readFileSync(new URL("../app/api/billing/status/route.ts", import.meta.url), "utf8");
+const billingCancelRouteSource = readFileSync(new URL("../app/api/billing/cancel/route.ts", import.meta.url), "utf8");
 const billingPanelSource = readFileSync(new URL("../components/whop-billing-panel.tsx", import.meta.url), "utf8");
+const subscriptionDisclosureSource = readFileSync(new URL("../components/subscription-management-disclosure.tsx", import.meta.url), "utf8");
 const landingCheckoutButtonSource = readFileSync(new URL("../components/landing-checkout-button.tsx", import.meta.url), "utf8");
 const accountSource = readFileSync(new URL("../components/subscriber-account-client.tsx", import.meta.url), "utf8");
 
@@ -36,6 +38,23 @@ test("billing status route is session-protected and proxied through the backend"
   assert.match(billingStatusRouteSource, /auth\(\)/, "billing status should be scoped to the signed-in account");
   assert.match(billingStatusRouteSource, /readWhopSubscriptionStatus/, "status route should use the backend billing helper");
   assert.match(billingApiSource, /\/api\/billing\/whop\/status/, "server helper should call the backend status endpoint");
+});
+
+test("account reveals subscription cancellation only through the active subscription disclosure", () => {
+  assert.match(accountSource, /SubscriptionManagementDisclosure/, "active subscribers should receive the compact management disclosure");
+  assert.match(subscriptionDisclosureSource, /aria-expanded=\{open\}/, "the active plan badge should expose disclosure state");
+  assert.match(subscriptionDisclosureSource, /\/api\/billing\/cancel/, "the final confirmation should call the signed-in cancellation route");
+  assert.match(subscriptionDisclosureSource, /confirming/, "cancellation should require an inline confirmation step");
+  assert.match(subscriptionDisclosureSource, /setConfirming\(false\)/, "closing the disclosure should reset destructive confirmation");
+  assert.match(subscriptionDisclosureSource, /cancelAtPeriodEnd/, "scheduled cancellation should have a durable success state");
+});
+
+test("subscription cancellation is session-bound and proxied to Whop through the backend", () => {
+  assert.match(billingCancelRouteSource, /auth\(\)/, "cancellation must be scoped to the signed-in account");
+  assert.match(billingCancelRouteSource, /cancelWhopSubscription/, "the Next route should use the backend billing helper");
+  assert.match(billingApiSource, /\/api\/billing\/whop\/cancel/, "the server helper should call the backend cancellation endpoint");
+  assert.match(billingApiSource, /X-Subscriber-Api-Token/, "the cancellation proxy must use the internal backend token");
+  assert.doesNotMatch(subscriptionDisclosureSource, /WHOP_API_KEY|WHOP_WEBHOOK_SECRET/, "the browser must never receive Whop credentials");
 });
 
 test("landing pricing paid CTA starts hosted checkout directly", () => {

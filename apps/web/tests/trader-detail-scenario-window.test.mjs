@@ -38,6 +38,21 @@ test("scenario rows are windowed to the selected UTC date and visible limit", ()
   assert.equal(scenarioWindow.nextVisibleCount(10, 35), 20);
 });
 
+test("scenario review hydration stops after paging beyond the selected UTC date", () => {
+  const currentDateOnly = [
+    { createdAt: "2026-07-15T14:47:03Z" },
+    { createdAt: "2026-07-15T10:00:06Z" }
+  ];
+  const crossedDateBoundary = [
+    ...currentDateOnly,
+    { createdAt: "2026-07-14T22:46:15Z" }
+  ];
+
+  assert.equal(scenarioWindow.hasLoadedRecordsBeforeUtcDate(currentDateOnly, "2026-07-15"), false);
+  assert.equal(scenarioWindow.hasLoadedRecordsBeforeUtcDate(crossedDateBoundary, "2026-07-15"), true);
+  assert.equal(scenarioWindow.hasLoadedRecordsBeforeUtcDate([{ createdAt: "invalid" }], "2026-07-15"), false);
+});
+
 function loadTsModule(relativePath) {
   const tsSource = readFileSync(new URL(relativePath, import.meta.url), "utf8");
   const { outputText } = ts.transpileModule(tsSource, {

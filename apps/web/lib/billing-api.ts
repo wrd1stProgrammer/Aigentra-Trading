@@ -20,7 +20,15 @@ const whopSubscriptionStatusSchema = z.object({
   membershipId: z.string().nullable(),
   currency: z.string().nullable(),
   amount: z.number().nullable(),
+  cancelAtPeriodEnd: z.boolean(),
+  currentPeriodEnd: z.string().nullable(),
   sandbox: z.boolean()
+});
+
+const whopCancellationSchema = z.object({
+  status: z.literal("active"),
+  cancelAtPeriodEnd: z.literal(true),
+  currentPeriodEnd: z.string().nullable()
 });
 
 type SubscriberIdentity = {
@@ -30,6 +38,7 @@ type SubscriberIdentity = {
 
 export type WhopCheckoutResult = z.infer<typeof whopCheckoutSchema>;
 export type WhopSubscriptionStatus = z.infer<typeof whopSubscriptionStatusSchema>;
+export type WhopCancellationResult = z.infer<typeof whopCancellationSchema>;
 
 export class BillingApiError extends Error {
   readonly status: number;
@@ -89,6 +98,22 @@ export async function readWhopSubscriptionStatus(identity: SubscriberIdentity): 
   return parsed.data;
 }
 
+export async function cancelWhopSubscription(identity: SubscriberIdentity): Promise<WhopCancellationResult> {
+  const apiUrl = whopCancelApiUrl();
+  if (!apiUrl) throw new BillingApiError("billing_api_unavailable", 503);
+
+  const response = await fetch(apiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...subscriberApiHeaders() },
+    body: JSON.stringify({ userId: identity.userId, email: identity.email })
+  });
+  const responseBody: unknown = await safeJson(response);
+  if (!response.ok) throw new BillingApiError(readError(responseBody), response.status);
+  const parsed = whopCancellationSchema.safeParse(responseBody);
+  if (!parsed.success) throw new BillingApiError("invalid_billing_response", 502);
+  return parsed.data;
+}
+
 function whopCheckoutApiUrl(): string | null {
   const baseUrl = resolveExternalApiBaseUrl();
   if (!baseUrl) return null;
@@ -102,6 +127,12 @@ function whopStatusApiUrl(identity: SubscriberIdentity): string | null {
   url.searchParams.set("userId", identity.userId);
   url.searchParams.set("email", identity.email);
   return url.toString();
+}
+
+function whopCancelApiUrl(): string | null {
+  const baseUrl = resolveExternalApiBaseUrl();
+  if (!baseUrl) return null;
+  return new URL("/api/billing/whop/cancel", baseUrl).toString();
 }
 
 function subscriberApiHeaders(): Record<string, string> {

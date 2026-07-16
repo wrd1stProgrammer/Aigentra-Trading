@@ -7,6 +7,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { isSupportedLocale, translate, type Locale } from "@/lib/i18n";
 import { LEAGUE_QUERY_GC_TIME_MS, LEAGUE_QUERY_STALE_TIME_MS } from "@/lib/api";
 import { DASHBOARD_SESSION_REFETCH_POLICY } from "@/lib/session-refetch-policy";
+import { LOCALE_COOKIE_NAME } from "@/lib/server-locale";
 
 type AppContextValue = {
   locale: Locale;
@@ -23,7 +24,12 @@ const LOCALE_PENDING_STORAGE_KEY = "atl-locale-pending-account-sync";
 
 type StoredLocaleSource = "auto" | "account" | "manual";
 
-export function AppProvider({ children }: { children: React.ReactNode }) {
+type AppProviderProps = {
+  readonly children: React.ReactNode;
+  readonly initialLocale: Locale;
+};
+
+export function AppProvider({ children, initialLocale }: AppProviderProps) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -37,22 +43,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       })
   );
-  const [locale, setLocaleState] = useState<Locale>("en");
+  const [locale, setLocaleState] = useState<Locale>(initialLocale);
   const [theme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
     const storedLocale = readStoredLocale(LOCALE_STORAGE_KEY);
     if (storedLocale) {
       setLocaleState(storedLocale);
+      writeLocaleCookie(storedLocale);
       return;
     }
-    const detectedLocale = detectBrowserLocale({
-      languages: navigator.languages.length > 0 ? navigator.languages : [navigator.language],
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
-    });
-    setLocaleState(detectedLocale);
+    const detectedLocale = initialLocale;
     writeStoredLocale(detectedLocale, "auto");
-  }, []);
+  }, [initialLocale]);
 
   useEffect(() => {
     document.documentElement.classList.add("dark");
@@ -208,6 +211,12 @@ function readStoredLocale(key: string): Locale | null {
 function writeStoredLocale(locale: Locale, source: StoredLocaleSource): void {
   window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
   window.localStorage.setItem(LOCALE_SOURCE_STORAGE_KEY, source);
+  writeLocaleCookie(locale);
+}
+
+function writeLocaleCookie(locale: Locale): void {
+  document.documentElement.lang = locale;
+  document.cookie = `${LOCALE_COOKIE_NAME}=${encodeURIComponent(locale)}; Path=/; Max-Age=31536000; SameSite=Lax`;
 }
 
 async function saveAccountLocalePreference(locale: Locale, signal?: AbortSignal): Promise<boolean> {

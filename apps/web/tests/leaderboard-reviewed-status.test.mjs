@@ -53,10 +53,11 @@ test("leaderboard hover preview uses a 7D equity chart and six performance cells
   );
 });
 
-test("leaderboard opens with a subscriber-only AI decision terminal", () => {
+test("leaderboard opens with a bounded free AI decision terminal preview", () => {
   assert.match(leaderboardSource, /<AITradeTerminalPanel/, "leaderboard should render the AI decision terminal");
   assert.match(leaderboardSource, /<AITradeTerminalLockedPreview/, "free users should see a stable terminal-shaped subscription preview");
-  assert.match(leaderboardSource, /enabled: shouldFetchSecondaryLeaderboardData && isSubscribed/, "terminal requests should wait for the main leaderboard and subscriber access");
+  assert.match(leaderboardSource, /enabled: shouldFetchSecondaryLeaderboardData && accessReady && !subscriberAccessUnavailable/, "terminal requests should wait for the main leaderboard and resolved access");
+  assert.match(leaderboardSource, /hasMore=\{isSubscribed && Boolean\(aiTradeTerminalQuery\.hasNextPage\)\}/, "only subscribers should paginate terminal history");
   assert.match(leaderboardSource, /staleTime: 60_000/, "terminal data should stay cached for a bounded minute");
   assert.match(apiSource, /\/api\/paper\/events/, "terminal should use actual execution events");
   assert.match(apiSource, /\/api\/league\/overview-reviews/, "terminal should pair executions with localized AI reviews");

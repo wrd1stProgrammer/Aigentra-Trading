@@ -4,6 +4,7 @@ export type LandingCopy = {
   readonly heroEyebrow: string;
   readonly heroTitle: string;
   readonly heroSubtitle: string;
+  readonly heroTrustLine: string;
   readonly primaryCta: string;
   readonly secondaryCta: string;
   readonly headerCta: string;
@@ -15,6 +16,7 @@ export type LandingCopy = {
   readonly videoTitle: string;
   readonly videoSubtitle: string;
   readonly stats: readonly { readonly label: string; readonly value: string; readonly detail: string }[];
+  readonly focusPoints: readonly { readonly title: string; readonly body: string }[];
   readonly steps: readonly { readonly title: string; readonly body: string }[];
   readonly agentSystemEyebrow: string;
   readonly agentSystemTitle: string;
@@ -148,13 +150,14 @@ export type LandingCopy = {
 
 const copy = {
   ko: {
-    heroEyebrow: "AI trader league for simulated futures",
-    heroTitle: "다양한 AI 트레이더들의 관점 비교, 결정적 순간의 포착",
+    heroEyebrow: "BTC 선물 · AI 트레이더 리그",
+    heroTitle: "BTC 하나에 집중하고, 앞서가는 AI 트레이더를 지켜보세요.",
     heroSubtitle:
-      "BTC 선물 데이터를 감시하는 AI 트레이더들의 관점을 대조합니다. 조건 검사부터 가상 진입, 리스크 리뷰까지 전 과정을 투명하게 추적합니다.",
-    primaryCta: "리더보드 보기",
+      "서로 다른 규칙과 위험 성향을 가진 20개 AI 전략이 BTC 선물만 추적합니다. 스캐너와 AI 리스크 심사의 2단계 진입부터 진입 후 관리 리뷰와 변경 이력까지 투명하게 공개합니다.",
+    heroTrustLine: "BTCUSDT 전용 · 실제 계좌 연결 없음 · 모든 성과는 시뮬레이션",
+    primaryCta: "AI 트레이더 순위 보기",
     secondaryCta: "Google로 시작",
-    headerCta: "관심 트레이더 고르기",
+    headerCta: "리더보드 보기",
     proofRating: "20",
     proofLabel: "simulation desk proof",
     proofBadge: "실제 계좌 연결 없이 검증",
@@ -166,6 +169,11 @@ const copy = {
       { label: "트레이더", value: "20", detail: "전략형 AI 에이전트" },
       { label: "시장", value: "BTC", detail: "OKX/Bitget public futures data" },
       { label: "알림", value: "Telegram", detail: "즐겨찾기 트레이더 중심" }
+    ],
+    focusPoints: [
+      { title: "BTC 하나에 집중", body: "수십 개 알트코인의 소음을 좇지 않고 BTCUSDT만 추적합니다." },
+      { title: "서로 다른 20개 전략", body: "동일한 봇의 복제가 아니라 규칙과 시간대, 위험 성향이 다른 전략입니다." },
+      { title: "진입 전후 이중 검토", body: "스캐너, AI 리스크 심사, 진입 후 관리 리뷰의 전체 기록을 남깁니다." }
     ],
     steps: [
       { title: "리그를 훑어보기", body: "누가 앞서고 있는지, 어떤 트레이더가 진입 대기 또는 포지션 관리 중인지 먼저 확인합니다." },
@@ -181,7 +189,7 @@ const copy = {
       { title: "20개 전략 관점의 Aigentra 종합 의견", body: "롱/숏 비율만 세지 않고, 진행 중인 포지션, 진입 대기, 최근 익절/손절, AI 리뷰를 묶어 현재 리그의 위험 기울기를 정리합니다." },
       { title: "진입 전 시나리오 계획 수립", body: "AI 트레이더들은 무작정 진입하지 않습니다. 진입 전 가격대, 무효화 기준, 목표 익절가와 기술적 체크를 TradingView 차트처럼 읽히는 플랜으로 남깁니다." }
     ],
-    agentCardKickers: ["[ 파이프라인 ]", "[ 포지션 리스크 ]", "[ 종합 의견 ]", "[ 옵션 1 · 거래 계획 ]"],
+    agentCardKickers: ["[ 파이프라인 ]", "[ 포지션 리스크 ]", "[ 종합 의견 ]", "[ 진입 계획 ]"],
     previews: {
       pipeline: {
         eyebrow: "의사결정 파이프라인",
@@ -328,13 +336,14 @@ const copy = {
     }
   },
   en: {
-    heroEyebrow: "AI trader league for simulated futures",
-    heroTitle: "Compare Diverse AI Trader Perspectives, Capturing Decisive Moments",
+    heroEyebrow: "BTC futures · AI trader league",
+    heroTitle: "Focus on Bitcoin. Watch the AI traders leading the league.",
     heroSubtitle:
-      "Compare the perspectives of AI traders monitoring BTC futures data. We transparently track the entire flow: from setup filtering to simulated entry and risk reviews.",
-    primaryCta: "View leaderboard",
+      "Twenty AI strategies with different rules and risk profiles track BTC futures only. See the two-stage scanner and AI risk review before entry, then every management review and change after entry.",
+    heroTrustLine: "BTCUSDT only · No exchange account connection · All performance is simulated",
+    primaryCta: "View AI trader rankings",
     secondaryCta: "Start with Google",
-    headerCta: "Choose traders to follow",
+    headerCta: "View leaderboard",
     proofRating: "20",
     proofLabel: "simulation desk proof",
     proofBadge: "Validated without exchange account access",
@@ -346,6 +355,11 @@ const copy = {
       { label: "Traders", value: "20", detail: "strategy AI agents" },
       { label: "Market", value: "BTC", detail: "OKX/Bitget public futures data" },
       { label: "Alerts", value: "Telegram", detail: "focused on favorites" }
+    ],
+    focusPoints: [
+      { title: "One market: Bitcoin", body: "Ignore the noise across dozens of altcoins and keep the league focused on BTCUSDT." },
+      { title: "20 distinct strategies", body: "These are not copies of one bot. Rules, time horizons, and risk profiles differ." },
+      { title: "Review before and after entry", body: "Follow the scanner, AI risk audit, and every post-entry management review." }
     ],
     steps: [
       { title: "Scan the league", body: "See who leads, who waits for entry, and who is actively managing a simulated position." },
@@ -361,7 +375,7 @@ const copy = {
       { title: "20-Strategist Aigentra Opinion", body: "Instead of counting Long/Short votes only, Aigentra combines active positions, pending setups, recent exits, and AI reviews into a current risk read." },
       { title: "Pre-Entry Scenario & Trade Plans", body: "AI traders do not enter blindly. Before taking action, they publish TradingView-style plans with entry zones, invalidation, targets, and technical checks." }
     ],
-    agentCardKickers: ["[ Pipeline ]", "[ Position Risk ]", "[ Consensus ]", "[ Option 1 · Trade Plan ]"],
+    agentCardKickers: ["[ Pipeline ]", "[ Position Risk ]", "[ Consensus ]", "[ Entry Plan ]"],
     previews: {
       pipeline: {
         eyebrow: "Decision Pipeline",
@@ -508,13 +522,14 @@ const copy = {
     }
   },
   ru: {
-    heroEyebrow: "лига AI-трейдеров для симуляции фьючерсов",
-    heroTitle: "Сравнивайте взгляды AI-трейдеров и ловите решающие моменты",
+    heroEyebrow: "BTC-фьючерсы · лига AI-трейдеров",
+    heroTitle: "Сосредоточьтесь на Bitcoin и следите за лидерами AI-лиги.",
     heroSubtitle:
-      "Aigentra сравнивает подходы AI-трейдеров, которые следят за BTC-фьючерсами. От фильтрации сетапа до виртуального входа и risk review — весь процесс остается прозрачным.",
-    primaryCta: "Открыть лидерборд",
+      "Двадцать AI-стратегий с разными правилами и профилями риска следят только за BTC-фьючерсами. Весь путь прозрачен: сканер, AI-проверка риска до входа и ревью управления после него.",
+    heroTrustLine: "Только BTCUSDT · Без подключения биржевого счета · Все результаты симулированы",
+    primaryCta: "Открыть рейтинг AI-трейдеров",
     secondaryCta: "Войти через Google",
-    headerCta: "Выбрать трейдеров",
+    headerCta: "Открыть лидерборд",
     proofRating: "20",
     proofLabel: "simulation desk proof",
     proofBadge: "Проверка без подключения биржевого счета",
@@ -526,6 +541,11 @@ const copy = {
       { label: "Трейдеры", value: "20", detail: "стратегические AI-агенты" },
       { label: "Рынок", value: "BTC", detail: "публичные futures-данные OKX/Bitget" },
       { label: "Уведомления", value: "Telegram", detail: "только избранные трейдеры" }
+    ],
+    focusPoints: [
+      { title: "Фокус только на Bitcoin", body: "Не распыляемся на десятки альткоинов и следим только за BTCUSDT." },
+      { title: "20 разных стратегий", body: "Это не копии одного бота: правила, горизонты и профили риска различаются." },
+      { title: "Проверка до и после входа", body: "Сканер, AI-аудит риска и каждое ревью управления остаются в истории." }
     ],
     steps: [
       { title: "Просмотрите лигу", body: "Сразу видно, кто лидирует, кто ждет входа, а кто уже управляет виртуальной позицией." },
@@ -541,7 +561,7 @@ const copy = {
       { title: "Сводное мнение Aigentra из 20 стратегий", body: "Мы учитываем не только Long/Short баланс, но и открытые позиции, ожидающие сетапы, недавние выходы и AI-ревью." },
       { title: "План сценария до входа", body: "AI-трейдеры не входят вслепую: зоны входа, отмена, цели и технические проверки оформляются как TradingView-подобный план." }
     ],
-    agentCardKickers: ["[ Пайплайн ]", "[ Риск позиции ]", "[ Консенсус ]", "[ Вариант 1 · Торговый план ]"],
+    agentCardKickers: ["[ Пайплайн ]", "[ Риск позиции ]", "[ Консенсус ]", "[ План входа ]"],
     previews: {
       pipeline: {
         eyebrow: "Пайплайн решения",
@@ -688,13 +708,14 @@ const copy = {
     }
   },
   "pt-BR": {
-    heroEyebrow: "liga de traders de IA para futuros simulados",
-    heroTitle: "Compare perspectivas de traders de IA e capture momentos decisivos",
+    heroEyebrow: "futuros de BTC · liga de traders de IA",
+    heroTitle: "Foque no Bitcoin e acompanhe os traders de IA que lideram a liga.",
     heroSubtitle:
-      "Aigentra compara os pontos de vista de traders de IA que monitoram futuros de BTC. Do filtro do setup à entrada simulada e às revisões de risco, o fluxo inteiro fica rastreável.",
-    primaryCta: "Ver leaderboard",
+      "Vinte estratégias de IA com regras e perfis de risco diferentes acompanham apenas futuros de BTC. Veja o scanner e a auditoria de risco em duas etapas antes da entrada, além de cada revisão depois dela.",
+    heroTrustLine: "Somente BTCUSDT · Sem conectar conta de exchange · Todo desempenho é simulado",
+    primaryCta: "Ver ranking de traders de IA",
     secondaryCta: "Entrar com Google",
-    headerCta: "Escolher traders",
+    headerCta: "Ver leaderboard",
     proofRating: "20",
     proofLabel: "simulation desk proof",
     proofBadge: "Validação sem conectar conta de exchange",
@@ -706,6 +727,11 @@ const copy = {
       { label: "Traders", value: "20", detail: "agentes de IA estratégicos" },
       { label: "Mercado", value: "BTC", detail: "dados públicos de futuros OKX/Bitget" },
       { label: "Alertas", value: "Telegram", detail: "foco nos favoritos" }
+    ],
+    focusPoints: [
+      { title: "Foco em Bitcoin", body: "Sem perseguir o ruído de dezenas de altcoins: a liga acompanha apenas BTCUSDT." },
+      { title: "20 estratégias distintas", body: "Não são cópias do mesmo bot. Regras, horizontes e perfis de risco são diferentes." },
+      { title: "Revisão antes e depois", body: "Scanner, auditoria de risco por IA e cada revisão de gestão ficam registrados." }
     ],
     steps: [
       { title: "Olhe a liga", body: "Veja quem lidera, quem espera entrada e quem está gerenciando uma posição simulada." },
@@ -721,7 +747,7 @@ const copy = {
       { title: "Opinião Aigentra com 20 estratégias", body: "A visão não conta só Long/Short. Ela combina posições ativas, setups pendentes, saídas recentes e revisões de IA." },
       { title: "Plano de cenário antes da entrada", body: "Os traders de IA não entram no escuro. Zonas de entrada, invalidação, alvos e checagens técnicas viram um plano no estilo TradingView." }
     ],
-    agentCardKickers: ["[ Pipeline ]", "[ Risco da posição ]", "[ Consenso ]", "[ Opção 1 · Plano de trade ]"],
+    agentCardKickers: ["[ Pipeline ]", "[ Risco da posição ]", "[ Consenso ]", "[ Plano de entrada ]"],
     previews: {
       pipeline: {
         eyebrow: "Pipeline de decisão",
@@ -868,13 +894,14 @@ const copy = {
     }
   },
   tr: {
-    heroEyebrow: "simüle vadeli işlemler için AI trader ligi",
-    heroTitle: "AI trader bakış açılarını karşılaştırın, kritik anları yakalayın",
+    heroEyebrow: "BTC vadeli işlemleri · AI trader ligi",
+    heroTitle: "Bitcoin'e odaklanın, ligin önde gelen AI traderlarını izleyin.",
     heroSubtitle:
-      "Aigentra, BTC vadeli piyasasını izleyen AI traderların bakış açılarını karşılaştırır. Kurulum filtresinden simüle girişe ve risk incelemesine kadar tüm akışı şeffaf biçimde izler.",
-    primaryCta: "Liderliği gör",
+      "Farklı kurallara ve risk profillerine sahip 20 AI stratejisi yalnızca BTC vadeli piyasasını izler. Giriş öncesi scanner ve AI risk denetiminden giriş sonrası tüm yönetim incelemelerine kadar süreç açıktır.",
+    heroTrustLine: "Yalnızca BTCUSDT · Borsa hesabı bağlantısı yok · Tüm performans simülasyondur",
+    primaryCta: "AI trader sıralamasını gör",
     secondaryCta: "Google ile başla",
-    headerCta: "Trader seç",
+    headerCta: "Liderliği gör",
     proofRating: "20",
     proofLabel: "simulation desk proof",
     proofBadge: "Borsa hesabı bağlamadan doğrulama",
@@ -886,6 +913,11 @@ const copy = {
       { label: "Trader", value: "20", detail: "strateji AI ajanları" },
       { label: "Piyasa", value: "BTC", detail: "OKX/Bitget public futures data" },
       { label: "Alarmlar", value: "Telegram", detail: "favorilere odaklı" }
+    ],
+    focusPoints: [
+      { title: "Yalnızca Bitcoin'e odaklanın", body: "Onlarca altcoin'in gürültüsünü kovalamadan yalnızca BTCUSDT'yi izleriz." },
+      { title: "20 farklı strateji", body: "Aynı botun kopyaları değildir; kurallar, zaman ufukları ve risk profilleri farklıdır." },
+      { title: "Giriş öncesi ve sonrası inceleme", body: "Scanner, AI risk denetimi ve giriş sonrası yönetim incelemelerinin tamamı kaydedilir." }
     ],
     steps: [
       { title: "Ligi tara", body: "Kim önde, kim giriş bekliyor, kim simüle pozisyon yönetiyor hızlıca görün." },
@@ -901,7 +933,7 @@ const copy = {
       { title: "20 stratejili Aigentra görüşü", body: "Sadece Long/Short sayımı değil; açık pozisyonlar, bekleyen kurulumlar, son çıkışlar ve AI incelemeleri birlikte okunur." },
       { title: "Giriş öncesi senaryo planı", body: "AI traderlar kör giriş yapmaz. Giriş bölgeleri, geçersizlik, hedefler ve teknik kontroller TradingView tarzı plan olarak kalır." }
     ],
-    agentCardKickers: ["[ Pipeline ]", "[ Pozisyon riski ]", "[ Konsensüs ]", "[ Seçenek 1 · İşlem planı ]"],
+    agentCardKickers: ["[ Pipeline ]", "[ Pozisyon riski ]", "[ Konsensüs ]", "[ Giriş planı ]"],
     previews: {
       pipeline: {
         eyebrow: "Karar pipeline'ı",

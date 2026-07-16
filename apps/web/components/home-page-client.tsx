@@ -2,15 +2,18 @@
 
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
-import { ArrowRight, BellRinging, CaretDown, Check, SignIn, SignOut, Star, TelegramLogo, Translate, Trophy, UserCircle } from "@phosphor-icons/react";
+import { usePathname, useRouter } from "next/navigation";
+import { ArrowRight, CaretDown, Check, SignIn, SignOut, Translate, Trophy, UserCircle } from "@phosphor-icons/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { BrandMark } from "@/components/brand-mark";
 import { BlogPreviewSection } from "@/components/blog/blog-preview-section";
 import { LearnPreviewSection } from "@/components/learn/learn-preview-section";
+import { LandingTelegramAlertsSection } from "@/components/landing-telegram-alerts-section";
 import { useAppContext } from "@/components/app-provider";
-import { PipelinePreview, PositionManagementPreview, ConsensusPreview, TradePlanPreview, AlertPreview, LandingFooter, PricingCard, VideoFrame } from "@/components/home-landing-visuals";
+import { PipelinePreview, PositionManagementPreview, ConsensusPreview, TradePlanPreview, LandingFooter, PricingCard, VideoFrame } from "@/components/home-landing-visuals";
 import { landingCopy } from "@/lib/marketing-copy";
 import { LOCALE_OPTIONS } from "@/lib/i18n";
+import { homePathForLocale } from "@/lib/locale-routing";
 
 function CandleNotch({
   position,
@@ -102,9 +105,10 @@ function formatAboutText(text: string) {
 export function HomePageClient() {
   const { locale, setLocale, t } = useAppContext();
   const { data: session } = useSession();
+  const pathname = usePathname();
+  const router = useRouter();
   const copy = landingCopy(locale);
   const [activeFaqIndex, setActiveFaqIndex] = useState<number | null>(null);
-  const [isAboutExpanded, setIsAboutExpanded] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
   const currentLanguage = LOCALE_OPTIONS.find((option) => option.locale === locale) ?? LOCALE_OPTIONS[0];
@@ -129,12 +133,12 @@ export function HomePageClient() {
 
           {/* Header */}
           <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-5 pt-4">
-            <Link href="/" className="focus-ring flex items-center gap-3 rounded-lg hover:opacity-90 transition">
+            <Link href={homePathForLocale(locale)} className="focus-ring flex items-center gap-3 rounded-lg hover:opacity-90 transition">
               <BrandMark priority />
               <span className="text-base font-bold tracking-tight sm:text-lg">Aigentra Trading</span>
             </Link>
             <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-              <Link href="/login" className="hidden text-white hover:text-emerald-300 font-mono text-sm font-semibold transition shrink-0 sm:inline">
+              <Link href="/leaderboard" className="hidden text-white hover:text-emerald-300 font-mono text-sm font-semibold transition shrink-0 sm:inline">
                 {copy.headerCta} →
               </Link>
               <div className="relative">
@@ -178,7 +182,11 @@ export function HomePageClient() {
                             type="button"
                             role="radio"
                             aria-checked={option.locale === locale}
-                            onClick={() => setLocale(option.locale)}
+                            onClick={() => {
+                              setLocale(option.locale);
+                              const nextPath = homePathForLocale(option.locale);
+                              if (pathname !== nextPath) router.replace(nextPath);
+                            }}
                             className={`focus-ring flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold transition ${
                               option.locale === locale
                                 ? "bg-emerald-400/12 text-emerald-200"
@@ -241,8 +249,26 @@ export function HomePageClient() {
                 <Trophy size={18} weight="bold" />
                 {copy.primaryCta}
               </Link>
-              <p className="hidden max-w-[56ch] text-xs text-zinc-500 sm:block break-keep">{copy.videoSubtitle}</p>
+              <p className="max-w-[64ch] text-pretty font-mono text-[11px] leading-5 text-zinc-500 sm:text-xs">{copy.heroTrustLine}</p>
             </div>
+          </div>
+
+          <div
+            data-testid="landing-focus-rail"
+            className="mx-auto mb-10 grid max-w-[1040px] overflow-hidden rounded-2xl border border-white/[0.09] bg-white/[0.025] sm:grid-cols-3"
+          >
+            {copy.focusPoints.map((point, index) => (
+              <article
+                key={point.title}
+                className="grid grid-cols-[32px_1fr] gap-3 border-b border-white/[0.08] px-4 py-4 last:border-b-0 sm:block sm:border-b-0 sm:border-r sm:px-5 sm:py-5 sm:last:border-r-0"
+              >
+                <span className="font-mono text-[10px] font-bold text-emerald-400">0{index + 1}</span>
+                <div className="min-w-0 sm:mt-3">
+                  <h2 className="text-sm font-bold tracking-tight text-white sm:text-base">{point.title}</h2>
+                  <p className="mt-1.5 text-pretty text-xs leading-5 text-zinc-400 sm:mt-2">{point.body}</p>
+                </div>
+              </article>
+            ))}
           </div>
 
           <div data-testid="landing-product-proof" className="relative mx-auto w-full max-w-[1240px] animate-fade-in-up animation-delay-500">
@@ -293,49 +319,49 @@ export function HomePageClient() {
           <div className="mt-14 grid grid-cols-1 md:grid-cols-12 gap-4 lg:gap-5">
             {/* Cell 1: Pipeline (Col span 7) */}
             <div className="md:col-span-7 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-4 sm:p-5 md:p-6 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
-              <div className="w-full flex-1 flex items-center justify-center min-h-[250px]">
+              <div className="flex min-h-[210px] w-full flex-1 items-center justify-center sm:min-h-[250px]">
                 <PipelinePreview copy={copy.previews.pipeline} />
               </div>
               <div className="mt-5 border-t border-white/5 pt-4">
                 <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-400 font-bold">{copy.agentCardKickers[0]}</span>
                 <h3 className="text-lg font-bold text-white tracking-tight mt-1.5 break-keep">{copy.agentCards[0].title}</h3>
-                <p className="mt-2.5 text-sm leading-6 text-zinc-400 break-keep">{copy.agentCards[0].body}</p>
+                <p className="mt-2.5 hidden text-sm leading-6 text-zinc-400 break-keep sm:block">{copy.agentCards[0].body}</p>
               </div>
             </div>
 
             {/* Cell 2: Position Risk (Col span 5) */}
             <div className="md:col-span-5 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-4 sm:p-5 md:p-6 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
-              <div className="w-full flex-1 flex items-center justify-center min-h-[250px]">
+              <div className="flex min-h-[210px] w-full flex-1 items-center justify-center sm:min-h-[250px]">
                 <PositionManagementPreview copy={copy.previews.position} />
               </div>
               <div className="mt-5 border-t border-white/5 pt-4">
                 <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-400 font-bold">{copy.agentCardKickers[1]}</span>
                 <h3 className="text-lg font-bold text-white tracking-tight mt-1.5 break-keep">{copy.agentCards[1].title}</h3>
-                <p className="mt-2.5 text-sm leading-6 text-zinc-400 break-keep">{copy.agentCards[1].body}</p>
+                <p className="mt-2.5 hidden text-sm leading-6 text-zinc-400 break-keep sm:block">{copy.agentCards[1].body}</p>
               </div>
             </div>
 
             {/* Cell 3: Consensus (Col span 6) */}
             <div className="md:col-span-6 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-4 sm:p-5 md:p-6 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
-              <div className="w-full flex-1 flex items-center justify-center min-h-[250px]">
+              <div className="flex min-h-[210px] w-full flex-1 items-center justify-center sm:min-h-[250px]">
                 <ConsensusPreview copy={copy.previews.consensus} />
               </div>
               <div className="mt-5 border-t border-white/5 pt-4">
                 <span className="font-mono text-[9px] uppercase tracking-wider text-emerald-400 font-bold">{copy.agentCardKickers[2]}</span>
                 <h3 className="text-lg font-bold text-white tracking-tight mt-1.5 break-keep">{copy.agentCards[2].title}</h3>
-                <p className="mt-2.5 text-sm leading-6 text-zinc-400 break-keep">{copy.agentCards[2].body}</p>
+                <p className="mt-2.5 hidden text-sm leading-6 text-zinc-400 break-keep sm:block">{copy.agentCards[2].body}</p>
               </div>
             </div>
 
             {/* Cell 4: Trade Plan (Col span 6 - Option 1 Emphasized) */}
             <div className="md:col-span-6 rounded-2xl border border-white/[0.08] bg-gradient-to-b from-[#141615] to-[#0a0b0a] p-4 sm:p-5 md:p-6 flex flex-col justify-between hover:border-white/15 hover:from-[#171a19] hover:to-[#0d0e0d] transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]">
-              <div className="w-full flex-1 flex items-center justify-center min-h-[250px]">
+              <div className="flex min-h-[210px] w-full flex-1 items-center justify-center sm:min-h-[250px]">
                 <TradePlanPreview copy={copy.previews.tradePlan} />
               </div>
               <div className="mt-5 border-t border-white/5 pt-4">
                 <span className="font-mono text-[9px] uppercase tracking-wider text-amber-400 font-bold">{copy.agentCardKickers[3]}</span>
                 <h3 className="text-lg font-bold text-white tracking-tight mt-1.5 break-keep">{copy.agentCards[3].title}</h3>
-                <p className="mt-2.5 text-sm leading-6 text-zinc-400 break-keep">{copy.agentCards[3].body}</p>
+                <p className="mt-2.5 hidden text-sm leading-6 text-zinc-400 break-keep sm:block">{copy.agentCards[3].body}</p>
               </div>
             </div>
           </div>
@@ -387,62 +413,7 @@ export function HomePageClient() {
         </div>
       </section>
 
-      <section data-testid="landing-telegram-alerts" className="relative overflow-hidden bg-white py-16 text-zinc-950 md:py-24">
-        <div className="relative mx-auto max-w-[1500px] px-4 sm:px-8 lg:px-10">
-          {/* Vertical grid lines */}
-          <div className="absolute inset-y-0 left-0 hidden w-px bg-zinc-200 lg:block" />
-          <div className="absolute inset-y-0 right-0 hidden w-px bg-zinc-200 lg:block" />
-          {/* Corner Markers / Notches */}
-          <CandleNotch position="top-left" theme="light" />
-          <CandleNotch position="top-right" theme="light" />
-          <CandleNotch position="bottom-left" theme="light" />
-          <CandleNotch position="bottom-right" theme="light" />
-
-          <ScrollReveal>
-            <div className="mx-auto grid gap-6 rounded-2xl border border-white/[0.09] bg-[radial-gradient(circle_at_18%_12%,rgba(45,212,191,0.10),transparent_31%),linear-gradient(180deg,#131716_0%,#070908_100%)] p-5 text-white shadow-[0_22px_60px_rgba(0,0,0,0.5)] transition duration-300 hover:border-emerald-500/15 sm:p-8 lg:grid-cols-[0.72fr_1.28fr] xl:p-10">
-              <div className="flex flex-col justify-between gap-8 py-1">
-                <div>
-                  <span className="grid size-12 place-items-center rounded-xl bg-sky-500 text-white shadow-[0_0_20px_rgba(14,165,233,0.35)]">
-                    <TelegramLogo size={26} weight="fill" />
-                  </span>
-                  <h2 className="mt-6 text-3xl font-bold tracking-tight text-white md:text-4xl lg:text-[2.6rem] lg:leading-[1.1]">{copy.alertsTitle}</h2>
-                  <p className="mt-4 max-w-[54ch] text-pretty text-base leading-7 text-zinc-300">{copy.alertsSubtitle}</p>
-                  <div className="mt-6 grid gap-2 sm:grid-cols-2">
-                    {copy.alertCards.slice(0, 2).map((card) => (
-                      <span key={card.title} className="rounded-xl border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm font-semibold leading-5 text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] break-keep">
-                        {card.title}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <Link href="/account" className="focus-ring mt-8 inline-flex items-center justify-center gap-2 rounded-full border border-white/12 bg-white/[0.04] hover:bg-white/[0.08] px-6 py-3.5 text-sm font-bold text-white transition self-start">
-                  <BellRinging size={16} />
-                  {copy.alertsCta}
-                </Link>
-              </div>
-              <div className="grid gap-4 lg:grid-cols-[1.02fr_0.98fr] xl:gap-5">
-                <AlertPreview copy={copy.previews.alert} />
-                <div className="grid gap-4">
-                  {copy.alertCards.map((card, idx) => (
-                    <ScrollReveal key={card.title} delay={idx * 100}>
-                      <article className="group grid grid-cols-[32px_1fr] gap-4 rounded-[18px] border border-white/[0.08] bg-white/[0.025] p-5 transition duration-300 hover:-translate-y-0.5 hover:border-emerald-500/25 hover:bg-white/[0.045]">
-                        <span className="mt-0.5 flex size-8 items-center justify-center rounded-lg border border-emerald-400/20 bg-emerald-400/10 text-emerald-300 transition group-hover:border-emerald-300/35 group-hover:bg-emerald-400/15">
-                          <Check size={15} weight="bold" />
-                        </span>
-                        <div>
-                          <p className="font-mono text-[11px] text-emerald-300/80">0{idx + 1} · {copy.alertRuleLabel}</p>
-                          <h3 className="mt-2 text-lg font-bold tracking-tight text-white break-keep">{card.title}</h3>
-                          <p className="mt-2 text-sm leading-6 text-zinc-400 break-keep">{card.body}</p>
-                        </div>
-                      </article>
-                    </ScrollReveal>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </ScrollReveal>
-        </div>
-      </section>
+      <LandingTelegramAlertsSection copy={copy} />
 
       <section id="pricing" data-testid="landing-pricing" className="relative scroll-mt-20 overflow-hidden bg-[#070908] py-16 text-white md:scroll-mt-24 md:py-24">
         <div className="relative mx-auto max-w-[1240px] px-4 sm:px-10 lg:px-16">
@@ -567,33 +538,18 @@ export function HomePageClient() {
                 {copy.aboutTitle}
               </h2>
               
-              <div className="relative mt-8 text-center w-full">
-                {/* Text transition container */}
-                <div
-                  className={`relative transition-all duration-500 ease-in-out overflow-hidden text-left ${
-                    isAboutExpanded ? "max-h-[1200px]" : "max-h-[110px]"
-                  }`}
-                >
-                  <div className="space-y-6 text-center text-sm leading-7 text-zinc-400 sm:text-base">
-                    {copy.aboutBody.map((paragraph, index) => (
-                      <p key={index}>{formatAboutText(paragraph)}</p>
-                    ))}
-                  </div>
-                  
-                  {/* Fading overlay */}
-                  {!isAboutExpanded && (
-                    <div className="absolute bottom-0 inset-x-0 h-16 bg-gradient-to-t from-[#070908] to-transparent pointer-events-none" />
-                  )}
-                </div>
-
-                {!isAboutExpanded ? (
-                  <button
-                    onClick={() => setIsAboutExpanded(true)}
-                    className="mx-auto mt-6 flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider text-zinc-500 transition duration-200 hover:text-white select-none"
-                  >
-                    {copy.aboutMoreCta}
-                  </button>
-                ) : null}
+              <div className="mt-8 w-full text-center">
+                <p className="mx-auto max-w-[70ch] text-pretty text-sm leading-7 text-zinc-400 sm:text-base">
+                  {formatAboutText(copy.aboutBody[0] ?? "")}
+                </p>
+                <ul className="mx-auto mt-7 grid max-w-3xl gap-2 text-left sm:grid-cols-3">
+                  {copy.aboutPoints.map((point) => (
+                    <li key={point} className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm font-semibold text-zinc-200">
+                      <Check size={14} weight="bold" className="shrink-0 text-emerald-300" />
+                      <span>{point}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
 
               <Link

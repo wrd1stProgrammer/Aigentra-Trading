@@ -70,12 +70,12 @@ test("free and live leaderboard surfaces exclude retired and zero-trade standing
   );
 });
 
-test("AI decision terminal is redacted behind the subscriber gate", () => {
+test("AI decision terminal gives free users a bounded redacted preview", () => {
   const terminalSource = readFileSync(new URL("../components/ai-trade-terminal.tsx", import.meta.url), "utf8");
-  assert.match(leaderboardSource, /AITradeTerminalLockedPreview/, "leaderboard should render a redacted terminal preview for locked users");
-  assert.match(leaderboardSource, /lockedPreview=\{<AITradeTerminalLockedPreview/, "terminal lock should not render real execution details while locked");
-  assert.match(leaderboardSource, /deferLockedChildren/, "terminal lock should defer real children until access is unlocked");
-  assert.match(terminalSource, /ai-trade-terminal-locked-preview/, "redacted terminal preview should be testable");
+  assert.match(leaderboardSource, /enabled: shouldFetchSecondaryLeaderboardData && accessReady && !subscriberAccessUnavailable/, "known free users should fetch only the bounded first terminal page");
+  assert.match(leaderboardSource, /isSubscribed=\{isSubscribed\}/, "terminal should receive the resolved access mode");
+  assert.match(terminalSource, /FREE_AI_TRADE_TERMINAL_VISIBLE_ROWS = 5/, "the free preview should keep five readable decisions");
+  assert.match(terminalSource, /data-terminal-redacted=\{redacted \? "true" : undefined\}/, "history below the free limit should be marked as redacted");
 });
 
 test("subscriber access query state is scoped to the signed-in account", () => {

@@ -15,11 +15,13 @@ const shellSource = readFileSync(new URL("../components/app-shell.tsx", import.m
 const marketingSource = readFileSync(new URL("../lib/marketing-copy.ts", import.meta.url), "utf8");
 const appProviderSource = readFileSync(new URL("../components/app-provider.tsx", import.meta.url), "utf8");
 const i18nSource = readFileSync(new URL("../lib/i18n.ts", import.meta.url), "utf8");
+const telegramSectionPath = new URL("../components/landing-telegram-alerts-section.tsx", import.meta.url);
+const telegramSectionSource = existsSync(telegramSectionPath) ? readFileSync(telegramSectionPath, "utf8") : "";
 
 test("home page is a first-visit landing page instead of the operations dashboard", () => {
   assert.match(homeSource, /data-testid="landing-hero"/, "landing hero needs a stable QA target");
   assert.match(homeSource, /data-testid="landing-product-proof"/, "landing should show product proof, not only copy");
-  assert.match(homeSource, /data-testid="landing-telegram-alerts"/, "landing should sell the alert workflow requested by the user");
+  assert.match(telegramSectionSource, /data-testid="landing-telegram-alerts"/, "landing should sell the alert workflow requested by the user");
   assert.doesNotMatch(homeSource, /leaderboardBundleQueryOptions|useQuery\(/, "root landing should not be the old live command-center dashboard");
 });
 
@@ -63,11 +65,11 @@ test("blog article copy-link action has a browser fallback", () => {
   assert.match(globalStylesSource, /\.blog-list--unordered[\s\S]*list-style-type: disc/, "the bullet-list primitive should restore visible markers after Tailwind reset");
 });
 
-test("landing representative copy avoids forced Korean line breaks and removes view-less copy", () => {
+test("landing representative copy avoids forced Korean line breaks and keeps the about band concise", () => {
   assert.match(homeSource, /<h1 className="max-w-4xl text-balance/, "hero headline should keep balanced wrapping");
   assert.doesNotMatch(homeSource, /<h1 className="[^"]*break-keep/, "hero headline should not force phrase-level breaks");
-  assert.doesNotMatch(homeSource, /View less/, "expanded about section should not show a View less control");
-  assert.match(homeSource, /setIsAboutExpanded\(true\)/, "about section should still expose a one-way View more expansion");
+  assert.doesNotMatch(homeSource, /isAboutExpanded|setIsAboutExpanded/, "the about band should not hide repeated SEO copy behind an expansion control");
+  assert.match(homeSource, /copy\.aboutPoints\.map/, "the about band should summarize its trust principles in scannable points");
 });
 
 test("marketing copy includes subscription and reference-aligned content for all supported landing locales", () => {
@@ -157,7 +159,18 @@ test("pricing, Telegram preview, and FAQ match the simplified Pro offer", () => 
   assert.match(marketingSource, /Questions users actually ask|유저가 실제로 궁금해할 질문/, "FAQ should be rewritten around buyer questions");
   assert.match(marketingSource, /Aigentra Trading Bot/, "Telegram preview should resemble the actual bot message surface");
   assert.match(marketingSource, /\[AI Trader League\] 트레이더 피드|\[AI Trader League\] Trader Feed/, "Telegram preview copy should echo the production message format through i18n");
-  assert.match(visualSource, /ROI/, "Telegram preview should show a useful trading summary, not only prose");
-  assert.match(homeSource, /max-w-\[1500px\]/, "Telegram section should use the wider landing panel requested by the user");
+  assert.match(homeSource, /import \{ LandingTelegramAlertsSection \} from "@\/components\/landing-telegram-alerts-section"/);
+  assert.match(homeSource, /<LandingTelegramAlertsSection copy=\{copy\} \/>/);
+  assert.match(telegramSectionSource, /data-testid="landing-telegram-alerts"/);
+  assert.match(telegramSectionSource, /bg-white/, "Telegram should return to a light landing band around its dark panel");
+  assert.match(telegramSectionSource, /max-w-\[1440px\]/, "the outer panel should reuse the established landing presentation width");
+  assert.match(telegramSectionSource, /max-w-\[1240px\]/, "Telegram should share the standard landing rail");
+  assert.match(telegramSectionSource, /rounded-2xl[\s\S]{0,180}bg-\[#070908\]/, "the dark Telegram surface should remain a separate rounded panel");
+  assert.match(telegramSectionSource, /copy\.alertCards\.map/, "each alert rule should appear exactly once");
+  assert.match(telegramSectionSource, /LONG · 5x[\s\S]*64,280[\s\S]*\+0\.83%/, "the alert preview should retain its useful trading summary");
+  assert.match(telegramSectionSource, /href="\/account"/, "the Telegram CTA should open account settings");
+  assert.equal(telegramSectionSource.match(/#229ED9/g)?.length ?? 0, 1, "Telegram blue should be limited to the service icon");
+  assert.doesNotMatch(telegramSectionSource, /max-w-\[1500px\]|hover:-translate/, "the section should not float outside the landing system");
+  assert.doesNotMatch(visualSource, /export function AlertPreview/, "the Telegram preview should live with its section boundary");
   assert.match(marketingSource, /자동매매 버튼이 아니라|not an auto-trading button/, "Telegram section should explain that Aigentra is a monitoring surface, not an execution bot");
 });

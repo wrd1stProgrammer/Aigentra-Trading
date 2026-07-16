@@ -64,11 +64,26 @@ test("terminal uses compact relative-time rows and fetches the next bounded page
   assert.match(terminalComponentSource, /text-\[10px\][^\n]*lg:max-w-\[210px\]/, "right-side facts should be slightly larger");
   assert.match(leaderboardSource, /useInfiniteQuery/, "terminal history should load through a paged query");
   assert.match(leaderboardSource, /getNextPageParam/, "terminal history should expose the next bounded page");
-  assert.match(leaderboardSource, /onLoadMore=\{loadMoreAITradeTerminal\}/, "the stream edge should request the next page");
+  assert.match(leaderboardSource, /onLoadMore=\{isSubscribed \? loadMoreAITradeTerminal : undefined\}/, "only subscriber scroll edges should request the next page");
   assert.match(apiSource, /eventParams\.set\("offset"/, "event history should request a page offset");
   assert.match(apiSource, /reviewParams\.set\("offset"/, "review history should request a page offset");
   assert.match(apiSource, /reviewParams\.set\("refresh", "true"\)/, "event-driven refreshes should bypass a stale cross-process review cache");
   assert.match(apiSource, /nextPage:/, "the API adapter should return a pagination cursor");
+});
+
+test("free terminal exposes five recent decisions without identifying traders or loading more", () => {
+  assert.match(terminalComponentSource, /FREE_AI_TRADE_TERMINAL_VISIBLE_ROWS = 5/, "free users should receive exactly five readable rows");
+  assert.match(terminalComponentSource, /index >= FREE_AI_TRADE_TERMINAL_VISIBLE_ROWS/, "rows after the fifth should be redacted");
+  assert.match(terminalComponentSource, /redacted \? "[^\"]*blur-\[8px\]/, "redacted history should use a strong clipped blur");
+  assert.match(terminalComponentSource, /isSubscribed \? \([\s\S]*<Link[\s\S]*\) : \(/, "free trader names should not remain linked to identifying profile URLs");
+  assert.match(terminalComponentSource, /aria-label=\{t\("leaderboard\.terminal\.hiddenTrader"\)\}/, "free trader names should expose only a non-identifying accessible label");
+  assert.match(terminalComponentSource, /scale-x-110[^\"]*blur-\[7px\]/, "individual hidden values should remain unreadable at compact sizes");
+  assert.match(terminalComponentSource, /<TerminalMessage message=\{message\} isSubscribed=\{isSubscribed\}/, "free decision copy should redact embedded numeric values");
+  assert.match(terminalComponentSource, /<TerminalFacts row=\{row\} locale=\{locale\} t=\{t\} isSubscribed=\{isSubscribed\}/, "free terminal facts should receive the access mode");
+  assert.match(terminalComponentSource, /data-terminal-sensitive-value/, "price, PnL, confidence, and embedded numbers should share one redaction primitive");
+  assert.match(terminalComponentSource, /title=\{isSubscribed \? message : undefined\}/, "free rows should not leak the full numeric message through a hover title");
+  assert.match(leaderboardSource, /hasMore=\{isSubscribed && Boolean\(aiTradeTerminalQuery\.hasNextPage\)\}/, "free users should not expose another terminal page");
+  assert.match(leaderboardSource, /onLoadMore=\{isSubscribed \? loadMoreAITradeTerminal : undefined\}/, "free users should not receive a load-more callback");
 });
 
 test("confirmed entries show the localized second-stage review rationale", () => {
@@ -94,7 +109,7 @@ test("terminal removes decorative and redundant metadata from the compact stream
   assert.doesNotMatch(terminalComponentSource, /cycleLabel|leaderboard\.terminal\.heading/, "position, order, and plan ids plus the duplicate heading should not render");
   assert.doesNotMatch(terminalComponentSource, /\{row\.symbol\}/, "the repeated market symbol should not render in terminal facts");
   assert.doesNotMatch(globalCssSource, /\.ai-decision-terminal\s*\{[^}]*background-image/s, "terminal background should not render a grid");
-  assert.match(terminalComponentSource, /truncate[^\n]*\{message\}/, "review rationale should remain on one ellipsized line");
+  assert.match(terminalComponentSource, /<p title=\{isSubscribed \? message : undefined\} className="min-w-0 truncate/, "review rationale should remain on one ellipsized line");
   assert.match(terminalComponentSource, /Math\.abs\(row\.realizedPnl\)/, "zero realized PnL should be hidden from facts");
   assert.match(terminalComponentSource, /py-2\.5/, "event rows should use a tighter vertical rhythm");
 });

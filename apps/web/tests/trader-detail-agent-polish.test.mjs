@@ -31,6 +31,7 @@ const league = loadTsModule("../lib/league.ts", {
   "@/lib/traders": { fallbackTraders: [] }
 });
 const reviewDisplay = loadTsModule("../lib/review-display.ts");
+const tradeHistoryResult = loadTsModule("../components/trader-profile-detail/trade-history-result.ts");
 const scenarioCopy = loadTsModule("../components/trader-profile-detail/scenario-copy.ts", {
   "@/lib/review-display": reviewDisplay
 });
@@ -576,6 +577,26 @@ test("trade history uses closed positions and normalized user-facing result labe
   assert.match(dataSource, /detail\.resultStopLoss/, "stop-loss results should use a localized label");
   assert.match(dataSource, /detail\.resultBreakeven/, "breakeven results should use a localized label");
   assert.doesNotMatch(dataSource, /Position Closed: take_profit/, "developer event strings should not be emitted directly");
+});
+
+test("partial AI risk reductions are not presented as completed stop losses", () => {
+  // Given: a negative partial reduction and a later hard stop are separate ledger events.
+  // When: merged trade-history rows are mapped to localized result labels.
+  // Then: the partial action must use the risk-reduction label before PnL fallback classification.
+  assert.match(
+    profileSource,
+    /isPartialRiskReductionAction\(item\.action\)/,
+    "trade history should classify partial reduction actions before using negative PnL as a stop-loss fallback"
+  );
+  assert.match(
+    profileSource,
+    /status\.positionReducedByAi/,
+    "partial reduction rows should use the localized AI risk-reduction label"
+  );
+  assert.equal(tradeHistoryResult.isPartialRiskReductionAction("position_reduced_by_ai"), true);
+  assert.equal(tradeHistoryResult.isPartialRiskReductionAction("REDUCE-RISK"), true);
+  assert.equal(tradeHistoryResult.isPartialRiskReductionAction("position_closed"), false);
+  assert.equal(tradeHistoryResult.isPartialRiskReductionAction("stop_loss"), false);
 });
 
 test("detail chart includes a Binance-style paper position panel below the chart", () => {

@@ -7,6 +7,10 @@ export type ScenarioCountByDay = {
   readonly count: number;
 };
 
+export type TimestampedRecord = {
+  readonly createdAt?: string | null;
+};
+
 const DEFAULT_SCENARIO_PAGE_SIZE = 10;
 
 export function utcDateKeyFromSortMs(sortMs: unknown) {
@@ -42,6 +46,13 @@ export function countByUtcDateWithFallback(rows: readonly ScenarioCountByDay[], 
 export function timelineItemsForUtcDate<T extends TimelineDateItem>(items: readonly T[], dateKey: string, limit: number) {
   const safeLimit = Math.max(0, Math.trunc(limit));
   return items.filter((item) => utcDateKeyFromSortMs(item.sortMs) === dateKey).slice(0, safeLimit);
+}
+
+export function hasLoadedRecordsBeforeUtcDate(records: readonly TimestampedRecord[], dateKey: string) {
+  return records.some((record) => {
+    const sortMs = Date.parse(record.createdAt ?? "");
+    return Number.isFinite(sortMs) && utcDateKeyFromSortMs(sortMs) < dateKey;
+  });
 }
 
 export function nextVisibleCount(current: number, total: number, pageSize = DEFAULT_SCENARIO_PAGE_SIZE) {

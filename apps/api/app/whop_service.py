@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import json
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -9,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.db import WhopCheckoutRecord, WhopWebhookEventRecord
-from app.whop_client import WhopCheckoutAPIError, create_checkout_configuration
+from app.whop_client import WhopCheckoutAPIError, cancel_membership_at_period_end, create_checkout_configuration
 from app.whop_payload import (
     WhopWebhookPayloadError,
     canonical_event_type,
@@ -38,10 +40,82 @@ from app.whop_settings import (
     whop_sandbox_enabled,
 )
 from app.whop_signature import verify_whop_webhook_signature
+from app.whop_status import ACTIVE_CHECKOUT_STATUSES, latest_checkout_record
 
 
 class WhopConfigurationError(ValueError):
     pass
+
+
+def cancel_whop_subscription(
+    db: Session,
+    *,
+    user_id: str,
+    email: str,
+    settings: Settings,
+) -> dict[str, Any]:
+    record = latest_checkout_record(
+        db,
+        user_id=user_id.strip(),
+        email=normalize_email(email),
+        statuses=ACTIVE_CHECKOUT_STATUSES,
+    )
+    if record is None:
+        raise ValueError("active_whop_membership_not_found")
+    membership_id = resolvable_membership_id(record)
+    if not membership_id:
+        raise ValueError("active_whop_membership_not_found")
+    if record.cancel_at_period_end:
+        return cancellation_result(record)
+
+    payload = cancel_membership_at_period_end(settings=settings, membership_id=membership_id)
+    if payload.get("cancel_at_period_end") is not True:
+        raise WhopCheckoutAPIError(
+            "Whop did not confirm the scheduled cancellation",
+            public_detail="whop_cancellation_not_confirmed",
+        )
+
+    record.whop_membership_id = membership_id
+    record.status = "cancel_at_period_end"
+    record.cancel_at_period_end = True
+    record.current_period_end = parse_whop_datetime(payload.get("renewal_period_end"))
+    record.raw_json = dumps_json(payload)
+    db.flush()
+    return cancellation_result(record)
+
+
+def cancellation_result(record: WhopCheckoutRecord) -> dict[str, Any]:
+    return {
+        "status": "active",
+        "cancelAtPeriodEnd": True,
+        "currentPeriodEnd": record.current_period_end.isoformat() if record.current_period_end else None,
+    }
+
+
+def resolvable_membership_id(record: WhopCheckoutRecord) -> str:
+    stored_id = (record.whop_membership_id or "").strip()
+    if stored_id.startswith("mem_"):
+        return stored_id
+    if not record.raw_json:
+        return ""
+    try:
+        payload = json.loads(record.raw_json)
+    except (TypeError, json.JSONDecodeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    recovered_id = membership_id_from_data(payload)
+    return recovered_id if recovered_id.startswith("mem_") else ""
+
+
+def parse_whop_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
 
 
 def create_whop_checkout(
@@ -199,6 +273,11 @@ def apply_webhook_to_checkout(db: Session, event_type: str, data: dict[str, Any]
     if amount is not None:
         checkout.amount = amount
     checkout.raw_json = dumps_json(data)
+    if isinstance(data.get("cancel_at_period_end"), bool):
+        checkout.cancel_at_period_end = data["cancel_at_period_end"]
+    renewal_period_end = parse_whop_datetime(data.get("renewal_period_end"))
+    if renewal_period_end is not None:
+        checkout.current_period_end = renewal_period_end
 
 
 def find_checkout(db: Session, data: dict[str, Any]) -> WhopCheckoutRecord | None:

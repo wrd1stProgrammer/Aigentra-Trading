@@ -1,10 +1,15 @@
 import type { MetadataRoute } from "next";
 import { blogSlugs } from "@/lib/blog-posts";
 import { learnSlugs } from "@/lib/learn";
-import { absoluteUrl, publicRoutes, sitemapTraderIds } from "@/lib/seo";
+import { absoluteUrl, localizedHomeRoutes, publicRoutes, sitemapTraderIds } from "@/lib/seo";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const staticRoutes = publicRoutes.map((route) => ({
+    url: absoluteUrl(route.path),
+    changeFrequency: route.changeFrequency,
+    priority: route.priority
+  }));
+  const localizedLandingRoutes = localizedHomeRoutes.map((route) => ({
     url: absoluteUrl(route.path),
     changeFrequency: route.changeFrequency,
     priority: route.priority
@@ -25,5 +30,5 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.74
   }));
 
-  return [...staticRoutes, ...traderRoutes, ...blogRoutes, ...learnRoutes];
+  return [...staticRoutes, ...localizedLandingRoutes, ...traderRoutes, ...blogRoutes, ...learnRoutes];
 }

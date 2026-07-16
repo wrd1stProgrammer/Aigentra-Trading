@@ -11,6 +11,7 @@ from app.db import (
     LeagueSentimentOpinionRecord,
     PositionManagementReviewRecord,
     SubscriberPreferenceRecord,
+    SubscriberOnboardingRecord,
     TelegramAlertDeliveryRecord,
     TraderStatusFeedRecord,
     db_status,
@@ -38,7 +39,63 @@ def test_subscriber_tables_are_registered(temp_db):
     status = db_status()
 
     assert "subscriber_preferences" in status["tables"]
+    assert "subscriber_onboarding" in status["tables"]
     assert "telegram_alert_deliveries" in status["tables"]
+
+
+def test_subscriber_onboarding_is_saved_per_user(temp_db, monkeypatch):
+    monkeypatch.setenv("SUBSCRIBER_API_TOKEN", "internal-token")
+    client = TestClient(app)
+    headers = {"X-Subscriber-Api-Token": "internal-token"}
+
+    missing = client.get(
+        "/api/subscribers/onboarding?userId=google-1&email=operator@example.com",
+        headers=headers,
+    )
+    saved = client.put(
+        "/api/subscribers/onboarding",
+        headers=headers,
+        json={
+            "userId": "google-1",
+            "email": "Operator@Example.com",
+            "acquisitionSource": "threads",
+            "weeklyPositionFrequency": "three_five",
+            "primaryGoal": "improve_risk",
+            "experienceLevel": "intermediate",
+        },
+    )
+    loaded = client.get(
+        "/api/subscribers/onboarding?userId=google-1&email=operator@example.com",
+        headers=headers,
+    )
+
+    assert missing.status_code == 200
+    assert missing.json() == {"completed": False}
+    assert saved.status_code == 200
+    assert saved.json()["completed"] is True
+    assert loaded.json()["primaryGoal"] == "improve_risk"
+    with session_scope() as db:
+        record = db.query(SubscriberOnboardingRecord).filter_by(email="operator@example.com").one()
+        assert record.user_id == "google-1"
+        assert record.weekly_position_frequency == "three_five"
+
+
+def test_subscriber_onboarding_rejects_unknown_answers(temp_db, monkeypatch):
+    monkeypatch.setenv("SUBSCRIBER_API_TOKEN", "internal-token")
+    response = TestClient(app).put(
+        "/api/subscribers/onboarding",
+        headers={"X-Subscriber-Api-Token": "internal-token"},
+        json={
+            "userId": "google-1",
+            "email": "operator@example.com",
+            "acquisitionSource": "billboard",
+            "weeklyPositionFrequency": "three_five",
+            "primaryGoal": "improve_risk",
+            "experienceLevel": "intermediate",
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_subscriber_preference_api_requires_internal_token(temp_db, monkeypatch):

@@ -35,7 +35,13 @@ test("trader detail first load keeps visible data while paginating heavy review 
   assert.match(profileSource, /setHistoryItems\(\[\]\)/, "trader switches should clear stale trade history before the next page loads");
   assert.doesNotMatch(apiSource, /path\.includes\("\/trade-history"\)/, "trade history should use the trader-detail timeout budget instead of the fast 8s budget");
   assert.match(profileSource, /tradeHistoryItems=\{historyItems\}/, "visible trade history should use the loaded rows directly");
-  assert.match(profileSource, /disabled=\{loadingMoreReviews\}/, "scenario pagination should avoid duplicate requests while loading");
+  assert.match(profileSource, /loadedScenarioCountForSelectedDate >= selectedScenarioVisibleCount/, "scenario hydration should automatically fill the initial ten visible rows");
+  assert.match(profileSource, /hasLoadedRecordsBeforeUtcDate\(reviews, selectedDate\)/, "scenario hydration should stop after crossing the selected UTC date");
+  assert.match(profileSource, /reviewsFailedOffset === reviewsNextOffset/, "a failed automatic review page should not retry the same offset forever");
+  assert.match(profileSource, /setReviewsFailedOffset\(null\);\s*setLoadingMoreReviews\(false\);/, "review context changes should release loading state from an obsolete request");
+  assert.equal(profileSource.match(/onScroll=\{handleScenarioScroll\}/g)?.length, 2, "desktop and mobile timelines should load the next page at the scroll edge");
+  assert.doesNotMatch(profileSource, /onClick=\{loadMoreSelectedScenarios\}/, "scenario history should no longer require a click to load more");
+  assert.doesNotMatch(profileSource, /detail\.loadMoreSelectedScenarios/, "the removed manual load-more control should not leave visible copy behind");
   assert.doesNotMatch(profileSource, /setReviewsLimit|setEventsLimit/, "pagination should not mutate the primary detail bundle parameters");
   assert.doesNotMatch(profileSource, /historyItems\.slice\(0,\s*eventsLimit\)/, "sidebar history should not depend on the removed detail event limit");
 });

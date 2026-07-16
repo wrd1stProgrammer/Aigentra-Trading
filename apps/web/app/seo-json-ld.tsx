@@ -1,5 +1,7 @@
 import { landingCopy } from "@/lib/marketing-copy";
-import { SITE_DESCRIPTION, SITE_NAME, SITE_URL, absoluteUrl } from "@/lib/seo";
+import type { Locale } from "@/lib/i18n";
+import { homePathForLocale } from "@/lib/locale-routing";
+import { SITE_NAME, SITE_URL, absoluteUrl } from "@/lib/seo";
 
 type JsonLdValue = string | number | boolean | null | readonly JsonLdValue[] | { readonly [key: string]: JsonLdValue };
 
@@ -8,8 +10,9 @@ function JsonLdScript({ data }: { readonly data: JsonLdValue }) {
   return <script type="application/ld+json" suppressHydrationWarning dangerouslySetInnerHTML={{ __html: json }} />;
 }
 
-export function HomeSeoJsonLd() {
-  const copy = landingCopy("en");
+export function HomeSeoJsonLd({ locale }: { readonly locale: Locale }) {
+  const copy = landingCopy(locale);
+  const homeUrl = absoluteUrl(homePathForLocale(locale));
   const faqEntities = copy.faqs.map((faq) => ({
     "@type": "Question",
     name: faq.question,
@@ -39,9 +42,9 @@ export function HomeSeoJsonLd() {
       "@context": "https://schema.org",
       "@type": "WebSite",
       name: SITE_NAME,
-      url: SITE_URL,
-      description: SITE_DESCRIPTION,
-      inLanguage: ["ko-KR", "en"]
+      url: homeUrl,
+      description: copy.heroSubtitle,
+      inLanguage: locale
     },
     {
       "@context": "https://schema.org",
@@ -49,7 +52,7 @@ export function HomeSeoJsonLd() {
       name: SITE_NAME,
       applicationCategory: "FinanceApplication",
       operatingSystem: "Web",
-      url: SITE_URL,
+      url: homeUrl,
       description: copy.heroSubtitle,
       offers: {
         "@type": "Offer",

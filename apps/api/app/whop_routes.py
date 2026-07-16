@@ -9,9 +9,10 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db import get_db
 from app.subscribers_routes import require_subscriber_api_token
-from app.whop_client import WhopCheckoutAPIError
+from app.whop_client import WhopCheckoutAPIError, WhopMembershipAPIError
 from app.whop_service import (
     WhopConfigurationError,
+    cancel_whop_subscription,
     create_whop_checkout,
     process_whop_webhook,
 )
@@ -30,6 +31,11 @@ class WhopCheckoutPayload(BaseModel):
     planKey: str = ""
     redirectUrl: str = ""
     sourceUrl: str = ""
+
+
+class WhopSubscriptionPayload(BaseModel):
+    userId: str
+    email: str
 
 
 @router.post("/checkout")
@@ -75,6 +81,27 @@ def read_status(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/cancel")
+def cancel_subscription(
+    payload: WhopSubscriptionPayload,
+    _: None = Depends(require_subscriber_api_token),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        result = cancel_whop_subscription(
+            db,
+            user_id=payload.userId,
+            email=payload.email,
+            settings=get_settings(),
+        )
+        db.commit()
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (WhopCheckoutAPIError, WhopMembershipAPIError) as exc:
+        raise HTTPException(status_code=502, detail=exc.public_detail) from exc
 
 
 @router.post("/webhook")

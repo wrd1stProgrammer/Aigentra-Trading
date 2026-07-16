@@ -499,7 +499,7 @@ export function LeaderboardPageClient() {
     queryFn: (context) => getAITradeTerminalSource("BTCUSDT", locale, context.pageParam, { signal: context.signal }),
     initialPageParam: INITIAL_AI_TRADE_TERMINAL_PAGE,
     getNextPageParam: (lastPage) => lastPage.nextPage ?? undefined,
-    enabled: shouldFetchSecondaryLeaderboardData && isSubscribed,
+    enabled: shouldFetchSecondaryLeaderboardData && accessReady && !subscriberAccessUnavailable,
     staleTime: 60_000,
     refetchInterval: (query) => (query.state.data?.pages.length ?? 0) <= 1 ? 300_000 : false,
     refetchIntervalInBackground: false,
@@ -515,9 +515,9 @@ export function LeaderboardPageClient() {
     [aiTradeTerminalQuery.data, locale, traders]
   );
   const loadMoreAITradeTerminal = useCallback(() => {
-    if (!aiTradeTerminalQuery.hasNextPage || aiTradeTerminalQuery.isFetchingNextPage) return;
+    if (!isSubscribed || !aiTradeTerminalQuery.hasNextPage || aiTradeTerminalQuery.isFetchingNextPage) return;
     void aiTradeTerminalQuery.fetchNextPage();
-  }, [aiTradeTerminalQuery.fetchNextPage, aiTradeTerminalQuery.hasNextPage, aiTradeTerminalQuery.isFetchingNextPage]);
+  }, [aiTradeTerminalQuery.fetchNextPage, aiTradeTerminalQuery.hasNextPage, aiTradeTerminalQuery.isFetchingNextPage, isSubscribed]);
 
   useEffect(() => {
     if (!shouldFetchSecondaryLeaderboardData || !isSubscribed || typeof EventSource === "undefined") return;
@@ -662,22 +662,20 @@ export function LeaderboardPageClient() {
         detail={t("common.loadingLiveDataDetail")}
       />
 
-      <ProtectedContentGateWithAccess
-        accessQuery={accessQuery}
-        mode="subscription"
-        deferLockedChildren
-        lockedPreview={<AITradeTerminalLockedPreview t={t} />}
-      >
+      {subscriberAccessPending || subscriberAccessUnavailable ? (
+        <AITradeTerminalLockedPreview t={t} />
+      ) : (
         <AITradeTerminalPanel
           rows={aiTradeTerminalRows}
           loading={aiTradeTerminalQuery.isPending}
-          loadingMore={aiTradeTerminalQuery.isFetchingNextPage}
-          hasMore={Boolean(aiTradeTerminalQuery.hasNextPage)}
-          onLoadMore={loadMoreAITradeTerminal}
+          loadingMore={isSubscribed && aiTradeTerminalQuery.isFetchingNextPage}
+          hasMore={isSubscribed && Boolean(aiTradeTerminalQuery.hasNextPage)}
+          onLoadMore={isSubscribed ? loadMoreAITradeTerminal : undefined}
+          isSubscribed={isSubscribed}
           locale={locale}
           t={t}
         />
-      </ProtectedContentGateWithAccess>
+      )}
 
       <section className="grid w-full min-w-0 max-w-full items-start gap-3 overflow-x-clip md:gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
         <div className="data-card rounded-[22px] border-zinc-200/80 dark:border-white/[0.08] w-full min-w-0 overflow-hidden shadow-sm transition hover:border-emerald-500/20 duration-300">

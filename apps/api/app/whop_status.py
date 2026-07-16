@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Final, Literal, TypedDict
 
 from sqlalchemy import desc, select
@@ -13,7 +14,7 @@ from app.whop_settings import whop_sandbox_enabled
 
 WhopSubscriptionState = Literal["none", "pending", "active", "inactive"]
 
-ACTIVE_CHECKOUT_STATUSES: Final = frozenset({"payment_succeeded", "membership_active"})
+ACTIVE_CHECKOUT_STATUSES: Final = frozenset({"payment_succeeded", "membership_active", "cancel_at_period_end"})
 PENDING_CHECKOUT_STATUSES: Final = frozenset({"created"})
 ENDING_CHECKOUT_STATUSES: Final = frozenset({"membership_inactive", "refunded", "disputed"})
 
@@ -28,6 +29,8 @@ class WhopSubscriptionStatusPayload(TypedDict):
     membershipId: str | None
     currency: str | None
     amount: float | None
+    cancelAtPeriodEnd: bool
+    currentPeriodEnd: str | None
     sandbox: bool
 
 
@@ -61,6 +64,8 @@ def read_whop_subscription_status(
         "membershipId": status_record.whop_membership_id,
         "currency": status_record.currency,
         "amount": status_record.amount,
+        "cancelAtPeriodEnd": status_record.cancel_at_period_end,
+        "currentPeriodEnd": iso_datetime(status_record.current_period_end),
         "sandbox": whop_sandbox_enabled(settings),
     }
 
@@ -160,5 +165,11 @@ def empty_status_payload(settings: Settings) -> WhopSubscriptionStatusPayload:
         "membershipId": None,
         "currency": None,
         "amount": None,
+        "cancelAtPeriodEnd": False,
+        "currentPeriodEnd": None,
         "sandbox": whop_sandbox_enabled(settings),
     }
+
+
+def iso_datetime(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None

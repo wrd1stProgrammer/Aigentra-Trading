@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { blogPostBySlug } from "@/lib/blog-posts";
+import type { Locale } from "@/lib/i18n";
 import { learnEntryBySlug } from "@/lib/learn";
+import { homePathForLocale } from "@/lib/locale-routing";
 import { fallbackTraders, traderIds } from "@/lib/traders";
 
 export const SITE_URL = "https://aigentratrading.com";
@@ -20,6 +22,42 @@ export type SeoRoute = {
   readonly changeFrequency: "daily" | "weekly" | "monthly" | "yearly";
   readonly priority: number;
 };
+
+type HomeSeoContent = {
+  readonly title: string;
+  readonly description: string;
+};
+
+const HOME_OPEN_GRAPH_LOCALE = {
+  en: "en_US",
+  ko: "ko_KR",
+  ru: "ru_RU",
+  "pt-BR": "pt_BR",
+  tr: "tr_TR"
+} as const satisfies Record<Locale, string>;
+
+const HOME_SEO = {
+  en: {
+    title: SITE_DEFAULT_TITLE,
+    description: SITE_DESCRIPTION
+  },
+  ko: {
+    title: "Aigentra Trading | BTC 선물 AI 트레이더 리그",
+    description: "BTCUSDT에 집중하는 20개 AI 전략의 시뮬레이션 순위, 2단계 진입 심사, 진입 후 리스크 관리 리뷰를 투명하게 비교하세요."
+  },
+  ru: {
+    title: "Aigentra Trading | Лига AI-трейдеров BTC",
+    description: "Сравнивайте 20 AI-стратегий для BTCUSDT: симулированный рейтинг, двухэтапную проверку входа и прозрачные ревью управления риском."
+  },
+  "pt-BR": {
+    title: "Aigentra Trading | Liga de traders de IA para BTC",
+    description: "Compare 20 estratégias de IA focadas em BTCUSDT, com ranking simulado, revisão de entrada em duas etapas e gestão de risco transparente."
+  },
+  tr: {
+    title: "Aigentra Trading | BTC AI trader ligi",
+    description: "BTCUSDT odaklı 20 AI stratejisini simüle sıralama, iki aşamalı giriş denetimi ve şeffaf risk yönetimi incelemeleriyle karşılaştırın."
+  }
+} as const satisfies Record<Locale, HomeSeoContent>;
 
 export const socialImage = {
   url: "/og-image.png",
@@ -140,6 +178,15 @@ export const publicRoutes = [
   }
 ] as const satisfies readonly SeoRoute[];
 
+export const localizedHomeRoutes = (["ko", "ru", "pt-BR", "tr"] as const).map((locale) => ({
+  path: homePathForLocale(locale),
+  title: HOME_SEO[locale].title,
+  description: HOME_SEO[locale].description,
+  keywords: ["Aigentra Trading", "BTCUSDT", "AI trader league"],
+  changeFrequency: "weekly" as const,
+  priority: 0.9
+})) satisfies readonly SeoRoute[];
+
 export const privateDisallowPaths = ["/account", "/admin", "/login", "/tests", "/api/", "/backend-api/", "/traders"] as const;
 
 export function absoluteUrl(path: string): string {
@@ -154,6 +201,47 @@ export function metadataForPath(path: (typeof publicRoutes)[number]["path"]): Me
   }
   return metadataForRoute(route);
 }
+
+export function metadataForHomeLocale(locale: Locale): Metadata {
+  const path = homePathForLocale(locale);
+  const content = HOME_SEO[locale];
+  const metadata = metadataForRoute({
+    path,
+    title: content.title,
+    description: content.description,
+    keywords: ["Aigentra Trading", "BTCUSDT", "AI trader league"],
+    changeFrequency: "weekly",
+    priority: locale === "en" ? 1 : 0.9
+  });
+  const alternateLocales = Object.values(HOME_OPEN_GRAPH_LOCALE).filter(
+    (openGraphLocale) => openGraphLocale !== HOME_OPEN_GRAPH_LOCALE[locale]
+  );
+
+  return {
+    ...metadata,
+    title: { absolute: content.title },
+    alternates: {
+      canonical: path,
+      languages: {
+        "x-default": "/",
+        en: "/",
+        ko: "/ko",
+        ru: "/ru",
+        "pt-BR": "/pt-BR",
+        tr: "/tr"
+      }
+    },
+    openGraph: {
+      ...metadata.openGraph,
+      title: content.title,
+      description: content.description,
+      url: path,
+      locale: HOME_OPEN_GRAPH_LOCALE[locale],
+      alternateLocale: alternateLocales
+    }
+  };
+}
+
 
 export function metadataForTrader(id: string): Metadata {
   const trader = fallbackTraders.find((candidate) => candidate.id === id);

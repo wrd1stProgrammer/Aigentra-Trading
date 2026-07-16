@@ -376,8 +376,121 @@ def test_whop_subscription_status_reports_latest_active_checkout(temp_db, monkey
         "membershipId": "mem_sandbox_1",
         "currency": "usd",
         "amount": 29.0,
+        "cancelAtPeriodEnd": False,
+        "currentPeriodEnd": None,
         "sandbox": True,
     }
+
+
+def test_whop_cancellation_stops_renewal_and_preserves_active_access(temp_db, monkeypatch):
+    monkeypatch.setenv("SUBSCRIBER_API_TOKEN", "internal-token")
+    monkeypatch.setenv("WHOP_API_KEY", "whop-api-key")
+    get_settings.cache_clear()
+    with session_scope() as db:
+        db.add(
+            WhopCheckoutRecord(
+                checkout_id="ch_cancel",
+                user_id="google-1",
+                email="operator@example.com",
+                plan_key="aigentra_pro_monthly",
+                internal_order_id="atl_cancel_order",
+                status="membership_active",
+                whop_membership_id="mem_cancel_1",
+                purchase_url="https://whop.com/checkout/ch_cancel",
+            )
+        )
+        db.commit()
+
+    captured = {}
+
+    def fake_cancel_membership_at_period_end(*, settings, membership_id):
+        captured["membership_id"] = membership_id
+        return {
+            "id": membership_id,
+            "status": "canceling",
+            "cancel_at_period_end": True,
+            "renewal_period_end": "2026-08-16T00:00:00Z",
+        }
+
+    monkeypatch.setattr("app.whop_service.cancel_membership_at_period_end", fake_cancel_membership_at_period_end)
+    client = TestClient(app)
+    response = client.post(
+        "/api/billing/whop/cancel",
+        headers={"X-Subscriber-Api-Token": "internal-token"},
+        json={"userId": "google-1", "email": "operator@example.com"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "active",
+        "cancelAtPeriodEnd": True,
+        "currentPeriodEnd": "2026-08-16T00:00:00+00:00",
+    }
+    assert captured["membership_id"] == "mem_cancel_1"
+
+    status = client.get(
+        "/api/billing/whop/status?userId=google-1&email=operator@example.com",
+        headers={"X-Subscriber-Api-Token": "internal-token"},
+    )
+    assert status.status_code == 200
+    assert status.json()["status"] == "active"
+    assert status.json()["cancelAtPeriodEnd"] is True
+
+
+def test_whop_cancellation_requires_authenticated_active_membership(temp_db, monkeypatch):
+    monkeypatch.setenv("SUBSCRIBER_API_TOKEN", "internal-token")
+    get_settings.cache_clear()
+    client = TestClient(app)
+
+    unauthorized = client.post(
+        "/api/billing/whop/cancel",
+        json={"userId": "google-1", "email": "operator@example.com"},
+    )
+    missing = client.post(
+        "/api/billing/whop/cancel",
+        headers={"X-Subscriber-Api-Token": "internal-token"},
+        json={"userId": "google-1", "email": "operator@example.com"},
+    )
+
+    assert unauthorized.status_code == 401
+    assert missing.status_code == 409
+    assert missing.json()["detail"] == "active_whop_membership_not_found"
+
+
+def test_whop_cancellation_recovers_legacy_member_id_from_raw_membership_payload(temp_db, monkeypatch):
+    monkeypatch.setenv("SUBSCRIBER_API_TOKEN", "internal-token")
+    get_settings.cache_clear()
+    with session_scope() as db:
+        db.add(
+            WhopCheckoutRecord(
+                checkout_id="ch_legacy_member",
+                user_id="google-1",
+                email="operator@example.com",
+                plan_key="aigentra_pro_monthly",
+                internal_order_id="atl_legacy_member",
+                status="membership_active",
+                whop_membership_id="mber_wrong_legacy_id",
+                raw_json=json.dumps({"id": "mem_recovered_1", "object": "membership"}),
+                purchase_url="https://whop.com/checkout/ch_legacy_member",
+            )
+        )
+        db.commit()
+
+    captured = {}
+
+    def fake_cancel_membership_at_period_end(*, settings, membership_id):
+        captured["membership_id"] = membership_id
+        return {"cancel_at_period_end": True, "renewal_period_end": None}
+
+    monkeypatch.setattr("app.whop_service.cancel_membership_at_period_end", fake_cancel_membership_at_period_end)
+    response = TestClient(app).post(
+        "/api/billing/whop/cancel",
+        headers={"X-Subscriber-Api-Token": "internal-token"},
+        json={"userId": "google-1", "email": "operator@example.com"},
+    )
+
+    assert response.status_code == 200
+    assert captured["membership_id"] == "mem_recovered_1"
 
 
 def test_whop_webhook_rejects_invalid_signature(temp_db, monkeypatch):

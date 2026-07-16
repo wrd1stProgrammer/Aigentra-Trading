@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Check, Clock, ShieldCheck, TelegramLogo, InstagramLogo } from "@phosphor-icons/react";
+import { Check, ShieldCheck, InstagramLogo } from "@phosphor-icons/react";
 import { BrandMark } from "@/components/brand-mark";
 import type { LandingCopy } from "@/lib/marketing-copy";
 import { useAppContext } from "@/components/app-provider";
@@ -485,53 +485,6 @@ export function ProductProofCard({ copy }: { readonly copy: LandingCopy }) {
     </div>
   );
 }
-
-export function AlertPreview({ copy }: { readonly copy: LandingPreviewCopy["alert"] }) {
-  return (
-    <div className="rounded-2xl border border-sky-300/15 bg-[#172535] p-4 shadow-[0_18px_42px_rgba(0,0,0,0.32)] transition-all duration-300 hover:-translate-y-1 sm:p-5">
-      <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-4">
-        <div className="flex items-center gap-3">
-          <span className="grid size-11 place-items-center rounded-full bg-sky-500 text-white shadow-[0_0_18px_rgba(14,165,233,0.38)]">
-            <TelegramLogo size={22} weight="fill" />
-          </span>
-          <div>
-            <p className="text-base font-bold tracking-tight text-white">{copy.botName}</p>
-            <p className="font-mono text-[11px] text-sky-100/65">{copy.meta}</p>
-          </div>
-        </div>
-        <span className="rounded-full border border-sky-300/15 bg-white/10 px-2.5 py-1 font-mono text-[10px] text-sky-100">{copy.channel}</span>
-      </div>
-      <div className="rounded-[18px] rounded-tl-sm bg-[#f3f7ff] p-4 text-sm leading-6 text-slate-900 shadow-[0_12px_24px_rgba(4,15,29,0.24)] sm:p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="font-bold text-slate-950">{copy.title}</p>
-            <p className="mt-1 font-semibold text-slate-600">{copy.trader}</p>
-          </div>
-          <span className="rounded-full bg-emerald-100 px-2.5 py-1 font-mono text-[11px] font-bold text-emerald-700">{copy.liveBadge}</span>
-        </div>
-        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/80 p-3">
-          <p className="font-bold text-emerald-800">{copy.headline}</p>
-          <p className="mt-1 text-slate-700">{copy.body}</p>
-        </div>
-        <div className="mt-3 grid grid-cols-3 gap-2 font-mono text-[11px]">
-          <span className="rounded-lg bg-slate-950 px-2.5 py-2 text-emerald-300">LONG · 5x</span>
-          <span className="rounded-lg bg-slate-100 px-2.5 py-2 text-slate-600">{copy.priceLabel}<br /><strong className="text-slate-900">64,280</strong></span>
-          <span className="rounded-lg bg-slate-100 px-2.5 py-2 text-slate-600">{copy.roiLabel}<br /><strong className="text-emerald-700">+0.83%</strong></span>
-        </div>
-      </div>
-      <div className="mt-4 grid gap-2 text-xs text-sky-100/72">
-        <p className="flex items-center gap-2 font-mono">
-          <Clock size={14} /> {copy.delivered}
-        </p>
-        <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
-          <span className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2">{copy.language}</span>
-          <span className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2">{copy.event}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 
 export function LandingFooter({ copy }: { readonly copy: LandingCopy }) {
   return (

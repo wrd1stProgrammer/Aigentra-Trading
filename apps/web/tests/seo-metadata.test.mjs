@@ -576,7 +576,7 @@ test("sitemap and robots emit crawl discovery from the route catalog", () => {
 
 test("homepage JSON-LD renders parseable claim-safe structured data", () => {
   const { HomeSeoJsonLd } = loadProjectModule(join(appRootPath, "app/seo-json-ld.tsx"));
-  const element = HomeSeoJsonLd();
+  const element = HomeSeoJsonLd({ locale: "en" });
   const script = element.type(element.props);
   const json = script.props.dangerouslySetInnerHTML.__html;
   const graph = JSON.parse(json);
