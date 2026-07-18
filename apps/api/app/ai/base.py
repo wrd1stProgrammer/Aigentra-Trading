@@ -25,6 +25,10 @@ from app.traders.models import (
     TradeReviewResult,
     TradeManagementPlan,
 )
+from app.traders.high_voltage_config import (
+    HIGH_VOLTAGE_SOURCE_TRADER_IDS,
+    is_high_voltage_trader,
+)
 
 
 VALID_DECISIONS = {
@@ -876,14 +880,30 @@ TRADER_MANAGEMENT_POLICIES: Dict[str, Dict[str, Any]] = {
 
 
 def trader_review_policy(trader_id: str) -> Dict[str, Any]:
-    policy = dict(TRADER_REVIEW_POLICIES.get(trader_id, {}))
-    if trader_id in TRADER_POST_LOSS_DISCIPLINE:
+    source_trader_id = HIGH_VOLTAGE_SOURCE_TRADER_IDS.get(trader_id, trader_id)
+    policy = dict(TRADER_REVIEW_POLICIES.get(source_trader_id, {}))
+    if is_high_voltage_trader(trader_id):
+        policy["leagueVariant"] = "high_voltage"
+        policy["executionMandate"] = (
+            "This variant intentionally trades earlier with 10-20x isolated paper leverage. "
+            "Judge it against its submitted aggressive gates instead of silently applying the source trader's conservative thresholds."
+        )
+        source_discipline = TRADER_POST_LOSS_DISCIPLINE.get(source_trader_id)
+        if source_discipline:
+            policy["postLossDiscipline"] = (
+                f"High Voltage {trader_id}: {source_discipline} "
+                "A valid fresh trigger may re-enter at the variant's normal aggressive size and leverage."
+            )
+    elif trader_id in TRADER_POST_LOSS_DISCIPLINE:
         policy["postLossDiscipline"] = TRADER_POST_LOSS_DISCIPLINE[trader_id]
     return policy
 
 
 def trader_management_policy(trader_id: str) -> Dict[str, Any]:
-    policy = dict(TRADER_MANAGEMENT_POLICIES.get(trader_id, {}))
+    source_trader_id = HIGH_VOLTAGE_SOURCE_TRADER_IDS.get(trader_id, trader_id)
+    policy = dict(TRADER_MANAGEMENT_POLICIES.get(source_trader_id, {}))
+    if is_high_voltage_trader(trader_id):
+        policy["leagueVariant"] = "high_voltage"
     policy["holdingPolicy"] = trader_holding_policy(trader_id).as_prompt_dict()
     return policy
 
@@ -1258,6 +1278,24 @@ def extract_json_object(text: str) -> Dict[str, Any]:
 
 
 def entry_approval_prompt(payload: TradeReviewPayload) -> str:
+    high_voltage = is_high_voltage_trader(payload.trader.id)
+    execution_leverage_floor = 10 if high_voltage else 5
+    execution_floor_instruction = (
+        "Treat 10x as this High Voltage candidate's service execution floor, not proof that only elite setups can be approved. "
+        if high_voltage
+        else
+        "Treat 5x as the service execution floor, not proof that only elite setups can be approved. "
+    )
+    leverage_calibration = (
+        "This is a dedicated High Voltage paper league candidate. Its 10-20x isolated leverage and larger first entry are intentional parts of the experiment. "
+        "Do not reduce below 10x or defer merely because leverage exceeds 8x; approve when the variant's completed trigger, geometry, and invalidation are coherent, "
+        "and adjust within 10x to leveragePlan.maxLeverage only for a concrete setup-specific risk. "
+        if high_voltage
+        else
+        "Leverage calibration must be gradual: 5x can be acceptable for a coherent moderate setup with controlled risk; "
+        "higher leverage should require progressively stronger confirmation; 6-7x need clearer multi-timeframe, volume, or structure support; "
+        "8x+ should be reserved for unusually clean alignment. "
+    )
     data = {
         "symbol": payload.symbol,
         "requestedLocale": normalize_locale(payload.locale),
@@ -1289,13 +1327,11 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "The server has already blocked an exact duplicate of the same completed candle. A new completed candle is eligible for review; do not demand an arbitrary novelty score or a wholesale thesis change. "
         "Let fresh market evidence, changed price geometry, and the trader-specific thesis decide whether the new candidate deserves approval. "
         "When the edge is real but the submitted size, leverage, entries, or exit controls must change, use ADJUST_AND_APPROVE and name that executable change. "
-        "Treat 5x as the service execution floor, not proof that only elite setups can be approved. "
-        "Do not require arbitrary setupScore 70+ or 75+ thresholds for 5x; judge current price action, entry/stop/target geometry, "
+        + execution_floor_instruction +
+        f"Do not require arbitrary setupScore 70+ or 75+ thresholds for {execution_leverage_floor}x; judge current price action, entry/stop/target geometry, "
         "fee-aware RR, invalidation clarity, and whether risk can be contained. "
         "For multi-entry or scale-entry candidates, perform exactly one second-pass review for the whole candidate; never review once per entry. "
-        "Leverage calibration must be gradual: 5x can be acceptable for a coherent moderate setup with controlled risk; "
-        "higher leverage should require progressively stronger confirmation; 6-7x need clearer multi-timeframe, volume, or structure support; "
-        "8x+ should be reserved for unusually clean alignment. "
+        + leverage_calibration +
         "If the thesis is valid but size or leverage is too aggressive, prefer ADJUST_AND_APPROVE with riskPercentOverride, "
         "scale-entry reduction or cancellation, or stricter early-exit rules instead of rejecting. "
         "riskPercentOverride may only keep or reduce candidate.riskPercent; it must never increase the deterministic candidate risk budget. "
@@ -1314,8 +1350,8 @@ def entry_approval_prompt(payload: TradeReviewPayload) -> str:
         "3) stopLoss must sit beyond every entry on the loss side, "
         "4) all takeProfits must sit on the profit side and weighted RR after feeBufferPercent must meet riskPlan.minRiskReward, "
         "5) leveragePlan.suggestedLeverage must not exceed leveragePlan.maxLeverage and must be justified by setup quality, "
-        "and if you return leverageOverride for an approved paper trade, keep it between 5 and leveragePlan.maxLeverage; "
-        "do not use leverage below 5 as an approval workaround; contain risk with riskPercentOverride, scale-entry changes, or early exits, "
+        f"and if you return leverageOverride for an approved paper trade, keep it between {execution_leverage_floor} and leveragePlan.maxLeverage; "
+        f"do not use leverage below {execution_leverage_floor} as an approval workaround; contain risk with riskPercentOverride, scale-entry changes, or early exits, "
         "6) orderIntent must be compatible with pending paper entries and must not imply a real order, "
         "7) fees/slippage buffer must be included in the risk review, "
         "8) earlyExitRules and invalidation must be specific enough for the manager to recognize thesis failure, but do not require closing before the original hard stop unless the review explicitly recommends management action later. "

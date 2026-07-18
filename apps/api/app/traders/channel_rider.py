@@ -60,6 +60,7 @@ class ChannelRider(TraderStrategy):
     )
 
     def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
+        aggressive = self.profile.id.startswith("high-voltage-")
         price = float(snapshot["price"])
         one_hour = snapshot["timeframes"]["1h"]
         four_hour = snapshot["timeframes"]["4h"]
@@ -80,20 +81,22 @@ class ChannelRider(TraderStrategy):
 
         if regime == "shock":
             return make_rejection("Market is in shock regime; channel edge entries are paused until volatility normalizes.", 42)
-        if channel_width < price * 0.004:
+        if channel_width < price * (0.0035 if aggressive else 0.004):
             return make_rejection("Channel width is too narrow to define entries and stops.", 38)
-        if not (position <= 0.32 or position >= 0.68):
+        lower_edge = 0.38 if aggressive else 0.32
+        upper_edge = 0.62 if aggressive else 0.68
+        if not (position <= lower_edge or position >= upper_edge):
             return make_rejection("Price is not close enough to a channel edge.", 46)
-        if not (35 <= rsi <= 65):
+        if not ((30 if aggressive else 35) <= rsi <= (70 if aggressive else 65)):
             return make_rejection("1H RSI is outside the controlled pullback/rebound band.", 50)
 
         if trend == "bullish":
             side = "LONG"
-            if position > 0.38 or slope < 0:
+            if position > (0.42 if aggressive else 0.38) or slope < 0:
                 return make_rejection("Bullish channel setup conflicts with edge position or slope.", 52)
         elif trend == "bearish":
             side = "SHORT"
-            if position < 0.62 or slope > 0:
+            if position < (0.58 if aggressive else 0.62) or slope > 0:
                 return make_rejection("Bearish channel setup conflicts with edge position or slope.", 52)
         else:
             side = "SHORT" if position >= 0.68 else "LONG"
@@ -146,7 +149,7 @@ class ChannelRider(TraderStrategy):
             or (side == "SHORT" and completed_close < completed_open)
         )
         edge_without_reaction = not confirming_candle and (position <= 0.32 or position >= 0.68)
-        if side == crowded and funding_percentile >= 88 and oi_change_30m >= 1.2:
+        if side == crowded and funding_percentile >= (95 if aggressive else 88) and oi_change_30m >= (2.0 if aggressive else 1.2):
             return make_rejection("Channel entry direction is crowded by funding/OI, raising trap risk.", score)
         if confirming_candle and channel_quality >= 2 and abs(oi_change_30m) < 2.0:
             entries = [
@@ -163,18 +166,34 @@ class ChannelRider(TraderStrategy):
                 notes.append("Channel edge is valid, but the 15m candle has not reacted yet; sizing stays probe-first.")
             notes.append(f"Market regime is {regime}; 30m OI change is {oi_change_30m:.2f}%.")
 
+        if aggressive and not (confirming_candle and channel_quality >= 2):
+            edge_price = max(lower, price - risk_distance * 0.32) if side == "LONG" else min(upper, price + risk_distance * 0.32)
+            deeper_price = max(lower, price - risk_distance * 0.55) if side == "LONG" else min(upper, price + risk_distance * 0.55)
+            entries = [
+                EntryPlan(price=round_price(price), weight=0.40, reason="Immediate actionable channel edge"),
+                EntryPlan(price=round_price(edge_price), weight=0.30, reason="Channel edge retest"),
+                EntryPlan(price=round_price(deeper_price), weight=0.30, reason="Final controlled channel scale"),
+            ]
+        if aggressive:
+            take_profits = [
+                take_profits[0].model_copy(update={"weight": 0.35}),
+                take_profits[1].model_copy(update={"weight": 0.65}),
+            ]
+
         entries = normalize_entries_for_side(side, price, entries)
         risk_reward = estimate_risk_reward(side, entries, stop, take_profits)
-        errors = candidate_geometry_errors(side, price, entries, stop, take_profits, min_risk_reward=1.3)
+        minimum_rr = 1.15 if aggressive else 1.3
+        errors = candidate_geometry_errors(side, price, entries, stop, take_profits, min_risk_reward=minimum_rr)
         if errors:
             return make_rejection("Channel rider risk gates failed: " + "; ".join(errors), score)
         if trend == "sideways":
             notes.append("4H is sideways, so this is treated as a tactical edge trade with reduced risk.")
-        risk_multiplier = 1.0 if trend != "sideways" else 0.75
-        if edge_without_reaction:
+        risk_multiplier = 1.0 if aggressive or trend != "sideways" else 0.75
+        if edge_without_reaction and not aggressive:
             risk_multiplier = min(risk_multiplier, 0.75)
         risk_percent = round(self.profile.baseRiskPercent * risk_multiplier, 2)
-        suggested_leverage = 6 if channel_quality >= 2 and confirming_candle else 5
+        suggested_leverage = (12 if channel_quality >= 2 and confirming_candle else 10) if aggressive else (6 if channel_quality >= 2 and confirming_candle else 5)
+        maximum_leverage = 12 if aggressive else 7
 
         return TradeCandidate(
             created=True,
@@ -188,13 +207,18 @@ class ChannelRider(TraderStrategy):
             orderIntent=default_order_intent("CHANNEL_EDGE_LIMIT_WITH_CONFIRMATION"),
             leveragePlan=default_leverage_plan(
                 suggested=suggested_leverage,
-                maximum=7,
-                reason="Channel trades use 5-7x: enough futures expression, but capped when channel quality or HTF trend is mixed.",
+                maximum=maximum_leverage,
+                reason=(
+                    "High Voltage channel trades use 10-12x isolated leverage after a valid channel edge is established."
+                    if aggressive
+                    else "Channel trades use 5-7x: enough futures expression, but capped when channel quality or HTF trend is mixed."
+                ),
             ),
             riskPlan=default_risk_plan(
                 risk_percent=risk_percent,
                 risk_reward=risk_reward,
                 sizing_note="Risk from weighted entries to channel-edge stop; no averaging after invalidation.",
+                min_risk_reward=minimum_rr,
             ),
             earlyExitRules=[
                 "Exit early if 1H closes outside the channel against the setup.",

@@ -12,7 +12,15 @@ import { fallbackTraders } from "@/lib/traders";
 
 export type LeagueSymbol = "BTCUSDT" | "ETHUSDT";
 
-export const traderVisuals: Record<string, { tone: string; accent: string; initials: string; alias: string }> = {
+export type TraderVisual = { tone: string; accent: string; initials: string; alias: string; flat?: boolean };
+
+export function traderMarkClass(visual: Pick<TraderVisual, "tone" | "flat">): string {
+  return visual.flat
+    ? "border border-[var(--border-strong)] bg-[var(--surface-muted)] text-[var(--ink-muted)]"
+    : `bg-gradient-to-br ${visual.tone} text-white`;
+}
+
+export const traderVisuals: Record<string, TraderVisual> = {
   "channel-rider": {
     tone: "from-sky-500 to-cyan-700",
     accent: "#0ea5e9",
@@ -144,6 +152,41 @@ export const traderVisuals: Record<string, { tone: string; accent: string; initi
     accent: "#0891b2",
     initials: "AT",
     alias: "ATR Desk"
+  },
+  "high-voltage-channel-raider": {
+    tone: "",
+    accent: "var(--ink-muted)",
+    initials: "CR",
+    alias: "High Voltage Channel",
+    flat: true
+  },
+  "high-voltage-donchian-overdrive": {
+    tone: "",
+    accent: "var(--ink-muted)",
+    initials: "DO",
+    alias: "High Voltage Breakout",
+    flat: true
+  },
+  "high-voltage-trend-titan": {
+    tone: "",
+    accent: "var(--ink-muted)",
+    initials: "TT",
+    alias: "High Voltage Trend",
+    flat: true
+  },
+  "high-voltage-liquidation-shock": {
+    tone: "",
+    accent: "var(--ink-muted)",
+    initials: "LS",
+    alias: "High Voltage Liquidation",
+    flat: true
+  },
+  "high-voltage-compression-detonator": {
+    tone: "",
+    accent: "var(--ink-muted)",
+    initials: "CD",
+    alias: "High Voltage Momentum",
+    flat: true
   }
 };
 

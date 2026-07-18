@@ -25,7 +25,7 @@ import {
   type ManagementReview,
   type TraderPaperSummary
 } from "@/lib/api";
-import { buildScenarios, buildStandings, traderVisuals, type TraderScenario, type TraderStanding } from "@/lib/league";
+import { buildScenarios, buildStandings, traderMarkClass, traderVisuals, type TraderScenario, type TraderStanding } from "@/lib/league";
 import { fallbackTraders, traderNameKey, traderShortKey } from "@/lib/traders";
 import { formatNumber } from "@/lib/format";
 import { type Locale } from "@/lib/i18n";
@@ -702,7 +702,7 @@ export function ConsensusPageClient() {
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className={`shrink-0 size-7 rounded bg-gradient-to-br ${visual.tone} flex items-center justify-center text-[9px] font-mono font-bold text-white shadow-sm`}>
+                    <div className={`shrink-0 size-7 rounded flex items-center justify-center text-[9px] font-mono font-bold shadow-sm ${traderMarkClass(visual)}`}>
                       {visual.initials}
                     </div>
                     <div className="min-w-0">
@@ -843,7 +843,7 @@ function ActiveTraderRow({ trader, locale, t }: { trader: ConsensusTrader; local
         {/* Header Info */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className={`shrink-0 size-9 rounded-lg bg-gradient-to-br ${visual.tone} flex items-center justify-center text-xs font-mono font-bold text-white shadow-md`}>
+            <div className={`shrink-0 size-9 rounded-lg flex items-center justify-center text-xs font-mono font-bold shadow-md ${traderMarkClass(visual)}`}>
               {visual.initials}
             </div>
             <div className="min-w-0">

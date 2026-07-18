@@ -265,7 +265,7 @@ def create_paper_orders_from_plan(
         if available_cash > 0
         else Decimal("0")
     )
-    minimum_entry_margin_percent = minimum_margin_deployment_percent(settings)
+    minimum_entry_margin_percent = minimum_margin_deployment_percent(settings, candidate)
     minimum_entry_margin = equity * minimum_entry_margin_percent / Decimal("100")
     minimum_entry_margin_label = format(minimum_entry_margin_percent.normalize(), "f")
     hard_margin_budget = cash_budget_cap

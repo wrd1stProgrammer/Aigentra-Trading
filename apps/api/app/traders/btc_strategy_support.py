@@ -109,7 +109,21 @@ def btc_gate_common(snapshot: Dict[str, Any]) -> dict[str, float | str]:
 def _entries(side: str, price: float, risk_distance: float, style: str) -> List[EntryPlan]:
     if style == "single":
         return [EntryPlan(price=round_price(price), weight=1.0, reason="Confirmed BTC setup participation")]
-    if style == "wide_staged":
+    if style == "high_voltage_staged":
+        offsets = (0.0, 0.25, 0.50)
+        weights = (0.50, 0.25, 0.25)
+        planned = [
+            EntryPlan(
+                price=round_price(price - risk_distance * offset if side == "LONG" else price + risk_distance * offset),
+                weight=weight,
+                reason=("Breakout confirmation entry" if index == 0 else f"Controlled retest entry {index}"),
+            )
+            for index, (offset, weight) in enumerate(zip(offsets, weights, strict=True))
+        ]
+        return normalize_entries_for_side(side, price, planned)
+    if style == "high_voltage_retest":
+        first_weight, pullback = 0.70, 0.35
+    elif style == "wide_staged":
         first_weight, pullback = 0.35, 0.50
     elif style == "deep_retest":
         first_weight, pullback = 0.40, 0.62
@@ -129,16 +143,23 @@ def _entries(side: str, price: float, risk_distance: float, style: str) -> List[
     return normalize_entries_for_side(side, price, planned)
 
 
-def _take_profits(side: str, price: float, risk_distance: float, target_rs: tuple[float, float]) -> List[TakeProfitPlan]:
+def _take_profits(
+    side: str,
+    price: float,
+    risk_distance: float,
+    target_rs: tuple[float, float],
+    weights: tuple[float, float] = (0.40, 0.60),
+) -> List[TakeProfitPlan]:
     first_r, second_r = target_rs
+    first_weight, second_weight = weights
     if side == "LONG":
         return [
-            TakeProfitPlan(price=round_price(price + risk_distance * first_r), weight=0.40, reason="First BTC liquidity target"),
-            TakeProfitPlan(price=round_price(price + risk_distance * second_r), weight=0.60, reason="Extended thesis target"),
+            TakeProfitPlan(price=round_price(price + risk_distance * first_r), weight=first_weight, reason="First BTC liquidity target"),
+            TakeProfitPlan(price=round_price(price + risk_distance * second_r), weight=second_weight, reason="Extended thesis target"),
         ]
     return [
-        TakeProfitPlan(price=round_price(price - risk_distance * first_r), weight=0.40, reason="First BTC liquidity target"),
-        TakeProfitPlan(price=round_price(price - risk_distance * second_r), weight=0.60, reason="Extended thesis target"),
+        TakeProfitPlan(price=round_price(price - risk_distance * first_r), weight=first_weight, reason="First BTC liquidity target"),
+        TakeProfitPlan(price=round_price(price - risk_distance * second_r), weight=second_weight, reason="Extended thesis target"),
     ]
 
 
@@ -161,6 +182,7 @@ def build_btc_candidate(
     min_rr: float = 1.15,
     risk_percent: float | None = None,
     candidate_audit: dict[str, Any] | None = None,
+    take_profit_weights: tuple[float, float] = (0.40, 0.60),
 ) -> TradeCandidate:
     regime = str(gate_scores.get("regime") or "").lower()
     minimum_score = 60 if regime in {"range", "squeeze"} else 58
@@ -180,7 +202,7 @@ def build_btc_candidate(
     price = fvalue(snapshot.get("price"))
     entries = _entries(side, price, risk_distance, entry_style)
     stop = round_price(price - risk_distance if side == "LONG" else price + risk_distance)
-    take_profits = _take_profits(side, price, risk_distance, target_rs)
+    take_profits = _take_profits(side, price, risk_distance, target_rs, take_profit_weights)
     risk_reward = estimate_risk_reward(side, entries, stop, take_profits, fee_buffer_percent=0.09)
     errors = candidate_geometry_errors(side, price, entries, stop, take_profits, min_risk_reward=min_rr, fee_buffer_percent=0.09)
     if errors:

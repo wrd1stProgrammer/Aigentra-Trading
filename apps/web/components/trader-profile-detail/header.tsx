@@ -5,7 +5,7 @@ import { ArrowLeft } from "@phosphor-icons/react";
 import type { TraderProfile } from "@/lib/api";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
-import type { TraderStanding } from "@/lib/league";
+import { traderMarkClass, type TraderStanding } from "@/lib/league";
 import { traderAliasKey, traderDetailKey, traderNameKey } from "@/lib/traders";
 import { movementToneClass } from "@/components/trader-profile-detail/data";
 import type { Translator, VisualProfile } from "@/components/trader-profile-detail/types";
@@ -34,7 +34,7 @@ export function HeroHeader({
       {/* Mobile Layout */}
       <div className="lg:hidden flex flex-col gap-4 rounded-2xl border border-zinc-200/80 bg-white/85 p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/70">
         <div className="flex items-center gap-3">
-          <div className={`grid size-11 shrink-0 place-items-center rounded-full bg-gradient-to-br ${visual.tone} font-mono text-base font-bold text-white border border-white/10 shadow-md`}>
+          <div className={`grid size-11 shrink-0 place-items-center rounded-full font-mono text-base font-bold shadow-md ${traderMarkClass(visual)}`}>
             {visual.initials}
           </div>
           <div className="min-w-0">
@@ -72,7 +72,7 @@ export function HeroHeader({
       {/* Desktop / Tablet view: keeps original code structure for rigid test cases */}
       <div className="hidden lg:flex w-full items-start justify-between">
         <div className="flex min-w-0 items-start gap-4">
-          <div className={`mt-2 grid size-16 shrink-0 place-items-center rounded-full bg-gradient-to-br ${visual.tone} font-mono text-xl font-bold text-white border border-white/10 shadow-md`}>
+          <div className={`mt-2 grid size-16 shrink-0 place-items-center rounded-full font-mono text-xl font-bold shadow-md ${traderMarkClass(visual)}`}>
             {visual.initials}
           </div>
           <div className="min-w-0 flex-1">

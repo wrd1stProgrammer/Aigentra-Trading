@@ -36,12 +36,12 @@ import {
 } from "@/lib/api";
 import { useAppContext } from "@/components/app-provider";
 import type { Locale } from "@/lib/i18n";
-import { buildStandings, traderVisuals, type TraderStanding } from "@/lib/league";
+import { buildStandings, traderMarkClass, traderVisuals, type TraderStanding } from "@/lib/league";
 import { EquityAreaChart } from "@/components/leaderboard-sidebar-equity-chart";
 import { PageLoadingOverlay } from "@/components/page-loading-overlay";
 import { ProtectedContentGateWithAccess } from "@/components/access-gate";
 import { useSubscriberAccess } from "@/components/use-subscriber-access";
-import { fallbackTraders, traderDetailKey, traderNameKey, traderShortKey } from "@/lib/traders";
+import { fallbackTraders, highVoltageTraderIds, isHighVoltageTrader, traderDetailKey, traderNameKey, traderShortKey } from "@/lib/traders";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { statusLabel } from "@/lib/status";
 import { compareLiveRaceItems, liveRaceScore } from "@/lib/live-race-policy";
@@ -52,6 +52,7 @@ import {
 } from "@/lib/free-leaderboard-preview";
 import {
   buildLeaguePeriodUrl,
+  buildHighVoltageLeagueUrl,
   shouldFetchCurrentLeagueCompanion,
   shouldFetchLeaderboardSecondaryData,
   shouldShowLeaderboardInitialOverlay,
@@ -95,6 +96,7 @@ type TraderProgress = {
 
 type ReturnMetricKey = "monthly" | "cumulative" | "return7d" | "return24h" | "return30d";
 type ChartPeriod = "ALL" | "7D" | "30D" | "90D";
+type LeagueView = "monthly" | "current" | "high-voltage";
 
 type ReturnColumn = {
   readonly key: ReturnMetricKey;
@@ -173,8 +175,16 @@ function hasLeaderboardTradingRecord(trader: Pick<TraderStanding, "trades">) {
 
 function initialLeagueMonthFromSearchParams(searchParams: URLSearchParams | ReadonlyURLSearchParamsLike) {
   if (searchParams.get("league") === "current") return undefined;
+  if (searchParams.get("league") === "high-voltage") return undefined;
   const month = searchParams.get("leagueMonth");
   return parseLeagueMonth(month ?? undefined) ? String(month) : currentUtcLeagueMonth();
+}
+
+function initialLeagueViewFromSearchParams(searchParams: URLSearchParams | ReadonlyURLSearchParamsLike): LeagueView {
+  const league = searchParams.get("league");
+  if (league === "high-voltage") return "high-voltage";
+  if (league === "current") return "current";
+  return "monthly";
 }
 
 type ReadonlyURLSearchParamsLike = {
@@ -225,6 +235,7 @@ export function LeaderboardPageClient() {
   const [selectedChartPeriod, setSelectedChartPeriod] = useState<ChartPeriod>("7D");
   const [selectedReturnMetricKey, setSelectedReturnMetricKey] = useState<ReturnMetricKey | null>(null);
   const [selectedLeagueMonth, setSelectedLeagueMonth] = useState<string | undefined>(() => initialLeagueMonthFromSearchParams(searchParams));
+  const [leagueView, setLeagueView] = useState<LeagueView>(() => initialLeagueViewFromSearchParams(searchParams));
   const [cacheReady, setCacheReady] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favoriteTraderIds, setFavoriteTraderIds] = useState<Set<string>>(() => new Set());
@@ -247,8 +258,8 @@ export function LeaderboardPageClient() {
   );
   const leaderboardBundleOptions = useMemo<LeaderboardBundleRequestOptions>(() => ({
     includeRelated: false,
-    leagueMonth: selectedLeagueMonth
-  }), [selectedLeagueMonth]);
+    leagueMonth: leagueView === "monthly" ? selectedLeagueMonth : undefined
+  }), [leagueView, selectedLeagueMonth]);
   const liveRacePeriodLabel = t("leaderboard.liveRace.period");
 
   const fallbackBundle = useMemo<LeaderboardBundle>(() => ({
@@ -268,6 +279,7 @@ export function LeaderboardPageClient() {
 
   useEffect(() => {
     setSelectedLeagueMonth(initialLeagueMonthFromSearchParams(searchParams));
+    setLeagueView(initialLeagueViewFromSearchParams(searchParams));
   }, [searchParams]);
 
   const subscriberPreferencesQueryKey = useMemo(
@@ -331,6 +343,7 @@ export function LeaderboardPageClient() {
   const setLeaguePeriod = useCallback((leagueMonth: string | undefined) => {
     const nextUrl = buildLeaguePeriodUrl(pathname, searchParams.toString(), leagueMonth);
     setSelectedLeagueMonth(leagueMonth);
+    setLeagueView(leagueMonth ? "monthly" : "current");
     if (typeof window !== "undefined") {
       const currentUrl = `${window.location.pathname}${window.location.search}`;
       if (currentUrl !== nextUrl) {
@@ -346,6 +359,16 @@ export function LeaderboardPageClient() {
   const activateSelectedLeagueMonth = useCallback(() => {
     setLeaguePeriod(selectedLeagueMonthValue);
   }, [selectedLeagueMonthValue, setLeaguePeriod]);
+
+  const activateHighVoltageLeague = useCallback(() => {
+    const nextUrl = buildHighVoltageLeagueUrl(pathname, searchParams.toString());
+    setSelectedLeagueMonth(undefined);
+    setLeagueView("high-voltage");
+    if (typeof window !== "undefined") {
+      const currentUrl = `${window.location.pathname}${window.location.search}`;
+      if (currentUrl !== nextUrl) window.history.replaceState(null, "", nextUrl);
+    }
+  }, [pathname, searchParams]);
 
   const btcQuery = useQuery({
     ...leaderboardBundleQueryOptions("BTCUSDT", locale, leaderboardBundleOptions),
@@ -381,12 +404,25 @@ export function LeaderboardPageClient() {
   }, [btcQuery.data, fallbackBundle]);
 
   const traders = bundle.traders?.length ? bundle.traders : (fallbackTraders as unknown as TraderProfile[]);
-  const periodTraders = useMemo(
-    () => traders.filter((trader) => isTraderVisibleInLeagueMonth(trader, selectedLeagueMonth)),
-    [selectedLeagueMonth, traders]
-  );
+  const periodTraders = useMemo(() => {
+    if (leagueView === "high-voltage") {
+      return highVoltageTraderIds.flatMap((traderId) => {
+        const profile = traders.find((trader) => trader.id === traderId)
+          ?? fallbackTraders.find((trader) => trader.id === traderId);
+        return profile ? [profile as TraderProfile] : [];
+      });
+    }
+    return traders.filter((trader) => {
+      const highVoltage = isHighVoltageTrader(trader.id);
+      return !highVoltage && isTraderVisibleInLeagueMonth(trader, selectedLeagueMonth);
+    });
+  }, [leagueView, selectedLeagueMonth, traders]);
   const standings = useMemo(() => buildStandings(periodTraders, bundle.summaries ?? []), [bundle.summaries, periodTraders]);
   const displayStandings = useMemo(() => standings.filter(hasLeaderboardTradingRecord), [standings]);
+  const leagueDisplayStandings = useMemo(
+    () => leagueView === "high-voltage" ? standings : displayStandings,
+    [displayStandings, leagueView, standings]
+  );
   const accessReady = session.status === "unauthenticated" || Boolean(access) || (session.status === "authenticated" && accessQuery.isError);
   const subscriberAccessPending = !accessReady;
   const subscriberAccessUnavailable = Boolean(access?.unavailable) || (session.status === "authenticated" && accessQuery.isError && !access);
@@ -400,10 +436,20 @@ export function LeaderboardPageClient() {
   });
   const shouldShowLockedRows = shouldLimitForFreeAccess || subscriberAccessUnavailable;
   const rankMasked = shouldUsePreviewLimit;
-  const visibleStandingsBase = useMemo(
+  const standardVisibleStandingsBase = useMemo(
     () => (shouldUsePreviewLimit ? buildFreeLeaderboardPreview(displayStandings, freePreviewSeed) : displayStandings),
     [displayStandings, freePreviewSeed, shouldUsePreviewLimit]
   );
+  const visibleStandingsBase = useMemo(() => {
+    if (leagueView !== "high-voltage") return standardVisibleStandingsBase;
+    if (!shouldUsePreviewLimit) return leagueDisplayStandings;
+    const curatedPreview = buildFreeLeaderboardPreview(leagueDisplayStandings, freePreviewSeed);
+    const curatedIds = new Set(curatedPreview.map((trader) => trader.id));
+    return [
+      ...curatedPreview,
+      ...leagueDisplayStandings.filter((trader) => !curatedIds.has(trader.id))
+    ].slice(0, 3);
+  }, [freePreviewSeed, leagueDisplayStandings, leagueView, shouldUsePreviewLimit, standardVisibleStandingsBase]);
   const returnMetricStandings = useMemo(
     () => favoritesOnly ? visibleStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : visibleStandingsBase,
     [favoriteTraderIds, favoritesOnly, visibleStandingsBase]
@@ -441,7 +487,7 @@ export function LeaderboardPageClient() {
     () => favoritesOnly ? rankedVisibleStandingsBase.filter((trader) => favoriteTraderIds.has(trader.id)) : rankedVisibleStandingsBase,
     [favoriteTraderIds, favoritesOnly, rankedVisibleStandingsBase]
   );
-  const hiddenTraderCount = Math.max(0, displayStandings.length - visibleStandingsBase.length);
+  const hiddenTraderCount = Math.max(0, leagueDisplayStandings.length - visibleStandingsBase.length);
   const activeTrader = visibleStandings.find((item) => item.id === activeTraderId) ?? visibleStandings[0] ?? null;
   const currentSummaryByTrader = useMemo(
     () => buildCurrentSummaryMap(currentLeagueBundleQuery.data?.summaries ?? []),
@@ -697,11 +743,11 @@ export function LeaderboardPageClient() {
                     data-league-period="monthly"
                     onClick={activateSelectedLeagueMonth}
                     className={`focus-ring rounded-lg px-3 py-1.5 text-xs font-bold transition duration-200 ${
-                      selectedLeagueMonth
+                      leagueView === "monthly"
                         ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-sm"
                         : "text-zinc-400 hover:text-white"
                     }`}
-                    aria-pressed={Boolean(selectedLeagueMonth)}
+                    aria-pressed={leagueView === "monthly"}
                   >
                     {t("leaderboard.monthlyLeague")}
                   </button>
@@ -710,13 +756,26 @@ export function LeaderboardPageClient() {
                     data-league-period="current"
                     onClick={activateCurrentLeague}
                     className={`focus-ring rounded-lg px-3 py-1.5 text-xs font-bold transition duration-200 ${
-                      selectedLeagueMonth
-                        ? "text-zinc-400 hover:text-white"
-                        : "bg-white text-zinc-950 shadow-sm"
+                      leagueView === "current"
+                        ? "bg-white text-zinc-950 shadow-sm"
+                        : "text-zinc-400 hover:text-white"
                     }`}
-                    aria-pressed={!selectedLeagueMonth}
+                    aria-pressed={leagueView === "current"}
                   >
                     {t("leaderboard.currentLeague")}
+                  </button>
+                  <button
+                    type="button"
+                    data-league-period="high-voltage"
+                    onClick={activateHighVoltageLeague}
+                    className={`focus-ring rounded-lg px-3 py-1.5 text-xs font-bold transition duration-200 ${
+                      leagueView === "high-voltage"
+                        ? "border border-[var(--warn)] bg-[var(--surface-muted)] text-[var(--warn)] shadow-sm"
+                        : "text-zinc-400 hover:text-white"
+                    }`}
+                    aria-pressed={leagueView === "high-voltage"}
+                  >
+                    {t("leaderboard.highVoltageLeague")}
                   </button>
                 </div>
 
@@ -866,11 +925,11 @@ export function LeaderboardPageClient() {
                     data-league-period="monthly"
                     onClick={activateSelectedLeagueMonth}
                     className={`focus-ring flex-1 text-center rounded-lg py-1.5 text-xs font-bold transition duration-200 ${
-                      selectedLeagueMonth
+                      leagueView === "monthly"
                         ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-sm"
                         : "text-zinc-400 hover:text-white"
                     }`}
-                    aria-pressed={Boolean(selectedLeagueMonth)}
+                    aria-pressed={leagueView === "monthly"}
                   >
                     {t("leaderboard.monthlyLeague")}
                   </button>
@@ -879,13 +938,26 @@ export function LeaderboardPageClient() {
                     data-league-period="current"
                     onClick={activateCurrentLeague}
                     className={`focus-ring flex-1 text-center rounded-lg py-1.5 text-xs font-bold transition duration-200 ${
-                      selectedLeagueMonth
-                        ? "text-zinc-400 hover:text-white"
-                        : "bg-white text-zinc-950 shadow-sm"
+                      leagueView === "current"
+                        ? "bg-white text-zinc-950 shadow-sm"
+                        : "text-zinc-400 hover:text-white"
                     }`}
-                    aria-pressed={!selectedLeagueMonth}
+                    aria-pressed={leagueView === "current"}
                   >
                     {t("leaderboard.currentLeague")}
+                  </button>
+                  <button
+                    type="button"
+                    data-league-period="high-voltage"
+                    onClick={activateHighVoltageLeague}
+                    className={`focus-ring flex-1 rounded-lg py-1.5 text-center text-xs font-bold transition duration-200 ${
+                      leagueView === "high-voltage"
+                        ? "border border-[var(--warn)] bg-[var(--surface-muted)] text-[var(--warn)] shadow-sm"
+                        : "text-zinc-400 hover:text-white"
+                    }`}
+                    aria-pressed={leagueView === "high-voltage"}
+                  >
+                    {t("leaderboard.highVoltageLeagueShort")}
                   </button>
                 </div>
 
@@ -1336,10 +1408,10 @@ function TraderPreviewPanel({ trader, t, locale, snapshots, snapshotsLoading, ex
                   {displayName}
                 </h3>
               </div>
-              <p className="text-zinc-400 mt-2 text-xs leading-relaxed font-sans break-keep">{t(traderDetailKey(trader.id))}</p>
             </div>
             <TraderRankBadge trader={trader} t={t} masked={rankMasked} />
           </div>
+          <p className="mt-2 text-xs leading-relaxed text-zinc-400 font-sans break-keep">{t(traderDetailKey(trader.id))}</p>
           <div className="mt-4 flex flex-nowrap items-center gap-2">
             <StatusPill label={state} tone={progress.tone} />
             <SideBadge progress={progress} />
@@ -1454,7 +1526,7 @@ function TraderRankBadge({
 function TraderMark({ trader, compact = false }: { trader: TraderStanding; compact?: boolean }) {
   const visual = traderVisuals[trader.id] ?? traderVisuals["channel-rider"];
   return (
-    <span className={`${compact ? "size-9 rounded-full text-xs" : "size-10 rounded-full text-xs"} grid shrink-0 place-items-center bg-gradient-to-br ${visual.tone} font-bold text-white`}>
+    <span className={`${compact ? "size-9 rounded-full text-xs" : "size-10 rounded-full text-xs"} grid shrink-0 place-items-center font-bold ${traderMarkClass(visual)}`}>
       {visual.initials}
     </span>
   );

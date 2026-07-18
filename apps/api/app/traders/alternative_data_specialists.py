@@ -44,6 +44,7 @@ class LiquidationPressureSniper(TraderStrategy):
     )
 
     def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
+        aggressive = self.profile.id.startswith("high-voltage-")
         g = _gate_common(snapshot)
         coinalyze = _external(snapshot, "coinalyze")
         available = bool(coinalyze.get("available"))
@@ -57,20 +58,23 @@ class LiquidationPressureSniper(TraderStrategy):
         volume_z = float(g["volumeZ15m"])
         reclaim_long = (
             float(g["close15m"]) > float(g["open15m"])
-            and float(g["lowerWick"]) >= 0.18
+            and float(g["lowerWick"]) >= (0.12 if aggressive else 0.18)
             and g["trend4h"] != "bearish"
             and g["trend1h"] != "bearish"
         )
         reject_short = (
             float(g["close15m"]) < float(g["open15m"])
-            and float(g["upperWick"]) >= 0.18
+            and float(g["upperWick"]) >= (0.12 if aggressive else 0.18)
             and g["trend4h"] != "bullish"
             and g["trend1h"] != "bullish"
         )
-        long_flush = liquidation_bias >= 0.22 and reclaim_long and buy_share >= 0.52 and volume_z >= 0.15
-        short_squeeze_exhaustion = liquidation_bias <= -0.22 and reject_short and buy_share <= 0.48 and volume_z >= 0.15
-        crowded_long_break = long_ratio >= 66 and reject_short and oi_change <= -0.1 and buy_share <= 0.5 and volume_z >= 0.25
-        crowded_short_reclaim = long_ratio <= 40 and reclaim_long and oi_change <= -0.1 and buy_share >= 0.5 and volume_z >= 0.25
+        bias_threshold = 0.15 if aggressive else 0.22
+        volume_threshold = 0.05 if aggressive else 0.15
+        crowded_volume_threshold = 0.12 if aggressive else 0.25
+        long_flush = liquidation_bias >= bias_threshold and reclaim_long and buy_share >= (0.50 if aggressive else 0.52) and volume_z >= volume_threshold
+        short_squeeze_exhaustion = liquidation_bias <= -bias_threshold and reject_short and buy_share <= (0.50 if aggressive else 0.48) and volume_z >= volume_threshold
+        crowded_long_break = long_ratio >= (62 if aggressive else 66) and reject_short and oi_change <= (0.0 if aggressive else -0.1) and buy_share <= 0.5 and volume_z >= crowded_volume_threshold
+        crowded_short_reclaim = long_ratio <= (42 if aggressive else 40) and reclaim_long and oi_change <= (0.0 if aggressive else -0.1) and buy_share >= 0.5 and volume_z >= crowded_volume_threshold
         score = 40 + (16 if available else 0) + min(18, int(abs(liquidation_bias) * 70))
         score += 9 if abs(oi_change) >= 0.35 else 0
         score += 7 if volume_z >= 0.25 else -4
@@ -97,7 +101,7 @@ class LiquidationPressureSniper(TraderStrategy):
                 "liquidation_pressure_not_aligned",
             )
         risk_distance = max(float(g["atr1h"]) * 0.95, float(g["price"]) * 0.0055)
-        leverage = 8 if score >= 78 else 6
+        leverage = (20 if score >= 78 else 18) if aggressive else (8 if score >= 78 else 6)
         notes = [
             f"Coinalyze available: {available}.",
             f"6h long/short liquidations: {long_liq:.0f}/{short_liq:.0f}; bias {liquidation_bias:.2f}.",
@@ -112,10 +116,13 @@ class LiquidationPressureSniper(TraderStrategy):
             risk_distance=risk_distance,
             target_rs=(1.45, 2.95),
             leverage=leverage,
-            max_leverage=9,
+            max_leverage=20 if aggressive else 9,
             reason_code=reason,
             gate_scores=gate_scores,
             notes=notes,
+            min_rr=1.15 if aggressive else 1.25,
+            entry_weights=(0.60, 0.40) if aggressive else (0.55, 0.45),
+            take_profit_weights=(0.50, 0.50) if aggressive else (0.45, 0.55),
         )
 
 

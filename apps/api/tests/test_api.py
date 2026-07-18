@@ -391,7 +391,7 @@ def test_traders_list():
     response = client.get("/api/traders")
     assert response.status_code == 200
     data = response.json()
-    assert len(data["traders"]) == 22
+    assert len(data["traders"]) == 27
     assert {trader["id"] for trader in data["traders"]} == {
         "channel-rider",
         "volume-breaker",
@@ -415,6 +415,11 @@ def test_traders_list():
         "atr-trail-commander",
         "liquidation-pressure-sniper",
         "volatility-skew-sentinel",
+        "high-voltage-channel-raider",
+        "high-voltage-donchian-overdrive",
+        "high-voltage-trend-titan",
+        "high-voltage-liquidation-shock",
+        "high-voltage-compression-detonator",
     }
     by_id = {trader["id"]: trader for trader in data["traders"]}
     assert by_id["liquidation-pressure-sniper"]["lifecycleStatus"] == "new"

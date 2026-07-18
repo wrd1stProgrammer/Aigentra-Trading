@@ -39,6 +39,7 @@ from app.traders.models import (
     TradeReviewResult,
 )
 from app.traders.registry import get_strategy, list_traders
+from app.traders.high_voltage_config import is_high_voltage_trader
 
 
 def sample_snapshot():
@@ -573,9 +574,11 @@ def test_all_trader_strategies_return_candidate_shape():
         if candidate.created:
             assert candidate.orderIntent is not None
             assert candidate.leveragePlan is not None
-            assert 5 <= candidate.leveragePlan.suggestedLeverage <= 10
+            leverage_floor = 10 if is_high_voltage_trader(trader.id) else 5
+            leverage_ceiling = 20 if is_high_voltage_trader(trader.id) else 10
+            assert leverage_floor <= candidate.leveragePlan.suggestedLeverage <= leverage_ceiling
             assert candidate.leveragePlan.suggestedLeverage <= candidate.leveragePlan.maxLeverage
-            assert candidate.leveragePlan.maxLeverage <= 10
+            assert candidate.leveragePlan.maxLeverage <= leverage_ceiling
             assert candidate.riskPlan is not None
             assert candidate.riskPlan.estimatedRiskReward >= candidate.riskPlan.minRiskReward
             assert candidate.riskPlan.feeBufferPercent > 0
@@ -1045,7 +1048,7 @@ def test_btc_specialist_profiles_are_differentiated_with_concrete_evaluators():
 
 
 def test_trader_execution_profiles_are_rebalanced_across_horizons():
-    profiles = [trader.holdingProfile for trader in list_traders()]
+    profiles = [trader.holdingProfile for trader in list_traders() if not is_high_voltage_trader(trader.id)]
     assert profiles.count("micro") == 2
     assert profiles.count("tactical") + profiles.count("intraday") in {11, 12}
     assert profiles.count("swing") + profiles.count("trend") in {6, 7, 8}

@@ -142,6 +142,13 @@ All spacing derives from a 4px base.
 - **Placement**: leaderboard exposure rows show only the localized strategy family after side and leverage, on the same unbroken row; trader-detail position symbols retain the full `horizon · strategy` label immediately after `Perp`.
 - **Rules**: use muted surface/border tokens, remain visually secondary to LONG/SHORT, never introduce page-level horizontal overflow, and hide only when no valid frozen-plan or trader fallback classification exists.
 
+### High Voltage League View
+
+- **Structure**: extend the leaderboard's existing monthly/all segmented control with one High Voltage option. The view contains exactly five independently tracked aggressive trader variants and reuses the existing ranking table, mobile cards, sidebar, and return controls.
+- **Data boundary**: monthly and all-time views exclude High Voltage variants. High Voltage starts each variant from a separate `$10,000` paper account and remains visible before its first closed trade so launch state is explicit.
+- **Tone**: use the existing warning token only on the active High Voltage segment to communicate elevated risk. Do not add flames, lightning artwork, glow, gradients, or casino styling.
+- **Responsive behavior**: all three league options share available width on mobile, retain at least 12px labels, and never force horizontal page overflow.
+
 ### Alert/Review Row
 
 - **Structure**: time, trader identity, decision summary, optional severity dot.

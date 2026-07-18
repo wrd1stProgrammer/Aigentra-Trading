@@ -169,6 +169,13 @@ from app.traders.models import (
 )
 from app.traders.registry import get_strategy, list_scanner_traders, list_traders, list_traders_for_league_month, public_trader_profile
 from app.traders.strategy_base import default_leverage_plan, default_order_intent, default_risk_plan, estimate_risk_reward, round_price
+from app.traders.high_voltage_config import (
+    HIGH_VOLTAGE_INITIAL_EQUITY,
+    HIGH_VOLTAGE_MAX_LEVERAGE,
+    HIGH_VOLTAGE_MIN_LEVERAGE,
+    is_high_voltage_candidate,
+    is_high_voltage_trader,
+)
 
 
 settings = get_settings()
@@ -690,8 +697,18 @@ def trade_plan_from_review(symbol: str, candidate, review) -> TradePlan:
         suggested_leverage = float(getattr(leverage_plan, "suggestedLeverage", 1) or 1)
         max_candidate_leverage = float(getattr(leverage_plan, "maxLeverage", suggested_leverage) or suggested_leverage)
         review_leverage = getattr(review, "leverageOverride", None)
-        leverage_cap = max(1.0, min(max_candidate_leverage, float(settings.paper_max_leverage)))
-        leverage_floor = min(MIN_FINAL_PAPER_LEVERAGE, leverage_cap)
+        service_leverage_cap = (
+            float(HIGH_VOLTAGE_MAX_LEVERAGE)
+            if is_high_voltage_candidate(candidate)
+            else float(settings.paper_max_leverage)
+        )
+        leverage_cap = max(1.0, min(max_candidate_leverage, service_leverage_cap))
+        requested_leverage_floor = (
+            float(HIGH_VOLTAGE_MIN_LEVERAGE)
+            if is_high_voltage_candidate(candidate)
+            else MIN_FINAL_PAPER_LEVERAGE
+        )
+        leverage_floor = min(requested_leverage_floor, leverage_cap)
         leverage = float(review_leverage or suggested_leverage)
         leverage = max(leverage_floor, min(leverage, leverage_cap))
 
@@ -4096,7 +4113,12 @@ def trader_summary_for_profile(db: Session, trader, symbol: str) -> dict:
             .limit(1)
         ).scalar_one_or_none()
     )
-    initial_equity = float(risk_settings.initial_equity) if risk_settings else float(settings.paper_default_equity)
+    if risk_settings:
+        initial_equity = float(risk_settings.initial_equity)
+    elif is_high_voltage_trader(trader.id):
+        initial_equity = float(HIGH_VOLTAGE_INITIAL_EQUITY)
+    else:
+        initial_equity = float(settings.paper_default_equity)
     state = (
         db.execute(
             select(TraderStateRecord)

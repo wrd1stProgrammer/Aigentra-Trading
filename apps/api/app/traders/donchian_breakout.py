@@ -28,6 +28,7 @@ class DonchianBreakout(TraderStrategy):
     )
 
     def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
+        aggressive = self.profile.id.startswith("high-voltage-")
         gates = btc_gate_common(snapshot)
         fifteen = timeframe(snapshot, "15m")
         one_hour = timeframe(snapshot, "1h")
@@ -59,18 +60,18 @@ class DonchianBreakout(TraderStrategy):
         signal_body = candle_body_ratio(completed_signal)
         gates["volumeZ15m"] = completed_volume_z
         gates["candleBody"] = signal_body
-        volume_confirmed = completed_volume_z >= 0.35
-        oi_confirmed = float(gates["oi30m"]) >= 0.12
+        volume_confirmed = completed_volume_z >= (0.15 if aggressive else 0.35)
+        oi_confirmed = float(gates["oi30m"]) >= (0.05 if aggressive else 0.12)
         taker_share = float(gates["takerBuyShare"])
         high_break = signal_close > upper and gates["trend4h"] != "bearish"
         low_break = signal_close < lower and gates["trend4h"] != "bullish"
         if high_break:
             side, setup = "LONG", "DONCHIAN_RANGE_EXPANSION_LONG"
-            taker_confirmed = taker_share >= 0.55
+            taker_confirmed = taker_share >= (0.52 if aggressive else 0.55)
             broken_boundary = upper
         elif low_break:
             side, setup = "SHORT", "DONCHIAN_RANGE_EXPANSION_SHORT"
-            taker_confirmed = taker_share <= 0.45
+            taker_confirmed = taker_share <= (0.48 if aggressive else 0.45)
             broken_boundary = lower
         else:
             gates["donchianParticipationCount"] = 0
@@ -83,11 +84,18 @@ class DonchianBreakout(TraderStrategy):
         }
         participation_count = sum(participation_flags.values())
         gates["donchianParticipationCount"] = participation_count
-        score = 48 + participation_count * 6
+        score = (52 if aggressive else 48) + participation_count * (8 if aggressive else 6)
         score += 9 if gates["regime"] in {"trend", "squeeze"} else 0
-        score += 7 if signal_body >= 0.45 else 0
-        if participation_count < 2:
-            return reject_btc_candidate(self.profile, "Donchian breakout needs at least two directional participation confirmations.", score, gates, "donchian_participation_weak")
+        score += 7 if signal_body >= (0.36 if aggressive else 0.45) else 0
+        minimum_participation = 1 if aggressive else 2
+        if participation_count < minimum_participation:
+            return reject_btc_candidate(
+                self.profile,
+                f"Donchian breakout needs at least {minimum_participation} directional participation confirmation{'s' if minimum_participation > 1 else ''}.",
+                score,
+                gates,
+                "donchian_participation_weak",
+            )
 
         price = signal_close
         atr_buffer = float(gates["atr1h"]) * 0.20
@@ -121,15 +129,17 @@ class DonchianBreakout(TraderStrategy):
             setup_type=setup,
             score=score,
             risk_distance=risk_distance,
-            target_rs=(1.75, 3.60),
-            leverage=6,
-            max_leverage=8,
-            entry_style="wide_staged",
+            target_rs=(1.75, 4.00) if aggressive else (1.75, 3.60),
+            leverage=14 if aggressive and score < 78 else 16 if aggressive else 6,
+            max_leverage=16 if aggressive else 8,
+            entry_style="high_voltage_staged" if aggressive else "wide_staged",
             order_execution="BREAKOUT_CLOSE_OR_RETEST",
             reason_code="donchian_expansion",
             gate_scores=gates,
             sizing_note="Wider swing breakout: risk can expand only when AI confirms participation and fakeout risk is acceptable.",
             candidate_audit={"donchianContext": donchian_context},
+            risk_percent=self.profile.baseRiskPercent,
+            take_profit_weights=(0.25, 0.75) if aggressive else (0.40, 0.60),
         )
 
 

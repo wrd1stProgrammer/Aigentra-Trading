@@ -153,6 +153,7 @@ class MomentumIgnition(TraderStrategy):
     )
 
     def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
+        aggressive = self.profile.id.startswith("high-voltage-")
         gates, fifteen = _with_completed_trigger(snapshot)
         completed_range = fifteen.get("priorCompletedRange20")
         frozen_range = completed_range or {}
@@ -162,8 +163,9 @@ class MomentumIgnition(TraderStrategy):
         lower = fvalue(frozen_range.get("low"))
         width = float(gates["bollingerWidth1h"])
         keltner_width = float(gates["keltnerWidth1h"])
-        compressed = str(gates["regime"]) == "squeeze" or (width > 0 and keltner_width > 0 and width <= keltner_width * 0.95)
-        expansion = float(gates["candleBody"]) >= 0.46 and float(gates["volumeZ15m"]) >= 0.15
+        compression_ratio = 1.05 if aggressive else 0.95
+        compressed = str(gates["regime"]) == "squeeze" or (width > 0 and keltner_width > 0 and width <= keltner_width * compression_ratio)
+        expansion = float(gates["candleBody"]) >= (0.36 if aggressive else 0.46) and float(gates["volumeZ15m"]) >= (0.05 if aggressive else 0.15)
         long_break = compressed and expansion and float(gates["close15m"]) > upper and gates["trend4h"] != "bearish"
         short_break = compressed and expansion and float(gates["close15m"]) < lower and gates["trend4h"] != "bullish"
         score = 44 + (16 if compressed else -8) + (14 if long_break or short_break else 0) + (8 if expansion else -4)
@@ -186,6 +188,7 @@ class MomentumIgnition(TraderStrategy):
             signal_price=float(gates["close15m"]),
             invalidation_level=broken_boundary,
             atr=float(gates["atr1h"]),
+            maximum_atr_deviation=0.90 if aggressive else 0.75,
         ):
             return reject_btc_candidate(self.profile, "Completed compression release is stale at the live execution price.", score, enriched_gates, "stale_completed_trigger")
         risk_distance = max(float(gates["atr1h"]) * 0.82, float(gates["price"]) * 0.0048)
@@ -196,12 +199,15 @@ class MomentumIgnition(TraderStrategy):
             setup_type=setup,
             score=score,
             risk_distance=risk_distance,
-            target_rs=(1.55, 3.20),
-            leverage=6,
-            max_leverage=8,
-            entry_style="single",
+            target_rs=(1.55, 3.60) if aggressive else (1.55, 3.20),
+            leverage=16 if aggressive and score < 78 else 20 if aggressive else 6,
+            max_leverage=20 if aggressive else 8,
+            entry_style="high_voltage_retest" if aggressive else "single",
             order_execution="COMPRESSION_BREAKOUT_PARTICIPATION",
             reason_code="completed_volatility_compression_ignition",
             gate_scores=enriched_gates,
             sizing_note="Size only after a completed squeeze release; unfinished candles and unavailable flow never add conviction.",
+            risk_percent=self.profile.baseRiskPercent,
+            min_rr=1.10 if aggressive else 1.15,
+            take_profit_weights=(0.25, 0.75) if aggressive else (0.40, 0.60),
         )

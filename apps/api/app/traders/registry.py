@@ -16,6 +16,14 @@ from app.traders.btc_specialists import (
 )
 from app.traders.channel_rider import ChannelRider
 from app.traders.funding_contrarian import FundingContrarian
+from app.traders.high_voltage import (
+    HighVoltageChannelRaider,
+    HighVoltageCompressionDetonator,
+    HighVoltageDonchianOverdrive,
+    HighVoltageLiquidationShock,
+    HighVoltageTrendTitan,
+)
+from app.traders.high_voltage_config import HIGH_VOLTAGE_TRADER_IDS, is_high_voltage_trader
 from app.traders.leverage_hunter import LeverageHunter
 from app.traders.liquidity_reaper import LiquidityReaper
 from app.traders.models import TraderProfile, TradeCandidate
@@ -31,6 +39,7 @@ from app.traders.volatility_squeezer import VolatilitySqueezer
 NEW_TRADER_IDS = {
     "liquidation-pressure-sniper",
     "volatility-skew-sentinel",
+    *HIGH_VOLTAGE_TRADER_IDS,
 }
 TRADER_RETIRED_FROM_MONTH = {
     "volatility-squeezer": "2026-07",
@@ -89,7 +98,11 @@ def _with_execution_profile(strategy: TraderStrategy) -> TraderStrategy:
 
     def evaluate_with_execution_profile(snapshot: dict) -> TradeCandidate:
         candidate = original_evaluate(snapshot)
-        audit = candidate.audit or {}
+        audit = {
+            **(candidate.audit or {}),
+            **({"leagueVariant": "high_voltage"} if is_high_voltage_trader(strategy.profile.id) else {}),
+        }
+        candidate = candidate.model_copy(update={"audit": audit})
         if audit.get("executionProfile"):
             return candidate
         return candidate_with_audit(candidate, trader_id=strategy.profile.id)
@@ -123,6 +136,11 @@ TRADER_STRATEGIES: Dict[str, TraderStrategy] = {
         MomentumIgnition(),
         BollingerReversion(),
         AtrTrailCommander(),
+        HighVoltageChannelRaider(),
+        HighVoltageDonchianOverdrive(),
+        HighVoltageTrendTitan(),
+        HighVoltageLiquidationShock(),
+        HighVoltageCompressionDetonator(),
     ]
     for strategy in [_with_execution_profile(raw_strategy)]
 }

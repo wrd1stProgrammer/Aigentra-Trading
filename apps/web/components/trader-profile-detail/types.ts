@@ -6,6 +6,7 @@ export type VisualProfile = {
   tone: string;
   initials: string;
   alias: string;
+  flat?: boolean;
 };
 
 export type PlanEntry = {

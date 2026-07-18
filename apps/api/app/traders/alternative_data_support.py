@@ -111,35 +111,39 @@ def build_alternative_candidate(
     gate_scores: dict[str, Any],
     notes: list[str],
     min_rr: float = 1.25,
+    entry_weights: tuple[float, float] = (0.55, 0.45),
+    take_profit_weights: tuple[float, float] = (0.45, 0.55),
 ) -> TradeCandidate:
     price = fvalue(snapshot.get("price"))
+    first_entry_weight, second_entry_weight = entry_weights
+    first_take_profit_weight, second_take_profit_weight = take_profit_weights
     if side == "LONG":
         entries = normalize_entries_for_side(
             side,
             price,
             [
-                EntryPlan(price=round_price(price), weight=0.55, reason="Data-trigger confirmation entry"),
-                EntryPlan(price=round_price(price - risk_distance * 0.42), weight=0.45, reason="Controlled retest entry"),
+                EntryPlan(price=round_price(price), weight=first_entry_weight, reason="Data-trigger confirmation entry"),
+                EntryPlan(price=round_price(price - risk_distance * 0.42), weight=second_entry_weight, reason="Controlled retest entry"),
             ],
         )
         stop = round_price(price - risk_distance)
         take_profits = [
-            TakeProfitPlan(price=round_price(price + risk_distance * target_rs[0]), weight=0.45, reason="First pressure-release target"),
-            TakeProfitPlan(price=round_price(price + risk_distance * target_rs[1]), weight=0.55, reason="Extended data-thesis target"),
+            TakeProfitPlan(price=round_price(price + risk_distance * target_rs[0]), weight=first_take_profit_weight, reason="First pressure-release target"),
+            TakeProfitPlan(price=round_price(price + risk_distance * target_rs[1]), weight=second_take_profit_weight, reason="Extended data-thesis target"),
         ]
     else:
         entries = normalize_entries_for_side(
             side,
             price,
             [
-                EntryPlan(price=round_price(price), weight=0.55, reason="Data-trigger confirmation entry"),
-                EntryPlan(price=round_price(price + risk_distance * 0.42), weight=0.45, reason="Controlled retest entry"),
+                EntryPlan(price=round_price(price), weight=first_entry_weight, reason="Data-trigger confirmation entry"),
+                EntryPlan(price=round_price(price + risk_distance * 0.42), weight=second_entry_weight, reason="Controlled retest entry"),
             ],
         )
         stop = round_price(price + risk_distance)
         take_profits = [
-            TakeProfitPlan(price=round_price(price - risk_distance * target_rs[0]), weight=0.45, reason="First pressure-release target"),
-            TakeProfitPlan(price=round_price(price - risk_distance * target_rs[1]), weight=0.55, reason="Extended data-thesis target"),
+            TakeProfitPlan(price=round_price(price - risk_distance * target_rs[0]), weight=first_take_profit_weight, reason="First pressure-release target"),
+            TakeProfitPlan(price=round_price(price - risk_distance * target_rs[1]), weight=second_take_profit_weight, reason="Extended data-thesis target"),
         ]
     risk_reward = estimate_risk_reward(side, entries, stop, take_profits, fee_buffer_percent=0.1)
     errors = candidate_geometry_errors(side, price, entries, stop, take_profits, min_risk_reward=min_rr, fee_buffer_percent=0.1)

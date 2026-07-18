@@ -432,6 +432,25 @@ TRADER_HOLDING_POLICIES: dict[str, HoldingPolicy] = {
     ),
 }
 
+_HIGH_VOLTAGE_POLICY_SOURCES = {
+    "high-voltage-channel-raider": "channel-rider",
+    "high-voltage-donchian-overdrive": "donchian-breakout",
+    "high-voltage-trend-titan": "trend-sentinel",
+    "high-voltage-liquidation-shock": "liquidation-pressure-sniper",
+    "high-voltage-compression-detonator": "momentum-ignition",
+}
+
+for high_voltage_id, source_id in _HIGH_VOLTAGE_POLICY_SOURCES.items():
+    TRADER_HOLDING_POLICIES[high_voltage_id] = TRADER_HOLDING_POLICIES[source_id]
+    TRADER_HOLDING_HORIZONS[high_voltage_id] = TRADER_HOLDING_HORIZONS.get(
+        source_id,
+        HoldingHorizon.INTRADAY,
+    )
+    TRADER_STRATEGY_FAMILIES[high_voltage_id] = TRADER_STRATEGY_FAMILIES.get(
+        source_id,
+        StrategyFamily.MEAN_REVERSION,
+    )
+
 
 def trader_holding_policy(trader_id: str) -> HoldingPolicy:
     return TRADER_HOLDING_POLICIES.get(trader_id, DEFAULT_HOLDING_POLICY)

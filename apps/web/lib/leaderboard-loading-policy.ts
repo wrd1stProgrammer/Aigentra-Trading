@@ -72,3 +72,12 @@ export function buildLeaguePeriodSearch(searchParams: string, leagueMonth: strin
 export function buildLeaguePeriodUrl(pathname: string, searchParams: string, leagueMonth: string | undefined) {
   return `${pathname}${buildLeaguePeriodSearch(searchParams, leagueMonth)}`;
 }
+
+export function buildHighVoltageLeagueUrl(pathname: string, searchParams: string) {
+  const normalizedSearch = searchParams.startsWith("?") ? searchParams.slice(1) : searchParams;
+  const next = new URLSearchParams(normalizedSearch);
+  next.set("league", "high-voltage");
+  next.delete("leagueMonth");
+  const query = next.toString();
+  return `${pathname}${query ? `?${query}` : ""}`;
+}

@@ -20,8 +20,27 @@ export const traderIds = [
   "imbalance-hunter",
   "momentum-ignition",
   "bollinger-reversion",
-  "atr-trail-commander"
+  "atr-trail-commander",
+  "high-voltage-channel-raider",
+  "high-voltage-donchian-overdrive",
+  "high-voltage-trend-titan",
+  "high-voltage-liquidation-shock",
+  "high-voltage-compression-detonator"
 ] as const;
+
+export const highVoltageTraderIds = [
+  "high-voltage-channel-raider",
+  "high-voltage-donchian-overdrive",
+  "high-voltage-trend-titan",
+  "high-voltage-liquidation-shock",
+  "high-voltage-compression-detonator"
+] as const;
+
+const highVoltageTraderIdSet = new Set<string>(highVoltageTraderIds);
+
+export function isHighVoltageTrader(id: string): boolean {
+  return highVoltageTraderIdSet.has(id);
+}
 
 export type TraderId = (typeof traderIds)[number];
 
@@ -512,6 +531,81 @@ export const fallbackTraders = [
     riskLevel: "MEDIUM",
     currentPlan: "Waiting for BTC trend continuation where ATR stop leaves room to hold.",
     baseRiskPercent: 0.55,
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "high-voltage-channel-raider",
+    name: "Channel Raider",
+    description: "Commits early at a valid channel edge and completes size as the reaction proves itself.",
+    concept: "An aggressive channel pullback system that commits at the boundary, scales on controlled retests, and exits when the channel structure fails.",
+    entryRules: ["40% at the edge", "30% on retest", "30% on reaction confirmation"],
+    takeProfitRules: ["35% at channel midline", "65% toward the opposite edge"],
+    stopLossRules: ["Beyond the channel edge", "Never add after invalidation"],
+    aiReviewChecklist: ["Is the channel still valid?", "Is the edge actionable?"],
+    riskLevel: "EXTREME",
+    currentPlan: "Hunting a broad but structurally valid channel edge.",
+    baseRiskPercent: 1.5,
+    launchMonth: "2026-07",
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "high-voltage-donchian-overdrive",
+    name: "Donchian Overdrive",
+    description: "Enters completed range breaks after the first real participation confirmation.",
+    concept: "An aggressive frozen-boundary breakout system that enters a completed Donchian release, then finishes size across two controlled retest levels.",
+    entryRules: ["50% on breakout close", "25% shallow retest", "25% deeper retest"],
+    takeProfitRules: ["25% on first expansion", "75% toward extended liquidity"],
+    stopLossRules: ["Outside the broken range", "Exit on range re-entry"],
+    aiReviewChecklist: ["Did a completed candle break?", "Is at least one participation signal real?"],
+    riskLevel: "EXTREME",
+    currentPlan: "Waiting for a completed Donchian break with participation.",
+    baseRiskPercent: 2.0,
+    launchMonth: "2026-07",
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "high-voltage-trend-titan",
+    name: "Trend Titan",
+    description: "Deploys earlier into intact higher-timeframe continuation structure and keeps most of each winning position for a wider structural move.",
+    concept: "An aggressive higher-timeframe continuation system that builds into a valid pullback and keeps most of the position as a structural trend runner.",
+    entryRules: ["40% first pullback", "30% at the mean", "30% on confirmation"],
+    takeProfitRules: ["20% at 1.5R", "Trail 80% with 4H structure"],
+    stopLossRules: ["Beyond 1H structure", "Never widen the stop"],
+    aiReviewChecklist: ["Is the 4H trend intact?", "Has the pullback become a reversal?"],
+    riskLevel: "EXTREME",
+    currentPlan: "Seeking an intact 4H trend with an actionable 1H pullback.",
+    baseRiskPercent: 1.6,
+    launchMonth: "2026-07",
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "high-voltage-liquidation-shock",
+    name: "Liquidation Shock",
+    description: "Reacts quickly to forced-flow imbalance after the first opposing structure turn.",
+    concept: "An aggressive forced-flow reversal system that pairs liquidation imbalance with a 15m structure turn and completes size on one controlled retest.",
+    entryRules: ["60% on pressure reversal", "40% on controlled retest"],
+    takeProfitRules: ["50% on pressure release", "50% toward the next liquidation pocket"],
+    stopLossRules: ["Beyond the flush trigger", "Exit if pressure flips"],
+    aiReviewChecklist: ["Is the flow forced?", "Did 15m structure turn?"],
+    riskLevel: "EXTREME",
+    currentPlan: "Watching for fresh forced flow and the first structure turn.",
+    baseRiskPercent: 1.8,
+    launchMonth: "2026-07",
+    mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
+  },
+  {
+    id: "high-voltage-compression-detonator",
+    name: "Compression Detonator",
+    description: "Joins completed volatility releases on moderate body and volume expansion.",
+    concept: "An aggressive volatility expansion system that joins a completed break from a frozen compression box and keeps most size for continued range expansion.",
+    entryRules: ["70% on completed release", "30% on controlled retest"],
+    takeProfitRules: ["25% on first expansion", "75% while closes hold outside"],
+    stopLossRules: ["Behind the release", "Exit on completed box re-entry"],
+    aiReviewChecklist: ["Was the box frozen?", "Is the completed release still valid?"],
+    riskLevel: "EXTREME",
+    currentPlan: "Waiting for a completed release from a frozen box.",
+    baseRiskPercent: 2.2,
+    launchMonth: "2026-07",
     mockPerformance: { return7d: 0, return30d: 0, winRate: 0, maxDrawdown: 0, currentEquity: 10000 }
   }
 ] as const;

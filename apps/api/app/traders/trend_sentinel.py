@@ -62,6 +62,7 @@ class TrendSentinel(TraderStrategy):
     )
 
     def evaluate(self, snapshot: Dict[str, Any]) -> TradeCandidate:
+        aggressive = self.profile.id.startswith("high-voltage-")
         price = float(snapshot["price"])
         one_hour = timeframe(snapshot, "1h")
         four_hour = timeframe(snapshot, "4h")
@@ -84,13 +85,13 @@ class TrendSentinel(TraderStrategy):
         bearish = trend_4h == "bearish" and trend_1d != "bullish" and ema20_4h <= ema50_4h
         if not (bullish or bearish):
             return make_rejection("4H/1D trend alignment is not clean enough for Sentinel continuation.", 42)
-        if regime in {"range", "squeeze"} and adx_4h < 24:
+        if regime in {"range", "squeeze"} and adx_4h < (20 if aggressive else 24):
             return make_rejection("Trend Sentinel is paused because regime is not trending enough.", 44)
-        if bullish and (funding > 0.00012 or funding_percentile >= 92):
+        if bullish and (funding > (0.00018 if aggressive else 0.00012) or funding_percentile >= (96 if aggressive else 92)):
             return make_rejection("Bullish continuation is too crowded by funding.", 48)
-        if bearish and (funding < -0.00012 or funding_percentile >= 92):
+        if bearish and (funding < (-0.00018 if aggressive else -0.00012) or funding_percentile >= (96 if aggressive else 92)):
             return make_rejection("Bearish continuation is too crowded by funding.", 48)
-        if adx_4h < 15 and abs(price_change_12h) < 0.004:
+        if adx_4h < (12 if aggressive else 15) and abs(price_change_12h) < (0.0025 if aggressive else 0.004):
             return make_rejection("Trend strength is too weak for a continuation hold strategy.", 46)
 
         side = "LONG" if bullish else "SHORT"
@@ -106,13 +107,19 @@ class TrendSentinel(TraderStrategy):
 
         risk_distance = max(atr_1h * 1.05, price * 0.006)
         if side == "LONG":
-            if price < ema50_1h:
+            if price < ema50_1h - (risk_distance * 0.20 if aggressive else 0):
                 return make_rejection("Price is already below 1H EMA50; continuation thesis is weakened.", 50)
             mean_entry = min(price, max(ema20_1h, price - risk_distance * 0.35))
             entries = [
                 EntryPlan(price=round_price(mean_entry), weight=0.4, reason="1H mean pullback"),
                 EntryPlan(price=round_price(price), weight=0.6, reason="Continuation confirmation"),
             ]
+            if aggressive:
+                entries = [
+                    EntryPlan(price=round_price(price), weight=0.40, reason="Immediate valid trend pullback"),
+                    EntryPlan(price=round_price(mean_entry), weight=0.30, reason="1H mean pullback"),
+                    EntryPlan(price=round_price(max(ema50_1h, price - risk_distance * 0.55)), weight=0.30, reason="Final structural pullback scale"),
+                ]
             if adx_4h >= 28 and oi_change_30m >= 0.8:
                 entries = [
                     EntryPlan(price=round_price(price), weight=1.0, reason="Strong HTF continuation participation"),
@@ -122,15 +129,26 @@ class TrendSentinel(TraderStrategy):
                 TakeProfitPlan(price=round_price(price + risk_distance * 1.5), weight=0.45, reason="1.5R de-risk"),
                 TakeProfitPlan(price=round_price(price + risk_distance * 3.0), weight=0.55, reason="4H trend trailing objective"),
             ]
+            if aggressive:
+                take_profits = [
+                    take_profits[0].model_copy(update={"weight": 0.20}),
+                    take_profits[1].model_copy(update={"weight": 0.80}),
+                ]
             setup = "HTF_TREND_CONTINUATION_LONG"
         else:
-            if price > ema50_1h:
+            if price > ema50_1h + (risk_distance * 0.20 if aggressive else 0):
                 return make_rejection("Price is already above 1H EMA50; short continuation thesis is weakened.", 50)
             mean_entry = max(price, min(ema20_1h, price + risk_distance * 0.35))
             entries = [
                 EntryPlan(price=round_price(mean_entry), weight=0.4, reason="1H mean rebound"),
                 EntryPlan(price=round_price(price), weight=0.6, reason="Continuation confirmation"),
             ]
+            if aggressive:
+                entries = [
+                    EntryPlan(price=round_price(price), weight=0.40, reason="Immediate valid trend rebound"),
+                    EntryPlan(price=round_price(mean_entry), weight=0.30, reason="1H mean rebound"),
+                    EntryPlan(price=round_price(min(ema50_1h, price + risk_distance * 0.55)), weight=0.30, reason="Final structural rebound scale"),
+                ]
             if adx_4h >= 28 and oi_change_30m >= 0.8:
                 entries = [
                     EntryPlan(price=round_price(price), weight=1.0, reason="Strong HTF continuation participation"),
@@ -140,11 +158,17 @@ class TrendSentinel(TraderStrategy):
                 TakeProfitPlan(price=round_price(price - risk_distance * 1.5), weight=0.45, reason="1.5R de-risk"),
                 TakeProfitPlan(price=round_price(price - risk_distance * 3.0), weight=0.55, reason="4H trend trailing objective"),
             ]
+            if aggressive:
+                take_profits = [
+                    take_profits[0].model_copy(update={"weight": 0.20}),
+                    take_profits[1].model_copy(update={"weight": 0.80}),
+                ]
             setup = "HTF_TREND_CONTINUATION_SHORT"
 
         entries = normalize_entries_for_side(side, price, entries)
         risk_reward = estimate_risk_reward(side, entries, stop, take_profits, fee_buffer_percent=0.08)
-        errors = candidate_geometry_errors(side, price, entries, stop, take_profits, min_risk_reward=1.45, fee_buffer_percent=0.08)
+        minimum_rr = 1.25 if aggressive else 1.45
+        errors = candidate_geometry_errors(side, price, entries, stop, take_profits, min_risk_reward=minimum_rr, fee_buffer_percent=0.08)
         if errors:
             return make_rejection("Trend sentinel risk gates failed: " + "; ".join(errors), score)
 
@@ -159,15 +183,19 @@ class TrendSentinel(TraderStrategy):
             riskPercent=self.profile.baseRiskPercent,
             orderIntent=default_order_intent("HTF_PULLBACK_AND_CONFIRMATION"),
             leveragePlan=default_leverage_plan(
-                suggested=6 if score < 78 else 8,
-                maximum=8,
-                reason="Trend Sentinel uses 6-8x for confirmed continuation, with wider structure stops and trailing management.",
+                suggested=(10 if score < 78 else 14) if aggressive else (6 if score < 78 else 8),
+                maximum=14 if aggressive else 8,
+                reason=(
+                    "High Voltage trend continuation uses 10-14x isolated leverage while the 4H structure remains intact."
+                    if aggressive
+                    else "Trend Sentinel uses 6-8x for confirmed continuation, with wider structure stops and trailing management."
+                ),
             ),
             riskPlan=default_risk_plan(
                 risk_percent=self.profile.baseRiskPercent,
                 risk_reward=risk_reward,
                 sizing_note="Lower risk per trade; allow the winning remainder to trail instead of forcing quick exits.",
-                min_risk_reward=1.45,
+                min_risk_reward=minimum_rr,
             ),
             earlyExitRules=[
                 "Exit early if 4H closes through EMA50 against the position.",
