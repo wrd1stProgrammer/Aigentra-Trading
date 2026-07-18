@@ -1,4 +1,5 @@
 from copy import deepcopy
+from decimal import Decimal
 
 import pytest
 
@@ -10,7 +11,7 @@ from app.paper.holding_policy import trader_holding_policy
 from app.paper.sizing import minimum_margin_deployment_percent, target_margin_deployment_percent
 from app.traders.high_voltage_config import HIGH_VOLTAGE_TRADER_IDS, uses_high_voltage_account_sizing
 from app.traders.models import EntryPlan, TakeProfitPlan, TradeCandidate, TradeReviewPayload, TradeReviewResult
-from app.traders.registry import get_strategy, list_scanner_traders
+from app.traders.registry import get_strategy, list_scanner_traders, list_traders
 from tests.test_intraday_breakout_redesign import _breakout_snapshot
 from tests.test_paper_entry_sizing import orderable_plan, sizing_settings, temp_db
 
@@ -40,12 +41,36 @@ def test_high_voltage_traders_are_independent_scanner_accounts() -> None:
         ("high-voltage-compression-detonator", "momentum-ignition"),
     ],
 )
-def test_high_voltage_keeps_source_breakeven_policy(high_voltage_id: str, source_id: str) -> None:
+def test_high_voltage_keeps_source_risk_progress_policy(high_voltage_id: str, source_id: str) -> None:
     high_voltage_policy = trader_holding_policy(high_voltage_id)
     source_policy = trader_holding_policy(source_id)
 
     assert high_voltage_policy.breakeven_progress_r == source_policy.breakeven_progress_r
-    assert high_voltage_policy.first_take_profit_breakeven_progress == source_policy.first_take_profit_breakeven_progress
+
+
+def test_all_standard_traders_protect_at_halfway_to_first_take_profit() -> None:
+    # Given: every standard-mode trader listed by the service.
+    standard_trader_ids = {
+        trader.id
+        for trader in list_traders()
+        if trader.id not in HIGH_VOLTAGE_TRADER_IDS
+    }
+
+    # When: reading each trader's first-target protection threshold.
+    progresses = {
+        trader_holding_policy(trader_id).first_take_profit_breakeven_progress
+        for trader_id in standard_trader_ids
+    }
+
+    # Then: every standard trader moves to breakeven at 50% of TP1 progress.
+    assert progresses == {Decimal("0.50")}
+
+
+def test_trend_titan_protects_at_halfway_to_first_take_profit() -> None:
+    assert (
+        trader_holding_policy("high-voltage-trend-titan").first_take_profit_breakeven_progress
+        == Decimal("0.50")
+    )
 
 
 def test_high_voltage_margin_band_is_separate_from_standard_sizing() -> None:

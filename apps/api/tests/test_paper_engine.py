@@ -759,20 +759,18 @@ def test_trend_sentinel_does_not_move_stop_to_breakeven_at_one_r(temp_db):
 
 
 @pytest.mark.parametrize(
-    ("trader_id", "premature_high", "policy_trigger_high"),
+    "trader_id",
     [
-        ("channel-rider", 114, 116.1),
-        ("donchian-breakout", 114, 115.1),
-        ("trend-sentinel", 117, 118.1),
-        ("atr-trail-commander", 111, 112.1),
-        ("liquidity-reaper", 110, 112.1),
+        "channel-rider",
+        "donchian-breakout",
+        "trend-sentinel",
+        "atr-trail-commander",
+        "liquidity-reaper",
     ],
 )
-def test_strategy_breakeven_waits_for_policy_first_take_profit_progress(
+def test_strategy_breakeven_moves_at_halfway_to_first_take_profit(
     temp_db,
     trader_id,
-    premature_high,
-    policy_trigger_high,
 ):
     with session_scope() as db:
         upsert_risk_settings(db, trader_id, "BTCUSDT", max_leverage=5)
@@ -794,24 +792,14 @@ def test_strategy_breakeven_waits_for_policy_first_take_profit_progress(
         )
         position = db.execute(select(PaperPositionRecord)).scalar_one()
 
-        before_policy_trigger = process_candle(
+        at_halfway_to_first_target = process_candle(
             db,
             trader_id,
             "BTCUSDT",
-            {"open": 100, "high": premature_high, "low": 99, "close": 105},
+            {"open": 100, "high": 110.1, "low": 99, "close": 105},
         )
 
-        assert before_policy_trigger.events == []
-        assert position.stop_loss_price == Decimal("90.0000000000")
-
-        at_policy_trigger = process_candle(
-            db,
-            trader_id,
-            "BTCUSDT",
-            {"open": 105, "high": policy_trigger_high, "low": 104, "close": 110},
-        )
-
-        assert [event.event_type for event in at_policy_trigger.events] == ["stop_moved_to_breakeven"]
+        assert [event.event_type for event in at_halfway_to_first_target.events] == ["stop_moved_to_breakeven"]
         assert position.stop_loss_price > position.entry_price
 
 
