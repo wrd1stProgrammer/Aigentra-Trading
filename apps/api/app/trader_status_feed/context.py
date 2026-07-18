@@ -30,6 +30,7 @@ LIFECYCLE_ACTIONS = {
     "order_expired_by_ai": "expire",
     "stop_updated_by_ai": "protect",
     "stop_moved_to_breakeven": "protect",
+    "stop_moved_to_take_profit": "protect",
     "ai_review_rejected": "reject",
     "no_setup_heartbeat": "wait",
 }

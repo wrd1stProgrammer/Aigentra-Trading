@@ -47,6 +47,7 @@ TRADE_EVENT_STATUS_STATES: Final = {
     "take_partial_profit": STATUS_FEED_STATE_POSITION_ENTRY,
     "stop_updated_by_ai": STATUS_FEED_STATE_POSITION_ENTRY,
     "stop_moved_to_breakeven": STATUS_FEED_STATE_POSITION_ENTRY,
+    "stop_moved_to_take_profit": STATUS_FEED_STATE_POSITION_ENTRY,
 }
 ORDER_CLEANUP_EVENT_TYPES: Final = frozenset({"order_canceled_by_ai", "order_expired_by_ai"})
 TRADE_EVENT_FEED_PRIORITY: Final = {
@@ -57,6 +58,7 @@ TRADE_EVENT_FEED_PRIORITY: Final = {
     "position_add_order_created_by_ai": 80,
     "position_pyramid_order_created_by_ai": 80,
     "stop_moved_to_breakeven": 70,
+    "stop_moved_to_take_profit": 75,
     "stop_updated_by_ai": 65,
     "order_adjusted_by_ai": 60,
     "order_expired_by_ai": 50,

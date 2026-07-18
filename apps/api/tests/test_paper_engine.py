@@ -1274,24 +1274,18 @@ def test_partial_take_profit_reduces_position_size(temp_db):
         assert position.status == "open"
         assert rounded(position.quantity) == Decimal("0.5000")
         assert rounded(position.take_profit_price) == Decimal("120.0000")
-        expected_stop = fee_inclusive_breakeven(
-            entry_price=position.entry_price,
-            quantity=position.quantity,
-            entry_fee=position.entry_fee,
-            taker_fee_rate=Decimal("0.0005"),
-            side="long",
-        )
-        assert rounded(position.stop_loss_price) == rounded(expected_stop)
+        assert rounded(position.stop_loss_price) == Decimal("110.0000")
         assert [event.event_type for event in second.events] == [
             "take_partial_profit",
             "stop_moved_to_breakeven",
+            "stop_moved_to_take_profit",
         ]
         
         third = process_candle(
             db,
             "paper-trader",
             "BTCUSDT",
-            {"open": 109, "high": 122, "low": 108, "close": 121},
+            {"open": 111, "high": 122, "low": 110.5, "close": 121},
         )
         
         db.refresh(position)
@@ -1347,7 +1341,7 @@ def test_first_partial_take_profit_closes_at_least_half_position(temp_db):
         assert rounded(position.take_profit_price) == Decimal("120.0000")
 
 
-def test_short_partial_take_profit_moves_stop_to_breakeven(temp_db):
+def test_short_partial_take_profit_protects_at_first_target_after_progress(temp_db):
     with session_scope() as db:
         upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)
 
@@ -1392,18 +1386,76 @@ def test_short_partial_take_profit_moves_stop_to_breakeven(temp_db):
         assert position.status == "open"
         assert rounded(position.quantity) == Decimal("0.5000")
         assert rounded(position.take_profit_price) == Decimal("80.0000")
-        expected_stop = fee_inclusive_breakeven(
-            entry_price=position.entry_price,
-            quantity=position.quantity,
-            entry_fee=position.entry_fee,
-            taker_fee_rate=Decimal("0.0005"),
-            side="short",
-        )
-        assert rounded(position.stop_loss_price) == rounded(expected_stop)
+        assert rounded(position.stop_loss_price) == Decimal("90.0000")
         assert [event.event_type for event in result.events] == [
             "take_partial_profit",
             "stop_moved_to_breakeven",
+            "stop_moved_to_take_profit",
         ]
+
+
+@pytest.mark.parametrize(
+    ("side", "stop_loss", "take_profits", "first_target_candle", "progress_candle", "expected_stop"),
+    [
+        (
+            "long",
+            95.0,
+            [
+                {"price": 110.0, "weight": 0.5, "status": "pending", "reason": "TP1"},
+                {"price": 120.0, "weight": 0.5, "status": "pending", "reason": "TP2"},
+            ],
+            {"open": 108, "high": 111, "low": 107, "close": 110},
+            {"open": 111, "high": 114, "low": 110.5, "close": 113},
+            Decimal("110"),
+        ),
+        (
+            "short",
+            105.0,
+            [
+                {"price": 90.0, "weight": 0.5, "status": "pending", "reason": "TP1"},
+                {"price": 80.0, "weight": 0.5, "status": "pending", "reason": "TP2"},
+            ],
+            {"open": 92, "high": 93, "low": 89, "close": 90},
+            {"open": 89, "high": 89.5, "low": 86, "close": 87},
+            Decimal("90"),
+        ),
+    ],
+)
+def test_stop_moves_to_first_target_after_forty_percent_progress_to_second_target(
+    temp_db,
+    side,
+    stop_loss,
+    take_profits,
+    first_target_candle,
+    progress_candle,
+    expected_stop,
+):
+    # Given: an open position whose first of two profit targets has filled.
+    with session_scope() as db:
+        upsert_risk_settings(db, "paper-trader", "BTCUSDT", max_leverage=10)
+        order = place_paper_order(
+            db,
+            trader_id="paper-trader",
+            symbol="BTCUSDT",
+            side=side,
+            quantity=1,
+            leverage=10,
+            take_profit_price=take_profits[0]["price"],
+            stop_loss_price=stop_loss,
+            payload={"initialQuantity": 1, "takeProfits": take_profits},
+        )
+        process_candle(db, "paper-trader", "BTCUSDT", {"open": 100, "high": 101, "low": 99, "close": 100})
+        process_candle(db, "paper-trader", "BTCUSDT", first_target_candle)
+        position = db.execute(select(PaperPositionRecord)).scalar_one()
+
+        # When: price advances 40% from TP1 toward TP2.
+        result = process_candle(db, "paper-trader", "BTCUSDT", progress_candle)
+
+        # Then: the remaining position is protected at TP1.
+        db.refresh(position)
+        assert rounded(position.stop_loss_price) == rounded(expected_stop)
+        assert [event.event_type for event in result.events] == ["stop_moved_to_take_profit"]
+        assert order.status == "filled"
 
 
 def test_options_skew_moves_stop_to_breakeven_at_halfway_to_first_take_profit(temp_db):

@@ -405,6 +405,7 @@ def test_same_reject_code_emits_again_after_an_intervening_state(temp_db):
         ("take_partial_profit", "position_entry"),
         ("stop_updated_by_ai", "position_entry"),
         ("stop_moved_to_breakeven", "position_entry"),
+        ("stop_moved_to_take_profit", "position_entry"),
     ],
 )
 def test_management_and_order_lifecycle_events_are_routed(temp_db, event_type, expected_state):

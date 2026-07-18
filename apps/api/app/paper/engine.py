@@ -29,6 +29,7 @@ from app.repositories import from_json, to_json, update_observation_candidate_ou
 PROFITABLE_HOLD_BREAKEVEN_HOURS = 60
 PROFITABLE_HOLD_BREAKEVEN_SECONDS = PROFITABLE_HOLD_BREAKEVEN_HOURS * 60 * 60
 FIRST_TAKE_PROFIT_BREAKEVEN_PROGRESS = Decimal("0.5")
+SECOND_TAKE_PROFIT_PROTECTION_PROGRESS = Decimal("0.4")
 MIN_FIRST_TAKE_PROFIT_EXIT_FRACTION = Decimal("0.5")
 BREAKEVEN_NET_PNL_TOLERANCE = Decimal("0.01")
 PAPER_PRICE_QUANT = Decimal("0.0000000001")
@@ -374,6 +375,7 @@ def handle_take_profit_exit(
             else:
                 position.take_profit_price = None
             _move_stop_to_breakeven(db, position, parsed_candle, result, reason="first_take_profit_already_reduced")
+            _maybe_move_stop_to_first_take_profit(db, position, parsed_candle, result)
             return
         fraction = close_qty / position.quantity
         reason = target.get("reason", f"Take Profit Target {target_idx + 1}")
@@ -397,6 +399,7 @@ def handle_take_profit_exit(
         else:
             position.take_profit_price = None
         _move_stop_to_breakeven(db, position, parsed_candle, result, reason="first_take_profit_breakeven")
+        _maybe_move_stop_to_first_take_profit(db, position, parsed_candle, result)
 
 
 def process_candle(db: Session, trader_id: str, symbol: str, candle: Union[Candle, dict[str, Any]]) -> PaperEngineResult:
@@ -883,6 +886,85 @@ def _first_take_profit_breakeven_trigger(position: PaperPositionRecord) -> Optio
     return None
 
 
+def _first_two_take_profit_prices(position: PaperPositionRecord) -> Optional[tuple[Decimal, Decimal]]:
+    payload = from_json(position.payload_json) or {}
+    take_profits = payload.get("takeProfits")
+    if not isinstance(take_profits, list):
+        return None
+    targets: list[tuple[int, dict[str, Any], Decimal]] = []
+    for idx, target in enumerate(take_profits):
+        if not isinstance(target, dict):
+            continue
+        try:
+            price = to_decimal(target.get("price"), "take_profit_price")
+        except ValueError:
+            continue
+        if position.side == "long" and price <= position.entry_price:
+            continue
+        if position.side == "short" and price >= position.entry_price:
+            continue
+        targets.append((idx, target, price))
+    ordered = sorted(targets, key=lambda item: (abs(item[2] - position.entry_price), item[0]))
+    if len(ordered) < 2:
+        return None
+    first_target = ordered[0]
+    second_target = ordered[1]
+    if first_target[1].get("status") != "filled" or second_target[1].get("status") == "filled":
+        return None
+    return first_target[2], second_target[2]
+
+
+def _maybe_move_stop_to_first_take_profit(
+    db: Session,
+    position: PaperPositionRecord,
+    candle: Candle,
+    result: PaperEngineResult,
+) -> bool:
+    target_prices = _first_two_take_profit_prices(position)
+    if target_prices is None or position.stop_loss_price is None:
+        return False
+    first_target, second_target = target_prices
+    trigger_price = first_target + (second_target - first_target) * SECOND_TAKE_PROFIT_PROTECTION_PROGRESS
+    reached_trigger = (
+        position.side == "long" and candle.high >= trigger_price
+    ) or (
+        position.side == "short" and candle.low <= trigger_price
+    )
+    protects_more = (
+        position.side == "long" and position.stop_loss_price < first_target
+    ) or (
+        position.side == "short" and position.stop_loss_price > first_target
+    )
+    if not reached_trigger or not protects_more:
+        return False
+    previous_stop = position.stop_loss_price
+    position.stop_loss_price = _quantize_paper_price(first_target)
+    position.updated_at = utc_now()
+    result.events.append(
+        create_trade_event(
+            db,
+            position.trader_id or "",
+            position.symbol or candle.symbol,
+            "stop_moved_to_take_profit",
+            order_id=position.order_id,
+            position_id=position.id,
+            price=position.stop_loss_price,
+            quantity=position.quantity,
+            payload={
+                "paperOnly": True,
+                "previousStop": previous_stop,
+                "newStop": position.stop_loss_price,
+                "protectedTakeProfitPrice": first_target,
+                "nextTakeProfitPrice": second_target,
+                "triggerPrice": trigger_price,
+                "progressToNextTakeProfit": SECOND_TAKE_PROFIT_PROTECTION_PROGRESS,
+                "reason": "second_take_profit_progress_protection",
+            },
+        )
+    )
+    return True
+
+
 def _management_exit_signal(position: PaperPositionRecord, candle: Candle) -> tuple[Optional[Decimal], Optional[str]]:
     policy = trader_holding_policy(position.trader_id or "")
     if position.take_profit_price is None:
@@ -909,6 +991,8 @@ def _maybe_move_stop_to_breakeven(
     candle: Candle,
     result: PaperEngineResult,
 ) -> None:
+    if _maybe_move_stop_to_first_take_profit(db, position, candle, result):
+        return
     if _should_upgrade_fee_inclusive_breakeven_stop(db, position):
         _move_stop_to_breakeven(
             db,
