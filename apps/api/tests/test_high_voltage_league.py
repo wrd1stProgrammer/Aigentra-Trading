@@ -3,13 +3,16 @@ from copy import deepcopy
 import pytest
 
 from app.ai.base import entry_approval_prompt, trader_review_policy
+from app.db import session_scope
 from app.main import trade_plan_from_review
+from app.paper.planner import create_paper_orders_from_plan
 from app.paper.holding_policy import trader_holding_policy
 from app.paper.sizing import minimum_margin_deployment_percent, target_margin_deployment_percent
-from app.traders.high_voltage_config import HIGH_VOLTAGE_TRADER_IDS
-from app.traders.models import TradeCandidate, TradeReviewPayload, TradeReviewResult
+from app.traders.high_voltage_config import HIGH_VOLTAGE_TRADER_IDS, uses_high_voltage_account_sizing
+from app.traders.models import EntryPlan, TakeProfitPlan, TradeCandidate, TradeReviewPayload, TradeReviewResult
 from app.traders.registry import get_strategy, list_scanner_traders
 from tests.test_intraday_breakout_redesign import _breakout_snapshot
+from tests.test_paper_entry_sizing import orderable_plan, sizing_settings, temp_db
 
 
 class _Settings:
@@ -52,9 +55,52 @@ def test_high_voltage_margin_band_is_separate_from_standard_sizing() -> None:
         audit={"leagueVariant": "high_voltage"},
     )
 
-    assert minimum_margin_deployment_percent(_Settings(), candidate) == 6
-    assert target_margin_deployment_percent(candidate, _Settings()) == 18
+    assert minimum_margin_deployment_percent(_Settings(), high_voltage_account=True) == 40
+    assert target_margin_deployment_percent(candidate, _Settings(), high_voltage_account=True) == 100
     assert minimum_margin_deployment_percent(_Settings()) == 20
+    sized_trader_ids = {
+        trader.id
+        for trader in list_scanner_traders()
+        if uses_high_voltage_account_sizing(trader.id, candidate)
+    }
+    assert sized_trader_ids == HIGH_VOLTAGE_TRADER_IDS
+
+
+def test_high_voltage_three_stage_entry_uses_account_percent_weights(temp_db) -> None:
+    # Given: Trend Titan's high-voltage three-stage 40/30/30 entry plan.
+    candidate = TradeCandidate(
+        created=True,
+        side="LONG",
+        setupType="TREND_CONTINUATION_LONG",
+        setupScore=68,
+        audit={"leagueVariant": "high_voltage"},
+        entries=[
+            EntryPlan(price=64000, weight=0.4, reason="starter"),
+            EntryPlan(price=63800, weight=0.3, reason="mean pullback"),
+            EntryPlan(price=63600, weight=0.3, reason="structural pullback"),
+        ],
+        stopLoss=63200,
+        takeProfits=[TakeProfitPlan(price=66000, weight=1.0, reason="target")],
+        riskPercent=1.6,
+    )
+
+    # When: the high-voltage account plans its isolated 10x orders.
+    with session_scope() as db:
+        result = create_paper_orders_from_plan(
+            db,
+            trader_id="high-voltage-trend-titan",
+            symbol="BTCUSDT",
+            run_id=1,
+            trade_plan_id=1,
+            candidate=candidate,
+            plan=orderable_plan(candidate, leverage=10),
+            settings=sizing_settings(minimum=20),
+        )
+
+    # Then: entry weights are direct account-margin percentages and total 100%.
+    account_margin_percents = [order["payload"]["accountMarginPercent"] for order in result["created"]]
+    assert account_margin_percents == pytest.approx([40, 30, 30], abs=0.3)
+    assert 99 <= result["actualMarginDeploymentPercent"] <= 100
 
 
 def test_compression_detonator_accepts_moderate_completed_expansion() -> None:

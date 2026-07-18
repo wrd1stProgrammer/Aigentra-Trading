@@ -25,6 +25,7 @@ from app.paper.sizing import (
     target_margin_deployment_percent,
 )
 from app.repositories import from_json, serialize_record, to_json
+from app.traders.high_voltage_config import uses_high_voltage_account_sizing
 from app.traders.models import TradeCandidate, TradePlan, TradeReviewResult
 
 
@@ -146,6 +147,7 @@ def create_paper_orders_from_plan(
     ai_review_id: Optional[int] = None,
 ) -> dict:
     is_donchian = trader_id == "donchian-breakout" and str(candidate.setupType or "").startswith("DONCHIAN_")
+    high_voltage_account = uses_high_voltage_account_sizing(trader_id, candidate)
     if plan.status != "PAPER_TRADING_PENDING" or not plan.side or not plan.entries or plan.stopLoss is None:
         reasons = ["Trade plan is not orderable."]
         mark_order_creation_skipped(db, trade_plan_id, reasons)
@@ -245,7 +247,7 @@ def create_paper_orders_from_plan(
     risk_percent = min(planned_risk_percent, guardrail_risk_cap)
     risk_budget = equity * (risk_percent / Decimal("100"))
     effective_risk_budget = risk_budget
-    base_deployment_percent = target_margin_deployment_percent(candidate, settings)
+    base_deployment_percent = target_margin_deployment_percent(candidate, settings, high_voltage_account)
     deployment_percent = base_deployment_percent
     target_margin_budget = equity * (deployment_percent / Decimal("100"))
     pending = pending_order_exposure(
@@ -265,7 +267,7 @@ def create_paper_orders_from_plan(
         if available_cash > 0
         else Decimal("0")
     )
-    minimum_entry_margin_percent = minimum_margin_deployment_percent(settings, candidate)
+    minimum_entry_margin_percent = minimum_margin_deployment_percent(settings, high_voltage_account)
     minimum_entry_margin = equity * minimum_entry_margin_percent / Decimal("100")
     minimum_entry_margin_label = format(minimum_entry_margin_percent.normalize(), "f")
     hard_margin_budget = cash_budget_cap
@@ -361,13 +363,19 @@ def create_paper_orders_from_plan(
             planned_entry_margin_budget = max(planned_entry_margin_budget, rounded_minimum_margin)
         margin_cap = min(planned_entry_margin_budget, remaining_margin_budget)
         margin_sized_quantity = (margin_cap * leverage) / expected_entry_fill
-        quantity = quantize_quantity(min(risk_sized_quantity, margin_sized_quantity))
+        quantity = quantize_quantity(
+            margin_sized_quantity
+            if high_voltage_account
+            else min(risk_sized_quantity, margin_sized_quantity)
+        )
         planned_risk = quantity * risk_per_unit
         tolerance = Decimal("1") + Decimal(str(getattr(settings, "paper_risk_budget_tolerance_percent", 5))) / Decimal("100")
         remaining_risk = max(Decimal("0"), effective_risk_budget * tolerance - total_planned_risk)
-        if planned_risk > remaining_risk:
+        if not high_voltage_account and planned_risk > remaining_risk:
             quantity = min(quantity, quantize_quantity(remaining_risk / risk_per_unit))
             planned_risk = quantity * risk_per_unit
+        if high_voltage_account:
+            effective_risk_budget = max(effective_risk_budget, total_planned_risk + planned_risk)
         if requires_minimum_margin and quantity < minimum_margin_quantity:
             skipped.append(
                 f"{entry_label} skipped: risk-approved size is below the "

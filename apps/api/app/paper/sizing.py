@@ -3,9 +3,7 @@ from typing import Any, Final
 
 from app.traders.high_voltage_config import (
     HIGH_VOLTAGE_FIRST_ENTRY_MARGIN_PERCENT,
-    HIGH_VOLTAGE_MAX_TOTAL_MARGIN_PERCENT,
-    HIGH_VOLTAGE_MIN_TOTAL_MARGIN_PERCENT,
-    is_high_voltage_candidate,
+    HIGH_VOLTAGE_TOTAL_MARGIN_PERCENT,
 )
 
 
@@ -34,8 +32,8 @@ def guardrail_risk_cap_percent(candidate: Any, guardrails: Any) -> float:
     return max(0.0, min(base_risk, base_risk * bounded_multiplier))
 
 
-def minimum_margin_deployment_percent(settings: Any, candidate: Any = None) -> Decimal:
-    if candidate is not None and is_high_voltage_candidate(candidate):
+def minimum_margin_deployment_percent(settings: Any, high_voltage_account: bool = False) -> Decimal:
+    if high_voltage_account:
         return HIGH_VOLTAGE_FIRST_ENTRY_MARGIN_PERCENT
     configured_minimum = _as_decimal(getattr(settings, "paper_min_margin_deployment_percent", 20), Decimal("20"))
     return max(
@@ -44,16 +42,9 @@ def minimum_margin_deployment_percent(settings: Any, candidate: Any = None) -> D
     )
 
 
-def target_margin_deployment_percent(candidate: Any, settings: Any) -> Decimal:
-    if is_high_voltage_candidate(candidate):
-        score = _clamp_decimal(
-            _as_decimal(getattr(candidate, "setupScore", 0), Decimal("0")),
-            Decimal("50"),
-            Decimal("100"),
-        )
-        return HIGH_VOLTAGE_MIN_TOTAL_MARGIN_PERCENT + (
-            (score - Decimal("50")) / Decimal("50")
-        ) * (HIGH_VOLTAGE_MAX_TOTAL_MARGIN_PERCENT - HIGH_VOLTAGE_MIN_TOTAL_MARGIN_PERCENT)
+def target_margin_deployment_percent(candidate: Any, settings: Any, high_voltage_account: bool = False) -> Decimal:
+    if high_voltage_account:
+        return HIGH_VOLTAGE_TOTAL_MARGIN_PERCENT
     minimum = minimum_margin_deployment_percent(settings)
     maximum = SERVICE_MARGIN_SCORE_CURVE_MAX_PERCENT
     score = _clamp_decimal(_as_decimal(getattr(candidate, "setupScore", 0), Decimal("0")), Decimal("0"), Decimal("100"))

@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+from app.traders.models import TradeCandidate
+
 
 HIGH_VOLTAGE_SOURCE_TRADER_IDS = {
     "high-voltage-channel-raider": "channel-rider",
@@ -13,15 +15,18 @@ HIGH_VOLTAGE_TRADER_IDS = frozenset(HIGH_VOLTAGE_SOURCE_TRADER_IDS)
 HIGH_VOLTAGE_INITIAL_EQUITY = Decimal("10000")
 HIGH_VOLTAGE_MAX_LEVERAGE = Decimal("20")
 HIGH_VOLTAGE_MIN_LEVERAGE = Decimal("10")
-HIGH_VOLTAGE_FIRST_ENTRY_MARGIN_PERCENT = Decimal("6")
-HIGH_VOLTAGE_MIN_TOTAL_MARGIN_PERCENT = Decimal("15")
-HIGH_VOLTAGE_MAX_TOTAL_MARGIN_PERCENT = Decimal("20")
+HIGH_VOLTAGE_FIRST_ENTRY_MARGIN_PERCENT = Decimal("40")
+HIGH_VOLTAGE_TOTAL_MARGIN_PERCENT = Decimal("100")
 
 
 def is_high_voltage_trader(trader_id: str) -> bool:
     return trader_id in HIGH_VOLTAGE_TRADER_IDS
 
 
-def is_high_voltage_candidate(candidate: object) -> bool:
+def is_high_voltage_candidate(candidate: TradeCandidate) -> bool:
     audit = getattr(candidate, "audit", None)
     return isinstance(audit, dict) and audit.get("leagueVariant") == "high_voltage"
+
+
+def uses_high_voltage_account_sizing(trader_id: str, candidate: TradeCandidate) -> bool:
+    return is_high_voltage_trader(trader_id) and is_high_voltage_candidate(candidate)
